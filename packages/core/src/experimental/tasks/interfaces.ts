@@ -1,135 +1,14 @@
 /**
- * Experimental task interfaces for MCP SDK.
+ * Experimental task storage interfaces for MCP SDK.
  * WARNING: These APIs are experimental and may change without notice.
- */
-
-import type { ServerContext } from '../../shared/protocol.js';
-import type { RequestTaskStore } from '../../shared/taskManager.js';
-import type {
-    JSONRPCErrorResponse,
-    JSONRPCNotification,
-    JSONRPCRequest,
-    JSONRPCResultResponse,
-    Request,
-    RequestId,
-    Result,
-    Task,
-    ToolExecution
-} from '../../types/index.js';
-
-// ============================================================================
-// Task Handler Types (for registerToolTask)
-// ============================================================================
-
-/**
- * Server context with guaranteed task store for task creation.
- * @experimental
- */
-export type CreateTaskServerContext = ServerContext & {
-    task: { store: RequestTaskStore; requestedTtl?: number };
-};
-
-/**
- * Server context with guaranteed task ID and store for task operations.
- * @experimental
- */
-export type TaskServerContext = ServerContext & {
-    task: { id: string; store: RequestTaskStore; requestedTtl?: number };
-};
-
-/**
- * Task-specific execution configuration.
- * `taskSupport` cannot be `'forbidden'` for task-based tools.
- * @experimental
- */
-export type TaskToolExecution<TaskSupport = ToolExecution['taskSupport']> = Omit<ToolExecution, 'taskSupport'> & {
-    taskSupport: TaskSupport extends 'forbidden' | undefined ? never : TaskSupport;
-};
-
-/**
- * Represents a message queued for side-channel delivery via tasks/result.
  *
- * This is a serializable data structure that can be stored in external systems.
- * All fields are JSON-serializable.
+ * The 2025-11 task interception machinery (TaskMessageQueue, CreateTaskServerContext,
+ * TaskServerContext, TaskToolExecution, Queued* types) was removed under SEP-2663.
+ * Only the storage layer (TaskStore, CreateTaskOptions, isTerminal) remains; the
+ * server-directed plugin that consumes it ships separately.
  */
-export type QueuedMessage = QueuedRequest | QueuedNotification | QueuedResponse | QueuedError;
 
-export interface BaseQueuedMessage {
-    /** Type of message */
-    type: string;
-    /** When the message was queued (milliseconds since epoch) */
-    timestamp: number;
-}
-
-export interface QueuedRequest extends BaseQueuedMessage {
-    type: 'request';
-    /** The actual JSONRPC request */
-    message: JSONRPCRequest;
-}
-
-export interface QueuedNotification extends BaseQueuedMessage {
-    type: 'notification';
-    /** The actual JSONRPC notification */
-    message: JSONRPCNotification;
-}
-
-export interface QueuedResponse extends BaseQueuedMessage {
-    type: 'response';
-    /** The actual JSONRPC response */
-    message: JSONRPCResultResponse;
-}
-
-export interface QueuedError extends BaseQueuedMessage {
-    type: 'error';
-    /** The actual JSONRPC error */
-    message: JSONRPCErrorResponse;
-}
-
-/**
- * Interface for managing per-task FIFO message queues.
- *
- * Similar to {@linkcode TaskStore}, this allows pluggable queue implementations
- * (in-memory, Redis, other distributed queues, etc.).
- *
- * Each method accepts taskId and optional sessionId parameters to enable
- * a single queue instance to manage messages for multiple tasks, with
- * isolation based on task ID and session ID.
- *
- * All methods are async to support external storage implementations.
- * All data in {@linkcode QueuedMessage} must be JSON-serializable.
- *
- * @see {@linkcode InMemoryTaskMessageQueue} for a reference implementation
- * @experimental
- */
-export interface TaskMessageQueue {
-    /**
-     * Adds a message to the end of the queue for a specific task.
-     * Atomically checks queue size and throws if maxSize would be exceeded.
-     * @param taskId The task identifier
-     * @param message The message to enqueue
-     * @param sessionId Optional session ID for binding the operation to a specific session
-     * @param maxSize Optional maximum queue size - if specified and queue is full, throws an error
-     * @throws Error if maxSize is specified and would be exceeded
-     */
-    enqueue(taskId: string, message: QueuedMessage, sessionId?: string, maxSize?: number): Promise<void>;
-
-    /**
-     * Removes and returns the first message from the queue for a specific task.
-     * @param taskId The task identifier
-     * @param sessionId Optional session ID for binding the query to a specific session
-     * @returns The first message, or `undefined` if the queue is empty
-     */
-    dequeue(taskId: string, sessionId?: string): Promise<QueuedMessage | undefined>;
-
-    /**
-     * Removes and returns all messages from the queue for a specific task.
-     * Used when tasks are cancelled or failed to clean up pending messages.
-     * @param taskId The task identifier
-     * @param sessionId Optional session ID for binding the query to a specific session
-     * @returns Array of all messages that were in the queue
-     */
-    dequeueAll(taskId: string, sessionId?: string): Promise<QueuedMessage[]>;
-}
+import type { Request, RequestId, Result, Task } from '../../types/index.js';
 
 /**
  * Task creation options.

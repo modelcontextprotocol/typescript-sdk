@@ -1,7 +1,6 @@
 import { createInterface } from 'node:readline';
 
 import type {
-    CallToolResult,
     GetPromptRequest,
     ListPromptsRequest,
     ListResourcesRequest,
@@ -9,15 +8,7 @@ import type {
     ReadResourceRequest,
     ResourceLink
 } from '@modelcontextprotocol/client';
-import {
-    Client,
-    getDisplayName,
-    InMemoryTaskStore,
-    ProtocolError,
-    ProtocolErrorCode,
-    RELATED_TASK_META_KEY,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { Client, getDisplayName, ProtocolError, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { Ajv } from 'ajv';
 
 // Create readline interface for user input
@@ -250,10 +241,7 @@ async function connect(url?: string): Promise<void> {
     console.log(`Connecting to ${serverUrl}...`);
 
     try {
-        // Create task store for client-side task support
-        const clientTaskStore = new InMemoryTaskStore();
-
-        // Create a new client with form elicitation capability and task support
+        // Create a new client with form elicitation capability
         client = new Client(
             {
                 name: 'example-client',
@@ -263,14 +251,6 @@ async function connect(url?: string): Promise<void> {
                 capabilities: {
                     elicitation: {
                         form: {}
-                    },
-                    tasks: {
-                        taskStore: clientTaskStore,
-                        requests: {
-                            elicitation: {
-                                create: {}
-                            }
-                        }
                     }
                 }
             }
@@ -279,32 +259,15 @@ async function connect(url?: string): Promise<void> {
             console.error('\u001B[31mClient error:', error, '\u001B[0m');
         };
 
-        // Set up elicitation request handler with proper validation and task support
-        client.setRequestHandler('elicitation/create', async (request, extra) => {
+        // Set up elicitation request handler with proper validation
+        client.setRequestHandler('elicitation/create', async request => {
             if (request.params.mode !== 'form') {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
-            console.log(`Related Task: ${request.params._meta?.[RELATED_TASK_META_KEY]?.taskId}`);
-            console.log(`Task Creation Requested: ${request.params.task ? 'yes' : 'no'}`);
             console.log('Requested Schema:');
             console.log(JSON.stringify(request.params.requestedSchema, null, 2));
-
-            // Helper to return result, optionally creating a task if requested
-            const returnResult = async (result: {
-                action: 'accept' | 'decline' | 'cancel';
-                content?: Record<string, string | number | boolean | string[]>;
-            }) => {
-                if (request.params.task && extra.task?.store) {
-                    // Create a task and store the result
-                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
-                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
-                    console.log(`📋 Created client-side task: ${task.taskId}`);
-                    return { task };
-                }
-                return result;
-            };
 
             const schema = request.params.requestedSchema;
             const properties = schema.properties;
@@ -439,7 +402,7 @@ async function connect(url?: string): Promise<void> {
                 }
 
                 if (inputCancelled) {
-                    return returnResult({ action: 'cancel' });
+                    return { action: 'cancel' };
                 }
 
                 // If we didn't complete all fields due to an error, try again
@@ -452,7 +415,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return returnResult({ action: 'decline' });
+                        return { action: 'decline' };
                     }
                 }
 
@@ -471,7 +434,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return returnResult({ action: 'decline' });
+                        return { action: 'decline' };
                     }
                 }
 
@@ -488,14 +451,14 @@ async function connect(url?: string): Promise<void> {
                 switch (confirmAnswer) {
                     case 'yes':
                     case 'y': {
-                        return returnResult({
+                        return {
                             action: 'accept',
                             content
-                        });
+                        };
                     }
                     case 'cancel':
                     case 'c': {
-                        return returnResult({ action: 'cancel' });
+                        return { action: 'cancel' };
                     }
                     case 'no':
                     case 'n': {
@@ -503,7 +466,7 @@ async function connect(url?: string): Promise<void> {
                             console.log('Please re-enter the information...');
                             continue;
                         } else {
-                            return returnResult({ action: 'decline' });
+                            return { action: 'decline' };
                         }
 
                         break;
@@ -513,7 +476,7 @@ async function connect(url?: string): Promise<void> {
             }
 
             console.log('Maximum attempts reached. Declining request.');
-            return returnResult({ action: 'decline' });
+            return { action: 'decline' };
         });
 
         transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
@@ -886,62 +849,12 @@ async function callToolTask(name: string, args: Record<string, unknown>): Promis
         return;
     }
 
-    console.log(`Calling tool '${name}' with task-based execution...`);
-    console.log('Arguments:', args);
-
-    // Use task-based execution - call now, fetch later
-    // Using the experimental tasks API - WARNING: may change without notice
-    console.log('This will return immediately while processing continues in the background...');
-
-    try {
-        // Call the tool with task metadata using streaming API
-        const stream = client.experimental.tasks.callToolStream(
-            {
-                name,
-                arguments: args
-            },
-            {
-                task: {
-                    ttl: 60_000 // Keep results for 60 seconds
-                }
-            }
-        );
-
-        console.log('Waiting for task completion...');
-
-        let lastStatus = '';
-        for await (const message of stream) {
-            switch (message.type) {
-                case 'taskCreated': {
-                    console.log('Task created successfully with ID:', message.task.taskId);
-                    break;
-                }
-                case 'taskStatus': {
-                    if (lastStatus !== message.task.status) {
-                        console.log(`  ${message.task.status}${message.task.statusMessage ? ` - ${message.task.statusMessage}` : ''}`);
-                    }
-                    lastStatus = message.task.status;
-                    break;
-                }
-                case 'result': {
-                    console.log('Task completed!');
-                    console.log('Tool result:');
-                    const toolResult = message.result as CallToolResult;
-                    for (const item of toolResult.content) {
-                        if (item.type === 'text') {
-                            console.log(`  ${item.text}`);
-                        }
-                    }
-                    break;
-                }
-                case 'error': {
-                    throw message.error;
-                }
-            }
-        }
-    } catch (error) {
-        console.log(`Error with task-based execution: ${error}`);
-    }
+    // TODO(F3): re-enable task-based demo via tasksPlugin (SEP-2663).
+    // The 2025-11 callToolStream API is removed by R0; this command is disabled
+    // until the F3 rewrite (callTool returns {resultType:'task'}, then pollTask).
+    void name;
+    void args;
+    console.log('Task-based execution demo disabled pending tasksPlugin (SEP-2663). See TODO(F3).');
 }
 
 async function cleanup(): Promise<void> {

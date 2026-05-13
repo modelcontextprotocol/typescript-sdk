@@ -498,15 +498,7 @@ server.registerTool(
 ## Tasks (experimental)
 
 > [!WARNING]
-> The tasks API is experimental and may change without notice.
-
-Task-based execution enables "call-now, fetch-later" patterns for long-running operations (see [Tasks](https://modelcontextprotocol.io/specification/latest/basic/utilities/tasks) in the MCP specification). Instead of returning a result immediately, a tool creates a task that can be polled or resumed later. To use tasks:
-
-- Provide a {@linkcode @modelcontextprotocol/server!index.TaskStore | TaskStore} implementation that persists task metadata and results (see {@linkcode @modelcontextprotocol/server!index.InMemoryTaskStore | InMemoryTaskStore} for reference).
-- Enable the `tasks` capability when constructing the server.
-- Register tools with {@linkcode @modelcontextprotocol/server!experimental/tasks/mcpServer.ExperimentalMcpServerTasks#registerToolTask | server.experimental.tasks.registerToolTask(...)}.
-
-For a full runnable example, see [`simpleTaskInteractive.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleTaskInteractive.ts).
+> The 2025-11 experimental tasks server API (`server.experimental.tasks.*`, `registerToolTask`, `TaskMessageQueue`) has been removed pending the SEP-2663 server-directed model. The storage layer ({@linkcode @modelcontextprotocol/server!index.TaskStore | TaskStore}, {@linkcode @modelcontextprotocol/server!index.InMemoryTaskStore | InMemoryTaskStore}) remains and will be consumed by the server-directed plugin when it lands.
 
 ## Shutdown
 

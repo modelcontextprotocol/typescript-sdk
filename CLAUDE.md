@@ -104,9 +104,7 @@ The repo also ships “middleware” packages under `packages/middleware/` (e.g.
 
 ### Experimental Features
 
-Located in `packages/*/src/experimental/`:
-
-- **Tasks**: Long-running task support with polling/resumption (`packages/core/src/experimental/tasks/`)
+Located in `packages/*/src/experimental/`. Currently empty; the 2025-11 tasks experiment was removed under SEP-2663.
 
 ### Zod Schemas
 
@@ -201,7 +199,6 @@ The `ctx` parameter in handlers provides a structured context:
   - `notify(notification)`: Send related notification back
 - `http?`: HTTP transport info (undefined for stdio)
   - `authInfo?`: Validated auth token info
-- `task?`: Task context (`{ id?, store, requestedTtl? }`) when task storage is configured
 
 **`ServerContext`** extends `BaseContext.mcpReq` and `BaseContext.http?` via type intersection:
 
