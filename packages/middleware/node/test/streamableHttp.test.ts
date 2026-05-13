@@ -42,8 +42,8 @@ interface TestServerConfig {
     enableJsonResponse?: boolean;
     customRequestHandler?: (req: IncomingMessage, res: ServerResponse, parsedBody?: unknown) => Promise<void>;
     eventStore?: EventStore;
-    onsessioninitialized?: (sessionId: string) => void | Promise<void>;
-    onsessionclosed?: (sessionId: string) => void | Promise<void>;
+    onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
+    onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
     retryInterval?: number;
 }
 
