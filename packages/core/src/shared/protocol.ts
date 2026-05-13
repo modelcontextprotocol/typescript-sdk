@@ -124,7 +124,11 @@ export type RequestOptions = {
 
     /**
      * If `true`, receiving a progress notification will reset the request timeout.
-     * This is useful for long-running operations that send periodic progress updates.
+     * Note: a progress token is only included in the request when `onprogress` is
+     * explicitly provided (to avoid unnecessary server round-trips). Therefore
+     * `resetTimeoutOnProgress` only takes effect when `onprogress` is also set.
+     * If progress is consumed via lower-level transport features, provide a no-op
+     * `onprogress` callback to enable timeout reset on progress.
      * Default: `false`
      */
     resetTimeoutOnProgress?: boolean;
