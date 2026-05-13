@@ -599,14 +599,7 @@ For an end-to-end example of server-initiated SSE disconnection and automatic cl
 ## Tasks (experimental)
 
 > [!WARNING]
-> The tasks API is experimental and may change without notice.
-
-Task-based execution enables "call-now, fetch-later" patterns for long-running operations (see [Tasks](https://modelcontextprotocol.io/specification/latest/basic/utilities/tasks) in the MCP specification). Instead of returning a result immediately, a tool creates a task that can be polled or resumed later. To use tasks:
-
-- Call {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#callToolStream | client.experimental.tasks.callToolStream(...)} to start a tool call that may create a task and emit status updates over time.
-- Call {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#getTask | client.experimental.tasks.getTask(...)} and {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#getTaskResult | getTaskResult(...)} to check status and fetch results after reconnecting.
-
-For a full runnable example, see [`simpleTaskInteractiveClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleTaskInteractiveClient.ts).
+> The 2025-11 experimental tasks client API (`client.experimental.tasks.*`, `callToolStream`, `requestStream`) has been removed pending the SEP-2663 server-directed model. The storage layer ({@linkcode @modelcontextprotocol/server!index.TaskStore | TaskStore}, {@linkcode @modelcontextprotocol/server!index.InMemoryTaskStore | InMemoryTaskStore}) remains. Client-side task helpers will return when the server-directed plugin lands.
 
 ## See also
 
