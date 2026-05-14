@@ -159,7 +159,18 @@ export class Server extends Protocol<ServerContext> {
             ...ctx,
             mcpReq: {
                 ...ctx.mcpReq,
-                log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
+                log: (level, data, logger) => {
+                    if (this.isStateless()) {
+                        // Stateless: server MUST NOT emit notifications/message unless
+                        // this request set _meta.logLevel; level filter applies per-request.
+                        if (ctx.logLevel === undefined) return Promise.resolve();
+                        if (this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(ctx.logLevel)!) {
+                            return Promise.resolve();
+                        }
+                        return ctx.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } });
+                    }
+                    return this.sendLoggingMessage({ level, data, logger });
+                },
                 elicitInput: (params, options) => this.elicitInput(params, options, ctx),
                 requestSampling: (params, options) => this.createMessage(params, options, ctx)
             },

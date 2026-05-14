@@ -166,4 +166,40 @@ describe('Server', () => {
             await server.close();
         });
     });
+
+    describe('log gating via isStateless()', () => {
+        async function logViaHandler(meta: Record<string, unknown>) {
+            const server = new Server({ name: 't', version: '1' }, { capabilities: { tools: {}, logging: {} } });
+            server.setRequestHandler('tools/call', async (_req, ctx) => {
+                await ctx.mcpReq.log('info', 'hello');
+                return { content: [] };
+            });
+            const seen: string[] = [];
+            await server.handleStatelessRequest(
+                {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'tools/call',
+                    params: { name: 'x', _meta: { 'io.modelcontextprotocol/protocolVersion': LATEST_PROTOCOL_VERSION, ...meta } }
+                },
+                { onNotification: n => void seen.push(n.method) }
+            );
+            return seen;
+        }
+
+        it('[R-2575-6] suppresses notifications/message when no _meta.logLevel', async () => {
+            const seen = await logViaHandler({});
+            expect(seen).not.toContain('notifications/message');
+        });
+
+        it('emits when _meta.logLevel allows it', async () => {
+            const seen = await logViaHandler({ 'io.modelcontextprotocol/logLevel': 'info' });
+            expect(seen).toContain('notifications/message');
+        });
+
+        it('filters below requested level', async () => {
+            const seen = await logViaHandler({ 'io.modelcontextprotocol/logLevel': 'error' });
+            expect(seen).not.toContain('notifications/message');
+        });
+    });
 });
