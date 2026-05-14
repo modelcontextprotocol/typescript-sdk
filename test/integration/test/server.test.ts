@@ -10,13 +10,7 @@ import type {
     LoggingMessageNotification,
     Transport
 } from '@modelcontextprotocol/core';
-import {
-    InMemoryTransport,
-    LATEST_PROTOCOL_VERSION,
-    SdkError,
-    SdkErrorCode,
-    SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/core';
+import { InMemoryTransport, SdkError, SdkErrorCode, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { McpServer, Server } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
@@ -78,7 +72,7 @@ describe('Server with tools capability', () => {
     });
 });
 
-test('should accept latest protocol version', async () => {
+test('should respond to initialize with the requested stateful-model version', async () => {
     let sendPromiseResolve: (value: unknown) => void;
     const sendPromise = new Promise(resolve => {
         sendPromiseResolve = resolve;
@@ -90,7 +84,7 @@ test('should accept latest protocol version', async () => {
         send: vi.fn().mockImplementation(message => {
             if (message.id === 1 && message.result) {
                 expect(message.result).toEqual({
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    protocolVersion: '2025-11-25',
                     capabilities: expect.any(Object),
                     serverInfo: {
                         name: 'test server',
@@ -122,13 +116,13 @@ test('should accept latest protocol version', async () => {
 
     await server.connect(serverTransport);
 
-    // Simulate initialize request with latest version
+    // Simulate initialize request with newest stateful-model version
     serverTransport.onmessage?.({
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
         params: {
-            protocolVersion: LATEST_PROTOCOL_VERSION,
+            protocolVersion: '2025-11-25',
             capabilities: {},
             clientInfo: {
                 name: 'test client',
@@ -213,7 +207,8 @@ test('should handle unsupported protocol version', async () => {
         send: vi.fn().mockImplementation(message => {
             if (message.id === 1 && message.result) {
                 expect(message.result).toEqual({
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    // initialize negotiates only stateful-model versions.
+                    protocolVersion: '2025-11-25',
                     capabilities: expect.any(Object),
                     serverInfo: {
                         name: 'test server',
@@ -925,9 +920,7 @@ test('should throw when creating notifier if client lacks URL elicitation suppor
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    expect(() => server.createElicitationCompletionNotifier('elicitation-123')).toThrow(
-        /required capability 'elicitation.url'/
-    );
+    expect(() => server.createElicitationCompletionNotifier('elicitation-123')).toThrow(/required capability 'elicitation.url'/);
 });
 
 test('should apply back-compat form capability injection when client sends empty elicitation object', async () => {

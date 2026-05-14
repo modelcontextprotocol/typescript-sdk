@@ -26,7 +26,7 @@ describe('Server', () => {
                 id: 1,
                 method: 'initialize',
                 params: {
-                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    protocolVersion: '2025-11-25',
                     capabilities: {},
                     clientInfo: { name: 'test-client', version: '1.0.0' }
                 }
@@ -34,8 +34,33 @@ describe('Server', () => {
 
             await responsePromise;
 
-            expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+            expect(setProtocolVersion).toHaveBeenCalledWith('2025-11-25');
 
+            await server.close();
+        });
+
+        it('only negotiates stateful-model versions via initialize', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            const responsePromise = new Promise<JSONRPCMessage>(resolve => {
+                clientTransport.onmessage = msg => resolve(msg);
+            });
+            await clientTransport.start();
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: {
+                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    capabilities: {},
+                    clientInfo: { name: 'c', version: '1' }
+                }
+            } as JSONRPCMessage);
+            const resp = (await responsePromise) as unknown as { result: { protocolVersion: string } };
+            // LATEST_PROTOCOL_VERSION is stateless-model; initialize should
+            // negotiate the newest stateful version instead.
+            expect(resp.result.protocolVersion).toBe('2025-11-25');
             await server.close();
         });
     });

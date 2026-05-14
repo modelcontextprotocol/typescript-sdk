@@ -39,6 +39,7 @@ import {
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    isStatelessVersion,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -383,9 +384,13 @@ export class Server extends Protocol<ServerContext> {
         this._clientCapabilities = request.params.capabilities;
         this._clientVersion = request.params.clientInfo;
 
-        const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
+        // `initialize` is the legacy handshake, so only stateful-model versions are
+        // negotiable here. Stateless-model versions are negotiated via
+        // `server/discover` and per-request `_meta` instead.
+        const supportedStateful = this._supportedProtocolVersions.filter(v => !isStatelessVersion(v));
+        const protocolVersion = supportedStateful.includes(requestedVersion)
             ? requestedVersion
-            : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
+            : (supportedStateful[0] ?? LATEST_PROTOCOL_VERSION);
 
         this.transport?.setProtocolVersion?.(protocolVersion);
 
