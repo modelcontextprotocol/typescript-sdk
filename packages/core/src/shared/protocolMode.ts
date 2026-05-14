@@ -38,7 +38,8 @@ export const META_KEYS = {
     protocolVersion: 'io.modelcontextprotocol/protocolVersion',
     clientCapabilities: 'io.modelcontextprotocol/clientCapabilities',
     clientInfo: 'io.modelcontextprotocol/clientInfo',
-    logLevel: 'io.modelcontextprotocol/logLevel'
+    logLevel: 'io.modelcontextprotocol/logLevel',
+    subscriptionId: 'io.modelcontextprotocol/subscriptionId'
 } as const;
 
 /**

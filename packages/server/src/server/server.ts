@@ -20,6 +20,7 @@ import type {
     LoggingLevel,
     LoggingMessageNotification,
     MessageExtraInfo,
+    Notification,
     NotificationMethod,
     NotificationOptions,
     ProtocolOptions,
@@ -29,6 +30,8 @@ import type {
     Result,
     ServerCapabilities,
     ServerContext,
+    SubscriptionsListenFilter,
+    SubscriptionsListenRequest,
     ToolResultContent,
     ToolUseContent
 } from '@modelcontextprotocol/core';
@@ -44,6 +47,7 @@ import {
     ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
+    META_KEYS,
     parseSchema,
     Protocol,
     ProtocolError,
@@ -73,6 +77,14 @@ export type ServerOptions = ProtocolOptions & {
      * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, `CfWorkerJsonSchemaValidator` on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
+
+    /**
+     * Authorize a per-URI `resourceSubscriptions` entry on `subscriptions/listen`.
+     * Return `true` to allow update notifications for this URI to be delivered
+     * to this client. When unset, `resourceSubscriptions` is not honored
+     * (default-deny). The list-level filter fields need no per-item check.
+     */
+    onAuthorizeResourceSubscription?: (uri: string, ctx: ServerContext) => boolean;
 };
 
 /**
@@ -88,6 +100,16 @@ export class Server extends Protocol<ServerContext> {
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private _onAuthorizeResourceSubscription?: (uri: string, ctx: ServerContext) => boolean;
+
+    /**
+     * Active `subscriptions/listen` registrations on this instance, keyed by
+     * subscription ID (the listen request's JSON-RPC id). The map is per
+     * instance: it persists across requests on the connect/stdio path; under
+     * per-request `createMcpServer()` it is per request, so cross-request
+     * delivery requires the user to share state across instances.
+     */
+    private _subscriptions = new Map<string, { filter: SubscriptionsListenFilter; notify: (n: Notification) => Promise<void> }>();
 
     /**
      * Returns the client capabilities applicable to the current request.
@@ -130,9 +152,11 @@ export class Server extends Protocol<ServerContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
+        this._onAuthorizeResourceSubscription = options?.onAuthorizeResourceSubscription;
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setRequestHandler('server/discover', () => this._ondiscover());
+        this.setRequestHandler('subscriptions/listen', (req, ctx) => this._onSubscriptionsListen(req, ctx));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
@@ -371,7 +395,8 @@ export class Server extends Protocol<ServerContext> {
 
             case 'ping':
             case 'initialize':
-            case 'server/discover': {
+            case 'server/discover':
+            case 'subscriptions/listen': {
                 // No specific capability required for these methods
                 break;
             }
@@ -409,6 +434,80 @@ export class Server extends Protocol<ServerContext> {
             serverInfo: this._serverInfo,
             ...(this._instructions && { instructions: this._instructions })
         };
+    }
+
+    /**
+     * Handles `subscriptions/listen`: acknowledges the accepted filter (the
+     * subset this server's declared capabilities can satisfy), registers the
+     * subscription, and holds the request open until the client cancels.
+     *
+     * Stateless-model only; in legacy mode the method does not exist.
+     */
+    private _onSubscriptionsListen(req: SubscriptionsListenRequest, ctx: ServerContext): Promise<Result> {
+        if (!this.isStateless()) {
+            throw new ProtocolError(
+                ProtocolErrorCode.MethodNotFound,
+                "'subscriptions/listen' is a stateless-model RPC; legacy clients use the GET endpoint and resources/subscribe"
+            );
+        }
+        const requested = req.params.notifications;
+        // resourceSubscriptions is per-URI and so requires per-item authorization;
+        // default-deny unless the integrator opts in via onAuthorizeResourceSubscription.
+        const allowedUris =
+            requested.resourceSubscriptions && this._capabilities.resources?.subscribe && this._onAuthorizeResourceSubscription
+                ? requested.resourceSubscriptions.filter(uri => this._onAuthorizeResourceSubscription!(uri, ctx))
+                : undefined;
+        const accepted: SubscriptionsListenFilter = {
+            ...(requested.toolsListChanged && this._capabilities.tools?.listChanged && { toolsListChanged: true }),
+            ...(requested.promptsListChanged && this._capabilities.prompts?.listChanged && { promptsListChanged: true }),
+            ...(requested.resourcesListChanged && this._capabilities.resources?.listChanged && { resourcesListChanged: true }),
+            ...(allowedUris && allowedUris.length > 0 && { resourceSubscriptions: allowedUris })
+        };
+        const subscriptionId = String(ctx.mcpReq.id);
+        const notify = (n: Notification) => ctx.mcpReq.notify(n);
+
+        this._subscriptions.set(subscriptionId, { filter: accepted, notify });
+        void ctx.mcpReq.notify({
+            method: 'notifications/subscriptions/acknowledged',
+            params: { _meta: { [META_KEYS.subscriptionId]: subscriptionId }, notifications: accepted }
+        });
+
+        // Hold the request open until the client cancels (SSE close or
+        // notifications/cancelled). The empty result is delivered on close.
+        return new Promise<Result>(resolve => {
+            const onAbort = () => {
+                ctx.mcpReq.signal.removeEventListener('abort', onAbort);
+                this._subscriptions.delete(subscriptionId);
+                resolve({});
+            };
+            if (ctx.mcpReq.signal.aborted) {
+                onAbort();
+            } else {
+                ctx.mcpReq.signal.addEventListener('abort', onAbort);
+            }
+        });
+    }
+
+    /**
+     * Delivers `notification` to every active `subscriptions/listen` whose filter
+     * matches `key`, tagged with `_meta.subscriptionId`.
+     */
+    private async _notifySubscribers(
+        key: 'toolsListChanged' | 'promptsListChanged' | 'resourcesListChanged' | { resourceUri: string },
+        notification: Notification
+    ): Promise<void> {
+        const tasks: Promise<void>[] = [];
+        for (const [subscriptionId, sub] of this._subscriptions) {
+            const matches =
+                typeof key === 'string' ? sub.filter[key] === true : (sub.filter.resourceSubscriptions?.includes(key.resourceUri) ?? false);
+            if (!matches) continue;
+            const tagged: Notification = {
+                ...notification,
+                params: { ...notification.params, _meta: { ...notification.params?._meta, [META_KEYS.subscriptionId]: subscriptionId } }
+            };
+            tasks.push(sub.notify(tagged));
+        }
+        await Promise.allSettled(tasks);
     }
 
     /**
@@ -627,23 +726,34 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async sendResourceUpdated(params: ResourceUpdatedNotification['params']) {
-        return this.notification({
-            method: 'notifications/resources/updated',
-            params
-        });
+        const n = { method: 'notifications/resources/updated' as const, params };
+        if (this.isStateless()) {
+            return this._notifySubscribers({ resourceUri: params.uri }, n);
+        }
+        return this.notification(n);
     }
 
     async sendResourceListChanged() {
-        return this.notification({
-            method: 'notifications/resources/list_changed'
-        });
+        const n = { method: 'notifications/resources/list_changed' as const };
+        if (this.isStateless()) {
+            return this._notifySubscribers('resourcesListChanged', n);
+        }
+        return this.notification(n);
     }
 
     async sendToolListChanged() {
-        return this.notification({ method: 'notifications/tools/list_changed' });
+        const n = { method: 'notifications/tools/list_changed' as const };
+        if (this.isStateless()) {
+            return this._notifySubscribers('toolsListChanged', n);
+        }
+        return this.notification(n);
     }
 
     async sendPromptListChanged() {
-        return this.notification({ method: 'notifications/prompts/list_changed' });
+        const n = { method: 'notifications/prompts/list_changed' as const };
+        if (this.isStateless()) {
+            return this._notifySubscribers('promptsListChanged', n);
+        }
+        return this.notification(n);
     }
 }
