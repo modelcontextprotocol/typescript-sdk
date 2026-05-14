@@ -9,6 +9,7 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    Implementation,
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -44,6 +45,7 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
+import { type ProtocolMode, parseClientMeta, isStatelessVersion } from './protocolMode.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -139,6 +141,32 @@ export type BaseContext = {
      * The session ID from the transport, if available.
      */
     sessionId?: string;
+
+    /**
+     * The protocol version associated with this request. From `initialize` on
+     * the legacy path; from `_meta['io.modelcontextprotocol/protocolVersion']`
+     * per request on the stateless path.
+     */
+    protocolVersion?: string;
+
+    /**
+     * Client capabilities for this request. Per-request from `_meta` when
+     * stateless; from `initialize` when legacy. Handlers should not read this
+     * directly; capability checks go through the SDK's gating helpers.
+     */
+    clientCapabilities?: ClientCapabilities;
+
+    /**
+     * Client identity for this request (per-request from `_meta` when stateless).
+     */
+    clientInfo?: Implementation;
+
+    /**
+     * The log level requested for this request via `_meta` (stateless only).
+     * When absent, the server MUST NOT emit `notifications/message` for this
+     * request. Legacy clients use `logging/setLevel` instead.
+     */
+    logLevel?: LoggingLevel;
 
     /**
      * Information about the MCP request being handled.
@@ -511,6 +539,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
+        const clientMeta = parseClientMeta(request.params);
+        // Set mode from this message only when it carries `_meta.protocolVersion`
+        // (server processing a stateless-model client request) or when no mode is
+        // set yet (server processing the first message on a connection). Skips on
+        // a Client receiving a server-to-client request (mode set by `connect()`).
+        if (clientMeta.protocolVersion !== undefined || this._isStateless === undefined) {
+            this._setIsStateless(isStatelessVersion(clientMeta.protocolVersion));
+        }
+
         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
         // Capture the current transport at request time to ensure responses go to the correct client
@@ -539,6 +576,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const baseCtx: BaseContext = {
             sessionId: capturedTransport?.sessionId,
+            protocolVersion: clientMeta.protocolVersion,
+            clientCapabilities: clientMeta.clientCapabilities,
+            clientInfo: clientMeta.clientInfo,
+            logLevel: clientMeta.logLevel,
             mcpReq: {
                 id: request.id,
                 method: request.method,
