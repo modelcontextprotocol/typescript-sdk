@@ -89,6 +89,31 @@ export class Server extends Protocol<ServerContext> {
     private _jsonSchemaValidator: jsonSchemaValidator;
 
     /**
+     * Returns the client capabilities applicable to the current request.
+     * Stateless: per-request `ctx.clientCapabilities` (from `_meta`).
+     * Legacy: connection-scoped value negotiated at `initialize`.
+     *
+     * This is the single read site for client capabilities; all gates call it.
+     */
+    private _resolveClientCapabilities(ctx?: BaseContext): ClientCapabilities | undefined {
+        if (this.isStateless()) {
+            return ctx?.clientCapabilities;
+        }
+        return this._clientCapabilities;
+    }
+
+    /**
+     * Throws `-32003 MissingRequiredClientCapability` with `data.requiredCapabilities`.
+     */
+    private _missingClientCap(cap: string, method: string): never {
+        throw new ProtocolError(
+            ProtocolErrorCode.MissingRequiredClientCapability,
+            `Client does not declare required capability '${cap}' (required for ${method})`,
+            { requiredCapabilities: [cap] }
+        );
+    }
+
+    /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
      */
     oninitialized?: () => void;
@@ -135,8 +160,8 @@ export class Server extends Protocol<ServerContext> {
             mcpReq: {
                 ...ctx.mcpReq,
                 log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
-                elicitInput: (params, options) => this.elicitInput(params, options),
-                requestSampling: (params, options) => this.createMessage(params, options)
+                elicitInput: (params, options) => this.elicitInput(params, options, ctx),
+                requestSampling: (params, options) => this.createMessage(params, options, ctx)
             },
             http: hasHttpInfo
                 ? {
@@ -210,28 +235,20 @@ export class Server extends Protocol<ServerContext> {
     }
 
     protected assertCapabilityForMethod(method: RequestMethod | string): void {
+        const clientCapabilities = this._resolveClientCapabilities();
         switch (method) {
             case 'sampling/createMessage': {
-                if (!this._clientCapabilities?.sampling) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Client does not support sampling (required for ${method})`);
-                }
+                if (!clientCapabilities?.sampling) this._missingClientCap('sampling', method);
                 break;
             }
 
             case 'elicitation/create': {
-                if (!this._clientCapabilities?.elicitation) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Client does not support elicitation (required for ${method})`);
-                }
+                if (!clientCapabilities?.elicitation) this._missingClientCap('elicitation', method);
                 break;
             }
 
             case 'roots/list': {
-                if (!this._clientCapabilities?.roots) {
-                    throw new SdkError(
-                        SdkErrorCode.CapabilityNotSupported,
-                        `Client does not support listing roots (required for ${method})`
-                    );
-                }
+                if (!clientCapabilities?.roots) this._missingClientCap('roots', method);
                 break;
             }
 
@@ -283,12 +300,7 @@ export class Server extends Protocol<ServerContext> {
             }
 
             case 'notifications/elicitation/complete': {
-                if (!this._clientCapabilities?.elicitation?.url) {
-                    throw new SdkError(
-                        SdkErrorCode.CapabilityNotSupported,
-                        `Client does not support URL elicitation (required for ${method})`
-                    );
-                }
+                if (!this._resolveClientCapabilities()?.elicitation?.url) this._missingClientCap('elicitation.url', method);
                 break;
             }
 
@@ -412,13 +424,17 @@ export class Server extends Protocol<ServerContext> {
      * Request LLM sampling from the client (without tools).
      * Returns single content block for backwards compatibility.
      */
-    async createMessage(params: CreateMessageRequestParamsBase, options?: RequestOptions): Promise<CreateMessageResult>;
+    async createMessage(params: CreateMessageRequestParamsBase, options?: RequestOptions, ctx?: BaseContext): Promise<CreateMessageResult>;
 
     /**
      * Request LLM sampling from the client with tool support.
      * Returns content that may be a single block or array (for parallel tool calls).
      */
-    async createMessage(params: CreateMessageRequestParamsWithTools, options?: RequestOptions): Promise<CreateMessageResultWithTools>;
+    async createMessage(
+        params: CreateMessageRequestParamsWithTools,
+        options?: RequestOptions,
+        ctx?: BaseContext
+    ): Promise<CreateMessageResultWithTools>;
 
     /**
      * Request LLM sampling from the client.
@@ -426,17 +442,19 @@ export class Server extends Protocol<ServerContext> {
      */
     async createMessage(
         params: CreateMessageRequest['params'],
-        options?: RequestOptions
+        options?: RequestOptions,
+        ctx?: BaseContext
     ): Promise<CreateMessageResult | CreateMessageResultWithTools>;
 
     // Implementation
     async createMessage(
         params: CreateMessageRequest['params'],
-        options?: RequestOptions
+        options?: RequestOptions,
+        ctx?: BaseContext
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
         // Capability check - only required when tools/toolChoice are provided
-        if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
-            throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
+        if ((params.tools || params.toolChoice) && !this._resolveClientCapabilities(ctx)?.sampling?.tools) {
+            this._missingClientCap('sampling.tools', 'sampling/createMessage');
         }
 
         // Message structure validation - always validate tool_use/tool_result pairs.
@@ -497,22 +515,23 @@ export class Server extends Protocol<ServerContext> {
      * @param options Optional request options.
      * @returns The result of the elicitation request.
      */
-    async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
+    async elicitInput(
+        params: ElicitRequestFormParams | ElicitRequestURLParams,
+        options?: RequestOptions,
+        ctx?: BaseContext
+    ): Promise<ElicitResult> {
         const mode = (params.mode ?? 'form') as 'form' | 'url';
+        const clientCapabilities = this._resolveClientCapabilities(ctx);
 
         switch (mode) {
             case 'url': {
-                if (!this._clientCapabilities?.elicitation?.url) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support url elicitation.');
-                }
+                if (!clientCapabilities?.elicitation?.url) this._missingClientCap('elicitation.url', 'elicitation/create');
 
                 const urlParams = params as ElicitRequestURLParams;
                 return this._requestWithSchema({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
             }
             case 'form': {
-                if (!this._clientCapabilities?.elicitation?.form) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support form elicitation.');
-                }
+                if (!clientCapabilities?.elicitation?.form) this._missingClientCap('elicitation.form', 'elicitation/create');
 
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
@@ -557,12 +576,9 @@ export class Server extends Protocol<ServerContext> {
      * @param options Optional notification options. Useful when the completion notification should be related to a prior request.
      * @returns A function that emits the completion notification when awaited.
      */
-    createElicitationCompletionNotifier(elicitationId: string, options?: NotificationOptions): () => Promise<void> {
-        if (!this._clientCapabilities?.elicitation?.url) {
-            throw new SdkError(
-                SdkErrorCode.CapabilityNotSupported,
-                'Client does not support URL elicitation (required for notifications/elicitation/complete)'
-            );
+    createElicitationCompletionNotifier(elicitationId: string, options?: NotificationOptions, ctx?: BaseContext): () => Promise<void> {
+        if (!this._resolveClientCapabilities(ctx)?.elicitation?.url) {
+            this._missingClientCap('elicitation.url', 'notifications/elicitation/complete');
         }
 
         return () =>

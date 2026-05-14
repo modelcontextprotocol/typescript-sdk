@@ -318,7 +318,7 @@ test('should respect client capabilities', async () => {
     ).resolves.not.toThrow();
 
     // This should still throw because roots are not supported by the client
-    await expect(server.listRoots()).rejects.toThrow(/Client does not support/);
+    await expect(server.listRoots()).rejects.toThrow(/Client does not declare required capability/);
 });
 
 test('should respect client elicitation capabilities', async () => {
@@ -402,7 +402,7 @@ test('should respect client elicitation capabilities', async () => {
             messages: [],
             maxTokens: 10
         })
-    ).rejects.toThrow(/^Client does not support/);
+    ).rejects.toThrow(/^Client does not declare required capability/);
 });
 
 test('should use elicitInput with mode: "form" by default for backwards compatibility', async () => {
@@ -485,7 +485,7 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
             messages: [],
             maxTokens: 10
         })
-    ).rejects.toThrow(/Client does not support/);
+    ).rejects.toThrow(/Client does not declare required capability/);
 });
 
 test('should throw when elicitInput is called without client form capability', async () => {
@@ -534,7 +534,7 @@ test('should throw when elicitInput is called without client form capability', a
                 }
             }
         })
-    ).rejects.toThrow('Client does not support form elicitation.');
+    ).rejects.toThrow(/required capability 'elicitation.form'/);
 });
 
 test('should throw when elicitInput is called without client URL capability', async () => {
@@ -577,7 +577,7 @@ test('should throw when elicitInput is called without client URL capability', as
             elicitationId: 'elicitation-001',
             url: 'https://example.com/auth'
         })
-    ).rejects.toThrow('Client does not support url elicitation.');
+    ).rejects.toThrow(/required capability 'elicitation.url'/);
 });
 
 test('should include form mode when sending elicitation form requests', async () => {
@@ -926,7 +926,7 @@ test('should throw when creating notifier if client lacks URL elicitation suppor
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     expect(() => server.createElicitationCompletionNotifier('elicitation-123')).toThrow(
-        'Client does not support URL elicitation (required for notifications/elicitation/complete)'
+        /required capability 'elicitation.url'/
     );
 });
 
@@ -1509,7 +1509,7 @@ describe('createMessage validation', () => {
                 maxTokens: 100,
                 tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
             })
-        ).rejects.toThrow('Client does not support sampling tools capability.');
+        ).rejects.toThrow(/required capability 'sampling.tools'/);
     });
 
     test('should throw when toolChoice is provided without sampling.tools capability', async () => {
@@ -1535,7 +1535,7 @@ describe('createMessage validation', () => {
                 maxTokens: 100,
                 toolChoice: { mode: 'auto' }
             })
-        ).rejects.toThrow('Client does not support sampling tools capability.');
+        ).rejects.toThrow(/required capability 'sampling.tools'/);
     });
 
     test('should throw when tool_result is mixed with other content', async () => {

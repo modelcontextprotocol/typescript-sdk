@@ -1,5 +1,5 @@
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import { InMemoryTransport, LATEST_PROTOCOL_VERSION, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
 import { Server } from '../../src/server/server.js';
 
 describe('Server', () => {
@@ -74,6 +74,96 @@ describe('Server', () => {
                 supportedVersions: expect.any(Array),
                 serverInfo: { name: 'min', version: '0.0.0' }
             });
+        });
+    });
+
+    describe('client capability gates via isStateless()', () => {
+        it('[R-2575-20] stateless: handler reaching elicitInput without _meta.clientCapabilities → -32003', async () => {
+            const server = new Server({ name: 't', version: '1' }, { capabilities: { tools: {} } });
+            server.setRequestHandler('tools/call', async (_req, ctx) => {
+                await ctx.mcpReq.elicitInput({ mode: 'form', message: 'x', requestedSchema: { type: 'object', properties: {} } });
+                return { content: [] };
+            });
+            const res = await server.handleStatelessRequest({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'x',
+                    _meta: {
+                        'io.modelcontextprotocol/protocolVersion': LATEST_PROTOCOL_VERSION,
+                        'io.modelcontextprotocol/clientCapabilities': {}
+                    }
+                }
+            });
+            expect(res).toMatchObject({
+                error: {
+                    code: ProtocolErrorCode.MissingRequiredClientCapability,
+                    data: { requiredCapabilities: ['elicitation.form'] }
+                }
+            });
+        });
+
+        it('stateless: _meta.clientCapabilities with elicitation.form passes the gate (then fails on send, no transport)', async () => {
+            const server = new Server({ name: 't', version: '1' }, { capabilities: { tools: {} } });
+            let gateError: unknown;
+            server.setRequestHandler('tools/call', async (_req, ctx) => {
+                try {
+                    await ctx.mcpReq.elicitInput({ mode: 'form', message: 'x', requestedSchema: { type: 'object', properties: {} } });
+                } catch (e) {
+                    gateError = e;
+                }
+                return { content: [] };
+            });
+            await server.handleStatelessRequest({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'tools/call',
+                params: {
+                    name: 'x',
+                    _meta: {
+                        'io.modelcontextprotocol/protocolVersion': LATEST_PROTOCOL_VERSION,
+                        'io.modelcontextprotocol/clientCapabilities': { elicitation: { form: true } }
+                    }
+                }
+            });
+            // Gate passed (not -32003); failure is the no-transport SdkError
+            expect(gateError).not.toBeInstanceOf(ProtocolError);
+            expect(gateError).toBeDefined();
+        });
+
+        it('legacy: gate reads from initialize-negotiated capabilities, not _meta', async () => {
+            const server = new Server({ name: 't', version: '1' }, { capabilities: {} });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+            await clientTransport.start();
+
+            clientTransport.onmessage = () => {};
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: {
+                    protocolVersion: '2025-11-25',
+                    capabilities: { sampling: {} },
+                    clientInfo: { name: 'c', version: '1' }
+                }
+            } as JSONRPCMessage);
+            await new Promise(r => setTimeout(r, 0));
+            expect(server.getClientCapabilities()).toEqual({ sampling: {} });
+
+            // Gate via assertCapabilityForMethod path: createMessage with no ctx
+            // should pass sampling gate (legacy reads this._clientCapabilities)
+            // but fail on actual request since client won't respond. We assert
+            // the gate doesn't throw -32003.
+            const p = server.createMessage({ messages: [], maxTokens: 1 }).catch(e => e);
+            await new Promise(r => setTimeout(r, 0));
+            const err = await Promise.race([p, new Promise(r => setTimeout(() => r('timeout'), 50))]);
+            // Either 'timeout' (waiting for response) or some error, but NOT -32003
+            if (err instanceof ProtocolError) {
+                expect(err.code).not.toBe(ProtocolErrorCode.MissingRequiredClientCapability);
+            }
+            await server.close();
         });
     });
 });
