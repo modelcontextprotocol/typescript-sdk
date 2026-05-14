@@ -996,6 +996,31 @@ describe('handleStatelessRequest', () => {
         });
     });
 
+    it('[R-2575-removed] ping → MethodNotFound when stateless', async () => {
+        const p = createTestProtocol();
+        p.setRequestHandler('ping', async () => ({}));
+        const res = await p.handleStatelessRequest(makeReq('ping'));
+        expect(res).toMatchObject({ error: { code: ProtocolErrorCode.MethodNotFound } });
+    });
+
+    it('[R-2575-removed] initialize → MethodNotFound when stateless', async () => {
+        const p = createTestProtocol();
+        p.setRequestHandler('initialize', async () => ({
+            protocolVersion: 'x',
+            capabilities: {},
+            serverInfo: { name: 'x', version: '1' }
+        }));
+        const res = await p.handleStatelessRequest(makeReq('initialize'));
+        expect(res).toMatchObject({ error: { code: ProtocolErrorCode.MethodNotFound } });
+    });
+
+    it('ping still works when legacy (no _meta)', async () => {
+        const p = createTestProtocol();
+        p.setRequestHandler('ping', async () => ({}));
+        const res = await p.handleStatelessRequest({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} });
+        expect(res).toMatchObject({ result: {} });
+    });
+
     it('absent _meta.protocolVersion is allowed (legacy path)', async () => {
         const p = createTestProtocol();
         p.setRequestHandler('tools/list', async () => ({ tools: [] }));

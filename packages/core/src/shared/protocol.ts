@@ -45,7 +45,7 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
-import { type ProtocolMode, parseClientMeta, isStatelessVersion } from './protocolMode.js';
+import { isStatelessVersion, parseClientMeta, STATELESS_REMOVED_METHODS } from './protocolMode.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -454,6 +454,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
         this._setIsStateless(isStatelessVersion(meta.protocolVersion));
 
+        if (this.isStateless() && STATELESS_REMOVED_METHODS.has(request.method)) {
+            return {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: { code: ProtocolErrorCode.MethodNotFound, message: `${request.method} is removed in this protocol version` }
+            };
+        }
+
         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
         if (handler === undefined) {
             return {
@@ -677,6 +685,20 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // a Client receiving a server-to-client request (mode set by `connect()`).
         if (clientMeta.protocolVersion !== undefined || this._isStateless === undefined) {
             this._setIsStateless(isStatelessVersion(clientMeta.protocolVersion));
+        }
+
+        if (this.isStateless() && STATELESS_REMOVED_METHODS.has(request.method)) {
+            capturedTransport
+                ?.send({
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    error: {
+                        code: ProtocolErrorCode.MethodNotFound,
+                        message: `${request.method} is removed in this protocol version`
+                    }
+                })
+                .catch(error => this._onerror(new Error(`Failed to send error response: ${error}`)));
+            return;
         }
 
         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;

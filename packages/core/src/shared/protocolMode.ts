@@ -20,6 +20,19 @@ export function isStatelessVersion(version: string | undefined): boolean {
     return !(STATEFUL_PROTOCOL_VERSIONS as readonly string[]).includes(version);
 }
 
+/**
+ * Request methods removed in the stateless model. When `isStateless()` is
+ * true, these return `-32601 MethodNotFound` at dispatch, before any handler
+ * runs. Legacy mode is unaffected.
+ */
+export const STATELESS_REMOVED_METHODS: ReadonlySet<string> = new Set([
+    'initialize',
+    'ping',
+    'logging/setLevel',
+    'resources/subscribe',
+    'resources/unsubscribe'
+]);
+
 /** Reserved per-request `_meta` keys defined by SEP-2575. */
 export const META_KEYS = {
     protocolVersion: 'io.modelcontextprotocol/protocolVersion',
