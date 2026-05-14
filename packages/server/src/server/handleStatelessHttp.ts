@@ -11,6 +11,7 @@ import {
 import * as z from 'zod/v4';
 
 import type { McpServer } from './mcp.js';
+import { hostHeaderValidationResponse } from './middleware/hostHeaderValidation.js';
 
 /** A `(Request) => Response` handler for any fetch-compatible runtime. */
 export type FetchHandler = (req: Request, extra?: HttpRequestExtra) => Promise<Response>;
@@ -27,6 +28,15 @@ export interface HttpRequestExtra {
     authInfo?: AuthInfo;
     /** Pre-parsed body, when the framework has already consumed `req.body`. */
     parsedBody?: unknown;
+}
+
+export interface HandleStatelessHttpOptions {
+    /**
+     * DNS rebinding protection: reject requests whose `Host` header is not in
+     * this list. Hostnames only (no port). When unset, no Host check is
+     * performed (assume an upstream proxy enforces it).
+     */
+    allowedHosts?: string[];
 }
 
 /**
@@ -58,8 +68,12 @@ export interface HttpRequestExtra {
  * // Hono: app.all('/mcp', c => handler(c.req.raw));
  * ```
  */
-export function handleStatelessHttp(createMcpServer: CreateMcpServer): FetchHandler {
+export function handleStatelessHttp(createMcpServer: CreateMcpServer, options?: HandleStatelessHttpOptions): FetchHandler {
     return async (req, extra) => {
+        if (options?.allowedHosts) {
+            const hostReject = hostHeaderValidationResponse(req, options.allowedHosts);
+            if (hostReject) return hostReject;
+        }
         if (req.method !== 'POST') {
             return jsonError(405, -32_000, 'Method Not Allowed (stateless server accepts POST only)', null, { Allow: 'POST' });
         }
