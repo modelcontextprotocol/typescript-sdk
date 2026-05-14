@@ -8,7 +8,7 @@
 
 export type { CompletableSchema, CompleteCallback } from './server/completable.js';
 export { completable, isCompletable } from './server/completable.js';
-export type { CreateMcpServer, FetchHandler, HttpRequestExtra } from './server/handleStatelessHttp.js';
+export type { CreateMcpServer, FetchHandler, HandleStatelessHttpOptions, HttpRequestExtra } from './server/handleStatelessHttp.js';
 export { handleStatelessHttp } from './server/handleStatelessHttp.js';
 export type {
     AnyToolHandler,
