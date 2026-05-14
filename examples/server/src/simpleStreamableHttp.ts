@@ -5,13 +5,12 @@ import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, requireBeare
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
-    ElicitResult,
     GetPromptResult,
     PrimitiveSchemaDefinition,
     ReadResourceResult,
     ResourceLink
 } from '@modelcontextprotocol/server';
-import { InMemoryTaskMessageQueue, InMemoryTaskStore, isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
@@ -21,9 +20,6 @@ import { InMemoryEventStore } from './inMemoryEventStore.js';
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
 const dangerousLoggingEnabled = process.argv.includes('--dangerous-logging-enabled');
-
-// Create shared task store for demonstration
-const taskStore = new InMemoryTaskStore();
 
 // Create an MCP server with implementation details
 const getServer = () => {
@@ -36,12 +32,7 @@ const getServer = () => {
         },
         {
             capabilities: {
-                logging: {},
-                tasks: {
-                    requests: { tools: { call: {} } },
-                    taskStore,
-                    taskMessageQueue: new InMemoryTaskMessageQueue()
-                }
+                logging: {}
             }
         }
     );
@@ -439,162 +430,9 @@ const getServer = () => {
         }
     );
 
-    // Register a long-running tool that demonstrates task execution
-    // Using the experimental tasks API - WARNING: may change without notice
-    server.experimental.tasks.registerToolTask(
-        'delay',
-        {
-            title: 'Delay',
-            description: 'A simple tool that delays for a specified duration, useful for testing task execution',
-            inputSchema: z.object({
-                duration: z.number().describe('Duration in milliseconds').default(5000)
-            })
-        },
-        {
-            async createTask({ duration }, ctx) {
-                // Create the task
-                const task = await ctx.task.store.createTask({
-                    ttl: ctx.task.requestedTtl
-                });
-
-                // Simulate out-of-band work
-                (async () => {
-                    await new Promise(resolve => setTimeout(resolve, duration));
-                    await ctx.task.store.storeTaskResult(task.taskId, 'completed', {
-                        content: [
-                            {
-                                type: 'text',
-                                text: `Completed ${duration}ms delay`
-                            }
-                        ]
-                    });
-                })();
-
-                // Return CreateTaskResult with the created task
-                return {
-                    task
-                };
-            },
-            async getTask(_args, ctx) {
-                return await ctx.task.store.getTask(ctx.task.id);
-            },
-            async getTaskResult(_args, ctx) {
-                const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                return result as CallToolResult;
-            }
-        }
-    );
-
-    // Register a tool that demonstrates bidirectional task support:
-    // Server creates a task, then elicits input from client using elicitInputStream
-    // Using the experimental tasks API - WARNING: may change without notice
-    server.experimental.tasks.registerToolTask(
-        'collect-user-info-task',
-        {
-            title: 'Collect Info with Task',
-            description: 'Collects user info via elicitation with task support using elicitInputStream',
-            inputSchema: z.object({
-                infoType: z.enum(['contact', 'preferences']).describe('Type of information to collect').default('contact')
-            })
-        },
-        {
-            async createTask({ infoType }, ctx) {
-                // Create the server-side task
-                const task = await ctx.task.store.createTask({
-                    ttl: ctx.task.requestedTtl
-                });
-
-                // Perform async work that makes a nested elicitation request using elicitInputStream
-                (async () => {
-                    try {
-                        const message = infoType === 'contact' ? 'Please provide your contact information' : 'Please set your preferences';
-
-                        // Define schemas with proper typing for PrimitiveSchemaDefinition
-                        const contactSchema: {
-                            type: 'object';
-                            properties: Record<string, PrimitiveSchemaDefinition>;
-                            required: string[];
-                        } = {
-                            type: 'object',
-                            properties: {
-                                name: { type: 'string', title: 'Full Name', description: 'Your full name' },
-                                email: { type: 'string', title: 'Email', description: 'Your email address' }
-                            },
-                            required: ['name', 'email']
-                        };
-
-                        const preferencesSchema: {
-                            type: 'object';
-                            properties: Record<string, PrimitiveSchemaDefinition>;
-                            required: string[];
-                        } = {
-                            type: 'object',
-                            properties: {
-                                theme: { type: 'string', title: 'Theme', enum: ['light', 'dark', 'auto'] },
-                                notifications: { type: 'boolean', title: 'Enable Notifications', default: true }
-                            },
-                            required: ['theme']
-                        };
-
-                        const requestedSchema = infoType === 'contact' ? contactSchema : preferencesSchema;
-
-                        // Use elicitInputStream to elicit input from client
-                        // This demonstrates the streaming elicitation API
-                        // Access via server.server to get the underlying Server instance
-                        const stream = server.server.experimental.tasks.elicitInputStream({
-                            mode: 'form',
-                            message,
-                            requestedSchema
-                        });
-
-                        let elicitResult: ElicitResult | undefined;
-                        for await (const msg of stream) {
-                            if (msg.type === 'result') {
-                                elicitResult = msg.result as ElicitResult;
-                            } else if (msg.type === 'error') {
-                                throw msg.error;
-                            }
-                        }
-
-                        if (!elicitResult) {
-                            throw new Error('No result received from elicitation');
-                        }
-
-                        let resultText: string;
-                        if (elicitResult.action === 'accept') {
-                            resultText = `Collected ${infoType} info: ${JSON.stringify(elicitResult.content, null, 2)}`;
-                        } else if (elicitResult.action === 'decline') {
-                            resultText = `User declined to provide ${infoType} information`;
-                        } else {
-                            resultText = 'User cancelled the request';
-                        }
-
-                        await taskStore.storeTaskResult(task.taskId, 'completed', {
-                            content: [{ type: 'text', text: resultText }]
-                        });
-                    } catch (error) {
-                        console.error('Error in collect-user-info-task:', error);
-                        await taskStore.storeTaskResult(task.taskId, 'failed', {
-                            content: [{ type: 'text', text: `Error: ${error}` }],
-                            isError: true
-                        });
-                    }
-                })();
-
-                return { task };
-            },
-            async getTask(_args, ctx) {
-                return await ctx.task.store.getTask(ctx.task.id);
-            },
-            async getTaskResult(_args, ctx) {
-                const result = await ctx.task.store.getTaskResult(ctx.task.id);
-                return result as CallToolResult;
-            }
-        }
-    );
-
     return server;
 };
+
 
 const MCP_PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
 const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AUTH_PORT, 10) : 3001;

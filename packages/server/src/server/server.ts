@@ -28,21 +28,15 @@ import type {
     Result,
     ServerCapabilities,
     ServerContext,
-    TaskManagerOptions,
     ToolResultContent,
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
-    assertClientRequestTaskCapability,
-    assertToolsCallTaskCapability,
-    CallToolRequestSchema,
     CallToolResultSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    extractTaskManagerOptions,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -56,21 +50,11 @@ import {
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
-import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
-
-/**
- * Extended tasks capability that includes runtime configuration (store, messageQueue).
- * The runtime-only fields are stripped before advertising capabilities to clients.
- */
-export type ServerTasksCapabilityWithRuntime = NonNullable<ServerCapabilities['tasks']> & TaskManagerOptions;
-
 export type ServerOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this server.
      */
-    capabilities?: Omit<ServerCapabilities, 'tasks'> & {
-        tasks?: ServerTasksCapabilityWithRuntime;
-    };
+    capabilities?: ServerCapabilities;
 
     /**
      * Optional instructions describing how to use the server and its features.
@@ -101,7 +85,6 @@ export class Server extends Protocol<ServerContext> {
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
-    private _experimental?: { tasks: ExperimentalServerTasks };
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
@@ -115,21 +98,10 @@ export class Server extends Protocol<ServerContext> {
         private _serverInfo: Implementation,
         options?: ServerOptions
     ) {
-        super({
-            ...options,
-            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
-        });
+        super(options);
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
-
-        // Strip runtime-only fields from advertised capabilities
-        if (options?.capabilities?.tasks) {
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
-                options.capabilities.tasks;
-            this._capabilities.tasks = wireCapabilities;
-        }
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
@@ -174,22 +146,6 @@ export class Server extends Protocol<ServerContext> {
         };
     }
 
-    /**
-     * Access experimental features.
-     *
-     * WARNING: These APIs are experimental and may change without notice.
-     *
-     * @experimental
-     */
-    get experimental(): { tasks: ExperimentalServerTasks } {
-        if (!this._experimental) {
-            this._experimental = {
-                tasks: new ExperimentalServerTasks(this)
-            };
-        }
-        return this._experimental;
-    }
-
     // Map log levels by session id
     private _loggingLevels = new Map<string | undefined, LoggingLevel>();
 
@@ -230,31 +186,8 @@ export class Server extends Protocol<ServerContext> {
             return handler;
         }
         return async (request, ctx) => {
-            const validatedRequest = parseSchema(CallToolRequestSchema, request);
-            if (!validatedRequest.success) {
-                const errorMessage =
-                    validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
-            }
-
-            const { params } = validatedRequest.data;
-
             const result = await handler(request, ctx);
 
-            // When task creation is requested, validate and return CreateTaskResult
-            if (params.task) {
-                const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                if (!taskValidationResult.success) {
-                    const errorMessage =
-                        taskValidationResult.error instanceof Error
-                            ? taskValidationResult.error.message
-                            : String(taskValidationResult.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                }
-                return taskValidationResult.data;
-            }
-
-            // For non-task requests, validate against CallToolResultSchema
             const validationResult = parseSchema(CallToolResultSchema, result);
             if (!validationResult.success) {
                 const errorMessage =
@@ -408,14 +341,6 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
         }
-    }
-
-    protected assertTaskCapability(method: string): void {
-        assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, method, 'Client');
-    }
-
-    protected assertTaskHandlerCapability(method: string): void {
-        assertToolsCallTaskCapability(this._capabilities?.tasks?.requests, method, 'Server');
     }
 
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {

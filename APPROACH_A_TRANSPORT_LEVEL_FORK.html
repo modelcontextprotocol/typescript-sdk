@@ -1,0 +1,1222 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Approach A: Transport-Level Fork</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<style>
+body { font-family: -apple-system, system-ui, sans-serif; max-width: 1400px; margin: 1.5em auto; padding: 0 1.5em; line-height: 1.6; color: #1a1a1a; }
+h1 { border-bottom: 3px solid #2563eb; padding-bottom: .3em; color: #1e3a5f; }
+h2 { margin-top: 2.2em; border-bottom: 1px solid #ccc; padding-bottom: .2em; }
+h3 { margin-top: 1.6em; color: #444; }
+h4 { margin-top: 1.2em; color: #555; }
+table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .94em; }
+th, td { border: 1px solid #ddd; padding: .55em .7em; text-align: left; vertical-align: top; }
+th { background: #f4f4f4; font-weight: 600; position: sticky; top: 0; }
+code { background: #f3f3f3; padding: 1px 5px; border-radius: 3px; font-size: .9em; }
+pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 1em; overflow-x: auto; font-size: .88em; line-height: 1.5; }
+pre code { background: none; padding: 0; }
+hr { margin: 2em 0; border: none; border-top: 1px solid #ddd; }
+a { color: #0366d6; text-decoration: none; } a:hover { text-decoration: underline; }
+blockquote { border-left: 4px solid #2563eb; margin: 1em 0; padding: .5em 1em; background: #f0f6ff; color: #333; }
+ul, ol { padding-left: 1.4em; } p { margin: .6em 0; }
+.mermaid { margin: 1.5em 0; text-align: center; }
+.pro { color: #16a34a; font-weight: 600; } .con { color: #dc2626; font-weight: 600; }
+.verdict { background: #f0fdf4; border: 2px solid #16a34a; border-radius: 8px; padding: 1em 1.5em; margin: 1.5em 0; }
+.warning { background: #fff7ed; border: 2px solid #f59e0b; border-radius: 8px; padding: 1em 1.5em; margin: 1.5em 0; }
+.info { background: #eff6ff; border: 2px solid #3b82f6; border-radius: 8px; padding: 1em 1.5em; margin: 1.5em 0; }
+tr.green { background: #f0fdf4; } tr.yellow { background: #fffbeb; } tr.red { background: #fff1f0; }
+@media (max-width: 900px) { table { font-size: .85em; } th, td { padding: .4em; } }
+</style>
+</head><body>
+<script>document.addEventListener('DOMContentLoaded', () => mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' }));</script>
+
+<h1>Approach A: Transport-Level Fork ("Routing Transport")</h1>
+
+<p><strong>Date:</strong> 2026-06-30 &nbsp;|&nbsp; <strong>Status:</strong> Design exploration &nbsp;|&nbsp; <strong>Companion:</strong> <a href="./transport-changes.html">transport-changes.html</a>, <a href="./APPROACH_B_VERSION_ROUTER.html">Approach B</a></p>
+
+<blockquote><strong>Core idea:</strong> Swap the transport class &mdash; everything else stays the same. On the server side, <code>HTTPVersionRoutingTransport</code> replaces <code>NodeStreamableHTTPServerTransport</code>. On the client side, <code>VersionProbingHTTPClientTransport</code> replaces <code>StreamableHTTPClientTransport</code>. <code>McpServer</code>, <code>Client</code>, tool handlers, and <code>connect()</code> are all unchanged. Version detection, protocol adaptation, and MRTR handling happen inside the transport layer.</blockquote>
+
+<hr/>
+
+<h2>0. User-Facing API: End-to-End Example</h2>
+
+<p>A minimal example: one server with a <code>greet</code> tool, one client calling it. Shows exactly what application code looks like for both protocol versions under Approach A.</p>
+
+<h3>0.1 Today's API (for reference &mdash; 2025-11 only)</h3>
+
+<div class="info">
+<strong>This is the current SDK API.</strong> Shown for comparison so you can see exactly what changes.
+</div>
+
+<h4>Server (HTTP, current)</h4>
+
+<pre><code>import { McpServer } from '@modelcontextprotocol/server';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import express from 'express';
+import * as z from 'zod/v4';
+
+const server = new McpServer({ name: 'greeting-server', version: '1.0.0' });
+
+server.registerTool(
+  'greet',
+  {
+    description: 'Greet someone by name',
+    inputSchema: z.object({ name: z.string() }),
+  },
+  async ({ name }) => ({
+    content: [{ type: 'text', text: `Hello, ${name}!` }],
+  }),
+);
+
+const app = express();
+app.post('/mcp', async (req, res) => {
+  const transport = new NodeStreamableHTTPServerTransport({
+    sessionIdGenerator: () => crypto.randomUUID(),
+  });
+  await server.connect(transport);
+  await transport.handleRequest(req, res, req.body);
+});
+
+app.listen(3000);</code></pre>
+
+<h4>Server (stdio, current)</h4>
+
+<pre><code>import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import * as z from 'zod/v4';
+
+const server = new McpServer({ name: 'greeting-server', version: '1.0.0' });
+
+server.registerTool('greet', {
+  description: 'Greet someone by name',
+  inputSchema: z.object({ name: z.string() }),
+}, async ({ name }) => ({
+  content: [{ type: 'text', text: `Hello, ${name}!` }],
+}));
+
+const transport = new StdioServerTransport();
+await server.connect(transport);</code></pre>
+
+<h4>Client (current)</h4>
+
+<pre><code>import { Client } from '@modelcontextprotocol/client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+
+const client = new Client({ name: 'my-client', version: '1.0.0' });
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'));
+
+await client.connect(transport);
+
+const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
+console.log(result.content[0].text); // "Hello, World!"
+
+await transport.close();</code></pre>
+
+<hr/>
+
+<h3>0.2 Approach A: Server serving both protocol versions</h3>
+
+<div class="verdict">
+<strong>Key change:</strong> Swap the transport class. <code>HTTPVersionRoutingTransport</code> replaces <code>NodeStreamableHTTPServerTransport</code>. <code>StdioVersionRoutingTransport</code> replaces <code>StdioServerTransport</code>. Tool registration, handler code, and <code>server.connect()</code> are all unchanged.
+</div>
+
+<h4>Server (HTTP, dual-version)</h4>
+
+<pre><code>import { McpServer } from '@modelcontextprotocol/server';
+import { HTTPVersionRoutingTransport } from '@modelcontextprotocol/server';
+import express from 'express';
+import * as z from 'zod/v4';
+
+// 1. Create McpServer (UNCHANGED)
+const server = new McpServer({ name: 'greeting-server', version: '1.0.0' });
+
+// 2. Register a tool (UNCHANGED)
+server.registerTool(
+  'greet',
+  {
+    description: 'Greet someone by name',
+    inputSchema: z.object({ name: z.string() }),
+  },
+  async ({ name }) => ({
+    content: [{ type: 'text', text: `Hello, ${name}!` }],
+  }),
+);
+
+// 3. Create routing transport (NEW &mdash; just swap the transport class)
+const transport = new HTTPVersionRoutingTransport({
+  sessionIdGenerator: () => crypto.randomUUID(),
+});
+
+// 4. Connect (UNCHANGED &mdash; server.connect() passes handler registry
+//    to the transport internally, just like it already passes onmessage)
+await server.connect(transport);
+
+// 5. Wire up HTTP (SIMPLIFIED &mdash; transport handles version detection
+//    and per-session lifecycle internally)
+const app = express();
+app.all('/mcp', async (req, res) => {
+  await transport.handleRequest(req, res);
+});
+
+app.listen(3000);</code></pre>
+
+<h4>Server (stdio, dual-version)</h4>
+
+<pre><code>import { McpServer } from '@modelcontextprotocol/server';
+import { StdioVersionRoutingTransport } from '@modelcontextprotocol/server/stdio';
+import * as z from 'zod/v4';
+
+// 1. Create McpServer (UNCHANGED)
+const server = new McpServer({ name: 'greeting-server', version: '1.0.0' });
+
+// 2. Register a tool (UNCHANGED)
+server.registerTool('greet', {
+  description: 'Greet someone by name',
+  inputSchema: z.object({ name: z.string() }),
+}, async ({ name }) => ({
+  content: [{ type: 'text', text: `Hello, ${name}!` }],
+}));
+
+// 3. Create routing transport and connect (just swap the class)
+const transport = new StdioVersionRoutingTransport();
+await server.connect(transport);</code></pre>
+
+<div class="info">
+<strong>How <code>server.connect()</code> works:</strong> Today, <code>connect()</code> already passes information from the server to the transport (<code>onmessage</code>, <code>setSupportedProtocolVersions</code>). The routing transport extends this &mdash; during <code>connect()</code>, McpServer detects it's a routing transport and also passes the handler registry (tools, resources, prompts, server info, capabilities). The transport uses this to create per-session legacy server instances and a single modern server instance internally. No new concepts for the user.
+<br/><br/>
+<strong>Under the hood (HTTP):</strong> The routing transport absorbs the session map boilerplate that users currently write manually in <code>simpleStreamableHttp.ts</code>: it creates a <code>WebStandardStreamableHTTPServerTransport</code> + legacy protocol handler per legacy session, and a single modern transport + modern protocol handler for all 2026-06 requests.
+<br/><br/>
+<strong>Under the hood (stdio):</strong> The routing transport detects the version from the first message, creates the appropriate legacy or modern protocol handler, and locks for the connection lifetime.
+</div>
+
+<h3>0.3 Approach A: Client connecting (both protocol versions)</h3>
+
+<div class="verdict">
+<strong>Same pattern as server side: swap the transport class.</strong> The <code>Client</code> class is unchanged. A <code>VersionProbingHTTPClientTransport</code> replaces <code>StreamableHTTPClientTransport</code> and handles version detection, <code>_meta</code> injection, and MRTR retry loops internally.
+</div>
+
+<pre><code>import { Client } from '@modelcontextprotocol/client';
+import { VersionProbingHTTPClientTransport } from '@modelcontextprotocol/client';
+
+// 1. Client class is UNCHANGED
+const client = new Client({ name: 'my-client', version: '1.0.0' });
+
+// 2. Swap the transport class (only change)
+const transport = new VersionProbingHTTPClientTransport(
+  new URL('http://localhost:3000/mcp')
+);
+
+// 3. connect() is UNCHANGED &mdash; transport handles version probing internally:
+//    - Probes server/discover first
+//    - If server responds: modern mode (inject _meta, handle MRTR)
+//    - If -32601 or 400: legacy mode (initialize handshake, pass-through)
+await client.connect(transport);
+
+// 4. callTool() is UNCHANGED &mdash; works regardless of server version
+const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
+console.log(result.content[0].text); // "Hello, World!"
+
+await transport.close();</code></pre>
+
+<div class="info">
+<strong>What the transport does internally:</strong>
+<ul>
+<li><strong>Version probing:</strong> During <code>start()</code>, probes <code>server/discover</code>. If the server responds, switches to modern mode. If <code>-32601</code> or <code>400</code>, stays in legacy mode.</li>
+<li><strong>Handshake interception:</strong> In modern mode, when <code>Client.connect()</code> tries to send <code>initialize</code>, the transport intercepts it and sends <code>server/discover</code> instead, translating the response back into <code>InitializeResult</code> shape. The Client is unaware.</li>
+<li><strong><code>_meta</code> injection:</strong> In modern mode, every outgoing request automatically gets <code>_meta.protocolVersion</code>, <code>_meta.clientCapabilities</code>, <code>_meta.clientInfo</code>, plus the <code>Mcp-Method</code> header.</li>
+<li><strong>MRTR retry loop:</strong> If the response is <code>IncompleteResult</code>, the transport resolves the input requests (using registered elicitation/sampling handlers), retries automatically, and returns only the final <code>CallToolResult</code>.</li>
+</ul>
+</div>
+
+<h4>Legacy-only client (existing code works unchanged)</h4>
+
+<pre><code>import { Client } from '@modelcontextprotocol/client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+
+// Existing client code connecting to a legacy-only server &mdash; no changes needed
+const client = new Client({ name: 'my-client', version: '1.0.0' });
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'));
+await client.connect(transport);
+
+const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
+console.log(result.content[0].text); // "Hello, World!"</code></pre>
+
+<h4>stdio client</h4>
+
+<pre><code>import { Client } from '@modelcontextprotocol/client';
+import { VersionProbingStdioClientTransport } from '@modelcontextprotocol/client/stdio';
+
+// Same pattern: Client unchanged, swap the transport class
+const client = new Client({ name: 'my-client', version: '1.0.0' });
+const transport = new VersionProbingStdioClientTransport({ command: 'greeting-server' });
+
+await client.connect(transport);
+
+const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
+console.log(result.content[0].text); // "Hello, World!"</code></pre>
+
+<h3>0.5 What changed vs. what stayed the same</h3>
+
+<table>
+<thead><tr><th>API surface</th><th>Changed?</th><th>Details</th></tr></thead>
+<tbody>
+<tr class="green"><td><code>McpServer</code> constructor</td><td>No</td><td>Same <code>{ name, version }</code> + options</td></tr>
+<tr class="green"><td><code>server.registerTool()</code></td><td>No</td><td>Same name, config, callback signature</td></tr>
+<tr class="green"><td>Tool handler callback</td><td>No</td><td>Same <code>(args, ctx) => CallToolResult</code></td></tr>
+<tr class="green"><td><code>ctx</code> in handler</td><td>No</td><td>Same <code>ServerContext</code> shape. <code>elicitInput()</code>, <code>log()</code>, etc. work on both versions.</td></tr>
+<tr class="yellow"><td>Transport class</td><td>Swap</td><td><code>HTTPVersionRoutingTransport</code> replaces <code>NodeStreamableHTTPServerTransport</code>.<br/><code>StdioVersionRoutingTransport</code> replaces <code>StdioServerTransport</code>.</td></tr>
+<tr class="green"><td><code>server.connect(transport)</code></td><td>No</td><td>Same call. Internally passes handler registry to routing transports.</td></tr>
+<tr class="yellow"><td>Express handler</td><td>Simplified</td><td><code>transport.handleRequest(req, res)</code> &mdash; one line, no session management</td></tr>
+<tr class="green"><td><code>Client</code> class</td><td>No</td><td>Same class for both protocol versions</td></tr>
+<tr class="yellow"><td>Client transport class</td><td>Swap</td><td><code>VersionProbingHTTPClientTransport</code> replaces <code>StreamableHTTPClientTransport</code>.<br/>Probes server version, injects <code>_meta</code>, handles MRTR retry loop internally.</td></tr>
+<tr class="green"><td><code>client.connect()</code></td><td>No</td><td>Same call. Transport handles version probing and protocol differences.</td></tr>
+<tr class="green"><td><code>client.callTool()</code></td><td>No</td><td>Same API. Transport handles <code>result_type</code> and MRTR transparently.</td></tr>
+</tbody>
+</table>
+
+<hr/>
+
+<h2>1. Architecture Overview</h2>
+
+<h3>1.1 Server side</h3>
+
+<pre class="mermaid">
+graph TD
+    MCP["<b>McpServer</b><br/>(unchanged &mdash; registers tools,<br/>resources, prompts)"]
+
+    MCP -->|"server.connect(transport)<br/>passes handler registry"| VRT
+
+    subgraph VRT["HTTPVersionRoutingTransport (internal)"]
+        direction TB
+        DET["detectVersion(req)"]
+        DET -->|"Mcp-Method present<br/>or _meta.protocolVersion"| MOD_PATH
+        DET -->|"Mcp-Session-Id present<br/>or method = initialize"| LEG_PATH
+
+        subgraph MOD_PATH["Modern path (2026-06)"]
+            MT["ModernHTTPTransport<br/>(stateless)"]
+            MP["Modern protocol handler<br/>per-request _meta<br/>MRTR, result_type"]
+            MT --> MP
+        end
+
+        subgraph LEG_PATH["Legacy path (2025-11, per session)"]
+            LT["WebStandardStreamable...<br/>(existing, frozen)"]
+            LP["Protocol + Server<br/>(existing, frozen)"]
+            LT --> LP
+        end
+    end
+
+    MP -->|"reads"| HR["<b>Handler Registry</b><br/>(extracted from McpServer)"]
+    LP -->|"reads"| HR
+
+    REQ(("HTTP Request")) --> DET
+
+    style MCP fill:#eff6ff,stroke:#3b82f6,stroke-width:2px
+    style VRT fill:#f8fafc,stroke:#94a3b8,stroke-width:1px
+    style HR fill:#f3e8ff,stroke:#9333ea,stroke-width:2px
+    style MOD_PATH fill:#d1fae5,stroke:#16a34a,stroke-width:1px
+    style LEG_PATH fill:#fef3c7,stroke:#f59e0b,stroke-width:1px
+</pre>
+
+<h3>1.2 Client side</h3>
+
+<pre class="mermaid">
+graph TD
+    CLI["<b>Client</b><br/>(unchanged)"]
+
+    CLI -->|"client.connect(transport)"| VPC
+
+    subgraph VPC["VersionProbingHTTPClientTransport (internal)"]
+        direction TB
+        PROBE["Probe: server/discover"]
+        PROBE -->|"success"| MOD_C["Modern mode<br/>inject _meta per request<br/>handle IncompleteResult<br/>MRTR retry loop"]
+        PROBE -->|"-32601 or 400"| LEG_C["Legacy mode<br/>pass-through to<br/>StreamableHTTPClientTransport"]
+    end
+
+    style CLI fill:#eff6ff,stroke:#3b82f6,stroke-width:2px
+    style VPC fill:#f8fafc,stroke:#94a3b8,stroke-width:1px
+    style MOD_C fill:#d1fae5,stroke:#16a34a,stroke-width:1px
+    style LEG_C fill:#fef3c7,stroke:#f59e0b,stroke-width:1px
+</pre>
+
+<p><strong>The user sees two unchanged classes</strong> (<code>McpServer</code> and <code>Client</code>) connected to new transport classes. All version detection, protocol adaptation, session management, and MRTR handling happen inside the transports. The internal "modern protocol handler" and "legacy protocol handler" are implementation details &mdash; not user-facing concepts.</p>
+
+<hr/>
+
+<h2>2. Version Detection Algorithm</h2>
+
+<p>For HTTP, detection is a <strong>single header check</strong> with no ambiguity. The 2026-06 spec makes <code>Mcp-Method</code> a required header on every request. This header did not exist in 2025-11. Its presence or absence is the definitive signal &mdash; no body parsing needed.</p>
+
+<pre class="mermaid">
+flowchart TD
+    START(["Incoming HTTP request"]) --> H1{"Mcp-Method<br/>header present?"}
+    H1 -->|"Yes"| MODERN["Route to <b>modern path</b>"]
+    H1 -->|"No"| LEGACY["Route to <b>legacy path</b>"]
+
+    style MODERN fill:#d1fae5,stroke:#16a34a
+    style LEGACY fill:#fef3c7,stroke:#f59e0b
+</pre>
+
+<h3>2.1 Why there is no ambiguity</h3>
+
+<table>
+<thead><tr><th>Header</th><th>2025-11</th><th>2026-06</th><th>Conclusion</th></tr></thead>
+<tbody>
+<tr class="green"><td><code>Mcp-Method</code></td><td>Does not exist in the spec</td><td><strong>Required</strong> on every request (SEP-2243)</td><td>Presence = modern, absence = legacy. Sufficient on its own.</td></tr>
+<tr class="green"><td><code>MCP-Protocol-Version</code></td><td>Optional / advisory</td><td><strong>Required</strong>; must match <code>_meta.protocolVersion</code></td><td>Redundant confirmation. Not needed for routing.</td></tr>
+<tr class="green"><td><code>Mcp-Session-Id</code></td><td>Present (after init)</td><td>Does not exist (sessions removed)</td><td>Also sufficient, but only after the first request.</td></tr>
+</tbody>
+</table>
+
+<p>Even the first request from a 2025-11 client (the <code>initialize</code> request, which has no <code>Mcp-Session-Id</code> yet) is unambiguous: it won't have <code>Mcp-Method</code> either, because that header doesn't exist in 2025-11.</p>
+
+<div class="verdict">
+<strong>Performance:</strong> Version detection is always O(1) &mdash; a single header lookup on every request, including the first. No body parsing, no fallback logic, no ambiguous cases.
+</div>
+
+<h3>2.2 TypeScript sketch</h3>
+
+<pre><code>type ProtocolGeneration = 'legacy' | 'modern';
+
+function detectVersion(req: Request): ProtocolGeneration {
+  // Mcp-Method is required in 2026-06, does not exist in 2025-11.
+  // This single check is sufficient for all requests, including
+  // the first initialize request from a legacy client.
+  return req.headers.has('mcp-method') ? 'modern' : 'legacy';
+}</code></pre>
+
+<h3>2.3 stdio detection (body-based)</h3>
+
+<p>stdio has no HTTP headers, so detection falls back to inspecting the first message body. This only happens once (stdio locks on first message).</p>
+
+<pre><code>function detectVersionFromBody(msg: JSONRPCMessage): ProtocolGeneration {
+  if (isJSONRPCRequest(msg)) {
+    if (msg.method === 'initialize') return 'legacy';
+    if (msg.params?._meta?.protocolVersion) return 'modern';
+  }
+  return 'legacy'; // default for backward compat
+}</code></pre>
+
+<hr/>
+
+<h2>3. Server-Side: HTTP Request Flows</h2>
+
+<h3>3.1 Client speaking 2026-06 &mdash; <code>tools/call</code></h3>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Client (2026-06 transport)
+    participant VRT as VersionRoutingTransport
+    participant MT as ModernHTTPTransport
+    participant MP as Modern protocol handler
+    participant HR as HandlerRegistry
+
+    C->>VRT: POST /mcp<br/>Mcp-Method: tools/call<br/>MCP-Protocol-Version: 2026-06-30<br/>Body: {method: "tools/call", params: {name: "search", _meta: {protocolVersion, clientCapabilities, clientInfo}}}
+
+    VRT->>VRT: detectVersion(req)<br/>Mcp-Method present → modern
+
+    VRT->>MT: handleRequest(req)
+
+    MT->>MT: Extract _meta from body<br/>Build per-request context:<br/>capabilities, clientInfo, protocolVersion
+
+    MT->>MP: onmessage(msg, extra)
+
+    MP->>HR: lookup tool "search"
+    HR-->>MP: RegisteredTool
+
+    MP->>MP: Execute tool handler<br/>with normalized context
+
+    MP-->>MT: {result_type: "complete", content: [...]}
+
+    MT-->>VRT: Response (JSON)
+
+    VRT-->>C: 200 OK<br/>Content-Type: application/json
+</pre>
+
+<h3>3.2 Client speaking 2025-11 &mdash; initialization + <code>tools/call</code></h3>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Client (2025-11 transport)
+    participant VRT as VersionRoutingTransport
+    participant LT as LegacyTransport
+    participant LP as Legacy protocol handler
+    participant HR as HandlerRegistry
+
+    Note over C,HR: Phase 1: Initialize handshake
+
+    C->>VRT: POST /mcp<br/>Body: {method: "initialize", params: {protocolVersion: "2025-11-25", capabilities: {...}, clientInfo: {...}}}
+
+    VRT->>VRT: detectVersion(req)<br/>No Mcp-Method, no Mcp-Session-Id<br/>→ parse body → method=initialize → legacy
+
+    VRT->>LT: handleRequest(req)
+
+    LT->>LT: Detect initialize request<br/>Generate session ID<br/>Store in session map
+
+    LT->>LP: onmessage(msg, extra)
+
+    LP->>LP: _oninitialize()<br/>Store clientCapabilities<br/>Negotiate protocol version
+
+    LP-->>LT: InitializeResult {protocolVersion, capabilities, serverInfo}
+
+    LT-->>VRT: 200 OK, Mcp-Session-Id: abc-123
+
+    VRT-->>C: Response with session ID header
+
+    C->>VRT: POST /mcp (notifications/initialized)
+    Note over VRT: Mcp-Session-Id present → fast legacy path
+
+    Note over C,HR: Phase 2: Tool call with session
+
+    C->>VRT: POST /mcp<br/>Mcp-Session-Id: abc-123<br/>Body: {method: "tools/call", params: {name: "search", arguments: {q: "foo"}}}
+
+    VRT->>VRT: detectVersion(req)<br/>Mcp-Session-Id present → legacy
+
+    VRT->>LT: handleRequest(req)
+
+    LT->>LT: Validate session ID
+
+    LT->>LP: onmessage(msg, extra)
+
+    LP->>HR: lookup tool "search"
+    HR-->>LP: RegisteredTool
+
+    LP->>LP: Execute tool handler<br/>with session-based context
+
+    LP-->>LT: CallToolResult {content: [...]}
+
+    LT-->>VRT: SSE event stream or JSON response
+
+    VRT-->>C: 200 OK
+</pre>
+
+<hr/>
+
+<h2>4. Server-Side: stdio Handling</h2>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant STDIN as stdin
+    participant VRS as VersionRoutingStdioTransport
+    participant INNER as StdioServerTransport
+    participant SRV as Locked Server (legacy or modern)
+
+    STDIN->>VRS: First JSON-RPC message
+
+    VRS->>VRS: detectVersionFromBody(msg)
+
+    alt method = "initialize"
+        VRS->>VRS: Lock to legacy protocol handler<br/>for connection lifetime
+    else method = "server/discover" or _meta.protocolVersion present
+        VRS->>VRS: Lock to modern protocol handler<br/>for connection lifetime
+    end
+
+    VRS->>INNER: Forward message
+
+    INNER->>SRV: onmessage(msg)
+
+    SRV-->>INNER: Response
+
+    INNER-->>STDIN: Write to stdout
+
+    Note over STDIN,SRV: All subsequent messages go to the locked server
+
+    STDIN->>VRS: Subsequent messages
+    VRS->>INNER: Forward (no re-detection)
+    INNER->>SRV: onmessage(msg)
+</pre>
+
+<div class="info">
+<strong>Design decision:</strong> stdio locks on the first message and never re-evaluates. A single client connects via stdio; mid-connection version switching is explicitly forbidden. If the host process wants a different protocol version, it should spawn a new server process.
+</div>
+
+<h3>4.1 Implementation sketch</h3>
+
+<pre><code>class VersionRoutingStdioTransport {
+  private inner: StdioServerTransport;
+  private lockedVersion: ProtocolGeneration | null = null;
+  private legacyHandler: Server;      // existing Protocol+Server (frozen)
+  private modernHandler: ModernProtocolHandler;
+
+  constructor(registry: HandlerRegistry, stdin?: Readable, stdout?: Writable) {
+    this.inner = new StdioServerTransport(stdin, stdout);
+  }
+
+  async start(): Promise&lt;void&gt; {
+    // Intercept onmessage to detect version on first message
+    this.inner.onmessage = (msg, extra) => {
+      if (this.lockedVersion === null) {
+        this.lockedVersion = detectVersionFromBody(msg);
+        // Connect the correct protocol handler to the inner transport
+        const handler = this.lockedVersion === 'legacy'
+          ? this.legacyHandler : this.modernHandler;
+        // Wire onmessage to the selected protocol handler
+        this.inner.onmessage = handler.handleMessage.bind(handler);
+      }
+      // Forward this first message too
+      this.inner.onmessage!(msg, extra);
+    };
+    await this.inner.start();
+  }
+}</code></pre>
+
+<hr/>
+
+<h2>5. Client-Side: Version Probing (Inside the Transport)</h2>
+
+<p>The <code>Client</code> class is unchanged. All version probing happens inside the <code>VersionProbingHTTPClientTransport</code> (or <code>VersionProbingStdioClientTransport</code>). The transport detects which protocol version the server speaks and adapts its behavior accordingly.</p>
+
+<pre class="mermaid">
+flowchart TD
+    START(["Transport.start()"]) --> PROBE["Probe: send server/discover<br/>with _meta.protocolVersion"]
+
+    PROBE --> RESULT{"Response?"}
+    RESULT -->|"200 OK<br/>DiscoverResult"| USE_MODERN["Switch to modern mode<br/>inject _meta per request<br/>handle MRTR internally"]
+    RESULT -->|"400 Bad Request<br/>or -32601 Method not found"| USE_LEGACY["Stay in legacy mode<br/>pass-through behavior<br/>(initialize handshake via Client)"]
+    RESULT -->|"UnsupportedProtocolVersionError<br/>with supported[]"| NEGOTIATE["Retry with one of<br/>server's supported versions<br/>then switch to modern mode"]
+
+    style USE_MODERN fill:#d1fae5,stroke:#16a34a
+    style USE_LEGACY fill:#fef3c7,stroke:#f59e0b
+</pre>
+
+<h3>5.1 Transport implementation sketch</h3>
+
+<pre><code>class VersionProbingHTTPClientTransport implements Transport {
+  private mode: 'unknown' | 'legacy' | 'modern' = 'unknown';
+  private inner: StreamableHTTPClientTransport;
+  private serverCapabilities?: ServerCapabilities;
+
+  constructor(url: URL, options?: ClientTransportOptions) {
+    this.inner = new StreamableHTTPClientTransport(url, options);
+  }
+
+  async start(): Promise&lt;void&gt; {
+    await this.inner.start();
+
+    // Probe: try server/discover
+    try {
+      const result = await this.sendProbe();
+      this.mode = 'modern';
+      this.serverCapabilities = result.capabilities;
+    } catch (err) {
+      if (isMethodNotFound(err) || isBadRequest(err)) {
+        this.mode = 'legacy'; // Server is 2025-11
+      } else if (isUnsupportedVersionError(err)) {
+        // Server is modern but different version
+        this.mode = 'modern';
+        // Could retry with a supported version
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise&lt;void&gt; {
+    if (this.mode === 'modern') {
+      // Intercept initialize &rarr; translate to server/discover response
+      if (isInitializeRequest(message)) {
+        this.fakeInitializeResponse(message);
+        return;
+      }
+      // Inject _meta on every outgoing request
+      this.injectMeta(message);
+    }
+    // Legacy mode: pass through unchanged
+    await this.inner.send(message, options);
+  }
+
+  // When a response arrives, check for IncompleteResult (MRTR)
+  set onmessage(handler: Transport['onmessage']) {
+    this.inner.onmessage = (msg, extra) =&gt; {
+      if (this.mode === 'modern' &amp;&amp; isIncompleteResult(msg)) {
+        // Resolve inputs, retry, return final result
+        this.handleMRTR(msg, handler);
+        return;
+      }
+      handler?.(msg, extra);
+    };
+  }
+}</code></pre>
+
+<h3>5.2 HTTP client probing sequence</h3>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant CLI as Client (unchanged)
+    participant T as VersionProbingHTTPClientTransport
+    participant S as Server (unknown version)
+
+    Note over CLI,S: Phase 1: Transport probes during start()
+
+    T->>S: POST /mcp<br/>Mcp-Method: server/discover<br/>Body: {method: "server/discover", _meta: {...}}
+
+    alt Server is 2026-06
+        S-->>T: 200 OK {supportedVersions, capabilities}
+        T->>T: mode = 'modern'
+    else Server is 2025-11
+        S-->>T: 400 Bad Request (or -32601)
+        T->>T: mode = 'legacy'
+    end
+
+    Note over CLI,S: Phase 2: Client.connect() sends initialize
+
+    CLI->>T: send({method: "initialize", ...})
+
+    alt modern mode
+        T->>T: Intercept initialize<br/>Fake InitializeResult from cached DiscoverResult
+        T-->>CLI: InitializeResult (translated)
+    else legacy mode
+        T->>S: POST /mcp {method: "initialize", ...}
+        S-->>T: InitializeResult
+        T-->>CLI: InitializeResult (pass-through)
+    end
+
+    Note over CLI,S: Phase 3: Normal operation
+
+    CLI->>T: send({method: "tools/call", ...})
+
+    alt modern mode
+        T->>T: Inject _meta + Mcp-Method header
+        T->>S: POST /mcp with _meta
+        S-->>T: {result_type: "complete", content: [...]}
+        T-->>CLI: CallToolResult (normalized)
+    else legacy mode
+        T->>S: POST /mcp (pass-through)
+        S-->>T: CallToolResult
+        T-->>CLI: CallToolResult (pass-through)
+    end
+</pre>
+
+<hr/>
+
+<h2>6. Handler Registry: Reusing What Protocol Already Has</h2>
+
+<p><code>Protocol</code> already maintains <code>_requestHandlers: Map&lt;string, Handler&gt;</code> &mdash; the same Map type on both <code>Client</code> and <code>Server</code>. The handler registry is not a new class to invent. We expose what <code>Protocol</code> already has, and pass it to the transport during <code>connect()</code>.</p>
+
+<h3>6.1 The insight: one mechanism, both sides</h3>
+
+<pre class="mermaid">
+graph TD
+    subgraph "Server side"
+        MCP["McpServer<br/>registers tools/resources/prompts"]
+        MCP -->|"setRequestHandler()"| SPROTO["Protocol._requestHandlers<br/>tools/list, tools/call,<br/>resources/read, prompts/get, ..."]
+    end
+
+    subgraph "Client side"
+        CLI["Client<br/>registers elicitation/sampling/roots"]
+        CLI -->|"setRequestHandler()"| CPROTO["Protocol._requestHandlers<br/>elicitation/create,<br/>sampling/createMessage,<br/>roots/list"]
+    end
+
+    SPROTO -->|"connect() passes<br/>live reference"| SRT["HTTPVersionRoutingTransport<br/>uses handlers to dispatch<br/>to per-session protocol handlers"]
+
+    CPROTO -->|"connect() passes<br/>live reference"| CRT["VersionProbingHTTPClientTransport<br/>uses handlers to resolve<br/>MRTR inputRequests"]
+
+    style SPROTO fill:#f3e8ff,stroke:#9333ea,stroke-width:2px
+    style CPROTO fill:#f3e8ff,stroke:#9333ea,stroke-width:2px
+</pre>
+
+<h3>6.2 How connect() passes the registry</h3>
+
+<pre><code>// Protocol already has this Map — just add a getter:
+class Protocol {
+  private _requestHandlers: Map&lt;string, Handler&gt; = new Map();
+
+  getRequestHandlers(): ReadonlyMap&lt;string, Handler&gt; {
+    return this._requestHandlers;
+  }
+}
+
+// In Protocol.connect() — works for both Client and Server:
+async connect(transport: Transport): Promise&lt;void&gt; {
+  this._transport = transport;
+
+  // Existing: set callbacks
+  transport.onmessage = (msg, extra) =&gt; { /* ... */ };
+  transport.setSupportedProtocolVersions?.(this._supportedProtocolVersions);
+
+  // NEW: pass protocol config to routing transports
+  transport.setProtocolConfig?.({
+    requestHandlers: this._requestHandlers,  // live reference, same Map
+    serverInfo: this._serverInfo,            // undefined on Client
+    capabilities: this._capabilities,
+  });
+
+  await this._transport.start();
+}</code></pre>
+
+<div class="info">
+<strong>Why this works for both sides:</strong>
+<ul>
+<li><strong>Server transport</strong> receives handlers like <code>tools/call</code>, <code>resources/read</code>, <code>prompts/get</code>. Uses them to dispatch requests to per-session protocol handlers, and to respond to <code>server/discover</code> with capabilities.</li>
+<li><strong>Client transport</strong> receives handlers like <code>elicitation/create</code>, <code>sampling/createMessage</code>. Uses them to resolve MRTR <code>inputRequests</code> when the server returns <code>IncompleteResult</code>.</li>
+<li>The Map is a <strong>live reference</strong> &mdash; handlers registered after <code>connect()</code> are immediately visible. No copy, no sync needed.</li>
+<li><code>setProtocolConfig</code> is an <strong>optional method</strong> on the Transport interface. Regular transports ignore it. Only routing/probing transports implement it.</li>
+</ul>
+</div>
+
+<h3>6.3 How the client transport resolves MRTR</h3>
+
+<pre><code>// Inside VersionProbingHTTPClientTransport:
+private async resolveMRTR(
+  incompleteResult: IncompleteResult,
+  originalRequest: JSONRPCRequest,
+): Promise&lt;Result&gt; {
+  const inputResponses: InputResponse[] = [];
+
+  for (const inputReq of incompleteResult.inputRequests) {
+    // Look up the handler from the registry passed during connect()
+    const handler = this.requestHandlers.get(inputReq.type);
+    if (!handler) throw new Error(`No handler for input type: ${inputReq.type}`);
+
+    // Call it directly — same handler the Client registered
+    const result = await handler(
+      { method: inputReq.type, params: inputReq.params } as JSONRPCRequest,
+      { /* minimal context: signal, etc. */ }
+    );
+    inputResponses.push({ key: inputReq.key, result });
+  }
+
+  // Retry the original request with inputResponses
+  const retryParams = {
+    ...originalRequest.params,
+    requestState: incompleteResult.requestState,
+    inputResponses,
+  };
+  // Send retry via inner transport, may get another IncompleteResult (loop)
+  return this.sendAndMaybeRetry({ ...originalRequest, params: retryParams });
+}</code></pre>
+
+<h3>6.4 Context normalization</h3>
+
+<p>Both servers build a <code>ServerContext</code> for handler callbacks, but from different sources:</p>
+
+<table>
+<thead><tr><th>Context field</th><th>2025-11 (Legacy) source</th><th>2026-06 (Modern) source</th></tr></thead>
+<tbody>
+<tr><td><code>clientCapabilities</code></td><td>Session state (from <code>initialize</code>)</td><td><code>_meta.clientCapabilities</code> (per-request)</td></tr>
+<tr><td><code>clientInfo</code></td><td>Session state (from <code>initialize</code>)</td><td><code>_meta.clientInfo</code> (per-request)</td></tr>
+<tr><td><code>protocolVersion</code></td><td>Negotiated at <code>initialize</code></td><td><code>_meta.protocolVersion</code> (per-request)</td></tr>
+<tr><td><code>authInfo</code></td><td>From HTTP transport</td><td>From HTTP transport</td></tr>
+<tr><td><code>sessionId</code></td><td>From transport</td><td><code>undefined</code> (no sessions)</td></tr>
+<tr><td><code>log()</code></td><td>Sends <code>notifications/message</code> via SSE</td><td>Appends to response stream (in-band, only if <code>_meta.logLevel</code> set)</td></tr>
+<tr><td><code>elicitInput()</code></td><td>SSE push: <code>elicitation/create</code></td><td>MRTR: returns <code>IncompleteResult</code></td></tr>
+<tr><td><code>requestSampling()</code></td><td>SSE push: <code>sampling/createMessage</code></td><td>MRTR: returns <code>IncompleteResult</code></td></tr>
+</tbody>
+</table>
+
+<p>From the handler author's perspective, the <code>ServerContext</code> shape is identical. The adapter fills it from different sources depending on protocol version.</p>
+
+<hr/>
+
+<h2>7. MRTR Transparency</h2>
+
+<div class="warning">
+<strong>Key challenge:</strong> In 2026-06, server&rarr;client requests (elicitation, sampling) are replaced by MRTR (Multi-Round Tool Resolution). The server cannot push requests to the client. Instead, it returns <code>IncompleteResult</code> with <code>inputRequests</code>, and the client retries with <code>inputResponses</code>. Making this transparent to handler authors is the thorniest design problem.
+</div>
+
+<h3>7.1 The problem</h3>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant H as Tool Handler
+    participant LA as Legacy protocol handler
+    participant C as Client
+
+    Note over H,C: 2025-11: Simple async call
+    H->>LA: await ctx.elicitInput(params)
+    LA->>C: SSE push: elicitation/create
+    C-->>LA: ElicitResult
+    LA-->>H: returns ElicitResult
+    H->>H: Continue with result
+
+    Note over H,C: 2026-06: No push channel exists!
+    Note over H: How does elicitInput() work<br/>without a push channel?
+</pre>
+
+<h3>7.2 Solution: Exception-based continuation</h3>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Client (2026-06 transport)
+    participant MA as Modern protocol handler
+    participant H as Tool Handler
+
+    Note over C,H: Round 1: Handler needs input
+
+    C->>MA: tools/call {name: "search", args: {...}}
+    MA->>H: Execute handler(args, ctx)
+    H->>H: ... some work ...
+    H->>MA: await ctx.elicitInput(params)
+    MA->>MA: throw InputRequiredException<br/>{inputRequests, requestState}
+
+    Note over MA: Dispatch layer catches exception
+
+    MA-->>C: IncompleteResult {<br/>  result_type: "input_required",<br/>  inputRequests: [...],<br/>  requestState: "opaque-token"<br/>}
+
+    Note over C,H: Round 2: Client retries with input
+
+    C->>C: Resolve input locally<br/>(user prompt, model decision, etc.)
+
+    C->>MA: tools/call {name: "search", args: {...},<br/>  requestState: "opaque-token",<br/>  inputResponses: [{...}]}
+
+    MA->>H: Re-execute handler(args, ctx)
+    H->>H: ... same work (replayed) ...
+    H->>MA: await ctx.elicitInput(params)
+
+    Note over MA: inputResponses contains<br/>the resolved value for this elicitation
+
+    MA-->>H: returns ElicitResult (from inputResponses)
+    H->>H: Continue with result
+    H-->>MA: CallToolResult {content: [...]}
+    MA-->>C: {result_type: "complete", content: [...]}
+</pre>
+
+<h3>7.3 Implementation sketch</h3>
+
+<pre><code>class InputRequiredException extends Error {
+  constructor(
+    public readonly inputRequests: InputRequest[],
+    public readonly requestState: unknown,
+  ) {
+    super('Handler requires client input (MRTR flow)');
+  }
+}
+
+// Modern adapter's elicitInput implementation
+function createModernElicitInput(
+  inputResponses: InputResponse[] | undefined,
+  requestState: unknown,
+): (params: ElicitRequestParams) => Promise&lt;ElicitResult&gt; {
+  let callIndex = 0;
+
+  return async (params: ElicitRequestParams): Promise&lt;ElicitResult&gt; => {
+    const currentIndex = callIndex++;
+
+    // Check if this elicitation was resolved in a prior round
+    if (inputResponses &amp;&amp; currentIndex &lt; inputResponses.length) {
+      return inputResponses[currentIndex].result as ElicitResult;
+    }
+
+    // Not resolved yet: throw to trigger IncompleteResult
+    throw new InputRequiredException(
+      [{ type: 'elicitation', params }],
+      requestState,
+    );
+  };
+}
+
+// In the modern dispatch layer:
+async function dispatchModern(
+  method: string, params: any, registry: HandlerRegistry
+): Promise&lt;Result&gt; {
+  try {
+    const result = await executeHandler(method, params, registry);
+    return { result_type: 'complete', ...result };
+  } catch (err) {
+    if (err instanceof InputRequiredException) {
+      return {
+        result_type: 'input_required',
+        inputRequests: err.inputRequests,
+        requestState: err.requestState,
+      };
+    }
+    throw err;
+  }
+}</code></pre>
+
+<h3>7.4 Idempotency implications</h3>
+
+<table>
+<thead><tr><th>Scenario</th><th>Impact</th><th>Mitigation</th></tr></thead>
+<tbody>
+<tr class="green"><td>Handler never calls <code>elicitInput</code>/<code>requestSampling</code></td><td>100% transparent. No replay. No issues.</td><td>None needed.</td></tr>
+<tr class="yellow"><td>Handler calls <code>elicitInput</code> once, no side effects before it</td><td>Handler replayed once. No observable difference.</td><td>None needed.</td></tr>
+<tr class="red"><td>Handler has side effects before <code>elicitInput</code></td><td>Side effects execute twice (or more).</td><td>Use <code>requestState</code> to track completed steps. Handler can skip already-completed work on replay.</td></tr>
+<tr class="red"><td>Handler calls <code>elicitInput</code> multiple times</td><td>Handler replayed for each round. Prior elicitations return cached results from <code>inputResponses</code>; only the new one throws.</td><td>Call index tracking (shown above). Handler appears to execute sequentially.</td></tr>
+</tbody>
+</table>
+
+<div class="info">
+<strong>Handler author guidance:</strong> For the vast majority of tools that don't use elicitation or sampling, the MRTR mechanism is completely invisible. For tools that do, the guidance is: "your handler may be called multiple times for a single logical request. Use <code>requestState</code> if you have side effects before the elicitation call."
+</div>
+
+<hr/>
+
+<h2>8. Legacy Code Handling Strategies</h2>
+
+<p>Both Protocol/Server and the existing transport code need a handling strategy. Here are three options with trade-offs specific to Approach A:</p>
+
+<h3>8.1 Literally frozen</h3>
+
+<table>
+<thead><tr><th>Dimension</th><th>Assessment</th></tr></thead>
+<tbody>
+<tr class="green"><td>Risk to legacy clients</td><td>Zero. No code changes, no regressions possible.</td></tr>
+<tr class="green"><td>Review burden</td><td>None. Frozen code needs no review.</td></tr>
+<tr class="red"><td>HandlerRegistry extraction</td><td>Cannot extract from McpServer without changing it. Must build a separate shim that reads McpServer's internal state or duplicates registrations.</td></tr>
+<tr class="red"><td>Interface fit</td><td>The existing <code>Server.connect(transport)</code> contract works as-is with the inner legacy transport. But McpServer's lazy <code>setRequestHandler</code> installation means the registry concept must be built around it, not inside it.</td></tr>
+<tr class="yellow"><td>Approach A compatibility</td><td>Good. The inner legacy transport connects to the frozen Server normally. The routing transport wraps it without any changes to legacy code.</td></tr>
+</tbody>
+</table>
+
+<p><strong>How it works:</strong> The <code>VersionRoutingTransport</code> wraps the existing <code>WebStandardStreamableHTTPServerTransport</code> as a black box. Tool handlers are registered via a new <code>HandlerRegistryShim</code> that intercepts McpServer registrations and mirrors them to the modern server.</p>
+
+<h3>8.2 Refactor for interface fit</h3>
+
+<table>
+<thead><tr><th>Dimension</th><th>Assessment</th></tr></thead>
+<tbody>
+<tr class="green"><td>HandlerRegistry extraction</td><td>Clean extraction. McpServer's <code>_registeredTools</code> etc. move into a shared <code>HandlerRegistry</code> class. Both servers read from it.</td></tr>
+<tr class="green"><td>Code organization</td><td>Better separation of concerns. Protocol/Server/McpServer each have clearer responsibilities.</td></tr>
+<tr class="yellow"><td>Risk to legacy clients</td><td>Low-moderate. Internal restructuring could introduce subtle bugs. Mitigated by comprehensive test suite.</td></tr>
+<tr class="yellow"><td>Review burden</td><td>Moderate. Refactoring changes need careful review to ensure behavioral equivalence.</td></tr>
+<tr class="green"><td>Approach A compatibility</td><td>Natural fit. The refactored Server accepts a <code>HandlerRegistry</code> in its constructor, making the shared registry explicit.</td></tr>
+</tbody>
+</table>
+
+<p><strong>How it works:</strong> Extract <code>_registeredTools</code>, <code>_registeredResources</code>, <code>_registeredPrompts</code> and the associated dispatch logic from McpServer into a standalone <code>HandlerRegistry</code> class. McpServer becomes a thin facade. Both the legacy and modern protocol handlers (internal to the routing transport) read from the same HandlerRegistry instance.</p>
+
+<h3>8.3 Copy and freeze</h3>
+
+<table>
+<thead><tr><th>Dimension</th><th>Assessment</th></tr></thead>
+<tbody>
+<tr class="green"><td>Risk to legacy clients</td><td>Zero. Frozen copy is a snapshot.</td></tr>
+<tr class="green"><td>Independence</td><td>Maximum. Legacy and modern evolve completely independently.</td></tr>
+<tr class="red"><td>Code duplication</td><td>High. Protocol, Server, McpServer, transport &mdash; all duplicated. Bug fixes must be applied in two places.</td></tr>
+<tr class="red"><td>Handler sharing</td><td>Requires a compatibility layer between the frozen copy's handler types and the modern handler types. Type drift over time.</td></tr>
+<tr class="yellow"><td>Approach A compatibility</td><td>Works but wasteful. Two copies of transport, protocol, server when the routing transport already provides isolation.</td></tr>
+</tbody>
+</table>
+
+<p><strong>How it works:</strong> Fork the current <code>Protocol</code>, <code>Server</code>, <code>McpServer</code>, and transport code into a <code>legacy/</code> directory. The original files evolve freely for 2026-06. The frozen copy serves legacy clients until 2025-11 is deprecated.</p>
+
+<h3>8.4 Recommendation for Approach A</h3>
+
+<div class="verdict">
+<strong>Recommended: Refactor for interface fit.</strong> The <code>HandlerRegistry</code> extraction is essential for the shared-handler architecture. Without it, handler registration requires either duplication or a brittle shim. The refactoring risk is manageable with the existing test suite, and the result is cleaner code organization that serves both protocol versions naturally.
+</div>
+
+<hr/>
+
+<h2>9. Wiring: How It All Connects</h2>
+
+<h3>9.1 User-facing API</h3>
+
+<pre><code>import { McpServer } from '@modelcontextprotocol/server';
+import { HTTPVersionRoutingTransport } from '@modelcontextprotocol/server';
+
+// 1. Create McpServer (unchanged)
+const mcpServer = new McpServer({ name: 'my-server', version: '1.0.0' });
+
+// 2. Register tools (unchanged)
+mcpServer.registerTool('search', {
+  inputSchema: z.object({ query: z.string() }),
+}, async ({ query }) => {
+  return { content: [{ type: 'text', text: `Results for: ${query}` }] };
+});
+
+// 3. Swap transport class (only change)
+const transport = new HTTPVersionRoutingTransport({
+  sessionIdGenerator: () => randomUUID(),
+});
+
+// 4. Connect (unchanged &mdash; registry passed internally)
+await mcpServer.connect(transport);
+
+// 5. Framework integration (simplified)
+app.all('/mcp', (req, res) => transport.handleRequest(req, res));</code></pre>
+
+<h3>9.2 Internal wiring</h3>
+
+<pre class="mermaid">
+graph TD
+    subgraph "User Code"
+        U1["mcpServer.registerTool('search', ...)"]
+        U2["mcpServer.connect(transport)"]
+    end
+
+    subgraph "McpServer"
+        REG["Register into HandlerRegistry"]
+        CONN["connect() detects routing transport<br/>passes registry + server config"]
+    end
+
+    subgraph "HTTPVersionRoutingTransport"
+        VRT["handleRequest(req)"]
+        DET["detectVersion()"]
+        LIT["Inner: LegacyTransport<br/>(per session, created internally)"]
+        MIT["Inner: ModernTransport<br/>(single, created internally)"]
+    end
+
+    subgraph "Protocol handlers (created by transport)"
+        LS["Legacy handler<br/>(one per session)"]
+        MS["Modern handler<br/>(single instance)"]
+    end
+
+    subgraph "Shared"
+        HR["HandlerRegistry"]
+    end
+
+    U1 --> REG --> HR
+    U2 --> CONN
+
+    CONN -->|"passes registry"| VRT
+
+    VRT -->|"creates per session"| LS
+    VRT -->|"creates once"| MS
+
+    LS --> LIT
+    MS --> MIT
+
+    LS -->|"reads handlers"| HR
+    MS -->|"reads handlers"| HR
+
+    VRT --> DET
+    DET -->|legacy| LIT
+    DET -->|modern| MIT
+
+    style HR fill:#f3e8ff,stroke:#9333ea,stroke-width:2px
+    style VRT fill:#dbeafe,stroke:#2563eb,stroke-width:2px
+</pre>
+
+<hr/>
+
+<h2>10. Risk Analysis</h2>
+
+<table>
+<thead><tr><th>Risk</th><th>Severity</th><th>Likelihood</th><th>Mitigation</th></tr></thead>
+<tbody>
+<tr class="green"><td>Version detection fails (unknown client)</td><td>Medium</td><td>Low</td><td>Default to legacy. Legacy handles unknown methods gracefully. Log a warning.</td></tr>
+<tr class="yellow"><td>Two Protocol instances share message ID space</td><td>Medium</td><td>Medium</td><td>Each Server has its own <code>_requestMessageId</code> counter. For stdio (single channel), only one is active. For HTTP, each request gets its own response stream, so IDs don't collide.</td></tr>
+<tr class="yellow"><td>HandlerRegistry extraction introduces regressions</td><td>High</td><td>Low</td><td>Pure refactoring with comprehensive test coverage. Run full test suite after extraction.</td></tr>
+<tr class="red"><td>MRTR replay causes side effects</td><td>High</td><td>Medium</td><td>Document clearly. Provide <code>requestState</code> helpers for idempotency. Most tools don't use elicitation, so blast radius is limited.</td></tr>
+<tr class="green"><td>Performance overhead of version detection</td><td>Low</td><td>Low</td><td>Header lookup is O(1). Body parse only on first legacy request. Negligible.</td></tr>
+<tr class="yellow"><td>Transport.send() routing for responses</td><td>Medium</td><td>Low</td><td>Each inner transport has its own <code>send()</code> and stream mappings. The routing transport delegates to the inner transport, not to a shared send function.</td></tr>
+<tr class="yellow"><td>Spec changes before 2026-06 finalization</td><td>Medium</td><td>Medium</td><td>Modern protocol handler + modern inner transport are the only affected components. Legacy is frozen. Changes are contained.</td></tr>
+<tr class="green"><td>Legacy removal when 2025-11 is deprecated</td><td>Low</td><td>Certain (eventually)</td><td>Delete legacy inner transport + legacy protocol handler + detection branch from routing transport. Clean cut, no entanglement.</td></tr>
+</tbody>
+</table>
+
+<hr/>
+
+<h2>11. Comparison with Approach B</h2>
+
+<table>
+<thead><tr><th>Dimension</th><th>Approach A (Transport Fork)</th><th>Approach B (Version Router)</th></tr></thead>
+<tbody>
+<tr><td><strong>Fork point</strong></td><td>Inside the transport layer</td><td>New layer above the transport</td></tr>
+<tr><td><strong>HTTP handling</strong></td><td>Each inner transport handles its own HTTP concerns (SSE, sessions, response construction)</td><td>Router handles HTTP routing; transports handle protocol</td></tr>
+<tr><td><strong>New abstractions</strong></td><td>VersionRoutingTransport (~400-600 lines, composes inner transports)</td><td>VersionRouter (new layer with HTTP handling)</td></tr>
+<tr><td><strong>Legacy code changes</strong></td><td>Depends on strategy (frozen: none; refactored: moderate)</td><td>None required (router wraps legacy as black box)</td></tr>
+<tr><td><strong>Framework integration</strong></td><td><code>transport.handleRequest(req)</code> (same pattern as today)</td><td><code>router.handleRequest(req)</code> (new entry point)</td></tr>
+<tr><td><strong>Session management</strong></td><td>Stays inside the legacy transport</td><td>Split: router manages session lookup; transport manages session state</td></tr>
+<tr><td><strong>stdio handling</strong></td><td>VersionRoutingStdioTransport wraps StdioServerTransport</td><td>Router intercepts stdin before transport sees it</td></tr>
+</tbody>
+</table>
+
+<hr/>
+
+<h2>12. Open Issues from Architecture Review</h2>
+
+<p>Issues identified by Software Architect and Backend Architect reviews. Items marked <span class="con">RESOLVED</span> have solutions; items marked <span class="pro">OPEN</span> need further design work.</p>
+
+<h3>12.1 <span class="con">RESOLVED</span> &mdash; MRTR handler access on client side</h3>
+
+<p><strong>Problem:</strong> The client transport needs to resolve MRTR <code>inputRequests</code> but has no access to the Client's registered elicitation/sampling handlers.</p>
+
+<p><strong>Resolution:</strong> Reuse the same handler registry mechanism as the server side. <code>Protocol</code> already has <code>_requestHandlers</code>. During <code>connect()</code>, pass a live reference to the transport via <code>setProtocolConfig()</code>. See Section 6.</p>
+
+<h3>12.2 <span class="con">RESOLVED</span> &mdash; connect() registry passing mechanism</h3>
+
+<p><strong>Problem:</strong> How does the transport receive the handler registry without polluting the Transport interface?</p>
+
+<p><strong>Resolution:</strong> Add an optional <code>setProtocolConfig?(config)</code> method to the Transport interface. <code>Protocol.connect()</code> calls it if present. Regular transports ignore it. Same mechanism for both client and server. See Section 6.2.</p>
+
+<h3>12.3 <span class="con">RESOLVED</span> &mdash; fakeInitializeResponse timing</h3>
+
+<p><strong>Problem:</strong> The client transport intercepts <code>initialize</code> in <code>send()</code> and returns early. But <code>Client.connect()</code> calls <code>this.request()</code> which waits for a response via <code>_responseHandlers</code>. Returning early from <code>send()</code> causes the Client to hang.</p>
+
+<p><strong>Resolution:</strong> The transport must synthesize a JSON-RPC response and deliver it asynchronously via <code>onmessage</code>:</p>
+
+<pre><code>async send(message: JSONRPCMessage): Promise&lt;void&gt; {
+  if (this.mode === 'modern' &amp;&amp; isInitializeRequest(message)) {
+    // Synthesize InitializeResult from cached DiscoverResult
+    const fakeResponse: JSONRPCResponse = {
+      jsonrpc: '2.0',
+      id: (message as JSONRPCRequest).id,
+      result: {
+        protocolVersion: this.negotiatedVersion,
+        capabilities: this.cachedDiscoverResult.capabilities,
+        serverInfo: this.cachedDiscoverResult.serverInfo,
+        instructions: this.cachedDiscoverResult.instructions,
+      },
+    };
+    // Deliver asynchronously to avoid re-entrance
+    queueMicrotask(() =&gt; this.onmessage?.(fakeResponse));
+    return;
+  }
+  // ...
+}</code></pre>
+
+<h3>12.4 <span class="pro">OPEN</span> &mdash; Session lifecycle management</h3>
+
+<p><strong>Problem:</strong> The routing transport creates per-session legacy stacks (~50-100KB each). No cleanup mechanism is specified for abandoned sessions (client disconnects without sending DELETE).</p>
+
+<p><strong>Required:</strong></p>
+<ul>
+<li>Session-to-inner-transport map with configurable idle TTL</li>
+<li>Maximum concurrent session limit (reject new <code>initialize</code> when full)</li>
+<li>DELETE request routing to correct inner transport + cleanup</li>
+<li>Periodic sweep for timed-out sessions</li>
+<li><code>onsessionclosed</code> callback for both explicit DELETE and idle timeout</li>
+</ul>
+
+<h3>12.5 <span class="pro">OPEN</span> &mdash; Notification routing for modern path</h3>
+
+<p><strong>Problem:</strong> In 2025-11, <code>list_changed</code> and logging push via SSE. In 2026-06, these move to <code>subscriptions/listen</code> (opt-in) and in-band logging (per-request). The design does not specify how the modern protocol handler delivers these.</p>
+
+<p><strong>Required:</strong></p>
+<ul>
+<li>Modern path: implement <code>subscriptions/listen</code> as a long-lived POST with SSE response</li>
+<li>In-band logging: <code>log()</code> appends to the current request's response stream, only if <code>_meta.logLevel</code> was set</li>
+<li>Progress: <code>notifications/progress</code> is in-band on the request stream (unchanged but scoping matters)</li>
+<li>When a tool is dynamically added, legacy sessions get a <code>list_changed</code> push; modern subscribers get notified via their <code>subscriptions/listen</code> stream</li>
+</ul>
+
+<h3>12.6 <span class="pro">OPEN</span> &mdash; MRTR deterministic elicitation ordering</h3>
+
+<p><strong>Problem:</strong> The call-index scheme (Section 7.3) assumes handlers call <code>elicitInput()</code> in the same deterministic order on every replay. Data-dependent branching can break this.</p>
+
+<p><strong>Options:</strong></p>
+<ul>
+<li><strong>Named keys:</strong> Use <code>inputRequests[].key</code> / <code>inputResponses[].key</code> instead of positional indexing. Handlers provide a stable key per elicitation call.</li>
+<li><strong>Document as constraint:</strong> "Handlers with data-dependent branching between elicitation calls are not safely supported under MRTR replay. Use <code>requestState</code> to ensure deterministic ordering."</li>
+</ul>
+
+<h3>12.7 <span class="pro">OPEN</span> &mdash; GET/DELETE routing and standalone SSE</h3>
+
+<p><strong>Problem:</strong> The routing transport handles POST requests. But legacy clients also use GET (standalone SSE stream) and DELETE (session termination). These must be routed to the correct inner transport by session ID.</p>
+
+<h3>12.8 Complexity estimate</h3>
+
+<p>Both reviewers noted the "~200 lines" estimate for the routing transport is too low. Realistic estimate with session management, GET/DELETE routing, and lifecycle: <strong>400-600 lines</strong> for the HTTP routing transport, plus ~150 lines for the stdio variant.</p>
+
+<hr/>
+
+<h2>13. Summary</h2>
+
+<div class="verdict">
+<p><strong>Approach A: swap the transport class, everything else stays the same.</strong></p>
+<ul>
+<li><strong>User-facing API:</strong> <code>McpServer</code>, <code>Client</code>, tool handlers, and <code>connect()</code> are unchanged. The only change is the transport class import.</li>
+<li><strong>Server side:</strong> <code>HTTPVersionRoutingTransport</code> detects version via <code>Mcp-Method</code> header (O(1), no ambiguity), manages per-session legacy stacks and a single modern handler internally.</li>
+<li><strong>Client side:</strong> <code>VersionProbingHTTPClientTransport</code> probes <code>server/discover</code>, intercepts handshakes, injects <code>_meta</code>, resolves MRTR via the shared handler registry.</li>
+<li><strong>Handler registry:</strong> <code>Protocol._requestHandlers</code> is exposed via <code>setProtocolConfig()</code> during <code>connect()</code> &mdash; the same mechanism and same Map type on both client and server.</li>
+<li><strong>MRTR:</strong> Exception-based continuation on the server side; direct handler invocation from the registry on the client side. Transparent for the 95% of tools that don't use elicitation/sampling.</li>
+</ul>
+
+<p><strong>Validated by review:</strong> Version detection, per-session legacy stacks, stdio locking, clean removal path, handler registry approach.</p>
+
+<p><strong>Open items:</strong> Session lifecycle management (TTL, cleanup), notification routing for modern path (subscriptions/listen, in-band logging), GET/DELETE routing, MRTR deterministic ordering constraint.</p>
+
+<p><strong>Estimated complexity:</strong> ~400-600 lines for HTTP routing transport, ~150 lines for stdio variant.</p>
+</div>
+
+</body></html>

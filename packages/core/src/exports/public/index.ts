@@ -51,17 +51,12 @@ export type {
 } from '../../shared/protocol.js';
 export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
 
-// Task manager types (NOT TaskManager class itself — internal)
-export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from '../../shared/taskManager.js';
-
 // Response message types
 export type {
     BaseResponseMessage,
     ErrorMessage,
     ResponseMessage,
-    ResultMessage,
-    TaskCreatedMessage,
-    TaskStatusMessage
+    ResultMessage
 } from '../../shared/responseMessage.js';
 export { takeResult, toArrayAsync } from '../../shared/responseMessage.js';
 
@@ -92,7 +87,6 @@ export {
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
-    RELATED_TASK_META_KEY,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../../types/constants.js';
 
@@ -114,28 +108,8 @@ export {
     isJSONRPCRequest,
     isJSONRPCResponse,
     isJSONRPCResultResponse,
-    isTaskAugmentedRequestParams,
     parseJSONRPCMessage
 } from '../../types/guards.js';
-
-// Experimental task types and classes
-export { assertClientRequestTaskCapability, assertToolsCallTaskCapability } from '../../experimental/tasks/helpers.js';
-export type {
-    BaseQueuedMessage,
-    CreateTaskOptions,
-    CreateTaskServerContext,
-    QueuedError,
-    QueuedMessage,
-    QueuedNotification,
-    QueuedRequest,
-    QueuedResponse,
-    TaskMessageQueue,
-    TaskServerContext,
-    TaskStore,
-    TaskToolExecution
-} from '../../experimental/tasks/interfaces.js';
-export { isTerminal } from '../../experimental/tasks/interfaces.js';
-export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
 
 // Validator types and classes
 export type { SpecTypeName, SpecTypes } from '../../types/specTypeSchema.js';

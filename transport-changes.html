@@ -1,0 +1,217 @@
+<!doctype html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>MCP 2025-11 → 2026-06 Transport Changes</title><style>
+body { font-family: -apple-system, system-ui, sans-serif; max-width: 1400px; margin: 1.5em auto; padding: 0 1.5em; line-height: 1.55; color: #1a1a1a; }
+h1 { border-bottom: 3px solid #333; padding-bottom: .3em; }
+h2 { margin-top: 2.2em; border-bottom: 1px solid #ccc; padding-bottom: .2em; }
+h3 { margin-top: 1.6em; color: #444; }
+table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .94em; }
+th, td { border: 1px solid #ddd; padding: .55em .7em; text-align: left; vertical-align: top; }
+th { background: #f4f4f4; font-weight: 600; position: sticky; top: 0; }
+tr.tier-red { background: #fff1f0; } tr.tier-red td:first-child { border-left: 4px solid #d63031; }
+tr.tier-yellow { background: #fffbeb; } tr.tier-yellow td:first-child { border-left: 4px solid #f39c12; }
+tr.tier-green { background: #f0fdf4; } tr.tier-green td:first-child { border-left: 4px solid #27ae60; }
+code { background: #f3f3f3; padding: 1px 5px; border-radius: 3px; font-size: .92em; }
+hr { margin: 2em 0; border: none; border-top: 1px solid #ddd; }
+a { color: #0366d6; text-decoration: none; } a:hover { text-decoration: underline; }
+blockquote { border-left: 4px solid #0366d6; margin: 1em 0; padding: .5em 1em; background: #f0f6ff; color: #333; }
+ul { padding-left: 1.4em; } p { margin: .6em 0; }
+@media (max-width: 900px) { table { font-size: .85em; } th, td { padding: .4em; } }
+</style></head><body><h1>MCP Spec 2025-11-25 → 2026-06-30: Transport & Lifecycle Changes</h1>
+
+<p><strong>Purpose:</strong> Ground a design discussion on how to split SDK work for the 2026-06 spec. Covers everything that affects the connection model, request lifecycle, and transport layer — i.e., what makes stateless-by-default possible.</p>
+
+<p><strong>Status legend:</strong> ✅ merged · 🟢 accepted / accepted-with-changes (will merge) · 🟡 in-review · ⏸ deferred</p>
+
+<p><strong>Spec source of truth:</strong> <code>modelcontextprotocol@85ec3771</code> (<code>schema/draft/schema.ts</code>, <code>docs/specification/draft/</code>)</p>
+
+<hr/>
+
+<h2>0. Side-by-side behavior comparison (ranked by impact)</h2>
+
+<p>🔴 = structural change to the connection/request model · 🟡 = behavior of an existing thing changes · 🟢 = additive or minor</p>
+
+<table><thead><tr><th>#</th><th>Behavior</th><th>2025-11-25</th><th>2026-06-30</th><th>SEP</th></tr></thead><tbody>
+<tr class="tier-red"><td>🔴 1</td><td><strong>Connection establishment</strong></td><td>Client sends <code>initialize</code>, server returns version + capabilities, client sends <code>initialized</code> notification. State established once.</td><td>No handshake. Client may call <code>server/discover</code> (optional). Every request self-describes via <code>_meta</code>.</td><td>2575</td></tr>
+<tr class="tier-red"><td>🔴 2</td><td><strong>How the server knows client capabilities</strong></td><td>From the one-time <code>initialize</code> exchange, stored on the connection.</td><td><code>_meta.clientCapabilities</code> on every request. "Servers MUST NOT infer capabilities from prior requests."</td><td>2575</td></tr>
+<tr class="tier-red"><td>🔴 3</td><td><strong>Server→client requests</strong> (elicitation, sampling, roots)</td><td>Server pushes <code>elicitation/create</code> etc. over the SSE stream mid-request; client responds.</td><td>Server returns <code>IncompleteResult</code> with <code>inputRequests</code>; client resolves locally and re-sends with <code>requestState</code> + <code>inputResponses</code>. No push.</td><td>2322</td></tr>
+<tr class="tier-red"><td>🔴 4</td><td><strong>Session identity</strong></td><td><code>Mcp-Session-Id</code> header threads through all requests; server keeps per-session state.</td><td>No session header. Application state via explicit handles (server returns an ID, client threads it through tool args). List endpoints MUST be stateless.</td><td>2567</td></tr>
+<tr class="tier-red"><td>🔴 5</td><td><strong><code>tools/call</code> return shape</strong></td><td>Always <code>CallToolResult</code>.</td><td>One of <code>CallToolResult</code> / <code>IncompleteResult</code> (<code>result_type: "input_required"</code>) / <code>CreateTaskResult</code> (<code>result_type: "task"</code>, ext-tasks only).</td><td>2322 + 2663</td></tr>
+<tr class="tier-red"><td>🔴 6</td><td><strong>Unsolicited push notifications</strong> (<code>list_changed</code>, <code>resources/updated</code>)</td><td>Standalone <code>GET /mcp</code> opens a long-lived SSE stream; server pushes whenever.</td><td>Client opens <code>subscriptions/listen</code> (POST) and opts in to specific types; server acks. No standalone GET.</td><td>2575</td></tr>
+<tr class="tier-yellow"><td>🟡 7</td><td><strong>Version negotiation</strong></td><td><code>initialize</code> propose/accept. Mismatch fails the handshake.</td><td><code>_meta.protocolVersion</code> on every request; mismatch returns <code>UnsupportedProtocolVersionError</code> with <code>supported[]</code>, client retries. Probe <code>server/discover</code> → -32601 → fall back to <code>initialize</code> for legacy.</td><td>2575</td></tr>
+<tr class="tier-yellow"><td>🟡 8</td><td><strong>Logging</strong></td><td><code>logging/setLevel</code> once; server emits <code>notifications/message</code> at will (out-of-band).</td><td><code>_meta.logLevel</code> per-request; <code>notifications/message</code> only in-band on that request's stream, only if level was set. No out-of-band logging.</td><td>2575 (2577 may remove entirely)</td></tr>
+<tr class="tier-yellow"><td>🟡 9</td><td><strong>Task creation</strong></td><td>Client opts in per-request via <code>task?: TaskMetadata</code>; client polls <code>tasks/result</code> (blocking). <code>tasks/list</code> enumerates.</td><td>Server-directed: if client declared <code>ext-tasks</code> capability, server may return <code>result_type: "task"</code> from any call at its discretion. Client polls <code>tasks/get</code> (non-blocking); no <code>tasks/list</code>.</td><td>2663</td></tr>
+<tr class="tier-yellow"><td>🟡 10</td><td><strong>Unsolicited server→client requests</strong></td><td>Allowed (e.g., server can <code>roots/list</code> whenever).</td><td>Forbidden. Every s→c request MUST carry <code>relatedRequestId</code> of an originating client request.</td><td>2260</td></tr>
+<tr class="tier-yellow"><td>🟡 11</td><td><strong>HTTP request routing</strong></td><td>Single POST endpoint, body parsed for method.</td><td>Method in <code>Mcp-Method</code> header; method-based routing + header mirroring.</td><td>2243</td></tr>
+<tr class="tier-yellow"><td>🟡 12</td><td><strong><code>MCP-Protocol-Version</code> header</strong></td><td>Optional/advisory.</td><td>Required for HTTP; MUST match <code>_meta.protocolVersion</code> or 400.</td><td>2575</td></tr>
+<tr class="tier-yellow"><td>🟡 13</td><td><strong>Roots / Sampling / Logging in core</strong></td><td><code>roots/list</code>, <code>sampling/createMessage</code>, <code>logging/*</code> are core methods with capability flags.</td><td>Deprecated from core; move to <code>ext-roots</code> / <code>ext-sampling</code> extensions. Logging likely removed (use stderr/OTel).</td><td>2577</td></tr>
+<tr class="tier-yellow"><td>🟡 14</td><td><strong>JSON-RPC <code>id</code> uniqueness</strong></td><td>Unique per session.</td><td>Unique per outstanding request (no session scope).</td><td>2567</td></tr>
+<tr class="tier-green"><td>🟢 15</td><td><strong>List result caching</strong></td><td><code>list_changed</code> push is the invalidation signal.</td><td>Optional <code>ttl</code> field on list results gives a cache hint; reduces reliance on push.</td><td>2549</td></tr>
+<tr class="tier-green"><td>🟢 16</td><td><strong>Stdio process lifetime</strong></td><td>Unspecified.</td><td>SHOULD be host-app lifetime, multiple conversations per process. (Doc-only.)</td><td>2692</td></tr>
+<tr class="tier-green"><td>🟢 17</td><td><strong>Resource not-found</strong></td><td>Implementation-defined error.</td><td>Standardized error code.</td><td>2164</td></tr>
+<tr class="tier-green"><td>🟢 18</td><td><strong>Auth <code>iss</code> claim</strong></td><td>Not specified.</td><td>Recommended (RFC 9207, OAuth mix-up protection).</td><td>2468</td></tr>
+</tbody></table>
+
+<hr/>
+
+<h2>1. Removed (gone from 2026-06)</h2>
+
+<table><thead><tr><th>What</th><th>Replaced by</th><th>SEP</th><th>Status</th></tr></thead><tbody>
+<tr><td><code>initialize</code> / <code>notifications/initialized</code></td><td><code>server/discover</code> (optional) + <code>_meta</code> per-request</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>Mcp-Session-Id</code> header + session lifecycle</td><td>Explicit state-handle pattern (tool I/O strings, not protocol)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2567">2567</a></td><td>✅</td></tr>
+<tr><td>Standalone HTTP <code>GET /mcp</code> SSE stream</td><td><code>subscriptions/listen</code> (POST with long-lived response)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>resources/subscribe</code> / <code>resources/unsubscribe</code></td><td><code>subscriptions/listen</code> with <code>resourceSubscriptions</code> opt-in</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>logging/setLevel</code></td><td><code>_meta['io.modelcontextprotocol/logLevel']</code> per-request</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>notifications/roots/list_changed</code></td><td>(roots moves to extension; see SEP-2577)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td>Top-level <code>roots/list</code></td><td>Via MRTR <code>ListRootsRequest</code> (or ext-roots)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>ping</code></td><td>(none — request itself is the liveness signal)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td>Per-request <code>task?: TaskMetadata</code> opt-in flag</td><td>Server-directed task creation gated on extension capability</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663">2663</a></td><td>🟢</td></tr>
+<tr><td><code>tasks/result</code> (blocking), <code>tasks/list</code></td><td><code>tasks/get</code> (polling), no list</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663">2663</a></td><td>🟢</td></tr>
+<tr><td>Client-hosted tasks (elicitation/sampling as tasks)</td><td>(gone — incompatible with SEP-2260)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663">2663</a></td><td>🟢</td></tr>
+</tbody></table>
+
+<hr/>
+
+<h2>2. Added (new in 2026-06)</h2>
+
+<table><thead><tr><th>What</th><th>Purpose</th><th>SEP</th><th>Status</th></tr></thead><tbody>
+<tr><td><code>server/discover</code> RPC</td><td>Returns <code>{supportedVersions, capabilities, serverInfo, instructions}</code>. Servers MUST implement; clients MAY call.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>subscriptions/listen</code> RPC</td><td>Single long-lived stream for s→c notifications. Client opts in to types: <code>toolsListChanged</code>, <code>promptsListChanged</code>, <code>resourcesListChanged</code>, <code>resourceSubscriptions</code>.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>notifications/subscriptions/acknowledged</code></td><td>Server ack for <code>subscriptions/listen</code>. Notifications tagged with <code>io.modelcontextprotocol/subscriptionId</code>.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>_meta</code> required fields</td><td><code>protocolVersion</code>, <code>clientInfo</code>, <code>clientCapabilities</code> REQUIRED on every request; <code>logLevel</code> optional. (<code>schema.ts:69-105</code>, <code>RequestParams._meta</code> non-optional at :145)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>IncompleteResult</code> + <code>requestState</code> + <code>inputRequests</code></td><td>MRTR ephemeral path: server returns instead of pushing s→c request; client retries with <code>requestState</code> + <code>inputResponses</code>.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2322">2322</a></td><td>✅</td></tr>
+<tr><td><code>result_type</code> discriminator on <code>Result</code></td><td><code>"complete"</code> / <code>"input_required"</code> (MRTR) / <code>"task"</code> (ext-tasks)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2322">2322</a> + <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663">2663</a></td><td>✅/🟢</td></tr>
+<tr><td><code>UnsupportedProtocolVersionError</code></td><td>Returned when server doesn't speak the <code>_meta.protocolVersion</code>; carries <code>supported[]</code>. (<code>schema.ts:390</code>)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅ (<a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2716">#2716</a> adds dedicated error code)</td></tr>
+<tr><td>Error <code>-32003</code> <code>MISSING_REQUIRED_CLIENT_CAPABILITY</code></td><td>Server can't proceed without a capability the client didn't declare.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>Mcp-Method</code> HTTP header</td><td>Method name in header for routing. Required standard header alongside <code>MCP-Protocol-Version</code>.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243">2243</a></td><td>✅</td></tr>
+<tr><td><code>tasks/get</code>, <code>tasks/update</code>, <code>tasks/cancel</code></td><td>Polling lifecycle for tasks (extension).</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663">2663</a></td><td>🟢</td></tr>
+<tr><td><code>ttl?: number</code> on list results</td><td>Cache hint; reduces reliance on <code>list_changed</code> push.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2549">2549</a></td><td>🟢</td></tr>
+<tr><td>Resource-not-found error code (-32602 variant)</td><td>Standardized error for missing resources.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2164">2164</a></td><td>🟢 (<code>final</code>, awaiting merge)</td></tr>
+</tbody></table>
+
+<hr/>
+
+<h2>3. Modified (semantics/constraints changed)</h2>
+
+<table><thead><tr><th>What</th><th>2025-11</th><th>2026-06</th><th>SEP</th><th>Status</th></tr></thead><tbody>
+<tr><td>Capability negotiation</td><td>Once at <code>initialize</code></td><td>Per-request via <code>_meta.clientCapabilities</code> (server side) + <code>server/discover</code> (client side). "Servers MUST NOT infer capabilities from prior requests."</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td>Version negotiation</td><td><code>initialize</code> propose/accept</td><td><code>_meta.protocolVersion</code> per-request → <code>UnsupportedProtocolVersionError</code> retry. Probe <code>server/discover</code> → -32601 → fall back to legacy <code>initialize</code>.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td><code>MCP-Protocol-Version</code> header</td><td>Optional/advisory</td><td>Required for HTTP; MUST match <code>_meta.protocolVersion</code> or 400. (<code>schema.ts:77-80</code>)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td>JSON-RPC <code>id</code> uniqueness</td><td>Per-session</td><td>Per-outstanding-request (no session scope).</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2567">2567</a></td><td>✅</td></tr>
+<tr><td>List endpoints (<code>tools/list</code> etc.)</td><td>May vary by session/connection</td><td>MUST NOT depend on per-connection or prior-call state — cacheable at <code>(deployment, auth)</code>.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2567">2567</a></td><td>✅</td></tr>
+<tr><td>Server→client requests (elicitation/sampling)</td><td>SSE push over standalone GET or request stream</td><td>MRTR <code>IncompleteResult</code> return; client resolves locally and retries. SSE push only via legacy compat.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2322">2322</a></td><td>✅</td></tr>
+<tr><td>Server-initiated requests</td><td>Allowed unsolicited</td><td>MUST carry <code>relatedRequestId</code> of an originating client request. Unsolicited s→c is forbidden.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2260">2260</a></td><td>✅</td></tr>
+<tr><td><code>tools/call</code> / <code>getPrompt</code> / <code>readResource</code> return</td><td>Single result type</td><td>Can return <code>IncompleteResult</code> (<code>result_type: "input_required"</code>) or <code>CreateTaskResult</code> (<code>result_type: "task"</code>) at server discretion (latter only if ext-tasks negotiated).</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2322">2322</a> + <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663">2663</a></td><td>✅/🟢</td></tr>
+<tr><td><code>notifications/message</code> (logging)</td><td>Sent at server's discretion after <code>setLevel</code></td><td>Only emitted in-band on a request's response stream IF that request's <code>_meta.logLevel</code> was set. No out-of-band logging.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a></td><td>✅</td></tr>
+<tr><td>HTTP request routing</td><td>Single POST endpoint</td><td>Method-based routing via <code>Mcp-Method</code> header + header mirroring.</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243">2243</a></td><td>✅</td></tr>
+<tr><td>Stdio process lifetime</td><td>Unspecified</td><td>SHOULD be host-application lifetime, serving multiple conversations. (Doc-only.)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2692">2692</a></td><td>🟡</td></tr>
+</tbody></table>
+
+<hr/>
+
+<h2>4. Moved to extension (out of core)</h2>
+
+<table><thead><tr><th>What</th><th>Target package</th><th>SEP</th><th>Status</th></tr></thead><tbody>
+<tr><td>Tasks</td><td><code>ext-tasks</code> (<code>tasks/get</code>/<code>update</code>/<code>cancel</code>, <code>resultType: "task"</code>)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2663">2663</a></td><td>🟢</td></tr>
+<tr><td>Roots, Sampling, Logging</td><td><code>ext-roots</code>, <code>ext-sampling</code>, (logging → stderr/OTel, no extension)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2577">2577</a></td><td>🟡</td></tr>
+<tr><td>Sessions (<code>Mcp-Session-Id</code>)</td><td><code>ext-sessions</code> (no SEP yet — Apr 1 decision <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/discussions/2536">#2536</a>; SEP-2567 removes from core but doesn't define the extension)</td><td>—</td><td>(no SEP)</td></tr>
+<tr><td>Server Cards (<code>.well-known</code> discovery)</td><td><code>ext-server-cards</code></td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2127">2127</a></td><td>draft+extension</td></tr>
+</tbody></table>
+
+<hr/>
+
+<h2>5. Deferred / not in 2026-06</h2>
+
+<table><thead><tr><th>What</th><th>SEP</th><th>Why</th></tr></thead><tbody>
+<tr><td>Pluggable Transports (typed-message Transport interface, conformance harness mandate)</td><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2598">2598</a></td><td>⏸ relabeled <code>deferred</code></td></tr>
+<tr><td>WebSocket / gRPC / SSH as standard transports</td><td>(various)</td><td>Rejected; custom transports allowed, just not standardized</td></tr>
+</tbody></table>
+
+<hr/>
+
+<h2>6. In release-1 scope but not transport/lifecycle</h2>
+
+<p>These are on <a href="https://plan.modelcontextprotocol.io/releases/1">plan.modelcontextprotocol.io/releases/1</a> and require SDK work, but don't change the connection/request model — listed here so it's clear they were considered, not missed.</p>
+
+<table><thead><tr><th>SEP</th><th>What</th><th>SDK work</th><th>Status</th></tr></thead><tbody>
+<tr><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2133">2133</a></td><td>Extensions framework</td><td>Extension registrar (capability negotiation, handler hooks). Substrate for everything in §4.</td><td>✅</td></tr>
+<tr><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2106">2106</a></td><td><code>inputSchema</code>/<code>outputSchema</code> conform to JSON Schema 2020-12</td><td>Schema-validation strictness in tool registration.</td><td>🟢 accepted</td></tr>
+<tr><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2200">2200</a></td><td>Clarify tool result content visibility</td><td>Guidance; possible content-type annotation on results.</td><td>🟡</td></tr>
+<tr><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414">414</a></td><td>OpenTelemetry trace context</td><td><code>_meta</code> traceparent propagation helpers.</td><td>✅</td></tr>
+<tr><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/1865">1865</a></td><td>MCP Apps extension</td><td><code>ext-apps</code> package on the registrar.</td><td>✅</td></tr>
+<tr><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/837">837</a>, <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2207">2207</a>, <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2350">2350</a>, <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2351">2351</a>, <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2352">2352</a></td><td>Auth clarifications</td><td>Auth-flow validation tweaks; mostly already-conforming.</td><td>✅</td></tr>
+<tr><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/1777">1730</a></td><td>SDK Tiers</td><td>Governance — defines what Tier-1 means. No code.</td><td>✅</td></tr>
+<tr><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2484">2484</a></td><td>Conformance tests required for Final</td><td>Process — gates future SEPs on conformance repo.</td><td>🟢 accepted</td></tr>
+<tr><td><a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2596">2596</a></td><td>Feature lifecycle / deprecation policy</td><td>Process — defines how things get deprecated.</td><td>🟡</td></tr>
+</tbody></table>
+
+<p><strong>Coverage check:</strong> every SEP listed on <code>plan.modelcontextprotocol.io/releases/1</code> as of 2026-05-14 appears in either §0–5 (transport/lifecycle) or this section. SEP-2692 (stdio lifetime) and SEP-2598 (deferred) are in this doc but not on the plan site.</p>
+
+<hr/>
+
+<h2>7. Unchanged (carries over)</h2>
+
+<ul><li>stdio + Streamable HTTP as the two Standard transports</li>
+<li>JSON-RPC 2.0 message envelope</li>
+<li>Core primitives: <code>tools/*</code>, <code>resources/*</code>, <code>prompts/*</code>, <code>completion/complete</code></li>
+<li><code>notifications/progress</code> (in-band on request stream)</li>
+<li><code>notifications/cancelled</code></li>
+<li><code>_meta</code> extensibility (open key namespace)</li>
+<li>Auth: OAuth flows, PRM, DCR — clarified by 837/2207/2350/2351/2352 (all ✅) but mechanism unchanged</li>
+</ul>
+<hr/>
+
+<h2>8. SDK shape implications (summary for design discussion)</h2>
+
+<p><strong>The connection model inverts:</strong> 2025-11 is "handshake establishes state, requests are lightweight." 2026-06 is "every request is self-describing, no connection state." The SDK must support both on one server instance.</p>
+
+<p><strong>Per-request scope is the core primitive.</strong> Every dispatched request needs <code>{protocolVersion, clientCapabilities, clientInfo, logLevel, authInfo}</code> resolved from <code>_meta</code> first, legacy session-store fallback, never instance fields. The server instance is a pure handler registry.</p>
+
+<p><strong>Legacy support is config-time, not request-time.</strong> <code>initialize</code>, <code>setLevel</code>, standalone GET, <code>Mcp-Session-Id</code> echo, SSE push for s→c — all live in a removable compat module (SessionCompat/BackchannelCompat). Wired = dual-support; unwired = 2026-06-only and those methods return -32601.</p>
+
+<p><strong>Result-type dispatch is now polymorphic.</strong> <code>callTool</code> etc. can return <code>complete | input_required | task</code>. Client needs an MRTR retry loop (core) and a result-type hook for <code>task</code> (extension-installed).</p>
+
+<p><strong>Subscriptions become explicit.</strong> <code>subscriptions/listen</code> is the only push channel; client opts in per type. <code>list_changed</code> becomes opt-in pull-model (with TTL hints from SEP-2549) plus optional push for clients that open a subscription.</p>
+
+<p><strong>Extensions are first-class.</strong> The registrar (#1868 + H4/H5/H6 + augmentContext) is the substrate for tasks, roots, sampling, sessions, apps, server-cards. Core gets smaller; the extension surface is where most "features" live.</p>
+
+<hr/>
+
+<h2>9. What the spec says about backwards compatibility</h2>
+
+<p>The merged spec explicitly documents dual-support — this isn't an SDK invention. Citations are <code>docs/specification/draft/basic/lifecycle.mdx</code> and <code>transports.mdx</code> at <code>85ec3771</code>.</p>
+
+<h3>Servers supporting both client generations</h3>
+
+<blockquote>"A server that wishes to support both legacy clients (which expect an <code>initialize</code> handshake) and modern clients (which use per-request metadata) <strong>MAY</strong> implement both behaviors."</blockquote>
+
+<p>Concretely, a dual-support server keeps:</p>
+<ul><li>An <code>initialize</code> handler (writes to per-session storage, not instance fields)</li>
+<li><code>Mcp-Session-Id</code> echo on the HTTP transport</li>
+<li>The standalone <code>GET</code> SSE endpoint and <code>logging/setLevel</code> handler</li>
+<li>SSE-push for elicitation/sampling when the negotiated version is pre-2026-06</li>
+</ul>
+<p>…while also implementing <code>server/discover</code>, <code>subscriptions/listen</code>, reading <code>_meta</code> per-request, and emitting <code>IncompleteResult</code> for 2026-06 clients. The <code>InitializeRequest</code>/<code>InitializeResult</code> types remain in <code>schema.ts</code> for exactly this purpose.</p>
+
+<h3>Clients supporting both server generations</h3>
+
+<p>The spec gives the probe sequence (differs by transport):</p>
+
+<ul><li><strong>HTTP:</strong> "Try a modern request directly. If the server returns <code>400 Bad Request</code> (or any other version error indicating the server does not implement the modern protocol), fall back to <code>initialize</code> and continue with the legacy version for subsequent requests."</li>
+<li><strong>stdio:</strong> "Probe with <code>server/discover</code> first, setting its preferred modern version in <code>_meta</code>. If the server returns <code>Method not found</code> (<code>-32601</code>), fall back to the legacy <code>initialize</code> handshake. If the server returns <code>UnsupportedProtocolVersionError</code>, the server speaks a version of MCP without <code>initialize</code> — use one of its advertised <code>supportedVersions</code> instead of falling back."</li>
+</ul>
+<p>A client that only supports 2026-06 doesn't probe — it sends its version and handles <code>UnsupportedProtocolVersionError</code> normally.</p>
+
+<h3>Scope of the "MUST NOT infer" clause</h3>
+
+<p><code>lifecycle.mdx:19</code> says "Servers MUST NOT rely on prior requests over the same connection to establish context." This is a 2026-06-mode constraint (it's in the draft spec describing how <code>_meta</code> works). Reading capabilities from per-session storage for a legacy client that did <code>initialize</code> is not "inferring from prior requests" — it's honoring the 2025-11 protocol's handshake. The dual-support MAY would be self-contradictory otherwise.</p>
+
+<p><strong>The discriminator:</strong> if a request has <code>_meta.clientCapabilities</code>, use it and don't fall back. If absent (legacy client), per-session lookup is the 2025-11 behavior. The violation would be reading session storage as a fallback for a request that *did* send <code>_meta</code>.</p>
+
+<h3>What this means for the SDK split</h3>
+
+<p>Legacy support is a removable module (SessionCompat / BackchannelCompat in the rebuild), not version-gates scattered through core. Wired = the server is dual-support and the spec's MAY is satisfied. Unwired = pure 2026-06, and <code>initialize</code>/<code>setLevel</code>/standalone-GET return <code>-32601</code> — which is the spec-correct response for a modern-only server.</p>
+
+<hr/>
+
+<p><strong>Companion docs:</strong> <a href="./2026-04-13-june-spec-scope-for-sdk-maintainers.md"><code>2026-04-13-june-spec-scope-for-sdk-maintainers.md</code></a> (full SEP list by likelihood) · <a href="./2026-04-13-ts-sdk-june-readiness.md"><code>2026-04-13-ts-sdk-june-readiness.md</code></a> (per-SEP SDK blast radius) · <a href="./2026-04-29-june-spec-sdk-diagrams.md"><code>2026-04-29-june-spec-sdk-diagrams.md</code></a> (architecture diagrams)</p>
+</body></html>
