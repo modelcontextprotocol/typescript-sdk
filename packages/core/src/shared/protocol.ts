@@ -119,7 +119,6 @@ export type RequestOptions = {
      * If not specified, there is no maximum total timeout.
      */
     maxTotalTimeout?: number;
-
 } & TransportSendOptions;
 
 /**
@@ -285,6 +284,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _pendingDebouncedNotifications = new Set<string>();
 
     protected _supportedProtocolVersions: string[];
+
+    protected get requestHandlers(): ReadonlyMap<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> {
+        return this._requestHandlers;
+    }
 
     /**
      * Callback for when the connection is closed for any reason.
@@ -493,9 +496,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
             };
 
-            capturedTransport
-                ?.send(errorResponse)
-                .catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
+            capturedTransport?.send(errorResponse).catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
             return;
         }
 
@@ -830,8 +831,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         };
 
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
-        const canDebounce =
-            debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId;
+        const canDebounce = debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.

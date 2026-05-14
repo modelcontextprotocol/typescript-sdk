@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client';
-import type { CallToolResult, Notification, TextContent } from '@modelcontextprotocol/core';
+import type { Notification, TextContent } from '@modelcontextprotocol/core';
 import {
     getDisplayName,
     InMemoryTransport,
@@ -10,22 +10,6 @@ import {
 import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
-
-function createLatch() {
-    let latch = false;
-    const waitForLatch = async () => {
-        while (!latch) {
-            await new Promise(resolve => setTimeout(resolve, 0));
-        }
-    };
-
-    return {
-        releaseLatch: () => {
-            latch = true;
-        },
-        waitForLatch
-    };
-}
 
 describe('Zod v4', () => {
     describe('McpServer', () => {

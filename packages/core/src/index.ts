@@ -14,9 +14,6 @@ export * from './util/inMemory.js';
 export * from './util/schema.js';
 export * from './util/standardSchema.js';
 export * from './util/zodCompat.js';
-
-// experimental exports
-export * from './experimental/index.js';
 export * from './validators/ajvProvider.js';
 // cfWorkerProvider is intentionally NOT re-exported here: it statically imports
 // `@cfworker/json-schema` (an optional peer), and bundling it into the main barrel

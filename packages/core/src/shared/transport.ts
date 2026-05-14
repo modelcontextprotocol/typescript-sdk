@@ -1,4 +1,12 @@
-import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
+import type {
+    Implementation,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    MessageExtraInfo,
+    RequestId,
+    Result,
+    ServerCapabilities
+} from '../types/index.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -69,6 +77,22 @@ export type TransportSendOptions = {
     onresumptiontoken?: ((token: string) => void) | undefined;
 };
 /**
+ * Configuration passed from Protocol to routing transports during connect().
+ * Provides access to the handler registry and server metadata so that
+ * routing transports can dispatch requests without going through Protocol's message loop.
+ *
+ * The `requestHandlers` map is a live reference — handlers registered after connect()
+ * (e.g., via McpServer.registerTool) are visible immediately.
+ */
+export interface ProtocolConfig {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    requestHandlers: ReadonlyMap<string, (request: JSONRPCRequest, ctx: any) => Promise<Result>>;
+    serverInfo?: Implementation;
+    capabilities?: ServerCapabilities;
+    instructions?: string;
+}
+
+/**
  * Describes the minimal contract for an MCP transport that a client or server can communicate over.
  */
 export interface Transport {
@@ -131,4 +155,11 @@ export interface Transport {
      * This allows the server to pass its supported versions to the transport.
      */
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
+
+    /**
+     * Called during connect() to pass protocol configuration to routing transports.
+     * Routing transports use this to access the handler registry and server metadata
+     * for direct request dispatch.
+     */
+    setProtocolConfig?: ((config: ProtocolConfig) => void) | undefined;
 }

@@ -1874,12 +1874,7 @@ export const ClientResultSchema = z.union([
 ]);
 
 /* Server messages */
-export const ServerRequestSchema = z.union([
-    PingRequestSchema,
-    CreateMessageRequestSchema,
-    ElicitRequestSchema,
-    ListRootsRequestSchema
-]);
+export const ServerRequestSchema = z.union([PingRequestSchema, CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema]);
 
 export const ServerNotificationSchema = z.union([
     CancelledNotificationSchema,

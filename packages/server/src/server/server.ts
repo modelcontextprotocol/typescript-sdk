@@ -29,7 +29,8 @@ import type {
     ServerCapabilities,
     ServerContext,
     ToolResultContent,
-    ToolUseContent
+    ToolUseContent,
+    Transport
 } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
@@ -109,6 +110,16 @@ export class Server extends Protocol<ServerContext> {
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
         }
+    }
+
+    override async connect(transport: Transport): Promise<void> {
+        transport.setProtocolConfig?.({
+            requestHandlers: this.requestHandlers,
+            serverInfo: this._serverInfo,
+            capabilities: this._capabilities,
+            instructions: this._instructions
+        });
+        await super.connect(transport);
     }
 
     private _registerLoggingHandler(): void {

@@ -9,7 +9,6 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { McpServer, Server } from '@modelcontextprotocol/server';
-import * as z from 'zod/v4';
 
 /***
  * Test: Initialize with Matching Protocol Version
