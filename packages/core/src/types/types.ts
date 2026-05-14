@@ -34,6 +34,8 @@ import type {
     CreateMessageResultWithToolsSchema,
     CreateTaskResultSchema,
     CursorSchema,
+    DiscoverRequestSchema,
+    DiscoverResultSchema,
     ElicitationCompleteNotificationParamsSchema,
     ElicitationCompleteNotificationSchema,
     ElicitRequestFormParamsSchema,
@@ -81,6 +83,7 @@ import type {
     LoggingLevelSchema,
     LoggingMessageNotificationParamsSchema,
     LoggingMessageNotificationSchema,
+    MissingRequiredClientCapabilityErrorDataSchema,
     ModelHintSchema,
     ModelPreferencesSchema,
     MultiSelectEnumSchemaSchema,
@@ -134,6 +137,9 @@ import type {
     StringSchemaSchema,
     SubscribeRequestParamsSchema,
     SubscribeRequestSchema,
+    SubscriptionsAcknowledgedNotificationSchema,
+    SubscriptionsListenFilterSchema,
+    SubscriptionsListenRequestSchema,
     TaskAugmentedRequestParamsSchema,
     TaskCreationParamsSchema,
     TaskMetadataSchema,
@@ -154,6 +160,7 @@ import type {
     ToolUseContentSchema,
     UnsubscribeRequestParamsSchema,
     UnsubscribeRequestSchema,
+    UnsupportedProtocolVersionErrorDataSchema,
     UntitledMultiSelectEnumSchemaSchema,
     UntitledSingleSelectEnumSchemaSchema
 } from './schemas.js';
@@ -223,6 +230,17 @@ export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
 export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
 export type InitializeResult = Infer<typeof InitializeResultSchema>;
 export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
+
+/* Discover (SEP-2575) */
+export type DiscoverRequest = Infer<typeof DiscoverRequestSchema>;
+export type DiscoverResult = Infer<typeof DiscoverResultSchema>;
+export type UnsupportedProtocolVersionErrorData = Infer<typeof UnsupportedProtocolVersionErrorDataSchema>;
+export type MissingRequiredClientCapabilityErrorData = Infer<typeof MissingRequiredClientCapabilityErrorDataSchema>;
+
+/* Subscriptions (SEP-2575) */
+export type SubscriptionsListenRequest = Infer<typeof SubscriptionsListenRequestSchema>;
+export type SubscriptionsListenFilter = Infer<typeof SubscriptionsListenFilterSchema>;
+export type SubscriptionsAcknowledgedNotification = Infer<typeof SubscriptionsAcknowledgedNotificationSchema>;
 
 /* Ping */
 export type PingRequest = Infer<typeof PingRequestSchema>;
@@ -383,6 +401,8 @@ export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNot
 export type ResultTypeMap = {
     ping: EmptyResult;
     initialize: InitializeResult;
+    'server/discover': DiscoverResult;
+    'subscriptions/listen': EmptyResult;
     'completion/complete': CompleteResult;
     'logging/setLevel': EmptyResult;
     'prompts/get': GetPromptResult;

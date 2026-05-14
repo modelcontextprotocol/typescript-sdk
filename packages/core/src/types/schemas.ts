@@ -552,6 +552,83 @@ export const InitializedNotificationSchema = NotificationSchema.extend({
     params: NotificationsParamsSchema.optional()
 });
 
+/* Discover (SEP-2575) */
+/**
+ * A request asking the server to advertise its supported protocol versions,
+ * capabilities, and identity. Servers MUST implement `server/discover`. Clients
+ * MAY call it; version negotiation can also happen inline via per-request `_meta`.
+ */
+export const DiscoverRequestSchema = RequestSchema.extend({
+    method: z.literal('server/discover'),
+    params: BaseRequestParamsSchema.optional()
+});
+
+/**
+ * The server's response to a `server/discover` request.
+ */
+export const DiscoverResultSchema = ResultSchema.extend({
+    /** Protocol versions this server supports. The client should choose one for subsequent requests. */
+    supportedVersions: z.array(z.string()),
+    capabilities: ServerCapabilitiesSchema,
+    serverInfo: ImplementationSchema,
+    instructions: z.string().optional()
+});
+
+/**
+ * Error data returned with code `INVALID_PARAMS` (HTTP 400) when the request's
+ * `_meta.protocolVersion` is unknown or unsupported.
+ */
+export const UnsupportedProtocolVersionErrorDataSchema = z.object({
+    /** Versions the server supports; client should retry with one of these. */
+    supported: z.array(z.string()),
+    /** The version the client requested. */
+    requested: z.string()
+});
+
+/**
+ * Error data returned with code `-32003` when processing a request requires a
+ * client capability the client did not declare in its per-request `_meta`.
+ */
+export const MissingRequiredClientCapabilityErrorDataSchema = z.object({
+    /** The capability paths the server requires (e.g. `['sampling']`). */
+    requiredCapabilities: z.array(z.string())
+});
+
+/* Subscriptions (SEP-2575) */
+/**
+ * Filter declaring which server notification types the client wants delivered
+ * on a `subscriptions/listen` stream. Each field is an explicit opt-in.
+ */
+export const SubscriptionsListenFilterSchema = z.object({
+    toolsListChanged: z.boolean().optional(),
+    promptsListChanged: z.boolean().optional(),
+    resourcesListChanged: z.boolean().optional(),
+    resourceSubscriptions: z.array(z.string()).optional()
+});
+
+/**
+ * A long-lived request opening a notification stream. Replaces the legacy GET
+ * endpoint and `resources/subscribe`. The server acknowledges with
+ * `notifications/subscriptions/acknowledged` then streams matching notifications.
+ */
+export const SubscriptionsListenRequestSchema = RequestSchema.extend({
+    method: z.literal('subscriptions/listen'),
+    params: BaseRequestParamsSchema.extend({
+        notifications: SubscriptionsListenFilterSchema
+    })
+});
+
+/**
+ * Sent as the first message on a `subscriptions/listen` stream, confirming the
+ * filter the server accepted (which MAY be a subset of what was requested).
+ */
+export const SubscriptionsAcknowledgedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/subscriptions/acknowledged'),
+    params: NotificationsParamsSchema.extend({
+        notifications: SubscriptionsListenFilterSchema
+    })
+});
+
 /* Ping */
 /**
  * A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.
@@ -2079,6 +2156,8 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
 export const ClientRequestSchema = z.union([
     PingRequestSchema,
     InitializeRequestSchema,
+    DiscoverRequestSchema,
+    SubscriptionsListenRequestSchema,
     CompleteRequestSchema,
     SetLevelRequestSchema,
     GetPromptRequestSchema,
@@ -2135,6 +2214,7 @@ export const ServerNotificationSchema = z.union([
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
+    SubscriptionsAcknowledgedNotificationSchema,
     TaskStatusNotificationSchema,
     ElicitationCompleteNotificationSchema
 ]);

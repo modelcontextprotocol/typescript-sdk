@@ -12,5 +12,10 @@ export enum ProtocolErrorCode {
 
     // MCP-specific error codes
     ResourceNotFound = -32_002,
+    /**
+     * Processing the request requires a client capability the client did not declare
+     * in `_meta.clientCapabilities`. `data.requiredCapabilities` lists what is missing.
+     */
+    MissingRequiredClientCapability = -32_003,
     UrlElicitationRequired = -32_042
 }

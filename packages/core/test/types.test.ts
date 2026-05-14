@@ -21,7 +21,7 @@ import {
 describe('Types', () => {
     test('should have correct latest protocol version', () => {
         expect(LATEST_PROTOCOL_VERSION).toBeDefined();
-        expect(LATEST_PROTOCOL_VERSION).toBe('2025-11-25');
+        expect(LATEST_PROTOCOL_VERSION).toBe('DRAFT-2026-v1');
     });
     test('should have correct supported protocol versions', () => {
         expect(SUPPORTED_PROTOCOL_VERSIONS).toBeDefined();

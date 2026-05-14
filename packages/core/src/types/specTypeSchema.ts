@@ -75,6 +75,8 @@ const SPEC_SCHEMA_KEYS = [
     'GetTaskPayloadResultSchema',
     'GetTaskRequestSchema',
     'GetTaskResultSchema',
+    'DiscoverRequestSchema',
+    'DiscoverResultSchema',
     'IconSchema',
     'IconsSchema',
     'ImageContentSchema',
@@ -160,6 +162,9 @@ const SPEC_SCHEMA_KEYS = [
     'StringSchemaSchema',
     'SubscribeRequestSchema',
     'SubscribeRequestParamsSchema',
+    'SubscriptionsListenRequestSchema',
+    'SubscriptionsListenFilterSchema',
+    'SubscriptionsAcknowledgedNotificationSchema',
     'TaskSchema',
     'TaskAugmentedRequestParamsSchema',
     'TaskCreationParamsSchema',
@@ -180,6 +185,8 @@ const SPEC_SCHEMA_KEYS = [
     'ToolUseContentSchema',
     'UnsubscribeRequestSchema',
     'UnsubscribeRequestParamsSchema',
+    'UnsupportedProtocolVersionErrorDataSchema',
+    'MissingRequiredClientCapabilityErrorDataSchema',
     'UntitledMultiSelectEnumSchemaSchema',
     'UntitledSingleSelectEnumSchemaSchema'
 ] as const satisfies readonly (keyof typeof schemas)[];
