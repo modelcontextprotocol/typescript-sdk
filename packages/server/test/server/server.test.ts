@@ -39,4 +39,41 @@ describe('Server', () => {
             await server.close();
         });
     });
+
+    describe('server/discover', () => {
+        it('[R-2575-5] returns supportedVersions, capabilities, serverInfo', async () => {
+            const server = new Server(
+                { name: 'test', version: '1.0.0' },
+                { capabilities: { tools: { listChanged: true } }, instructions: 'hello' }
+            );
+            const res = await server.handleStatelessRequest({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'server/discover',
+                params: { _meta: { 'io.modelcontextprotocol/protocolVersion': LATEST_PROTOCOL_VERSION } }
+            });
+            expect(res).toMatchObject({
+                result: {
+                    supportedVersions: expect.arrayContaining([LATEST_PROTOCOL_VERSION, '2025-11-25']),
+                    capabilities: { tools: { listChanged: true } },
+                    serverInfo: { name: 'test', version: '1.0.0' },
+                    instructions: 'hello'
+                }
+            });
+        });
+
+        it('[R-2575-5] is registered on every Server (no opt-in needed)', async () => {
+            const server = new Server({ name: 'min', version: '0.0.0' });
+            const res = await server.handleStatelessRequest({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'server/discover',
+                params: { _meta: { 'io.modelcontextprotocol/protocolVersion': LATEST_PROTOCOL_VERSION } }
+            });
+            expect('result' in res ? res.result : undefined).toMatchObject({
+                supportedVersions: expect.any(Array),
+                serverInfo: { name: 'min', version: '0.0.0' }
+            });
+        });
+    });
 });

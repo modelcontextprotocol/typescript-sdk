@@ -6,6 +6,7 @@ import type {
     CreateMessageRequestParamsWithTools,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    DiscoverResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
@@ -105,6 +106,7 @@ export class Server extends Protocol<ServerContext> {
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
+        this.setRequestHandler('server/discover', () => this._ondiscover());
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
@@ -344,7 +346,8 @@ export class Server extends Protocol<ServerContext> {
             }
 
             case 'ping':
-            case 'initialize': {
+            case 'initialize':
+            case 'server/discover': {
                 // No specific capability required for these methods
                 break;
             }
@@ -365,6 +368,15 @@ export class Server extends Protocol<ServerContext> {
 
         return {
             protocolVersion,
+            capabilities: this.getCapabilities(),
+            serverInfo: this._serverInfo,
+            ...(this._instructions && { instructions: this._instructions })
+        };
+    }
+
+    private _ondiscover(): DiscoverResult {
+        return {
+            supportedVersions: [...this._supportedProtocolVersions],
             capabilities: this.getCapabilities(),
             serverInfo: this._serverInfo,
             ...(this._instructions && { instructions: this._instructions })
