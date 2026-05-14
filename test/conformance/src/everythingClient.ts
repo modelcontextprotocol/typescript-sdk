@@ -145,6 +145,57 @@ registerScenario('initialize', runBasicClient);
 registerScenario('tools_call', runToolsCallClient);
 
 // ============================================================================
+// Stateless scenario (SEP-2575 / #270)
+// ============================================================================
+
+async function runStatelessClient(serverUrl: string): Promise<void> {
+    logger.debug('Starting stateless client flow via SDK negotiationMode: stateless ...');
+
+    const client = new Client(
+        { name: 'conformance-test-client', version: '1.0.0' },
+        { capabilities: { roots: {} }, negotiationMode: 'stateless' }
+    );
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
+
+    // connect() performs server/discover (with `_meta` + header) and sets mode='stateless'.
+    await client.connect(transport);
+    logger.debug('Connected; mode =', client.mode);
+
+    // tools/list — SDK injects `_meta` per request and the transport carries
+    // the negotiated MCP-Protocol-Version header.
+    const tools = await client.listTools();
+    logger.debug('Successfully listed tools statelessly:', tools.tools.map(t => t.name).join(', '));
+
+    // Second call to verify version consistency across requests.
+    await client.listTools();
+    logger.debug('Second tools/list ok (consistent version)');
+
+    // Cancellation: start a long-running tool call and cancel via abort signal,
+    // which closes the SSE stream (the 2026-06 cancellation model for HTTP).
+    const longRunner = tools.tools.find(t => t.name === 'long_running_task');
+    if (longRunner) {
+        const controller = new AbortController();
+        const p = client.callTool({ name: 'long_running_task', arguments: {} }, { signal: controller.signal });
+        setTimeout(() => {
+            controller.abort();
+            logger.debug('Aborted long_running_task stream');
+        }, 100);
+        try {
+            await p;
+        } catch (error) {
+            logger.debug('long_running_task threw expected abort error:', error);
+        }
+    } else {
+        logger.debug('long_running_task tool not present on conformance server; skipping cancellation step');
+    }
+
+    await transport.close();
+    logger.debug('Stateless client flow completed successfully');
+}
+
+registerScenario('stateless', runStatelessClient);
+
+// ============================================================================
 // Auth scenarios - well-behaved client
 // ============================================================================
 

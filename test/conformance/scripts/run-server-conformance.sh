@@ -6,14 +6,18 @@ set -e
 
 PORT="${PORT:-3000}"
 SERVER_URL="http://localhost:${PORT}/mcp"
+SERVER_SCRIPT="${SERVER_SCRIPT:-./src/everythingServer.ts}"
+# Override to point at a locally-built conformance CLI (e.g. an unreleased
+# conformance branch). Defaults to the published package.
+CONFORMANCE_BIN="${CONFORMANCE_BIN:-npx @modelcontextprotocol/conformance}"
 
 # Navigate to the repo root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
 # Start the server in the background
-echo "Starting conformance test server on port ${PORT}..."
-npx tsx ./src/everythingServer.ts &
+echo "Starting conformance test server (${SERVER_SCRIPT}) on port ${PORT}..."
+npx tsx "${SERVER_SCRIPT}" &
 SERVER_PID=$!
 
 # Function to cleanup on exit
@@ -40,6 +44,6 @@ done
 echo "Server is ready. Running conformance tests..."
 
 # Run conformance tests - pass through all arguments
-npx @modelcontextprotocol/conformance server --url "${SERVER_URL}" "$@"
+${CONFORMANCE_BIN} server --url "${SERVER_URL}" "$@"
 
 echo "Conformance tests completed."

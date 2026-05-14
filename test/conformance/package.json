@@ -34,6 +34,9 @@
         "test:conformance:server": "scripts/run-server-conformance.sh --expected-failures ./expected-failures.yaml",
         "test:conformance:server:all": "scripts/run-server-conformance.sh --suite all --expected-failures ./expected-failures.yaml",
         "test:conformance:server:run": "npx tsx ./src/everythingServer.ts",
+        "test:conformance:server:dual": "scripts/run-server-conformance.sh --expected-failures ./expected-failures.yaml",
+        "test:conformance:server:stateless": "SERVER_SCRIPT=./src/everythingServerHandleStatelessHttp.ts PORT=3035 scripts/run-server-conformance.sh --scenario server-stateless",
+        "test:conformance:client:stateless": "CONFORMANCE_BIN=${CONFORMANCE_BIN:-conformance} sh -c '${CONFORMANCE_BIN} client --command \"npx tsx ./src/everythingClient.ts\" --scenario stateless'",
         "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"
     },
     "devDependencies": {
