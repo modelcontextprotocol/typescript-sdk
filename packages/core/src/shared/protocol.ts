@@ -45,7 +45,7 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
-import { isStatelessVersion, parseClientMeta, STATELESS_REMOVED_METHODS } from './protocolMode.js';
+import { parseClientMeta, STATELESS_REMOVED_METHODS } from './protocolMode.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -403,9 +403,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Sets the protocol mode for this instance. Called only from request and
-     * connection entry points: {@link handleStatelessRequest}, {@link _onrequest},
-     * and `Client.connect`.
+     * Sets the protocol mode for this instance. Called only from handshake
+     * entry points: {@link handleStatelessRequest} and {@link _onrequest}
+     * (when `_meta.protocolVersion` is present), `Server._oninitialize`, and
+     * `Client._negotiate`.
      *
      * @internal
      */
@@ -440,8 +441,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * not over a transport. `ctx.mcpReq.send` throws: the stateless model has
      * no server-to-client request channel.
      *
-     * Sets `_isStateless` from the request's `_meta.protocolVersion` as its first
-     * action; intended to be called on a per-request instance.
+     * Sets `_isStateless` to `true` as its first action; this method IS the
+     * stateless dispatch path. Intended to be called on a per-request instance.
      */
     async handleStatelessRequest(
         request: JSONRPCRequest,
@@ -452,7 +453,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (versionError) {
             return { jsonrpc: '2.0', id: request.id, error: versionError };
         }
-        this._setIsStateless(isStatelessVersion(meta.protocolVersion));
+        this._setIsStateless(true);
 
         if (this.isStateless() && STATELESS_REMOVED_METHODS.has(request.method)) {
             return {
@@ -679,12 +680,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 .catch(error => this._onerror(new Error(`Failed to send error response: ${error}`)));
             return;
         }
-        // Set mode from this message only when it carries `_meta.protocolVersion`
-        // (server processing a stateless-model client request) or when no mode is
-        // set yet (server processing the first message on a connection). Skips on
-        // a Client receiving a server-to-client request (mode set by `connect()`).
-        if (clientMeta.protocolVersion !== undefined || this._isStateless === undefined) {
-            this._setIsStateless(isStatelessVersion(clientMeta.protocolVersion));
+        // Handshake-based mode detection: presence of `_meta.protocolVersion` is
+        // the stateless signal. `server/discover` is a probe and does not commit
+        // a mode. Legacy mode is set by `_oninitialize` when `initialize`
+        // arrives. A Client receiving a server-to-client request has mode set by
+        // `connect()`, so this is a no-op there (no `_meta.protocolVersion`).
+        if (clientMeta.protocolVersion !== undefined && request.method !== 'server/discover') {
+            this._setIsStateless(true);
         }
 
         if (this.isStateless() && STATELESS_REMOVED_METHODS.has(request.method)) {

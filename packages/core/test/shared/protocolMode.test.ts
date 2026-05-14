@@ -1,26 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { META_KEYS, parseClientMeta, isStatelessVersion, STATEFUL_PROTOCOL_VERSIONS } from '../../src/shared/protocolMode.js';
-
-describe('isStatelessVersion', () => {
-    it('classifies every known stateful version as legacy', () => {
-        for (const v of STATEFUL_PROTOCOL_VERSIONS) {
-            expect(isStatelessVersion(v)).toBe(false);
-        }
-    });
-
-    it('classifies undefined as legacy', () => {
-        expect(isStatelessVersion(undefined)).toBe(false);
-    });
-
-    it('classifies 2026-06-30 as stateless', () => {
-        expect(isStatelessVersion('2026-06-30')).toBe(true);
-    });
-
-    it('classifies unknown future versions as stateless', () => {
-        expect(isStatelessVersion('2027-01-01')).toBe(true);
-        expect(isStatelessVersion('draft')).toBe(true);
-    });
-});
+import { META_KEYS, parseClientMeta } from '../../src/shared/protocolMode.js';
 
 describe('parseClientMeta', () => {
     it('returns empty for undefined params', () => {

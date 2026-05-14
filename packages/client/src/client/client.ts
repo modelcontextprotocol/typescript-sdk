@@ -49,7 +49,6 @@ import {
     EmptyResultSchema,
     GetPromptResultSchema,
     InitializeResultSchema,
-    isStatelessVersion,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     ListPromptsResultSchema,
@@ -64,7 +63,8 @@ import {
     ProtocolErrorCode,
     ReadResourceResultSchema,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    STATEFUL_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
 /**
@@ -148,24 +148,6 @@ export type ClientOptions = ProtocolOptions & {
     capabilities?: ClientCapabilities;
 
     /**
-     * How {@linkcode Client.connect} negotiates protocol version with the server.
-     *
-     * - `'legacy'` (default): send the legacy `initialize` handshake. The
-     *   resulting mode is determined by the server's negotiated version.
-     * - `'auto'`: try `server/discover` (SEP-2575) with per-request `_meta`; on
-     *   any protocol-level rejection (method not found, invalid params, etc.),
-     *   fall back to `initialize`.
-     * - `'stateless'`: send `server/discover` only; throw if the server doesn't
-     *   support it.
-     *
-     * `'auto'` is the long-term default. It is opt-in for now because servers
-     * built with this SDK at this commit don't yet support stateless
-     * server-to-client interaction (sampling, elicitation), so a stateless
-     * negotiation would degrade existing in-process tests.
-     */
-    negotiationMode?: 'auto' | 'legacy' | 'stateless';
-
-    /**
      * JSON Schema validator for tool output validation.
      *
      * The validator is used to validate structured content returned by tools
@@ -243,7 +225,6 @@ export class Client extends Protocol<ClientContext> {
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
-    private _negotiationMode: 'auto' | 'legacy' | 'stateless';
     /** Per-request log level sent via `_meta` (stateless only). Set via {@linkcode Client.setLoggingLevel}. */
     private _logLevel?: LoggingLevel;
 
@@ -258,7 +239,6 @@ export class Client extends Protocol<ClientContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
-        this._negotiationMode = options?.negotiationMode ?? 'legacy';
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -449,56 +429,7 @@ export class Client extends Protocol<ClientContext> {
             return;
         }
         try {
-            // Negotiate per `negotiationMode`. `'auto'` tries `server/discover` (2026-06+)
-            // and falls back to `initialize` on any protocol-level rejection.
-            const discovered = this._negotiationMode === 'legacy' ? undefined : await this._tryDiscover(options);
-            if (this._negotiationMode === 'stateless' && !discovered) {
-                throw new SdkError(
-                    SdkErrorCode.CapabilityNotSupported,
-                    'Server does not support stateless negotiation (server/discover failed) and negotiationMode is "stateless".'
-                );
-            }
-            if (discovered) {
-                this._serverCapabilities = discovered.capabilities;
-                this._serverVersion = discovered.serverInfo;
-                this._negotiatedProtocolVersion = discovered.version;
-                this._instructions = discovered.instructions;
-                transport.setProtocolVersion?.(discovered.version);
-            } else {
-                // Legacy `initialize` handshake. Request the newest stateful version we
-                // support: `initialize` is the legacy mechanism, so do not ask for a
-                // stateless-model version through it.
-                const legacyPreferred =
-                    this._supportedProtocolVersions.find(v => !isStatelessVersion(v)) ??
-                    this._supportedProtocolVersions[0] ??
-                    LATEST_PROTOCOL_VERSION;
-                const result = await this._requestWithSchema(
-                    {
-                        method: 'initialize',
-                        params: {
-                            protocolVersion: legacyPreferred,
-                            capabilities: this._capabilities,
-                            clientInfo: this._clientInfo
-                        }
-                    },
-                    InitializeResultSchema,
-                    options
-                );
-                if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
-                    throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
-                }
-                this._serverCapabilities = result.capabilities;
-                this._serverVersion = result.serverInfo;
-                this._negotiatedProtocolVersion = result.protocolVersion;
-                this._instructions = result.instructions;
-                transport.setProtocolVersion?.(result.protocolVersion);
-                await this.notification({ method: 'notifications/initialized' });
-            }
-
-            // Third (and final) `_setIsStateless` setter: connection-lifetime mode determined
-            // by the negotiated protocol version. All subsequent client behaviour
-            // branches on `this.isStateless()`.
-            this._setIsStateless(isStatelessVersion(this._negotiatedProtocolVersion));
+            await this._negotiate(options);
 
             // Set up list changed handlers now that we know server capabilities
             if (this._pendingListChangedConfig) {
@@ -513,6 +444,55 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
+     * Determines protocol mode by attempting `server/discover`; on any
+     * protocol-level rejection, falls back to the legacy `initialize` handshake.
+     * Sets `_isStateless` based on which handshake succeeded. Protected so
+     * test fixtures can override to force a mode without negotiation.
+     */
+    protected async _negotiate(options?: RequestOptions): Promise<void> {
+        const discovered = await this._tryDiscover(options);
+        if (discovered) {
+            this._serverCapabilities = discovered.capabilities;
+            this._serverVersion = discovered.serverInfo;
+            this._negotiatedProtocolVersion = discovered.version;
+            this._instructions = discovered.instructions;
+            this.transport?.setProtocolVersion?.(discovered.version);
+            this._setIsStateless(true);
+        } else {
+            await this._initialize(options);
+            this._setIsStateless(false);
+        }
+    }
+
+    /**
+     * Performs the legacy `initialize` handshake. Protected so test fixtures
+     * can call it directly when forcing legacy mode.
+     */
+    protected async _initialize(options?: RequestOptions): Promise<void> {
+        // Request the newest stateful version we support: `initialize` is the
+        // legacy mechanism, so do not ask for a stateless-model version.
+        const supportedStateful = this._supportedProtocolVersions.find(v => (STATEFUL_PROTOCOL_VERSIONS as readonly string[]).includes(v));
+        const preferred = supportedStateful ?? this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION;
+        const result = await this._requestWithSchema(
+            {
+                method: 'initialize',
+                params: { protocolVersion: preferred, capabilities: this._capabilities, clientInfo: this._clientInfo }
+            },
+            InitializeResultSchema,
+            options
+        );
+        if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
+            throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
+        }
+        this._serverCapabilities = result.capabilities;
+        this._serverVersion = result.serverInfo;
+        this._negotiatedProtocolVersion = result.protocolVersion;
+        this._instructions = result.instructions;
+        this.transport?.setProtocolVersion?.(result.protocolVersion);
+        await this.notification({ method: 'notifications/initialized' });
+    }
+
+    /**
      * Attempts `server/discover` with per-request `_meta`. Returns the negotiated
      * server info on success, or `undefined` when the server is legacy (any
      * protocol-level rejection or no stateless-model version overlap), in which
@@ -521,7 +501,7 @@ export class Client extends Protocol<ClientContext> {
     private async _tryDiscover(
         options?: RequestOptions
     ): Promise<{ version: string; capabilities: ServerCapabilities; serverInfo: Implementation; instructions?: string } | undefined> {
-        const ourStateless = this._supportedProtocolVersions.filter(v => isStatelessVersion(v));
+        const ourStateless = this._supportedProtocolVersions.filter(v => !(STATEFUL_PROTOCOL_VERSIONS as readonly string[]).includes(v));
         const preferred = ourStateless[0];
         if (preferred === undefined) return undefined;
         // Spec: `MCP-Protocol-Version` header MUST match `_meta.protocolVersion`.

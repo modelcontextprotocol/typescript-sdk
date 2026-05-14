@@ -2,10 +2,10 @@ import type { AuthInfo, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprot
 import {
     isJSONRPCNotification,
     isJSONRPCRequest,
-    isStatelessVersion,
     JSONRPCMessageSchema,
     META_KEYS,
     ProtocolErrorCode,
+    STATEFUL_PROTOCOL_VERSIONS,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import * as z from 'zod/v4';
@@ -197,7 +197,7 @@ function validateProtocolVersion(
             message: `Invalid Request: MCP-Protocol-Version header ('${fromHeader}') must match _meta.protocolVersion ('${fromMeta}')`
         };
     }
-    if (!SUPPORTED_PROTOCOL_VERSIONS.includes(fromMeta) || !isStatelessVersion(fromMeta)) {
+    if (!SUPPORTED_PROTOCOL_VERSIONS.includes(fromMeta) || (STATEFUL_PROTOCOL_VERSIONS as readonly string[]).includes(fromMeta)) {
         return {
             message: `Unsupported protocol version: '${fromMeta}'.`,
             data: { supported: [...SUPPORTED_PROTOCOL_VERSIONS], requested: fromMeta }

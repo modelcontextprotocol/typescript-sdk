@@ -8,19 +8,6 @@ import type { ClientCapabilities, Implementation, LoggingLevel } from '../types/
 export const STATEFUL_PROTOCOL_VERSIONS = ['2024-10-07', '2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'] as const;
 
 /**
- * Returns whether a protocol-version string uses the stateless model. Unknown
- * and future versions return true; absent version returns false (legacy).
- *
- * This is the ONLY function that classifies a version string. All
- * version-conditional behaviour reads `Protocol.isStateless()`, which is set
- * from this function's result at the request/connection entry point.
- */
-export function isStatelessVersion(version: string | undefined): boolean {
-    if (!version) return false;
-    return !(STATEFUL_PROTOCOL_VERSIONS as readonly string[]).includes(version);
-}
-
-/**
  * Request methods removed in the stateless model. When `isStateless()` is
  * true, these return `-32601 MethodNotFound` at dispatch, before any handler
  * runs. Legacy mode is unaffected.

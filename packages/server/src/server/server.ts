@@ -42,7 +42,6 @@ import {
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    isStatelessVersion,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -53,7 +52,8 @@ import {
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    STATEFUL_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
@@ -404,15 +404,19 @@ export class Server extends Protocol<ServerContext> {
     }
 
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {
+        // Receiving `initialize` IS the legacy handshake.
+        this._setIsStateless(false);
+
         const requestedVersion = request.params.protocolVersion;
 
         this._clientCapabilities = request.params.capabilities;
         this._clientVersion = request.params.clientInfo;
 
-        // `initialize` is the legacy handshake, so only stateful-model versions are
-        // negotiable here. Stateless-model versions are negotiated via
-        // `server/discover` and per-request `_meta` instead.
-        const supportedStateful = this._supportedProtocolVersions.filter(v => !isStatelessVersion(v));
+        // Only stateful-model versions are negotiable here; stateless-model
+        // versions are negotiated via `server/discover` and per-request `_meta`.
+        const supportedStateful = this._supportedProtocolVersions.filter(v =>
+            (STATEFUL_PROTOCOL_VERSIONS as readonly string[]).includes(v)
+        );
         const protocolVersion = supportedStateful.includes(requestedVersion)
             ? requestedVersion
             : (supportedStateful[0] ?? LATEST_PROTOCOL_VERSION);
