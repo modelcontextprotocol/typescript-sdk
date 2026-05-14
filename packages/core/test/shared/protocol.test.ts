@@ -979,6 +979,30 @@ describe('handleStatelessRequest', () => {
         expect(res).toMatchObject({ error: { code: ProtocolErrorCode.InvalidParams, message: 'bad', data: { x: 1 } } });
     });
 
+    it('[R-2575-9] rejects unsupported _meta.protocolVersion with UnsupportedProtocolVersionError', async () => {
+        const p = createTestProtocol();
+        p.setRequestHandler('tools/list', async () => ({ tools: [] }));
+        const res = await p.handleStatelessRequest({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/list',
+            params: { _meta: { 'io.modelcontextprotocol/protocolVersion': 'garbage-9.9.9' } }
+        });
+        expect(res).toMatchObject({
+            error: {
+                code: ProtocolErrorCode.InvalidParams,
+                data: { requested: 'garbage-9.9.9', supported: expect.any(Array) }
+            }
+        });
+    });
+
+    it('absent _meta.protocolVersion is allowed (legacy path)', async () => {
+        const p = createTestProtocol();
+        p.setRequestHandler('tools/list', async () => ({ tools: [] }));
+        const res = await p.handleStatelessRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
+        expect(res).toMatchObject({ result: { tools: [] } });
+    });
+
     it('aborts handler via opts.signal', async () => {
         const p = createTestProtocol();
         let aborted = false;

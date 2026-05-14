@@ -417,6 +417,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
+     * Returns an UnsupportedProtocolVersionError when `version` is present but
+     * not in this instance's supported list. Absent version → `undefined`
+     * (legacy clients send none).
+     */
+    private _unsupportedVersionError(version: string | undefined): JSONRPCErrorResponse['error'] | undefined {
+        if (version === undefined || this._supportedProtocolVersions.includes(version)) {
+            return undefined;
+        }
+        return {
+            code: ProtocolErrorCode.InvalidParams,
+            message: `Unsupported protocol version: ${version}`,
+            data: { supported: [...this._supportedProtocolVersions], requested: version }
+        };
+    }
+
+    /**
      * Dispatches one JSON-RPC request and returns its response, without
      * touching any per-connection state (`_transport`, `_responseHandlers`,
      * `_requestHandlerAbortControllers`). Handler notifications (progress,
@@ -432,6 +448,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         opts?: HandleStatelessRequestOptions
     ): Promise<JSONRPCResponse | JSONRPCErrorResponse> {
         const meta = parseClientMeta(request.params);
+        const versionError = this._unsupportedVersionError(meta.protocolVersion);
+        if (versionError) {
+            return { jsonrpc: '2.0', id: request.id, error: versionError };
+        }
         this._setIsStateless(isStatelessVersion(meta.protocolVersion));
 
         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
@@ -640,6 +660,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
         const clientMeta = parseClientMeta(request.params);
+
+        // Capture the current transport at request time to ensure responses go to the correct client
+        const capturedTransport = this._transport;
+
+        const versionError = this._unsupportedVersionError(clientMeta.protocolVersion);
+        if (versionError) {
+            capturedTransport
+                ?.send({ jsonrpc: '2.0', id: request.id, error: versionError })
+                .catch(error => this._onerror(new Error(`Failed to send error response: ${error}`)));
+            return;
+        }
         // Set mode from this message only when it carries `_meta.protocolVersion`
         // (server processing a stateless-model client request) or when no mode is
         // set yet (server processing the first message on a connection). Skips on
@@ -649,9 +680,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
 
         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
-
-        // Capture the current transport at request time to ensure responses go to the correct client
-        const capturedTransport = this._transport;
 
         const sendNotification = (notification: Notification, options?: NotificationOptions) =>
             this.notification(notification, { ...options, relatedRequestId: request.id });
