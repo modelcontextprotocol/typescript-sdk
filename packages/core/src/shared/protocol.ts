@@ -283,6 +283,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
+    /**
+     * The protocol model this instance is operating under, set by the entry
+     * point that received the request or established the connection. See
+     * {@link isStateless}.
+     */
+    private _isStateless?: boolean;
+
     protected _supportedProtocolVersions: string[];
 
     /**
@@ -332,6 +339,33 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * to return the appropriate context type (e.g., ServerContext adds HTTP request info).
      */
     protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
+
+    /**
+     * The single discriminator between the legacy stateful model
+     * (initialize handshake, connection-scoped capabilities, server push) and
+     * the 2026-06 stateless model (per-request `_meta`, no handshake,
+     * `subscriptions/listen`). All version-conditional behaviour in the SDK
+     * branches on this method; nothing else inspects protocol-version state.
+     *
+     * Returns `false` until {@link _setIsStateless} has been called by an entry point.
+     */
+    protected isStateless(): boolean {
+        return this._isStateless === true;
+    }
+
+    /**
+     * Sets the protocol mode for this instance. Called only from request and
+     * connection entry points: {@link handleStatelessRequest}, {@link _onrequest},
+     * and `Client.connect`.
+     *
+     * @internal
+     */
+    protected _setIsStateless(value: boolean): void {
+        if (this._isStateless !== undefined && this._isStateless !== value) {
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'protocol mode changed mid-connection');
+        }
+        this._isStateless = value;
+    }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
         if (!notification.params.requestId) {
