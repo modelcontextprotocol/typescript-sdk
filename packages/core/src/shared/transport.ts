@@ -90,6 +90,7 @@ export interface ProtocolConfig {
     serverInfo?: Implementation;
     capabilities?: ServerCapabilities;
     instructions?: string;
+    createServer?: () => unknown;
 }
 
 /**

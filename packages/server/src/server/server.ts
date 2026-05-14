@@ -19,15 +19,21 @@ import type {
     LoggingLevel,
     LoggingMessageNotification,
     MessageExtraInfo,
+    Notification,
     NotificationMethod,
     NotificationOptions,
+    NotificationTypeMap,
+    ProtocolConfig,
     ProtocolOptions,
     RequestMethod,
     RequestOptions,
+    RequestTypeMap,
     ResourceUpdatedNotification,
     Result,
+    ResultTypeMap,
     ServerCapabilities,
     ServerContext,
+    StandardSchemaV1,
     ToolResultContent,
     ToolUseContent,
     Transport
@@ -52,54 +58,31 @@ import {
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 export type ServerOptions = ProtocolOptions & {
-    /**
-     * Capabilities to advertise as being supported by this server.
-     */
     capabilities?: ServerCapabilities;
-
-    /**
-     * Optional instructions describing how to use the server and its features.
-     */
     instructions?: string;
-
-    /**
-     * JSON Schema validator for elicitation response validation.
-     *
-     * The validator is used to validate user input returned from elicitation
-     * requests against the requested schema.
-     *
-     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, `CfWorkerJsonSchemaValidator` on Cloudflare Workers)
-     */
     jsonSchemaValidator?: jsonSchemaValidator;
 };
 
 /**
- * An MCP server on top of a pluggable transport.
+ * The Protocol-based MCP server implementation. Handles JSON-RPC dispatch,
+ * request/response correlation, and bidirectional session management.
  *
- * This server will automatically respond to the initialization flow as initiated from the client.
- *
- * @deprecated Use {@linkcode server/mcp.McpServer | McpServer} instead for the high-level API. Only use `Server` for advanced use cases.
+ * Used internally by {@linkcode Server} for legacy transport connections and
+ * by the routing transport for per-session legacy stacks.
  */
-export class Server extends Protocol<ServerContext> {
+export class LegacyServer extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
-    private _capabilities: ServerCapabilities;
+    _capabilities: ServerCapabilities;
     private _instructions?: string;
+    private _serverInfo: Implementation;
     private _jsonSchemaValidator: jsonSchemaValidator;
 
-    /**
-     * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
-     */
     oninitialized?: () => void;
 
-    /**
-     * Initializes this server with the given name and version information.
-     */
-    constructor(
-        private _serverInfo: Implementation,
-        options?: ServerOptions
-    ) {
+    constructor(serverInfo: Implementation, options?: ServerOptions) {
         super(options);
+        this._serverInfo = serverInfo;
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
@@ -112,14 +95,18 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    override async connect(transport: Transport): Promise<void> {
-        transport.setProtocolConfig?.({
+    getProtocolConfig(): ProtocolConfig {
+        return {
             requestHandlers: this.requestHandlers,
             serverInfo: this._serverInfo,
             capabilities: this._capabilities,
-            instructions: this._instructions
-        });
-        await super.connect(transport);
+            instructions: this._instructions,
+            createServer: () =>
+                new LegacyServer(this._serverInfo, {
+                    capabilities: this._capabilities,
+                    instructions: this._instructions
+                })
+        };
     }
 
     private _registerLoggingHandler(): void {
@@ -136,7 +123,6 @@ export class Server extends Protocol<ServerContext> {
     }
 
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
-        // Only create http when there's actual HTTP transport info or auth info
         const hasHttpInfo = ctx.http || transportInfo?.request || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
         return {
             ...ctx,
@@ -157,23 +143,14 @@ export class Server extends Protocol<ServerContext> {
         };
     }
 
-    // Map log levels by session id
     private _loggingLevels = new Map<string | undefined, LoggingLevel>();
-
-    // Map LogLevelSchema to severity index
     private readonly LOG_LEVEL_SEVERITY = new Map(LoggingLevelSchema.options.map((level, index) => [level, index]));
 
-    // Is a message with the given level ignored in the log level set for the given session id?
     private isMessageIgnored = (level: LoggingLevel, sessionId?: string): boolean => {
         const currentLevel = this._loggingLevels.get(sessionId);
         return currentLevel ? this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(currentLevel)! : false;
     };
 
-    /**
-     * Registers new capabilities. This can only be called before connecting to a transport.
-     *
-     * The new capabilities will be merged with any existing capabilities previously given (e.g., at initialization).
-     */
     public registerCapabilities(capabilities: ServerCapabilities): void {
         if (this.transport) {
             throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
@@ -185,10 +162,6 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    /**
-     * Enforces server-side validation for `tools/call` results regardless of how the
-     * handler was registered.
-     */
     protected override _wrapHandler(
         method: string,
         handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
@@ -237,7 +210,6 @@ export class Server extends Protocol<ServerContext> {
             }
 
             case 'ping': {
-                // No specific capability required for ping
                 break;
             }
         }
@@ -293,13 +265,8 @@ export class Server extends Protocol<ServerContext> {
                 break;
             }
 
-            case 'notifications/cancelled': {
-                // Cancellation notifications are always allowed
-                break;
-            }
-
+            case 'notifications/cancelled':
             case 'notifications/progress': {
-                // Progress notifications are always allowed
                 break;
             }
         }
@@ -348,7 +315,6 @@ export class Server extends Protocol<ServerContext> {
 
             case 'ping':
             case 'initialize': {
-                // No specific capability required for these methods
                 break;
             }
         }
@@ -374,23 +340,14 @@ export class Server extends Protocol<ServerContext> {
         };
     }
 
-    /**
-     * After initialization has completed, this will be populated with the client's reported capabilities.
-     */
     getClientCapabilities(): ClientCapabilities | undefined {
         return this._clientCapabilities;
     }
 
-    /**
-     * After initialization has completed, this will be populated with information about the client's name and version.
-     */
     getClientVersion(): Implementation | undefined {
         return this._clientVersion;
     }
 
-    /**
-     * Returns the current server capabilities.
-     */
     public getCapabilities(): ServerCapabilities {
         return this._capabilities;
     }
@@ -399,40 +356,20 @@ export class Server extends Protocol<ServerContext> {
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema);
     }
 
-    /**
-     * Request LLM sampling from the client (without tools).
-     * Returns single content block for backwards compatibility.
-     */
     async createMessage(params: CreateMessageRequestParamsBase, options?: RequestOptions): Promise<CreateMessageResult>;
-
-    /**
-     * Request LLM sampling from the client with tool support.
-     * Returns content that may be a single block or array (for parallel tool calls).
-     */
     async createMessage(params: CreateMessageRequestParamsWithTools, options?: RequestOptions): Promise<CreateMessageResultWithTools>;
-
-    /**
-     * Request LLM sampling from the client.
-     * When tools may or may not be present, returns the union type.
-     */
     async createMessage(
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools>;
-
-    // Implementation
     async createMessage(
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
-        // Capability check - only required when tools/toolChoice are provided
         if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
         }
 
-        // Message structure validation - always validate tool_use/tool_result pairs.
-        // These may appear even without tools/toolChoice in the current request when
-        // a previous sampling request returned tool_use and this is a follow-up with results.
         if (params.messages.length > 0) {
             const lastMessage = params.messages.at(-1)!;
             const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
@@ -474,20 +411,12 @@ export class Server extends Protocol<ServerContext> {
             }
         }
 
-        // Use different schemas based on whether tools are provided
         if (params.tools) {
             return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
         }
         return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
-    /**
-     * Creates an elicitation request for the given parameters.
-     * For backwards compatibility, `mode` may be omitted for form requests and will default to `"form"`.
-     * @param params The parameters for the elicitation request.
-     * @param options Optional request options.
-     * @returns The result of the elicitation request.
-     */
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
         const mode = (params.mode ?? 'form') as 'form' | 'url';
 
@@ -540,14 +469,6 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    /**
-     * Creates a reusable callback that, when invoked, will send a `notifications/elicitation/complete`
-     * notification for the specified elicitation ID.
-     *
-     * @param elicitationId The ID of the elicitation to mark as complete.
-     * @param options Optional notification options. Useful when the completion notification should be related to a prior request.
-     * @returns A function that emits the completion notification when awaited.
-     */
     createElicitationCompletionNotifier(elicitationId: string, options?: NotificationOptions): () => Promise<void> {
         if (!this._clientCapabilities?.elicitation?.url) {
             throw new SdkError(
@@ -560,9 +481,7 @@ export class Server extends Protocol<ServerContext> {
             this.notification(
                 {
                     method: 'notifications/elicitation/complete',
-                    params: {
-                        elicitationId
-                    }
+                    params: { elicitationId }
                 },
                 options
             );
@@ -572,13 +491,6 @@ export class Server extends Protocol<ServerContext> {
         return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
 
-    /**
-     * Sends a logging message to the client, if connected.
-     * Note: You only need to send the parameters object, not the entire JSON-RPC message.
-     * @see {@linkcode LoggingMessageNotification}
-     * @param params
-     * @param sessionId Optional for stateless transports and backward compatibility.
-     */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {
             return this.notification({ method: 'notifications/message', params });
@@ -586,16 +498,11 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async sendResourceUpdated(params: ResourceUpdatedNotification['params']) {
-        return this.notification({
-            method: 'notifications/resources/updated',
-            params
-        });
+        return this.notification({ method: 'notifications/resources/updated', params });
     }
 
     async sendResourceListChanged() {
-        return this.notification({
-            method: 'notifications/resources/list_changed'
-        });
+        return this.notification({ method: 'notifications/resources/list_changed' });
     }
 
     async sendToolListChanged() {
@@ -604,5 +511,193 @@ export class Server extends Protocol<ServerContext> {
 
     async sendPromptListChanged() {
         return this.notification({ method: 'notifications/prompts/list_changed' });
+    }
+}
+
+/**
+ * An MCP server on top of a pluggable transport.
+ *
+ * Composes a {@linkcode LegacyServer} internally for handler registration and
+ * protocol participation. For routing transports, passes configuration directly
+ * without wiring Protocol's message loop. For regular transports, delegates to
+ * the inner LegacyServer.
+ *
+ * @deprecated Use {@linkcode server/mcp.McpServer | McpServer} instead for the high-level API. Only use `Server` for advanced use cases.
+ */
+export class Server {
+    private _impl: LegacyServer;
+    private _transport?: Transport;
+
+    oninitialized?: () => void;
+    onclose?: () => void;
+    onerror?: (error: Error) => void;
+    fallbackRequestHandler?: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>;
+
+    constructor(serverInfo: Implementation, options?: ServerOptions) {
+        this._impl = new LegacyServer(serverInfo, options);
+    }
+
+    async connect(transport: Transport): Promise<void> {
+        this._transport = transport;
+
+        if (transport.setProtocolConfig) {
+            const config = this._impl.getProtocolConfig();
+            transport.setProtocolConfig(config);
+            await transport.start();
+        } else {
+            if (this.oninitialized) this._impl.oninitialized = this.oninitialized;
+            if (this.onclose) this._impl.onclose = this.onclose;
+            if (this.onerror) this._impl.onerror = this.onerror;
+            if (this.fallbackRequestHandler) this._impl.fallbackRequestHandler = this.fallbackRequestHandler;
+            await this._impl.connect(transport);
+        }
+    }
+
+    async close(): Promise<void> {
+        await (this._impl.transport ? this._impl.close() : this._transport?.close());
+    }
+
+    get transport(): Transport | undefined {
+        return this._impl.transport ?? this._transport;
+    }
+
+    // Handler registration — delegates to LegacyServer (which extends Protocol)
+    setRequestHandler<M extends RequestMethod>(
+        method: M,
+        handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
+    ): void;
+    setRequestHandler<P extends StandardSchemaV1, R extends StandardSchemaV1 | undefined = undefined>(
+        method: string,
+        schemas: { params: P; result?: R },
+        handler: (
+            params: StandardSchemaV1.InferOutput<P>,
+            ctx: ServerContext
+        ) =>
+            | (R extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<R> : Result)
+            | Promise<R extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<R> : Result>
+    ): void;
+    setRequestHandler(method: string, ...args: unknown[]): void {
+        (this._impl.setRequestHandler as (...a: unknown[]) => unknown).call(this._impl, method, ...args);
+    }
+
+    setNotificationHandler<M extends NotificationMethod>(
+        method: M,
+        handler: (notification: NotificationTypeMap[M]) => void | Promise<void>
+    ): void;
+    setNotificationHandler<P extends StandardSchemaV1>(
+        method: string,
+        schemas: { params: P },
+        handler: (params: StandardSchemaV1.InferOutput<P>, notification: Notification) => void | Promise<void>
+    ): void;
+    setNotificationHandler(method: string, ...args: unknown[]): void {
+        (this._impl.setNotificationHandler as (...a: unknown[]) => unknown).call(this._impl, method, ...args);
+    }
+
+    removeRequestHandler(method: RequestMethod | string): void {
+        this._impl.removeRequestHandler(method);
+    }
+
+    removeNotificationHandler(method: NotificationMethod | string): void {
+        this._impl.removeNotificationHandler(method);
+    }
+
+    assertCanSetRequestHandler(method: RequestMethod | string): void {
+        this._impl.assertCanSetRequestHandler(method);
+    }
+
+    registerCapabilities(capabilities: ServerCapabilities): void {
+        this._impl.registerCapabilities(capabilities);
+    }
+
+    getCapabilities(): ServerCapabilities {
+        return this._impl.getCapabilities();
+    }
+
+    getClientCapabilities(): ClientCapabilities | undefined {
+        return this._impl.getClientCapabilities();
+    }
+
+    getClientVersion(): Implementation | undefined {
+        return this._impl.getClientVersion();
+    }
+
+    // Server-to-client methods — only work when connected to a regular transport
+    async createMessage(params: CreateMessageRequestParamsBase, options?: RequestOptions): Promise<CreateMessageResult>;
+    async createMessage(params: CreateMessageRequestParamsWithTools, options?: RequestOptions): Promise<CreateMessageResultWithTools>;
+    async createMessage(
+        params: CreateMessageRequest['params'],
+        options?: RequestOptions
+    ): Promise<CreateMessageResult | CreateMessageResultWithTools>;
+    async createMessage(
+        params: CreateMessageRequest['params'],
+        options?: RequestOptions
+    ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
+        return this._impl.createMessage(params, options);
+    }
+
+    async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
+        return this._impl.elicitInput(params, options);
+    }
+
+    createElicitationCompletionNotifier(elicitationId: string, options?: NotificationOptions): () => Promise<void> {
+        if (!this._impl.getClientCapabilities()?.elicitation?.url) {
+            throw new SdkError(
+                SdkErrorCode.CapabilityNotSupported,
+                'Client does not support URL elicitation (required for notifications/elicitation/complete)'
+            );
+        }
+        return () =>
+            this.notification(
+                {
+                    method: 'notifications/elicitation/complete',
+                    params: { elicitationId }
+                },
+                options
+            );
+    }
+
+    async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
+        return this._impl.listRoots(params, options);
+    }
+
+    async ping() {
+        return this._impl.ping();
+    }
+
+    request<M extends RequestMethod>(
+        request: { method: M; params?: Record<string, unknown> },
+        options?: RequestOptions
+    ): Promise<ResultTypeMap[M]>;
+    request<T extends StandardSchemaV1>(
+        request: { method: string; params?: Record<string, unknown> },
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<StandardSchemaV1.InferOutput<T>>;
+    request(request: { method: string; params?: Record<string, unknown> }, ...args: unknown[]): Promise<unknown> {
+        return (this._impl.request as (...a: unknown[]) => Promise<unknown>).call(this._impl, request, ...args);
+    }
+
+    async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
+        return this._impl.notification(notification, options);
+    }
+
+    async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
+        return this._impl.sendLoggingMessage(params, sessionId);
+    }
+
+    async sendResourceUpdated(params: ResourceUpdatedNotification['params']) {
+        return this._impl.sendResourceUpdated(params);
+    }
+
+    async sendResourceListChanged() {
+        return this._impl.sendResourceListChanged();
+    }
+
+    async sendToolListChanged() {
+        return this._impl.sendToolListChanged();
+    }
+
+    async sendPromptListChanged() {
+        return this._impl.sendPromptListChanged();
     }
 }

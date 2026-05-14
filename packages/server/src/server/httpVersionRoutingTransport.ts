@@ -2,13 +2,13 @@ import type { AuthInfo, JSONRPCMessage, ProtocolConfig, ServerCapabilities, Tran
 import { isJSONRPCRequest, JSONRPCMessageSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import { ModernProtocolHandler } from './modernHandler.js';
-import { Server } from './server.js';
+import { LegacyServer } from './server.js';
 import type { HandleRequestOptions, WebStandardStreamableHTTPServerTransportOptions } from './streamableHttp.js';
 import { WebStandardStreamableHTTPServerTransport } from './streamableHttp.js';
 
 interface LegacySessionEntry {
     transport: WebStandardStreamableHTTPServerTransport;
-    server: Server;
+    server: LegacyServer;
 }
 
 export interface HTTPVersionRoutingTransportOptions {
@@ -133,10 +133,12 @@ export class HTTPVersionRoutingTransport implements Transport {
     }
 
     private async handleLegacyInitialize(req: Request, options?: HandleRequestOptions): Promise<Response> {
-        const innerServer = new Server(this.protocolConfig!.serverInfo!, {
-            capabilities: this.protocolConfig!.capabilities as ServerCapabilities,
-            instructions: this.protocolConfig!.instructions
-        });
+        const innerServer = this.protocolConfig!.createServer
+            ? (this.protocolConfig!.createServer() as LegacyServer)
+            : new LegacyServer(this.protocolConfig!.serverInfo!, {
+                  capabilities: this.protocolConfig!.capabilities as ServerCapabilities,
+                  instructions: this.protocolConfig!.instructions
+              });
 
         innerServer.fallbackRequestHandler = async (request, ctx) => {
             const handler = this.protocolConfig!.requestHandlers.get(request.method);

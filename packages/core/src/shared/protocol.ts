@@ -289,6 +289,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         return this._requestHandlers;
     }
 
+    protected setTransport(transport: Transport | undefined): void {
+        this._transport = transport;
+    }
+
     /**
      * Callback for when the connection is closed for any reason.
      *

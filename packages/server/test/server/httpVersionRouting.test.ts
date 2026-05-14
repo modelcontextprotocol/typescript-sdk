@@ -1,6 +1,14 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { z } from 'zod/v4';
-import type { CallToolResult, JSONRPCErrorResponse, ListToolsResult } from '@modelcontextprotocol/core';
+import type {
+    CallToolResult,
+    GetPromptResult,
+    JSONRPCErrorResponse,
+    ListPromptsResult,
+    ListResourcesResult,
+    ListToolsResult,
+    ReadResourceResult
+} from '@modelcontextprotocol/core';
 import { McpServer } from '../../src/server/mcp.js';
 import { HTTPVersionRoutingTransport } from '../../src/server/httpVersionRoutingTransport.js';
 
@@ -25,6 +33,14 @@ describe('HTTPVersionRoutingTransport', () => {
 
         server.registerTool('greet', { description: 'Greet someone', inputSchema: { name: z.string() } }, async ({ name }) => ({
             content: [{ type: 'text', text: `Hello, ${name}!` }]
+        }));
+
+        server.registerResource('test-resource', 'test://doc', { description: 'A test resource' }, async () => ({
+            contents: [{ uri: 'test://doc', text: 'Resource content here' }]
+        }));
+
+        server.registerPrompt('test-prompt', { description: 'A test prompt' }, async () => ({
+            messages: [{ role: 'user', content: { type: 'text', text: 'Hello from prompt' } }]
         }));
 
         transport = new HTTPVersionRoutingTransport({
@@ -127,6 +143,128 @@ describe('HTTPVersionRoutingTransport', () => {
             expect(body.result.result_type).toBe('complete');
             expect(body.result.tools).toHaveLength(1);
             expect(body.result.tools).toMatchObject([{ name: 'greet' }]);
+        });
+
+        it('handles resources/list', async () => {
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Mcp-Method': 'resources/list',
+                        'MCP-Protocol-Version': '2026-06-30'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'resources/list',
+                        params: {
+                            _meta: {
+                                protocolVersion: '2026-06-30',
+                                clientCapabilities: {},
+                                clientInfo: { name: 'test-client', version: '1.0.0' }
+                            }
+                        }
+                    })
+                })
+            );
+
+            expect(response.status).toBe(200);
+            const body = (await response.json()) as JsonRpcOk<ListResourcesResult>;
+            expect(body.result.result_type).toBe('complete');
+            expect(body.result.resources).toMatchObject([{ uri: 'test://doc', name: 'test-resource' }]);
+        });
+
+        it('handles resources/read', async () => {
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Mcp-Method': 'resources/read',
+                        'MCP-Protocol-Version': '2026-06-30'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'resources/read',
+                        params: {
+                            uri: 'test://doc',
+                            _meta: {
+                                protocolVersion: '2026-06-30',
+                                clientCapabilities: {},
+                                clientInfo: { name: 'test-client', version: '1.0.0' }
+                            }
+                        }
+                    })
+                })
+            );
+
+            expect(response.status).toBe(200);
+            const body = (await response.json()) as JsonRpcOk<ReadResourceResult>;
+            expect(body.result.result_type).toBe('complete');
+            expect(body.result.contents).toMatchObject([{ uri: 'test://doc', text: 'Resource content here' }]);
+        });
+
+        it('handles prompts/list', async () => {
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Mcp-Method': 'prompts/list',
+                        'MCP-Protocol-Version': '2026-06-30'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'prompts/list',
+                        params: {
+                            _meta: {
+                                protocolVersion: '2026-06-30',
+                                clientCapabilities: {},
+                                clientInfo: { name: 'test-client', version: '1.0.0' }
+                            }
+                        }
+                    })
+                })
+            );
+
+            expect(response.status).toBe(200);
+            const body = (await response.json()) as JsonRpcOk<ListPromptsResult>;
+            expect(body.result.result_type).toBe('complete');
+            expect(body.result.prompts).toMatchObject([{ name: 'test-prompt' }]);
+        });
+
+        it('handles prompts/get', async () => {
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Mcp-Method': 'prompts/get',
+                        'MCP-Protocol-Version': '2026-06-30'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'prompts/get',
+                        params: {
+                            name: 'test-prompt',
+                            _meta: {
+                                protocolVersion: '2026-06-30',
+                                clientCapabilities: {},
+                                clientInfo: { name: 'test-client', version: '1.0.0' }
+                            }
+                        }
+                    })
+                })
+            );
+
+            expect(response.status).toBe(200);
+            const body = (await response.json()) as JsonRpcOk<GetPromptResult>;
+            expect(body.result.result_type).toBe('complete');
+            expect(body.result.messages).toMatchObject([{ role: 'user', content: { type: 'text', text: 'Hello from prompt' } }]);
         });
 
         it('returns method not found for unknown methods', async () => {
@@ -298,6 +436,77 @@ describe('HTTPVersionRoutingTransport', () => {
             );
 
             expect(response.status).toBe(404);
+        });
+
+        it('handles DELETE for session termination', async () => {
+            // Initialize a session
+            const initResponse = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'initialize',
+                        params: {
+                            protocolVersion: '2025-11-25',
+                            capabilities: {},
+                            clientInfo: { name: 'legacy-client', version: '1.0.0' }
+                        }
+                    })
+                })
+            );
+            const sessionId = initResponse.headers.get('mcp-session-id')!;
+
+            // Send DELETE
+            const deleteResponse = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'DELETE',
+                    headers: { 'Mcp-Session-Id': sessionId }
+                })
+            );
+
+            expect(deleteResponse.status).toBe(200);
+
+            // Session should be gone — subsequent request returns 404
+            const afterDelete = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        Accept: 'application/json, text/event-stream',
+                        'Mcp-Session-Id': sessionId
+                    },
+                    body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} })
+                })
+            );
+
+            expect(afterDelete.status).toBe(404);
+        });
+
+        it('rejects GET without session ID', async () => {
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'GET',
+                    headers: {}
+                })
+            );
+
+            expect(response.status).toBe(400);
+        });
+
+        it('rejects DELETE without session ID', async () => {
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'DELETE',
+                    headers: {}
+                })
+            );
+
+            expect(response.status).toBe(400);
         });
     });
 
