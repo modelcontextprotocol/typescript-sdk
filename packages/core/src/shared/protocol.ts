@@ -124,6 +124,27 @@ export type RequestOptions = {
 } & TransportSendOptions;
 
 /**
+ * Options for {@linkcode Protocol.handleStatelessRequest}.
+ */
+export type HandleStatelessRequestOptions = {
+    /**
+     * Called for each notification the handler emits via `ctx.mcpReq.notify`
+     * (e.g., progress, logging). The caller writes these to the response stream
+     * before the final response.
+     */
+    onNotification?: (notification: JSONRPCNotification) => void | Promise<void>;
+    /**
+     * Transport-level extras (auth info, raw HTTP request) forwarded to
+     * {@linkcode Protocol.buildContext}.
+     */
+    extra?: MessageExtraInfo;
+    /**
+     * Cancels the in-flight handler. Aborting after the handler resolves has no effect.
+     */
+    signal?: AbortSignal;
+};
+
+/**
  * Options that can be given per notification.
  */
 export type NotificationOptions = {
@@ -393,6 +414,85 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'protocol mode changed mid-connection');
         }
         this._isStateless = value;
+    }
+
+    /**
+     * Dispatches one JSON-RPC request and returns its response, without
+     * touching any per-connection state (`_transport`, `_responseHandlers`,
+     * `_requestHandlerAbortControllers`). Handler notifications (progress,
+     * logging) are delivered via {@linkcode HandleStatelessRequestOptions.onNotification | onNotification},
+     * not over a transport. `ctx.mcpReq.send` throws: the stateless model has
+     * no server-to-client request channel.
+     *
+     * Sets `_isStateless` from the request's `_meta.protocolVersion` as its first
+     * action; intended to be called on a per-request instance.
+     */
+    async handleStatelessRequest(
+        request: JSONRPCRequest,
+        opts?: HandleStatelessRequestOptions
+    ): Promise<JSONRPCResponse | JSONRPCErrorResponse> {
+        const meta = parseClientMeta(request.params);
+        this._setIsStateless(isStatelessVersion(meta.protocolVersion));
+
+        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+        if (handler === undefined) {
+            return {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: { code: ProtocolErrorCode.MethodNotFound, message: 'Method not found' }
+            };
+        }
+
+        const abort = new AbortController();
+        const onAbort = () => abort.abort(opts?.signal?.reason);
+        opts?.signal?.addEventListener('abort', onAbort);
+
+        const notify = async (notification: Notification): Promise<void> => {
+            await opts?.onNotification?.({ jsonrpc: '2.0', ...notification });
+        };
+
+        const baseCtx: BaseContext = {
+            sessionId: undefined,
+            protocolVersion: meta.protocolVersion,
+            clientCapabilities: meta.clientCapabilities,
+            clientInfo: meta.clientInfo,
+            logLevel: meta.logLevel,
+            mcpReq: {
+                id: request.id,
+                method: request.method,
+                _meta: request.params?._meta,
+                signal: abort.signal,
+                send: (() => {
+                    throw new SdkError(
+                        SdkErrorCode.NotConnected,
+                        'ctx.mcpReq.send is unavailable on the stateless path (no server-to-client request channel).'
+                    );
+                }) as BaseContext['mcpReq']['send'],
+                notify
+            },
+            http: opts?.extra?.authInfo ? { authInfo: opts.extra.authInfo } : undefined
+        };
+        const ctx = this.buildContext(baseCtx, opts?.extra);
+
+        try {
+            const result = await handler(request, ctx);
+            return { jsonrpc: '2.0', id: request.id, result };
+        } catch (error) {
+            // Only intentional protocol errors surface message/data to the client.
+            const intentional = error instanceof SdkError || error instanceof ProtocolError;
+            const e = error as { code?: unknown; message?: string; data?: unknown };
+            return {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: {
+                    code: Number.isSafeInteger(e.code) ? (e.code as number) : ProtocolErrorCode.InternalError,
+                    message: intentional ? (e.message ?? 'Internal error') : 'Internal error',
+                    ...(intentional && e.data !== undefined && { data: e.data })
+                }
+            };
+        } finally {
+            opts?.signal?.removeEventListener('abort', onAbort);
+        }
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {

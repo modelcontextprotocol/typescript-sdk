@@ -897,3 +897,104 @@ describe('mergeCapabilities', () => {
         expect(merged).toEqual({});
     });
 });
+
+describe('handleStatelessRequest', () => {
+    const META = {
+        'io.modelcontextprotocol/protocolVersion': 'DRAFT-2026-v1',
+        'io.modelcontextprotocol/clientCapabilities': { sampling: {} },
+        'io.modelcontextprotocol/clientInfo': { name: 't', version: '1' }
+    } as const;
+
+    function makeReq(method: string, params: Record<string, unknown> = {}): JSONRPCRequest {
+        return { jsonrpc: '2.0', id: 1, method, params: { ...params, _meta: META } };
+    }
+
+    it('dispatches to a registered handler and returns the result', async () => {
+        const p = createTestProtocol();
+        p.setRequestHandler('tools/list', async () => ({ tools: [] }));
+        const res = await p.handleStatelessRequest(makeReq('tools/list'));
+        expect(res).toMatchObject({ jsonrpc: '2.0', id: 1, result: { tools: [] } });
+    });
+
+    it('sets mode from _meta.protocolVersion (isStateless() observes it)', async () => {
+        const p = createTestProtocol();
+        let observed: boolean | undefined;
+        p.setRequestHandler('tools/list', async () => {
+            observed = (p as unknown as { isStateless(): boolean }).isStateless();
+            return { tools: [] };
+        });
+        await p.handleStatelessRequest(makeReq('tools/list'));
+        expect(observed).toBe(true);
+    });
+
+    it('returns MethodNotFound for unknown methods', async () => {
+        const p = createTestProtocol();
+        const res = await p.handleStatelessRequest(makeReq('nope/nope'));
+        expect(res).toMatchObject({ error: { code: ProtocolErrorCode.MethodNotFound } });
+    });
+
+    it('ctx.mcpReq.send throws (no server-to-client channel)', async () => {
+        const p = createTestProtocol();
+        let thrown: unknown;
+        p.setRequestHandler('tools/list', async (_req, ctx) => {
+            try {
+                await ctx.mcpReq.send({ method: 'ping' });
+            } catch (e) {
+                thrown = e;
+            }
+            return { tools: [] };
+        });
+        await p.handleStatelessRequest(makeReq('tools/list'));
+        expect(thrown).toBeInstanceOf(SdkError);
+    });
+
+    it('delivers handler notifications via onNotification', async () => {
+        const p = createTestProtocol();
+        const seen: JSONRPCNotification[] = [];
+        p.setRequestHandler('tools/list', async (_req, ctx) => {
+            await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'x', progress: 1 } });
+            return { tools: [] };
+        });
+        await p.handleStatelessRequest(makeReq('tools/list'), { onNotification: n => void seen.push(n) });
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.method).toBe('notifications/progress');
+    });
+
+    it('sanitizes non-protocol errors to InternalError', async () => {
+        const p = createTestProtocol();
+        p.setRequestHandler('tools/list', async () => {
+            throw new Error('secret detail');
+        });
+        const res = await p.handleStatelessRequest(makeReq('tools/list'));
+        expect(res).toMatchObject({ error: { code: ProtocolErrorCode.InternalError, message: 'Internal error' } });
+        expect(JSON.stringify(res)).not.toContain('secret detail');
+    });
+
+    it('surfaces ProtocolError code/message/data', async () => {
+        const p = createTestProtocol();
+        p.setRequestHandler('tools/list', async () => {
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'bad', { x: 1 });
+        });
+        const res = await p.handleStatelessRequest(makeReq('tools/list'));
+        expect(res).toMatchObject({ error: { code: ProtocolErrorCode.InvalidParams, message: 'bad', data: { x: 1 } } });
+    });
+
+    it('aborts handler via opts.signal', async () => {
+        const p = createTestProtocol();
+        let aborted = false;
+        p.setRequestHandler('tools/list', async (_req, ctx) => {
+            await new Promise<void>(resolve => {
+                ctx.mcpReq.signal.addEventListener('abort', () => {
+                    aborted = true;
+                    resolve();
+                });
+            });
+            return { tools: [] };
+        });
+        const ac = new AbortController();
+        const promise = p.handleStatelessRequest(makeReq('tools/list'), { signal: ac.signal });
+        ac.abort('client gone');
+        await promise;
+        expect(aborted).toBe(true);
+    });
+});
