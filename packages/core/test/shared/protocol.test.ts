@@ -1014,14 +1014,14 @@ describe('handleStatelessRequest', () => {
         expect(res).toMatchObject({ error: { code: ProtocolErrorCode.MethodNotFound } });
     });
 
-    it('ping still works when legacy (no _meta)', async () => {
+    it('handleStatelessRequest is unconditionally stateless: ping rejected even with no _meta', async () => {
         const p = createTestProtocol();
         p.setRequestHandler('ping', async () => ({}));
         const res = await p.handleStatelessRequest({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} });
-        expect(res).toMatchObject({ result: {} });
+        expect(res).toMatchObject({ error: { code: ProtocolErrorCode.MethodNotFound } });
     });
 
-    it('absent _meta.protocolVersion is allowed (legacy path)', async () => {
+    it('absent _meta.protocolVersion is allowed (non-removed methods)', async () => {
         const p = createTestProtocol();
         p.setRequestHandler('tools/list', async () => ({ tools: [] }));
         const res = await p.handleStatelessRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });

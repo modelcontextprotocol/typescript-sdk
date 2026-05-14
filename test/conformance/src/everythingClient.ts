@@ -149,17 +149,14 @@ registerScenario('tools_call', runToolsCallClient);
 // ============================================================================
 
 async function runStatelessClient(serverUrl: string): Promise<void> {
-    logger.debug('Starting stateless client flow via SDK negotiationMode: stateless ...');
+    logger.debug('Starting stateless client flow ...');
 
-    const client = new Client(
-        { name: 'conformance-test-client', version: '1.0.0' },
-        { capabilities: { roots: {} }, negotiationMode: 'stateless' }
-    );
+    const client = new Client({ name: 'conformance-test-client', version: '1.0.0' }, { capabilities: { roots: {} } });
     const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
 
-    // connect() performs server/discover (with `_meta` + header) and sets mode='stateless'.
+    // connect() performs server/discover (with `_meta` + header) and negotiates stateless.
     await client.connect(transport);
-    logger.debug('Connected; mode =', client.mode);
+    logger.debug('Connected; negotiated =', client.getNegotiatedProtocolVersion());
 
     // tools/list — SDK injects `_meta` per request and the transport carries
     // the negotiated MCP-Protocol-Version header.

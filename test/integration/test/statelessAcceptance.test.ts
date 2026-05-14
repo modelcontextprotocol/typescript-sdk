@@ -5,6 +5,8 @@ import { McpServer, Server } from '@modelcontextprotocol/server';
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
+import { LegacyTestClient } from './fixtures/testClient.js';
+
 function newServerLinked() {
     const mcp = new McpServer({ name: 's', version: '1' }, { capabilities: { tools: { listChanged: true }, logging: {} } });
     mcp.registerTool('echo', { inputSchema: { text: z.string() } }, async ({ text }, ctx) => {
@@ -25,7 +27,7 @@ describe('SEP-2567/2575 acceptance', () => {
     describe('compat matrix', () => {
         it('old-client x new-server: legacy initialize works unchanged', async () => {
             const { mcp, client, server } = newServerLinked();
-            const oldClient = new Client({ name: 'old', version: '1' }, { negotiationMode: 'legacy' });
+            const oldClient = new LegacyTestClient({ name: 'old', version: '1' });
             await Promise.all([mcp.connect(server), oldClient.connect(client)]);
             expect(oldClient.getNegotiatedProtocolVersion()).toBe('2025-11-25');
             const r = await oldClient.callTool({ name: 'echo', arguments: { text: 'hi' } });
@@ -33,34 +35,28 @@ describe('SEP-2567/2575 acceptance', () => {
             await Promise.all([oldClient.close(), mcp.close()]);
         });
 
-        it('[R-2575-10] new-client(auto) x new-server: tries discover first, negotiates stateless', async () => {
+        it('[R-2575-10] new-client x new-server: tries discover first, negotiates stateless', async () => {
             const { mcp, client, server } = newServerLinked();
-            const newClient = new Client({ name: 'new', version: '1' }, { negotiationMode: 'auto' });
+            const newClient = new Client({ name: 'new', version: '1' });
             await Promise.all([mcp.connect(server), newClient.connect(client)]);
             expect(newClient.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
             await Promise.all([newClient.close(), mcp.close()]);
         });
 
-        // R-2575-11 (auto-fallback to initialize over stdio) is a known limitation:
-        // the discover probe carries `_meta.protocolVersion`, locking the server's
-        // mode to stateless before the fallback `initialize` arrives. This works
-        // over HTTP (per-request server instance) but not over a single bidirectional
-        // transport. Auto mode is opt-in until this is resolved.
-
-        it('new-client(stateless) x old-server: throws (server does not support stateless)', async () => {
+        it('[R-2575-11] new-client x old-server (no discover): falls back to initialize over stdio', async () => {
             const oldServer = new Server({ name: 'old', version: '1' }, { capabilities: {} });
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (oldServer as any)._requestHandlers.delete('server/discover');
             const [c, s] = InMemoryTransport.createLinkedPair();
-            const newClient = new Client({ name: 'new', version: '1' }, { negotiationMode: 'stateless' });
-            await oldServer.connect(s);
-            await expect(newClient.connect(c)).rejects.toThrow(/stateless negotiation/);
-            await oldServer.close();
+            const newClient = new Client({ name: 'new', version: '1' });
+            await Promise.all([oldServer.connect(s), newClient.connect(c)]);
+            expect(newClient.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+            await Promise.all([newClient.close(), oldServer.close()]);
         });
 
-        it('new-client(stateless) x new-server: full stateless flow over stdio', async () => {
+        it('new-client x new-server: full stateless flow over stdio', async () => {
             const { mcp, client, server } = newServerLinked();
-            const newClient = new Client({ name: 'new', version: '1' }, { negotiationMode: 'stateless' });
+            const newClient = new Client({ name: 'new', version: '1' });
             await Promise.all([mcp.connect(server), newClient.connect(client)]);
             expect(newClient.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
             const tools = await newClient.listTools();
@@ -80,7 +76,7 @@ describe('SEP-2567/2575 acceptance', () => {
                 sent.push(m);
                 return origSend(m, opts);
             };
-            const c = new Client({ name: 'c', version: '1' }, { negotiationMode: 'stateless', capabilities: { roots: {} } });
+            const c = new Client({ name: 'c', version: '1' }, { capabilities: { roots: {} } });
             await Promise.all([mcp.connect(server), c.connect(client)]);
             await c.listTools();
             const reqs = sent.filter((m): m is JSONRPCRequest => typeof m === 'object' && m !== null && 'method' in m && 'id' in m);
@@ -128,7 +124,7 @@ describe('SEP-2567/2575 acceptance', () => {
 
         it('client.ping/subscribeResource throw locally when stateless', async () => {
             const { mcp, client, server } = newServerLinked();
-            const c = new Client({ name: 'c', version: '1' }, { negotiationMode: 'stateless' });
+            const c = new Client({ name: 'c', version: '1' });
             await Promise.all([mcp.connect(server), c.connect(client)]);
             await expect(c.ping()).rejects.toThrow(ProtocolError);
             await expect(c.subscribeResource({ uri: 'x' })).rejects.toThrow(ProtocolError);
@@ -179,7 +175,7 @@ describe('SEP-2567/2575 acceptance', () => {
                 sent.push(m);
                 return origSend(m, opts);
             };
-            const c = new Client({ name: 'c', version: '1' }, { negotiationMode: 'stateless' });
+            const c = new Client({ name: 'c', version: '1' });
             await Promise.all([mcp.connect(server), c.connect(client)]);
             await c.setLoggingLevel('warning');
             // No logging/setLevel request was sent.
@@ -304,10 +300,30 @@ describe('SEP-2567/2575 acceptance', () => {
                 method: 'initialize',
                 params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'c', version: '1' } }
             });
+            // Let _oninitialize run (handler invocation is queued as a microtask).
+            await new Promise(r => setTimeout(r, 0));
             // Second message: stateless _meta on the same connection.
             expect(() => t.onmessage?.({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: STATELESS_META } })).toThrow(
                 /mode changed/
             );
+        });
+
+        it('[R-2575-11] discover probe does not commit mode (mode-neutral)', async () => {
+            const server = new Server({ name: 's', version: '1' }, { capabilities: {} });
+            const t: Transport = { start: async () => {}, close: async () => {}, send: async () => {} };
+            await server.connect(t);
+            // Discover probe with _meta.protocolVersion: must NOT lock the server's mode.
+            t.onmessage?.({ jsonrpc: '2.0', id: 1, method: 'server/discover', params: { _meta: STATELESS_META } });
+            await new Promise(r => setTimeout(r, 0));
+            // Subsequent legacy initialize must succeed (no "mode changed" guard fires).
+            expect(() =>
+                t.onmessage?.({
+                    jsonrpc: '2.0',
+                    id: 2,
+                    method: 'initialize',
+                    params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'c', version: '1' } }
+                })
+            ).not.toThrow();
         });
     });
 });

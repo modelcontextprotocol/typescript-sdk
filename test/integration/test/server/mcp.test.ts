@@ -1,9 +1,11 @@
-import { Client } from '@modelcontextprotocol/client';
+import type { Client } from '@modelcontextprotocol/client';
 import type { Notification, TextContent } from '@modelcontextprotocol/core';
 import { getDisplayName, InMemoryTransport, ProtocolErrorCode, UriTemplate, UrlElicitationRequiredError } from '@modelcontextprotocol/core';
 import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
+
+import { LegacyTestClient } from '../fixtures/testClient.js';
 
 describe('Zod v4', () => {
     describe('McpServer', () => {
@@ -32,7 +34,7 @@ describe('Zod v4', () => {
             );
 
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -76,7 +78,7 @@ describe('Zod v4', () => {
             );
 
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -146,7 +148,7 @@ describe('Zod v4', () => {
                 }
             );
 
-            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { elicitation: {} } });
+            const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { elicitation: {} } });
 
             client.setRequestHandler('elicitation/create', async () => ({
                 action: 'accept',
@@ -196,7 +198,7 @@ describe('Zod v4', () => {
                 }
             );
 
-            const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+            const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
             client.setRequestHandler('sampling/createMessage', async () => ({
                 model: 'test-model',
@@ -269,7 +271,7 @@ describe('Zod v4', () => {
                 message?: string;
             }> = [];
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -324,7 +326,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -348,7 +350,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client(
+            const client = new LegacyTestClient(
                 {
                     name: 'test client',
                     version: '1.0'
@@ -434,7 +436,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -498,7 +500,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -560,7 +562,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -650,7 +652,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -733,7 +735,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -794,7 +796,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -815,7 +817,7 @@ describe('Zod v4', () => {
          */
         test('should respect tools.listChanged: false when explicitly set', async () => {
             const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { tools: { listChanged: false } } });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -839,7 +841,7 @@ describe('Zod v4', () => {
                 { name: 'test server', version: '1.0' },
                 { capabilities: { resources: { listChanged: false } } }
             );
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -860,7 +862,7 @@ describe('Zod v4', () => {
          */
         test('should respect prompts.listChanged: false when explicitly set', async () => {
             const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { prompts: { listChanged: false } } });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -884,7 +886,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -926,7 +928,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -979,7 +981,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1023,7 +1025,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1065,7 +1067,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1114,7 +1116,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1162,7 +1164,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1266,7 +1268,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1362,7 +1364,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1424,7 +1426,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1483,7 +1485,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1555,7 +1557,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1598,7 +1600,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1651,7 +1653,7 @@ describe('Zod v4', () => {
                 { capabilities: { logging: {} } }
             );
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1698,7 +1700,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1752,7 +1754,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1790,7 +1792,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1830,7 +1832,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1872,7 +1874,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client(
+            const client = new LegacyTestClient(
                 {
                     name: 'test client',
                     version: '1.0'
@@ -1925,7 +1927,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -1969,7 +1971,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2056,7 +2058,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2092,7 +2094,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2157,7 +2159,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2227,7 +2229,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2278,7 +2280,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2331,7 +2333,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2387,7 +2389,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2441,7 +2443,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2476,7 +2478,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2531,7 +2533,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2671,7 +2673,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2702,7 +2704,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2741,7 +2743,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2782,7 +2784,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2818,7 +2820,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2858,7 +2860,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2913,7 +2915,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -2968,7 +2970,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3019,7 +3021,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3057,7 +3059,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3131,7 +3133,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3229,7 +3231,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3286,7 +3288,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3355,7 +3357,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3405,7 +3407,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3444,7 +3446,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3639,7 +3641,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3681,7 +3683,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3723,7 +3725,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3764,7 +3766,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3820,7 +3822,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3876,7 +3878,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3931,7 +3933,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -3998,7 +4000,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -4055,7 +4057,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -4099,7 +4101,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -4150,7 +4152,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -4191,7 +4193,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -4328,7 +4330,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -4437,7 +4439,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -4666,7 +4668,7 @@ describe('Zod v4', () => {
             );
 
             // Create client with elicitation capability
-            client = new Client(
+            client = new LegacyTestClient(
                 {
                     name: 'test-client',
                     version: '1.0.0'
@@ -4801,7 +4803,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -4862,7 +4864,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -4909,7 +4911,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -4966,7 +4968,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -5013,7 +5015,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -5063,7 +5065,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -5108,7 +5110,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -5148,7 +5150,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -5210,7 +5212,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -5246,7 +5248,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
             const notifications: Notification[] = [];
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -5323,7 +5325,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -5390,7 +5392,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -5448,7 +5450,7 @@ describe('Zod v4', () => {
                 name: 'test server',
                 version: '1.0'
             });
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -5585,7 +5587,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -5694,7 +5696,7 @@ describe('Zod v4', () => {
                 version: '1.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test client',
                 version: '1.0'
             });
@@ -5924,7 +5926,7 @@ describe('Zod v4', () => {
             );
 
             // Create client with elicitation capability
-            client = new Client(
+            client = new LegacyTestClient(
                 {
                     name: 'test-client',
                     version: '1.0.0'
@@ -6059,7 +6061,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -6120,7 +6122,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -6167,7 +6169,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -6224,7 +6226,7 @@ describe('Zod v4', () => {
                 version: '1.0.0'
             });
 
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });

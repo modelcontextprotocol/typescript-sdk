@@ -2,11 +2,13 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
+
+import { LegacyTestClient } from './fixtures/testClient.js';
 
 async function setupServer(withSessionManagement: boolean) {
     const server: Server = createServer();
@@ -104,7 +106,7 @@ describe('Zod v4', () => {
 
             it('should support multiple client connections', async () => {
                 // Create and connect a client
-                const client1 = new Client({
+                const client1 = new LegacyTestClient({
                     name: 'test-client',
                     version: '1.0.0'
                 });
@@ -121,7 +123,7 @@ describe('Zod v4', () => {
                     params: {}
                 });
 
-                const client2 = new Client({
+                const client2 = new LegacyTestClient({
                     name: 'test-client',
                     version: '1.0.0'
                 });
@@ -140,7 +142,7 @@ describe('Zod v4', () => {
             });
             it('should operate without session management', async () => {
                 // Create and connect a client
-                const client = new Client({
+                const client = new LegacyTestClient({
                     name: 'test-client',
                     version: '1.0.0'
                 });
@@ -207,7 +209,7 @@ describe('Zod v4', () => {
 
             it('should set protocol version after connecting', async () => {
                 // Create and connect a client
-                const client = new Client({
+                const client = new LegacyTestClient({
                     name: 'test-client',
                     version: '1.0.0'
                 });
@@ -251,7 +253,7 @@ describe('Zod v4', () => {
 
             it('should operate with session management', async () => {
                 // Create and connect a client
-                const client = new Client({
+                const client = new LegacyTestClient({
                     name: 'test-client',
                     version: '1.0.0'
                 });

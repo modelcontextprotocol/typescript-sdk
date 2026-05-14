@@ -43,7 +43,7 @@ describe('handleStatelessHttp', () => {
     describe('serving stateless clients end-to-end', () => {
         it('negotiates via server/discover and routes to handleStatelessRequest', async () => {
             const handler = handleStatelessHttp(makeServer);
-            const client = new Client({ name: 'c', version: '1' }, { negotiationMode: 'stateless' });
+            const client = new Client({ name: 'c', version: '1' });
             const transport = new StreamableHTTPClientTransport(URL_, { fetch: fetchVia(handler) });
             await client.connect(transport);
 
@@ -66,7 +66,7 @@ describe('handleStatelessHttp', () => {
                 instances++;
                 return makeServer();
             });
-            const client = new Client({ name: 'c', version: '1' }, { negotiationMode: 'stateless' });
+            const client = new Client({ name: 'c', version: '1' });
             await client.connect(new StreamableHTTPClientTransport(URL_, { fetch: fetchVia(handler) }));
             // discover (1), listTools (2), callTool (3)
             await client.listTools();
