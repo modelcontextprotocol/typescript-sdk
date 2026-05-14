@@ -1,13 +1,6 @@
 import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/client';
 import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core';
-import {
-    InMemoryTransport,
-    LATEST_PROTOCOL_VERSION,
-    ProtocolErrorCode,
-    SdkError,
-    SdkErrorCode,
-    SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/core';
+import { InMemoryTransport, ProtocolErrorCode, SdkError, SdkErrorCode, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
 import { McpServer, Server } from '@modelcontextprotocol/server';
 
 /***
@@ -23,7 +16,7 @@ test('should initialize with matching protocol version', async () => {
                     jsonrpc: '2.0',
                     id: message.id,
                     result: {
-                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        protocolVersion: '2025-11-25',
                         capabilities: {},
                         serverInfo: {
                             name: 'test',
@@ -56,7 +49,7 @@ test('should initialize with matching protocol version', async () => {
         expect.objectContaining({
             method: 'initialize',
             params: expect.objectContaining({
-                protocolVersion: LATEST_PROTOCOL_VERSION
+                protocolVersion: '2025-11-25'
             })
         }),
         expect.objectContaining({
@@ -134,7 +127,7 @@ test('should restore negotiated protocol version on transport when reconnecting 
                     jsonrpc: '2.0',
                     id: message.id,
                     result: {
-                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        protocolVersion: '2025-11-25',
                         capabilities: {},
                         serverInfo: { name: 'test', version: '1.0' }
                     }
@@ -148,8 +141,8 @@ test('should restore negotiated protocol version on transport when reconnecting 
     await client.connect(initialTransport);
 
     // Initial handshake should have set the protocol version on the transport
-    expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
-    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+    expect(setProtocolVersion).toHaveBeenCalledWith('2025-11-25');
+    expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
 
     // Now simulate reconnection: new transport with a pre-existing sessionId.
     // connect() will early-return without re-initializing, but MUST restore the protocol version
@@ -168,7 +161,7 @@ test('should restore negotiated protocol version on transport when reconnecting 
     // No initialize request should have been sent (sessionId was set)
     expect(reconnectTransport.send).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'initialize' }), expect.anything());
     // But the protocol version MUST have been restored onto the new transport
-    expect(reconnectSetProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+    expect(reconnectSetProtocolVersion).toHaveBeenCalledWith('2025-11-25');
 });
 
 /***
@@ -293,7 +286,7 @@ test('should negotiate version when client is old, and newer server supports its
     );
 
     server.setRequestHandler('initialize', _request => ({
-        protocolVersion: LATEST_PROTOCOL_VERSION,
+        protocolVersion: '2025-11-25',
         capabilities: {
             resources: {},
             tools: {}
@@ -412,7 +405,7 @@ test('should respect server capabilities', async () => {
     );
 
     server.setRequestHandler('initialize', _request => ({
-        protocolVersion: LATEST_PROTOCOL_VERSION,
+        protocolVersion: '2025-11-25',
         capabilities: {
             resources: {},
             tools: {}
@@ -490,7 +483,7 @@ test('should return empty lists for missing capabilities by default', async () =
     );
 
     server.setRequestHandler('initialize', _request => ({
-        protocolVersion: LATEST_PROTOCOL_VERSION,
+        protocolVersion: '2025-11-25',
         capabilities: {
             tools: {}
         },
@@ -821,7 +814,7 @@ test('should reject form-mode elicitation when client only supports URL mode', a
                     jsonrpc: '2.0',
                     id: messageId,
                     result: {
-                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        protocolVersion: '2025-11-25',
                         capabilities: {},
                         serverInfo: {
                             name: 'test-server',
@@ -963,7 +956,7 @@ test('should reject URL-mode elicitation when client only supports form mode', a
                     jsonrpc: '2.0',
                     id: messageId,
                     result: {
-                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        protocolVersion: '2025-11-25',
                         capabilities: {},
                         serverInfo: {
                             name: 'test-server',

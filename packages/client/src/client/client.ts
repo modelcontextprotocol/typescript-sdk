@@ -21,13 +21,17 @@ import type {
     ListToolsRequest,
     LoggingLevel,
     MessageExtraInfo,
+    Notification,
     NotificationMethod,
+    NotificationOptions,
     ProtocolOptions,
     ReadResourceRequest,
+    Request,
     RequestMethod,
     RequestOptions,
     Result,
     ServerCapabilities,
+    StandardSchemaV1,
     SubscribeRequest,
     Tool,
     Transport,
@@ -39,11 +43,13 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    DiscoverResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
     GetPromptResultSchema,
     InitializeResultSchema,
+    isStatelessVersion,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     ListPromptsResultSchema,
@@ -51,6 +57,7 @@ import {
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
     mergeCapabilities,
+    META_KEYS,
     parseSchema,
     Protocol,
     ProtocolError,
@@ -141,6 +148,24 @@ export type ClientOptions = ProtocolOptions & {
     capabilities?: ClientCapabilities;
 
     /**
+     * How {@linkcode Client.connect} negotiates protocol version with the server.
+     *
+     * - `'legacy'` (default): send the legacy `initialize` handshake. The
+     *   resulting mode is determined by the server's negotiated version.
+     * - `'auto'`: try `server/discover` (SEP-2575) with per-request `_meta`; on
+     *   any protocol-level rejection (method not found, invalid params, etc.),
+     *   fall back to `initialize`.
+     * - `'stateless'`: send `server/discover` only; throw if the server doesn't
+     *   support it.
+     *
+     * `'auto'` is the long-term default. It is opt-in for now because servers
+     * built with this SDK at this commit don't yet support stateless
+     * server-to-client interaction (sampling, elicitation), so a stateless
+     * negotiation would degrade existing in-process tests.
+     */
+    negotiationMode?: 'auto' | 'legacy' | 'stateless';
+
+    /**
      * JSON Schema validator for tool output validation.
      *
      * The validator is used to validate structured content returned by tools
@@ -218,6 +243,9 @@ export class Client extends Protocol<ClientContext> {
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
+    private _negotiationMode: 'auto' | 'legacy' | 'stateless';
+    /** Per-request log level sent via `_meta` (stateless only). Set via {@linkcode Client.setLoggingLevel}. */
+    private _logLevel?: LoggingLevel;
 
     /**
      * Initializes this client with the given name and version information.
@@ -230,6 +258,7 @@ export class Client extends Protocol<ClientContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
+        this._negotiationMode = options?.negotiationMode ?? 'legacy';
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -420,40 +449,56 @@ export class Client extends Protocol<ClientContext> {
             return;
         }
         try {
-            const result = await this._requestWithSchema(
-                {
-                    method: 'initialize',
-                    params: {
-                        protocolVersion: this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION,
-                        capabilities: this._capabilities,
-                        clientInfo: this._clientInfo
-                    }
-                },
-                InitializeResultSchema,
-                options
-            );
-
-            if (result === undefined) {
-                throw new Error(`Server sent invalid initialize result: ${result}`);
+            // Negotiate per `negotiationMode`. `'auto'` tries `server/discover` (2026-06+)
+            // and falls back to `initialize` on any protocol-level rejection.
+            const discovered = this._negotiationMode === 'legacy' ? undefined : await this._tryDiscover(options);
+            if (this._negotiationMode === 'stateless' && !discovered) {
+                throw new SdkError(
+                    SdkErrorCode.CapabilityNotSupported,
+                    'Server does not support stateless negotiation (server/discover failed) and negotiationMode is "stateless".'
+                );
+            }
+            if (discovered) {
+                this._serverCapabilities = discovered.capabilities;
+                this._serverVersion = discovered.serverInfo;
+                this._negotiatedProtocolVersion = discovered.version;
+                this._instructions = discovered.instructions;
+                transport.setProtocolVersion?.(discovered.version);
+            } else {
+                // Legacy `initialize` handshake. Request the newest stateful version we
+                // support: `initialize` is the legacy mechanism, so do not ask for a
+                // stateless-model version through it.
+                const legacyPreferred =
+                    this._supportedProtocolVersions.find(v => !isStatelessVersion(v)) ??
+                    this._supportedProtocolVersions[0] ??
+                    LATEST_PROTOCOL_VERSION;
+                const result = await this._requestWithSchema(
+                    {
+                        method: 'initialize',
+                        params: {
+                            protocolVersion: legacyPreferred,
+                            capabilities: this._capabilities,
+                            clientInfo: this._clientInfo
+                        }
+                    },
+                    InitializeResultSchema,
+                    options
+                );
+                if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
+                    throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
+                }
+                this._serverCapabilities = result.capabilities;
+                this._serverVersion = result.serverInfo;
+                this._negotiatedProtocolVersion = result.protocolVersion;
+                this._instructions = result.instructions;
+                transport.setProtocolVersion?.(result.protocolVersion);
+                await this.notification({ method: 'notifications/initialized' });
             }
 
-            if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
-                throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
-            }
-
-            this._serverCapabilities = result.capabilities;
-            this._serverVersion = result.serverInfo;
-            this._negotiatedProtocolVersion = result.protocolVersion;
-            // HTTP transports must set the protocol version in each header after initialization.
-            if (transport.setProtocolVersion) {
-                transport.setProtocolVersion(result.protocolVersion);
-            }
-
-            this._instructions = result.instructions;
-
-            await this.notification({
-                method: 'notifications/initialized'
-            });
+            // Third (and final) `_setIsStateless` setter: connection-lifetime mode determined
+            // by the negotiated protocol version. All subsequent client behaviour
+            // branches on `this.isStateless()`.
+            this._setIsStateless(isStatelessVersion(this._negotiatedProtocolVersion));
 
             // Set up list changed handlers now that we know server capabilities
             if (this._pendingListChangedConfig) {
@@ -465,6 +510,85 @@ export class Client extends Protocol<ClientContext> {
             void this.close();
             throw error;
         }
+    }
+
+    /**
+     * Attempts `server/discover` with per-request `_meta`. Returns the negotiated
+     * server info on success, or `undefined` when the server is legacy (any
+     * protocol-level rejection or no stateless-model version overlap), in which
+     * case the caller falls back to the `initialize` handshake.
+     */
+    private async _tryDiscover(
+        options?: RequestOptions
+    ): Promise<{ version: string; capabilities: ServerCapabilities; serverInfo: Implementation; instructions?: string } | undefined> {
+        const ourStateless = this._supportedProtocolVersions.filter(v => isStatelessVersion(v));
+        const preferred = ourStateless[0];
+        if (preferred === undefined) return undefined;
+        // Spec: `MCP-Protocol-Version` header MUST match `_meta.protocolVersion`.
+        // Set it before the discover probe so strict servers accept the request.
+        this.transport?.setProtocolVersion?.(preferred);
+        try {
+            const result = await this._requestWithSchema(
+                { method: 'server/discover', params: { _meta: this._buildMcpMeta(preferred) } },
+                DiscoverResultSchema,
+                options
+            );
+            // Pick the newest stateless-model version both sides support.
+            const version = ourStateless.find(v => result.supportedVersions.includes(v));
+            if (!version) return undefined;
+            return { version, capabilities: result.capabilities, serverInfo: result.serverInfo, instructions: result.instructions };
+        } catch (error) {
+            // Any protocol-level rejection (method not found, invalid params, internal
+            // error, or any other JSON-RPC error): server is legacy or doesn't support
+            // discover; fall back. Transport-level failures (network, abort) propagate.
+            if (error instanceof ProtocolError) {
+                // Clear the speculative header so the legacy `initialize` fallback
+                // doesn't carry a stateless-model version.
+                this.transport?.setProtocolVersion?.('');
+                return undefined;
+            }
+            throw error;
+        }
+    }
+
+    private _buildMcpMeta(protocolVersion: string): Record<string, unknown> {
+        return {
+            [META_KEYS.protocolVersion]: protocolVersion,
+            [META_KEYS.clientCapabilities]: this._capabilities,
+            [META_KEYS.clientInfo]: this._clientInfo,
+            ...(this._logLevel !== undefined && { [META_KEYS.logLevel]: this._logLevel })
+        };
+    }
+
+    private _withMcpMeta<T extends { params?: { _meta?: Record<string, unknown> } }>(message: T): T {
+        if (!this._negotiatedProtocolVersion) return message;
+        const existing = message.params?._meta ?? {};
+        return {
+            ...message,
+            params: { ...message.params, _meta: { ...this._buildMcpMeta(this._negotiatedProtocolVersion), ...existing } }
+        };
+    }
+
+    /**
+     * Injects per-request `_meta` (SEP-2575) when negotiated mode is stateless.
+     * Legacy mode passes through unchanged.
+     */
+    protected override _requestWithSchema<T extends StandardSchemaV1>(
+        request: Request,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<StandardSchemaV1.InferOutput<T>> {
+        if (this.isStateless()) {
+            request = this._withMcpMeta(request);
+        }
+        return super._requestWithSchema(request, resultSchema, options);
+    }
+
+    override async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
+        if (this.isStateless()) {
+            notification = this._withMcpMeta(notification);
+        }
+        return super.notification(notification, options);
     }
 
     /**
@@ -548,8 +672,9 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
 
-            case 'initialize': {
-                // No specific capability required for initialize
+            case 'initialize':
+            case 'server/discover': {
+                // No specific capability required for negotiation
                 break;
             }
 
@@ -629,6 +754,9 @@ export class Client extends Protocol<ClientContext> {
     }
 
     async ping(options?: RequestOptions) {
+        if (this.isStateless()) {
+            throw new ProtocolError(ProtocolErrorCode.MethodNotFound, "'ping' is removed in the stateless protocol model (SEP-2575)");
+        }
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
     }
 
@@ -637,8 +765,18 @@ export class Client extends Protocol<ClientContext> {
         return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
-    /** Sets the minimum severity level for log messages sent by the server. */
+    /**
+     * Sets the minimum severity level for log messages sent by the server.
+     *
+     * In stateless mode (SEP-2575) this stores the level locally and sends it
+     * per-request via `_meta.logLevel`; the legacy `logging/setLevel` RPC is
+     * removed.
+     */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
+        this._logLevel = level;
+        if (this.isStateless()) {
+            return {};
+        }
         return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
 
@@ -731,11 +869,23 @@ export class Client extends Protocol<ClientContext> {
 
     /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
     async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions) {
+        if (this.isStateless()) {
+            throw new ProtocolError(
+                ProtocolErrorCode.MethodNotFound,
+                "'resources/subscribe' is removed in the stateless protocol model (SEP-2575); use 'subscriptions/listen'"
+            );
+        }
         return this._requestWithSchema({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
     }
 
     /** Unsubscribes from change notifications for a resource. */
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions) {
+        if (this.isStateless()) {
+            throw new ProtocolError(
+                ProtocolErrorCode.MethodNotFound,
+                "'resources/unsubscribe' is removed in the stateless protocol model (SEP-2575); use 'subscriptions/listen'"
+            );
+        }
         return this._requestWithSchema({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
@@ -935,8 +1085,17 @@ export class Client extends Protocol<ClientContext> {
         this.setNotificationHandler(notificationMethod, handler);
     }
 
-    /** Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability. */
+    /**
+     * Notifies the server that the client's root list has changed. Requires the
+     * `roots.listChanged` capability.
+     *
+     * No-op in stateless mode (SEP-2575): `notifications/roots/list_changed` is
+     * removed; servers fetch roots via MRTR per request.
+     */
     async sendRootsListChanged() {
+        if (this.isStateless()) {
+            return;
+        }
         return this.notification({ method: 'notifications/roots/list_changed' });
     }
 }

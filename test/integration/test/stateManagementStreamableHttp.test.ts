@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import { LATEST_PROTOCOL_VERSION, McpServer } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
 
@@ -219,8 +219,9 @@ describe('Zod v4', () => {
 
                 await client.connect(transport);
 
-                // Verify protocol version is set after connecting
-                expect(transport.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+                // Verify protocol version is set after connecting.
+                // Legacy initialize negotiates the newest stateful-model version.
+                expect(transport.protocolVersion).toBe('2025-11-25');
 
                 // Clean up
                 await transport.close();
