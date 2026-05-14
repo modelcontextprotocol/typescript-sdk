@@ -174,4 +174,129 @@ describe('mcp-server-api transform', () => {
         expect(sourceFile.getFullText()).toContain('.resource(');
         expect(sourceFile.getFullText()).not.toContain('registerResource');
     });
+
+    it('wraps raw argsSchema in .registerPrompt() config', () => {
+        const input = [
+            `server.registerPrompt("args-prompt", { argsSchema: { city: z.string(), state: z.string().optional() } }, (args) => {`,
+            `    return { messages: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('argsSchema: z.object({ city: z.string(), state: z.string().optional() })');
+        expect(result).not.toContain('argsSchema: { city:');
+    });
+
+    it('wraps raw inputSchema in .registerTool() config', () => {
+        const input = [
+            `server.registerTool("echo", { inputSchema: { msg: z.string() } }, async ({ msg }) => {`,
+            `    return { content: [{ type: 'text', text: msg }] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('inputSchema: z.object({ msg: z.string() })');
+        expect(result).not.toContain('inputSchema: { msg:');
+    });
+
+    it('does not double-wrap z.object() in .registerTool() config', () => {
+        const input = [
+            `server.registerTool("echo", { inputSchema: z.object({ msg: z.string() }) }, async ({ msg }) => {`,
+            `    return { content: [{ type: 'text', text: msg }] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('inputSchema: z.object({ msg: z.string() })');
+        expect(result).not.toContain('z.object(z.object(');
+    });
+
+    it('does not double-wrap z.object() in .registerPrompt() config', () => {
+        const input = [
+            `server.registerPrompt("args-prompt", { argsSchema: z.object({ city: z.string() }) }, (args) => {`,
+            `    return { messages: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('argsSchema: z.object({ city: z.string() })');
+        expect(result).not.toContain('z.object(z.object(');
+    });
+
+    it('leaves variable reference in .registerPrompt() config unchanged', () => {
+        const input = [
+            `const promptArgsSchema = { city: z.string() };`,
+            `server.registerPrompt("args-prompt", { argsSchema: promptArgsSchema }, (args) => {`,
+            `    return { messages: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        // Variable references are not object literals, so should be left unchanged
+        expect(result).toContain('argsSchema: promptArgsSchema');
+        expect(result).not.toContain('z.object(promptArgsSchema)');
+    });
+
+    it('leaves .registerTool() without inputSchema unchanged', () => {
+        const input = [
+            `server.registerTool("ping", {}, async () => {`,
+            `    return { content: [{ type: 'text', text: 'pong' }] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('registerTool("ping", {}');
+        expect(result).not.toContain('z.object');
+    });
+
+    it('moves taskStore from top-level options into capabilities.tasks', () => {
+        const input = `const server = new McpServer({ name: "test", version: "1.0" }, { taskStore, capabilities: { tasks: { list: {} } } });\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).not.toMatch(/,\s*taskStore\s*,\s*capabilities/);
+        expect(text).toMatch(/tasks:\s*\{[\s\S]*taskStore/);
+        expect(result.changesCount).toBeGreaterThan(0);
+    });
+
+    it('moves taskMessageQueue from top-level options into capabilities.tasks', () => {
+        const input = `const server = new McpServer({ name: "test", version: "1.0" }, { taskMessageQueue, capabilities: { tasks: { list: {} } } });\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).not.toMatch(/,\s*taskMessageQueue\s*,\s*capabilities/);
+        expect(text).toMatch(/tasks:\s*\{[\s\S]*taskMessageQueue/);
+        expect(result.changesCount).toBeGreaterThan(0);
+    });
+
+    it('moves both taskStore and taskMessageQueue into capabilities.tasks', () => {
+        const input = `const server = new McpServer({ name: "test", version: "1.0" }, { taskStore, taskMessageQueue, capabilities: { tasks: {} } });\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toMatch(/tasks:\s*\{[\s\S]*taskStore/);
+        expect(text).toMatch(/tasks:\s*\{[\s\S]*taskMessageQueue/);
+    });
+
+    it('emits warning when capabilities.tasks object is missing', () => {
+        const input = `const server = new McpServer({ name: "test", version: "1.0" }, { taskStore, capabilities: {} });\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const taskWarnings = result.diagnostics.filter(d => d.message.includes('taskStore'));
+        expect(taskWarnings.length).toBe(1);
+        expect(taskWarnings[0]!.message).toContain('capabilities.tasks');
+    });
+
+    it('does not touch constructor without taskStore or taskMessageQueue', () => {
+        const input = `const server = new McpServer({ name: "test", version: "1.0" }, { capabilities: {} });\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const taskWarnings = result.diagnostics.filter(d => d.message.includes('taskStore') || d.message.includes('taskMessageQueue'));
+        expect(taskWarnings.length).toBe(0);
+    });
 });

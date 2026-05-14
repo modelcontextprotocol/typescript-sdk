@@ -19,7 +19,7 @@ if (!authMatch) throw new Error('Could not find authSchemas in specTypeSchema.ts
 
 const authSchemas = [...authMatch[1]!.matchAll(/(\w+Schema)/g)].map(m => m[1]!);
 
-const allSchemas = [...protocolSchemas, ...authSchemas].sort();
+const allSchemas = [...protocolSchemas, ...authSchemas].toSorted();
 
 const entries = allSchemas.map((s, i) => `    '${s}'${i < allSchemas.length - 1 ? ',' : ''}`).join('\n');
 

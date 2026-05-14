@@ -91,8 +91,15 @@ function handleReference(
         return true;
     }
 
-    // Pattern: XSchema.safeParse(v) — result captured, diagnostic only
+    // Pattern: const x = XSchema.safeParse(v) — auto-transform when result is captured in a variable
     if (isSafeParsePattern(ref)) {
+        const safeParseAccess = ref.getParent() as import('ts-morph').PropertyAccessExpression;
+        const safeParseCall = safeParseAccess.getParent() as import('ts-morph').CallExpression;
+
+        if (isCapturedSafeParsePattern(safeParseCall)) {
+            return rewriteCapturedSafeParse(safeParseCall, localName, typeName, sourceFile, diagnostics);
+        }
+
         diagnostics.push(
             warning(
                 sourceFile.getFilePath(),
@@ -212,6 +219,100 @@ function isTypeofInTypePosition(ref: import('ts-morph').Node): boolean {
     // typeof inside a type argument like z.infer<typeof X>
     if (parent.getKind() === SyntaxKind.TypeOfExpression) return true;
     return false;
+}
+
+/**
+ * Checks if a safeParse call result is captured in a `const` variable declaration.
+ * Pattern: `const x = Schema.safeParse(v);`
+ */
+function isCapturedSafeParsePattern(safeParseCall: import('ts-morph').CallExpression): boolean {
+    const parent = safeParseCall.getParent();
+    if (!parent || !Node.isVariableDeclaration(parent)) return false;
+    const nameNode = parent.getNameNode();
+    if (!Node.isIdentifier(nameNode)) return false;
+    const declList = parent.getParent();
+    if (!declList || !Node.isVariableDeclarationList(declList)) return false;
+    const flags = declList.getDeclarationKind();
+    return flags === 'const' || flags === 'let';
+}
+
+/**
+ * Rewrites a captured safeParse pattern:
+ *   const x = Schema.safeParse(v)  →  const x = specTypeSchemas.T['~standard'].validate(v)
+ *   x.success  →  x.issues === undefined
+ *   x.data     →  x.value
+ *   x.error    →  x.issues
+ */
+function rewriteCapturedSafeParse(
+    safeParseCall: import('ts-morph').CallExpression,
+    localName: string,
+    typeName: string,
+    sourceFile: SourceFile,
+    diagnostics: Diagnostic[]
+): boolean {
+    const varDecl = safeParseCall.getParent() as import('ts-morph').VariableDeclaration;
+    const varName = varDecl.getName();
+
+    const args = safeParseCall.getArguments();
+    const argText = args.length > 0 ? args[0]!.getText() : '';
+
+    // Rewrite the safeParse call
+    safeParseCall.replaceWithText(`specTypeSchemas.${typeName}['~standard'].validate(${argText})`);
+    ensureImport(sourceFile, 'specTypeSchemas');
+
+    // Find and rewrite all property accesses on the result variable
+    const replacements: { node: import('ts-morph').Node; newText: string }[] = [];
+    sourceFile.forEachDescendant(node => {
+        if (!Node.isPropertyAccessExpression(node)) return;
+        const expr = node.getExpression();
+        if (!Node.isIdentifier(expr) || expr.getText() !== varName) return;
+        // Don't match the declaration initializer itself
+        const parent = node.getParent();
+        if (parent && Node.isVariableDeclaration(parent)) return;
+
+        const propName = node.getName();
+        switch (propName) {
+            case 'success': {
+                // Check for !x.success → x.issues !== undefined
+                const parentNode = node.getParent();
+                if (
+                    parentNode &&
+                    Node.isPrefixUnaryExpression(parentNode) &&
+                    parentNode.getOperatorToken() === SyntaxKind.ExclamationToken
+                ) {
+                    replacements.push({ node: parentNode, newText: `${varName}.issues !== undefined` });
+                } else {
+                    replacements.push({ node, newText: `(${varName}.issues === undefined)` });
+                }
+                break;
+            }
+            case 'data': {
+                replacements.push({ node, newText: `${varName}.value` });
+                break;
+            }
+            case 'error': {
+                replacements.push({ node, newText: `${varName}.issues` });
+                break;
+            }
+        }
+    });
+
+    // Apply in reverse order to avoid position shifts
+    const sorted = replacements.toSorted((a, b) => b.node.getStart() - a.node.getStart());
+    for (const { node, newText } of sorted) {
+        node.replaceWithText(newText);
+    }
+
+    diagnostics.push(
+        warning(
+            sourceFile.getFilePath(),
+            varDecl.getStartLineNumber(),
+            `Rewrote ${localName}.safeParse() to specTypeSchemas.${typeName}['~standard'].validate(). ` +
+                `Result properties remapped: .success → .issues === undefined, .data → .value, .error → .issues.`
+        )
+    );
+
+    return true;
 }
 
 function ensureImport(sourceFile: SourceFile, symbol: string): void {

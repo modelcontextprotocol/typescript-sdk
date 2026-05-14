@@ -3,7 +3,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { info, warning } from '../../../utils/diagnostics.js';
-import { isOriginalNameImportedFromMcp } from '../../../utils/importUtils.js';
+import { isOriginalNameImportedFromMcp, resolveLocalImportName } from '../../../utils/importUtils.js';
 
 export const mcpServerApiTransform: Transform = {
     name: 'McpServer API migration',
@@ -21,6 +21,9 @@ export const mcpServerApiTransform: Transform = {
         const toolCalls: CallExpression[] = [];
         const promptCalls: CallExpression[] = [];
         const resourceCalls: CallExpression[] = [];
+        const registerToolCalls: CallExpression[] = [];
+        const registerPromptCalls: CallExpression[] = [];
+        const registerResourceCalls: CallExpression[] = [];
 
         for (const call of calls) {
             const expr = call.getExpression();
@@ -38,6 +41,18 @@ export const mcpServerApiTransform: Transform = {
                 }
                 case 'resource': {
                     resourceCalls.push(call);
+                    break;
+                }
+                case 'registerTool': {
+                    registerToolCalls.push(call);
+                    break;
+                }
+                case 'registerPrompt': {
+                    registerPromptCalls.push(call);
+                    break;
+                }
+                case 'registerResource': {
+                    registerResourceCalls.push(call);
                     break;
                 }
             }
@@ -88,6 +103,26 @@ export const mcpServerApiTransform: Transform = {
             }
         }
 
+        for (const call of registerToolCalls) {
+            if (wrapSchemaInConfig(call, 'inputSchema', sourceFile, diagnostics)) {
+                changesCount++;
+            }
+        }
+
+        for (const call of registerPromptCalls) {
+            if (wrapSchemaInConfig(call, 'argsSchema', sourceFile, diagnostics)) {
+                changesCount++;
+            }
+        }
+
+        for (const call of registerResourceCalls) {
+            if (wrapSchemaInConfig(call, 'uriSchema', sourceFile, diagnostics)) {
+                changesCount++;
+            }
+        }
+
+        changesCount += migrateConstructorTaskOptions(sourceFile, diagnostics);
+
         return { changesCount, diagnostics };
     }
 };
@@ -118,6 +153,47 @@ function emitWrapDiagnostic(node: Node, sourceFile: SourceFile, call: CallExpres
             )
         );
     }
+}
+
+/**
+ * For existing registerTool/registerPrompt/registerResource calls,
+ * wrap the specified schema property with z.object() if it's a raw object literal.
+ */
+function wrapSchemaInConfig(call: CallExpression, schemaPropertyName: string, sourceFile: SourceFile, diagnostics: Diagnostic[]): boolean {
+    const args = call.getArguments();
+    // registerTool/registerPrompt: (name, config, callback)
+    // registerResource: (name, uri, config, callback)
+    // Find the config argument by looking for an object literal
+    let configArg: Node | undefined;
+    for (const arg of args) {
+        if (Node.isObjectLiteralExpression(arg)) {
+            configArg = arg;
+            break;
+        }
+    }
+
+    if (!configArg || !Node.isObjectLiteralExpression(configArg)) return false;
+
+    const schemaProp = configArg.getProperty(schemaPropertyName);
+    if (!schemaProp || !Node.isPropertyAssignment(schemaProp)) return false;
+
+    const initializer = schemaProp.getInitializer();
+    if (!initializer) return false;
+
+    if (Node.isObjectLiteralExpression(initializer)) {
+        const wrapped = wrapWithZObject(initializer.getText());
+        initializer.replaceWithText(wrapped);
+        diagnostics.push(
+            info(
+                sourceFile.getFilePath(),
+                call.getStartLineNumber(),
+                `Raw object literal in ${schemaPropertyName} wrapped with z.object(). Verify that zod (z) is imported in this file.`
+            )
+        );
+        return true;
+    }
+
+    return false;
 }
 
 function migrateToolCall(call: CallExpression, sourceFile: SourceFile, diagnostics: Diagnostic[]): boolean {
@@ -277,4 +353,104 @@ function migrateResourceCall(call: CallExpression, _sourceFile: SourceFile): boo
     }
 
     return true;
+}
+
+const TASK_OPTIONS = ['taskStore', 'taskMessageQueue'] as const;
+
+function migrateConstructorTaskOptions(sourceFile: SourceFile, diagnostics: Diagnostic[]): number {
+    const localName = resolveLocalImportName(sourceFile, 'McpServer');
+    if (!localName) return 0;
+
+    let changes = 0;
+
+    for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
+        const expr = node.getExpression();
+        if (!Node.isIdentifier(expr) || expr.getText() !== localName) continue;
+
+        const args = node.getArguments();
+        if (args.length < 2) continue;
+
+        const optionsArg = args[1]!;
+        if (!Node.isObjectLiteralExpression(optionsArg)) continue;
+
+        // Check if any task options are present at the top level
+        const propsToMove: string[] = [];
+        for (const propName of TASK_OPTIONS) {
+            if (optionsArg.getProperty(propName)) {
+                propsToMove.push(propName);
+            }
+        }
+        if (propsToMove.length === 0) continue;
+
+        // Find the tasks object's position within the options text using AST,
+        // then do all mutations via a single text replacement to avoid node invalidation.
+        const capabilitiesProp = optionsArg.getProperty('capabilities');
+        let tasksObjStart = -1;
+        let tasksObjEnd = -1;
+        const optionsStart = optionsArg.getStart();
+        if (capabilitiesProp && Node.isPropertyAssignment(capabilitiesProp)) {
+            const capInit = capabilitiesProp.getInitializer();
+            if (capInit && Node.isObjectLiteralExpression(capInit)) {
+                const tasksProp = capInit.getProperty('tasks');
+                if (tasksProp && Node.isPropertyAssignment(tasksProp)) {
+                    const tasksInit = tasksProp.getInitializer();
+                    if (tasksInit && Node.isObjectLiteralExpression(tasksInit)) {
+                        tasksObjStart = tasksInit.getStart() - optionsStart;
+                        tasksObjEnd = tasksInit.getEnd() - optionsStart;
+                    }
+                }
+            }
+        }
+
+        if (tasksObjStart === -1) {
+            for (const propName of propsToMove) {
+                diagnostics.push(
+                    warning(
+                        sourceFile.getFilePath(),
+                        node.getStartLineNumber(),
+                        `Move '${propName}' from McpServer options into capabilities.tasks — v2 expects task runtime options inside the tasks capability.`
+                    )
+                );
+            }
+            continue;
+        }
+
+        // Single text replacement: remove top-level props and insert into tasks object
+        let optionsText = optionsArg.getText();
+        const propTexts: string[] = [];
+        for (const propName of propsToMove) {
+            const propRegex = new RegExp(String.raw`\n?\s*${propName}\s*(?::\s*[^,}\n]+)?,?`);
+            const match = propRegex.exec(optionsText);
+            if (match) {
+                const cleanProp = match[0].trim().replace(/,$/, '').trim();
+                propTexts.push(cleanProp);
+                optionsText = optionsText.slice(0, match.index) + optionsText.slice(match.index + match[0].length);
+                // Adjust tasks position if removal was before it
+                if (match.index < tasksObjStart) {
+                    const shift = match[0].length;
+                    tasksObjStart -= shift;
+                    tasksObjEnd -= shift;
+                }
+            }
+        }
+
+        if (propTexts.length === 0) continue;
+
+        // Insert into the tasks object (just before its closing brace)
+        const tasksText = optionsText.slice(tasksObjStart, tasksObjEnd);
+        const closingBrace = tasksText.lastIndexOf('}');
+        const before = tasksText.slice(0, closingBrace).trimEnd();
+        const sep = before.length > 1 ? ',\n' : '\n';
+        const newTasksText = before + sep + propTexts.join(',\n') + '\n' + tasksText.slice(closingBrace);
+        optionsText = optionsText.slice(0, tasksObjStart) + newTasksText + optionsText.slice(tasksObjEnd);
+
+        // Clean up double/trailing commas
+        optionsText = optionsText.replaceAll(/,(\s*,)/g, ',');
+        optionsText = optionsText.replaceAll(/,(\s*})/g, '$1');
+
+        optionsArg.replaceWithText(optionsText);
+        changes += propTexts.length;
+    }
+
+    return changes;
 }
