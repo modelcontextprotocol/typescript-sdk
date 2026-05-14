@@ -527,11 +527,11 @@ new McpServer(
 new McpServer({ name: 'server', version: '1.0.0' }, {});
 ```
 
-Access validators explicitly:
+Validator behavior:
 
-- Runtime-aware default: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
-- AJV (Node.js): `import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';`
-- CF Worker: `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';`
+- Do not add validator imports for normal migrations.
+- Do not install `ajv`, `ajv-formats`, or `@cfworker/json-schema`; client/server bundle the runtime-selected defaults.
+- Advanced users may pass `jsonSchemaValidator: myCustomValidator` with their own validator implementation.
 
 ## 15. Migration Steps (apply in this order)
 

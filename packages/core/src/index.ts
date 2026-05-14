@@ -19,12 +19,12 @@ export * from './util/zodCompat.js';
 
 // experimental exports
 export * from './experimental/index.js';
-export * from './validators/ajvProvider.js';
-// cfWorkerProvider is intentionally NOT re-exported here: it statically imports
-// `@cfworker/json-schema` (an optional peer), and bundling it into the main barrel
-// would force that import on all Node consumers. Import via `@modelcontextprotocol/core/validators/cfWorker`
-// (used by the workerd/browser `_shims` and the public `/validators/cf-worker` subpaths).
-export type { CfWorkerSchemaDraft } from './validators/cfWorkerProvider.js';
+export type { AjvJsonSchemaValidator } from './validators/ajvProvider.js';
+// Validator providers are intentionally NOT re-exported as runtime values here: AJV
+// and @cfworker/json-schema are optional peers, and importing either provider from
+// the root barrel would force that backend on all consumers. Internal runtime shims
+// import concrete defaults via explicit core validator subpaths.
+export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from './validators/cfWorkerProvider.js';
 export * from './validators/fromJsonSchema.js';
 /**
  * JSON Schema validation
@@ -32,12 +32,15 @@ export * from './validators/fromJsonSchema.js';
  * This module provides configurable JSON Schema validation for the MCP SDK.
  * Choose a validator based on your runtime environment:
  *
- * - {@linkcode AjvJsonSchemaValidator}: Best for Node.js (default, fastest)
- *   Bundled — no additional dependencies required.
+ * - `AjvJsonSchemaValidator`: Best for Node.js (default, fastest)
+ *   Used automatically by client/server Node shims.
  *
  * - `CfWorkerJsonSchemaValidator`: Best for edge runtimes
- *   Import from: `@modelcontextprotocol/server/validators/cf-worker` or `@modelcontextprotocol/client/validators/cf-worker`
- *   Bundled — no additional dependencies required.
+ *   Used automatically by client/server browser/workerd shims.
+ *
+ * Client and server packages bundle their runtime default validator backends, so most users should
+ * rely on automatic runtime selection. Advanced users can pass their own validator implementation
+ * through client/server options.
  *
  * @example For Node.js with AJV
  * ```ts source="./index.examples.ts#validation_ajv"

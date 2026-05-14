@@ -544,6 +544,12 @@ importers:
       '@typescript/native-preview':
         specifier: catalog:devTools
         version: 7.0.0-dev.20260327.2
+      ajv:
+        specifier: catalog:runtimeShared
+        version: 8.18.0
+      ajv-formats:
+        specifier: catalog:runtimeShared
+        version: 3.0.1(ajv@8.18.0)
       eslint:
         specifier: catalog:devTools
         version: 9.39.4
@@ -626,12 +632,6 @@ importers:
 
   packages/core:
     dependencies:
-      ajv:
-        specifier: catalog:runtimeShared
-        version: 8.18.0
-      ajv-formats:
-        specifier: catalog:runtimeShared
-        version: 3.0.1(ajv@8.18.0)
       json-schema-typed:
         specifier: catalog:runtimeShared
         version: 8.0.2
@@ -675,6 +675,12 @@ importers:
       '@typescript/native-preview':
         specifier: catalog:devTools
         version: 7.0.0-dev.20260327.2
+      ajv:
+        specifier: catalog:runtimeShared
+        version: 8.18.0
+      ajv-formats:
+        specifier: catalog:runtimeShared
+        version: 3.0.1(ajv@8.18.0)
       eslint:
         specifier: catalog:devTools
         version: 9.39.4
@@ -959,6 +965,12 @@ importers:
       '@typescript/native-preview':
         specifier: catalog:devTools
         version: 7.0.0-dev.20260327.2
+      ajv:
+        specifier: catalog:runtimeShared
+        version: 8.18.0
+      ajv-formats:
+        specifier: catalog:runtimeShared
+        version: 3.0.1(ajv@8.18.0)
       eslint:
         specifier: catalog:devTools
         version: 9.39.4

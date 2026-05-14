@@ -9,7 +9,8 @@
 
 import { Client } from '@modelcontextprotocol/client';
 import type { ElicitRequestFormParams } from '@modelcontextprotocol/core';
-import { AjvJsonSchemaValidator, InMemoryTransport } from '@modelcontextprotocol/core';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core/validators/ajv';
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
 import { Server } from '@modelcontextprotocol/server';
 

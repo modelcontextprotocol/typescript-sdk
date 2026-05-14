@@ -5,7 +5,7 @@
 
 import { Client } from '@modelcontextprotocol/client';
 import type { TextContent } from '@modelcontextprotocol/core';
-import { AjvJsonSchemaValidator, fromJsonSchema, InMemoryTransport } from '@modelcontextprotocol/core';
+import { InMemoryTransport } from '@modelcontextprotocol/core';
 import { completable, fromJsonSchema as serverFromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';
 import { type } from 'arktype';
@@ -382,13 +382,12 @@ describe('Standard Schema Support', () => {
     });
 
     describe('Raw JSON Schema via fromJsonSchema', () => {
-        const validator = new AjvJsonSchemaValidator();
-
         test('should register tool with raw JSON Schema input', async () => {
-            const inputSchema = fromJsonSchema<{ name: string }>(
-                { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
-                validator
-            );
+            const inputSchema = serverFromJsonSchema<{ name: string }>({
+                type: 'object',
+                properties: { name: { type: 'string' } },
+                required: ['name']
+            });
 
             mcpServer.registerTool('greet', { inputSchema }, async ({ name }) => ({
                 content: [{ type: 'text', text: `Hello, ${name}!` }]
@@ -407,11 +406,12 @@ describe('Standard Schema Support', () => {
             expect((result.content[0] as TextContent).text).toBe('Hello, World!');
         });
 
-        test('should reject invalid input via AJV validation', async () => {
-            const inputSchema = fromJsonSchema(
-                { type: 'object', properties: { count: { type: 'number' } }, required: ['count'] },
-                validator
-            );
+        test('should reject invalid input via default validation', async () => {
+            const inputSchema = serverFromJsonSchema({
+                type: 'object',
+                properties: { count: { type: 'number' } },
+                required: ['count']
+            });
 
             mcpServer.registerTool('double', { inputSchema }, async args => {
                 const { count } = args as { count: number };

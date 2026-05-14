@@ -4,7 +4,7 @@ export default defineConfig({
     failOnWarn: 'ci-only',
     // 1. Entry Points
     //    Directly matches package.json include/exclude globs
-    entry: ['src/index.ts', 'src/stdio.ts', 'src/shimsNode.ts', 'src/shimsWorkerd.ts', 'src/shimsBrowser.ts', 'src/validators/cfWorker.ts'],
+    entry: ['src/index.ts', 'src/stdio.ts', 'src/shimsNode.ts', 'src/shimsWorkerd.ts', 'src/shimsBrowser.ts'],
 
     // 2. Output Configuration
     format: ['esm'],
@@ -27,13 +27,19 @@ export default defineConfig({
             paths: {
                 '@modelcontextprotocol/core': ['../core/src/index.ts'],
                 '@modelcontextprotocol/core/public': ['../core/src/exports/public/index.ts'],
+                '@modelcontextprotocol/core/validators/ajv': ['../core/src/validators/ajvProvider.ts'],
                 '@modelcontextprotocol/core/validators/cfWorker': ['../core/src/validators/cfWorkerProvider.ts']
             }
         }
     },
-    // 5. Vendoring Strategy - Bundle the code for this specific package into the output,
-    //    but treat all other dependencies as external (require/import).
-    noExternal: ['@modelcontextprotocol/core'],
+    // 5. Vendoring Strategy - Bundle this package's core implementation into the output,
+    //    but treat most dependencies as external (require/import).
+    //
+    //    The runtime `_shims` entries choose default JSON Schema validators: AJV on Node and
+    //    @cfworker/json-schema on workerd/browser. Client users should not have to install a
+    //    validator backend just to use the runtime default, so bundle the default backends into
+    //    the shim chunks that select them.
+    noExternal: ['@modelcontextprotocol/core', 'ajv', 'ajv-formats', '@cfworker/json-schema'],
 
     // 6. External packages - keep self-reference imports external for runtime resolution
     external: ['@modelcontextprotocol/client/_shims']

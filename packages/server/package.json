@@ -28,10 +28,6 @@
             "types": "./dist/stdio.d.mts",
             "import": "./dist/stdio.mjs"
         },
-        "./validators/cf-worker": {
-            "types": "./dist/validators/cfWorker.d.mts",
-            "import": "./dist/validators/cfWorker.mjs"
-        },
         "./_shims": {
             "workerd": {
                 "types": "./dist/shimsWorkerd.d.mts",
@@ -54,9 +50,6 @@
     "types": "./dist/index.d.mts",
     "typesVersions": {
         "*": {
-            "validators/cf-worker": [
-                "dist/validators/cfWorker.d.mts"
-            ],
             "zod-schemas": [
                 "dist/zodSchemas.d.mts"
             ],
@@ -86,6 +79,8 @@
     },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
+        "ajv": "catalog:runtimeShared",
+        "ajv-formats": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",

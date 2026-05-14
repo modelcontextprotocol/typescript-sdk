@@ -8,6 +8,7 @@ import { beforeAll, describe, expect, test } from 'vitest';
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const distDir = join(pkgDir, 'dist');
 const NODE_ONLY = /\b(child_process|cross-spawn|node:stream|node:child_process)\b/;
+const VALIDATOR_BACKEND_IMPORT = /from\s+["'](?:ajv|ajv-formats|@cfworker\/json-schema)["']/;
 
 function chunkImportsOf(entryPath: string): string[] {
     const visited = new Set<string>();
@@ -51,5 +52,18 @@ describe('@modelcontextprotocol/client root entry is browser-safe', () => {
         expect(stdio).toMatch(/\bStdioClientTransport\b/);
         expect(stdio).toMatch(/\bgetDefaultEnvironment\b/);
         expect(stdio).toMatch(/\bDEFAULT_INHERITED_ENV_VARS\b/);
+    });
+
+    test('runtime shims vendor default validator backends instead of requiring consumers to install them', () => {
+        for (const shim of ['shimsNode.mjs', 'shimsWorkerd.mjs', 'shimsBrowser.mjs']) {
+            const entry = join(distDir, shim);
+            expect(readFileSync(entry, 'utf8')).not.toMatch(VALIDATOR_BACKEND_IMPORT);
+
+            for (const chunk of chunkImportsOf(entry)) {
+                expect({ chunk, content: readFileSync(chunk, 'utf8') }).not.toEqual(
+                    expect.objectContaining({ content: expect.stringMatching(VALIDATOR_BACKEND_IMPORT) })
+                );
+            }
+        }
     });
 });

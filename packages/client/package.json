@@ -28,10 +28,6 @@
             "types": "./dist/stdio.d.mts",
             "import": "./dist/stdio.mjs"
         },
-        "./validators/cf-worker": {
-            "types": "./dist/validators/cfWorker.d.mts",
-            "import": "./dist/validators/cfWorker.mjs"
-        },
         "./_shims": {
             "workerd": {
                 "types": "./dist/shimsWorkerd.d.mts",
@@ -54,9 +50,6 @@
     "types": "./dist/index.d.mts",
     "typesVersions": {
         "*": {
-            "validators/cf-worker": [
-                "dist/validators/cfWorker.d.mts"
-            ],
             "stdio": [
                 "dist/stdio.d.mts"
             ]
@@ -93,6 +86,8 @@
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",
         "@cfworker/json-schema": "catalog:runtimeShared",
+        "ajv": "catalog:runtimeShared",
+        "ajv-formats": "catalog:runtimeShared",
         "@types/content-type": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",
         "@types/eventsource": "catalog:devTools",

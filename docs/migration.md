@@ -933,15 +933,18 @@ const server = new McpServer(
 );
 ```
 
-You can still explicitly override the validator if needed:
+You do not need to install or import validator packages for the default behavior. The client and server packages bundle the validator backend selected by the runtime shim.
+
+Advanced users can still override validation by passing an object that implements the SDK's JSON Schema validator interface:
 
 ```typescript
-// Runtime-aware default (auto-selects AjvJsonSchemaValidator or CfWorkerJsonSchemaValidator)
-import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
-
-// Specific validators
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
-import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
+const server = new McpServer(
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {} },
+        jsonSchemaValidator: myCustomValidator
+    }
+);
 ```
 
 ## Unchanged APIs

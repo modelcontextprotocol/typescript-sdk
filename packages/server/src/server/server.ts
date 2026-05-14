@@ -83,7 +83,7 @@ export type ServerOptions = ProtocolOptions & {
      * The validator is used to validate user input returned from elicitation
      * requests against the requested schema.
      *
-     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, `CfWorkerJsonSchemaValidator` on Cloudflare Workers)
+     * @default Runtime-selected validator (`AjvJsonSchemaValidator` on Node.js, `CfWorkerJsonSchemaValidator` on browser/workerd runtimes)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 };
