@@ -25,6 +25,7 @@ import * as z from 'zod/v4';
 import { ConformanceOAuthProvider } from './helpers/conformanceOAuthProvider.js';
 import { logger } from './helpers/logger.js';
 import { handle401, withOAuthRetry } from './helpers/withOAuthRetry.js';
+import { LegacyTestClient } from './testClient.js';
 
 /**
  * Fixed client metadata URL for CIMD conformance tests.
@@ -101,7 +102,7 @@ function registerScenarios(names: string[], handler: ScenarioHandler): void {
 // ============================================================================
 
 async function runBasicClient(serverUrl: string): Promise<void> {
-    const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
+    const client = new LegacyTestClient({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
 
     const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
 
@@ -117,7 +118,7 @@ async function runBasicClient(serverUrl: string): Promise<void> {
 
 // tools_call scenario needs to actually call a tool
 async function runToolsCallClient(serverUrl: string): Promise<void> {
-    const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
+    const client = new LegacyTestClient({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
 
     const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
 
@@ -197,7 +198,7 @@ registerScenario('stateless', runStatelessClient);
 // ============================================================================
 
 async function runAuthClient(serverUrl: string): Promise<void> {
-    const client = new Client({ name: 'test-auth-client', version: '1.0.0' }, { capabilities: {} });
+    const client = new LegacyTestClient({ name: 'test-auth-client', version: '1.0.0' }, { capabilities: {} });
 
     const oauthFetch = withOAuthRetry('test-auth-client', new URL(serverUrl), handle401, CIMD_CLIENT_METADATA_URL)(fetch);
 
@@ -262,7 +263,7 @@ async function runClientCredentialsJwt(serverUrl: string): Promise<void> {
         algorithm: ctx.signing_algorithm || 'ES256'
     });
 
-    const client = new Client({ name: 'conformance-client-credentials-jwt', version: '1.0.0' }, { capabilities: {} });
+    const client = new LegacyTestClient({ name: 'conformance-client-credentials-jwt', version: '1.0.0' }, { capabilities: {} });
 
     const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
         authProvider: provider
@@ -294,7 +295,7 @@ async function runClientCredentialsBasic(serverUrl: string): Promise<void> {
         clientSecret: ctx.client_secret
     });
 
-    const client = new Client({ name: 'conformance-client-credentials-basic', version: '1.0.0' }, { capabilities: {} });
+    const client = new LegacyTestClient({ name: 'conformance-client-credentials-basic', version: '1.0.0' }, { capabilities: {} });
 
     const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
         authProvider: provider
@@ -342,7 +343,7 @@ async function runCrossAppAccessCompleteFlow(serverUrl: string): Promise<void> {
         }
     });
 
-    const client = new Client({ name: 'conformance-cross-app-access', version: '1.0.0' }, { capabilities: {} });
+    const client = new LegacyTestClient({ name: 'conformance-cross-app-access', version: '1.0.0' }, { capabilities: {} });
 
     const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
         authProvider: provider
@@ -384,7 +385,7 @@ async function runPreRegistrationClient(serverUrl: string): Promise<void> {
 
     const oauthFetch = withOAuthRetry('conformance-pre-registration', new URL(serverUrl), handle401, undefined, provider)(fetch);
 
-    const client = new Client({ name: 'conformance-pre-registration', version: '1.0.0' }, { capabilities: {} });
+    const client = new LegacyTestClient({ name: 'conformance-pre-registration', version: '1.0.0' }, { capabilities: {} });
     const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
         fetch: oauthFetch
     });
@@ -402,7 +403,7 @@ registerScenario('auth/pre-registration', runPreRegistrationClient);
 // ============================================================================
 
 async function runElicitationDefaultsClient(serverUrl: string): Promise<void> {
-    const client = new Client(
+    const client = new LegacyTestClient(
         { name: 'elicitation-defaults-test-client', version: '1.0.0' },
         {
             capabilities: {
@@ -465,7 +466,7 @@ registerScenario('elicitation-sep1034-client-defaults', runElicitationDefaultsCl
 // ============================================================================
 
 async function runSSERetryClient(serverUrl: string): Promise<void> {
-    const client = new Client({ name: 'sse-retry-test-client', version: '1.0.0' }, { capabilities: {} });
+    const client = new LegacyTestClient({ name: 'sse-retry-test-client', version: '1.0.0' }, { capabilities: {} });
 
     const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
 
