@@ -505,12 +505,12 @@ if (isSpecType.CallToolResult(value)) {
 }
 const blocks = mixed.filter(isSpecType.ContentBlock);
 
-// v2: or get the StandardSchemaV1 validator object directly
+// v2: or get the StandardSchemaV1Sync validator object directly
 import { specTypeSchemas } from '@modelcontextprotocol/client';
-const result = await specTypeSchemas.CallToolResult['~standard'].validate(value);
+const result = specTypeSchemas.CallToolResult['~standard'].validate(value);
 ```
 
-`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1<In, Out>`, which composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
+`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1Sync<In, Out>` — `validate()` returns the result synchronously, so you can access `.issues` / `.value` without `await`. It composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
 
 ### Client list methods return empty results for missing capabilities
 
