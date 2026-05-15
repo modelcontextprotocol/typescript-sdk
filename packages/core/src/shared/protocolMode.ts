@@ -1,4 +1,4 @@
-import type { ClientCapabilities, Implementation, InputResponses, LoggingLevel } from '../types/types.js';
+import type { ClientCapabilities, Implementation, InputRequests, InputResponses, LoggingLevel } from '../types/types.js';
 
 /**
  * Protocol versions that use the legacy stateful model (initialize handshake,
@@ -75,4 +75,21 @@ export function parseClientMeta(params: { _meta?: Record<string, unknown> } | un
     const state = meta[META_KEYS.requestState];
     if (typeof state === 'string') out.requestState = state;
     return out;
+}
+
+/**
+ * Control-flow exception thrown by `ctx.mcpReq.elicitInput`/`requestSampling`/
+ * `listRoots` when `isStateless()` and no cached response is available. Caught
+ * by `handleStatelessRequest` and converted to an `InputRequiredResult` on the
+ * wire. Never escapes the SDK; not a wire error.
+ */
+export class InputRequiredError extends Error {
+    readonly inputRequests: InputRequests;
+    readonly requestState?: string;
+    constructor(inputRequests: InputRequests, requestState?: string) {
+        super('input_required');
+        this.name = 'InputRequiredError';
+        this.inputRequests = inputRequests;
+        this.requestState = requestState;
+    }
 }

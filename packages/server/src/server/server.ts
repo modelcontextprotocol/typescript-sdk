@@ -13,6 +13,7 @@ import type {
     Implementation,
     InitializeRequest,
     InitializeResult,
+    InputRequest,
     JSONRPCRequest,
     JsonSchemaType,
     jsonSchemaValidator,
@@ -42,6 +43,7 @@ import {
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    InputRequiredError,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -180,6 +182,32 @@ export class Server extends Protocol<ServerContext> {
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
         // Only create http when there's actual HTTP transport info or auth info
         const hasHttpInfo = ctx.http || transportInfo?.request || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
+        // SEP-2322: per-request key counter so the nth elicit/sample/roots call
+        // gets the same key on every retry of this handler.
+        const mrtrCounters: Record<string, number> = {};
+        const mrtrOrSend = <R>(kind: 'elicit' | 'sample' | 'roots', request: InputRequest, send: () => Promise<R>): Promise<R> => {
+            if (this.isStateless()) {
+                // R-2575-R20: server MUST NOT rely on undeclared client
+                // capabilities. The legacy `send()` path gates inside
+                // elicitInput/createMessage/listRoots; the MRTR path must too.
+                const caps = this._resolveClientCapabilities(ctx);
+                if (kind === 'elicit') {
+                    const mode = ((request.params as { mode?: string }).mode ?? 'form') as 'form' | 'url';
+                    if (!caps?.elicitation?.[mode]) this._missingClientCap(`elicitation.${mode}`, request.method);
+                } else if (kind === 'sample' && !caps?.sampling) {
+                    this._missingClientCap('sampling', request.method);
+                } else if (kind === 'roots' && !caps?.roots) {
+                    this._missingClientCap('roots', request.method);
+                }
+                const n = mrtrCounters[kind] ?? 0;
+                mrtrCounters[kind] = n + 1;
+                const key = `${kind}-${n}`;
+                const cached = ctx.inputResponses?.[key];
+                if (cached !== undefined) return Promise.resolve(cached as R);
+                throw new InputRequiredError({ [key]: request });
+            }
+            return send();
+        };
         return {
             ...ctx,
             mcpReq: {
@@ -196,8 +224,12 @@ export class Server extends Protocol<ServerContext> {
                     }
                     return this.sendLoggingMessage({ level, data, logger });
                 },
-                elicitInput: (params, options) => this.elicitInput(params, options, ctx),
-                requestSampling: (params, options) => this.createMessage(params, options, ctx)
+                elicitInput: (params, options) =>
+                    mrtrOrSend('elicit', { method: 'elicitation/create', params }, () => this.elicitInput(params, options, ctx)),
+                requestSampling: (params, options) =>
+                    mrtrOrSend('sample', { method: 'sampling/createMessage', params }, () => this.createMessage(params, options, ctx)),
+                listRoots: (params, options) =>
+                    mrtrOrSend('roots', { method: 'roots/list', params: params ?? {} }, () => this.listRoots(params, options))
             },
             http: hasHttpInfo
                 ? {

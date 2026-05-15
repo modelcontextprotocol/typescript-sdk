@@ -10,9 +10,11 @@ import type {
     ElicitRequestURLParams,
     ElicitResult,
     Implementation,
-    JSONRPCErrorResponse,
     InputResponses,
+    JSONRPCErrorResponse,
     JSONRPCNotification,
+    ListRootsRequest,
+    ListRootsResult,
     JSONRPCRequest,
     JSONRPCResponse,
     JSONRPCResultResponse,
@@ -290,6 +292,11 @@ export type ServerContext = BaseContext & {
             params: CreateMessageRequest['params'],
             options?: RequestOptions
         ) => Promise<CreateMessageResult | CreateMessageResultWithTools>;
+
+        /**
+         * Request the client's filesystem roots.
+         */
+        listRoots: (params?: ListRootsRequest['params'], options?: RequestOptions) => Promise<ListRootsResult>;
     };
 
     http?: {

@@ -27,6 +27,7 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    InputRequiredError,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
@@ -155,6 +156,11 @@ export class McpServer {
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
+                }
+                if (error instanceof InputRequiredError) {
+                    // SEP-2322: throw-then-cache control flow. Protocol catches
+                    // this and converts it to {resultType:'input_required'}.
+                    throw error;
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
