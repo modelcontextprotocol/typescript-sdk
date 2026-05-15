@@ -509,8 +509,8 @@ Type changes in handler context:
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
 
-- Node.js → `AjvJsonSchemaValidator` (no change from v1)
-- Cloudflare Workers (workerd) → `CfWorkerJsonSchemaValidator` (previously required manual config)
+- Node.js → AJV (no change from v1)
+- Cloudflare Workers (workerd) → `@cfworker/json-schema` (previously required manual config)
 
 **No action required** for most users. Cloudflare Workers users can remove explicit `jsonSchemaValidator` configuration:
 

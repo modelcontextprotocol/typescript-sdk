@@ -29,28 +29,14 @@ export * from './validators/fromJsonSchema.js';
 /**
  * JSON Schema validation
  *
- * This module provides configurable JSON Schema validation for the MCP SDK.
- * Choose a validator based on your runtime environment:
+ * Client and server packages automatically select a JSON Schema validator backend based on the
+ * runtime: AJV-backed on Node.js, `@cfworker/json-schema`-backed on browser/workerd. Both backends
+ * are bundled into the corresponding shim, so consumers do not need to install or import validator
+ * packages for the default behaviour.
  *
- * - `AjvJsonSchemaValidator`: Best for Node.js (default, fastest)
- *   Used automatically by client/server Node shims.
- *
- * - `CfWorkerJsonSchemaValidator`: Best for edge runtimes
- *   Used automatically by client/server browser/workerd shims.
- *
- * Client and server packages bundle their runtime default validator backends, so most users should
- * rely on automatic runtime selection. Advanced users can pass their own validator implementation
- * through client/server options.
- *
- * @example For Node.js with AJV
- * ```ts source="./index.examples.ts#validation_ajv"
- * const validator = new AjvJsonSchemaValidator();
- * ```
- *
- * @example For Cloudflare Workers
- * ```ts source="./index.examples.ts#validation_cfWorker"
- * const validator = new CfWorkerJsonSchemaValidator();
- * ```
+ * To override validation, pass an object implementing the {@link jsonSchemaValidator} interface as
+ * `jsonSchemaValidator` on the client/server options. See `validators/types.ts` for the contract
+ * and a sample implementation.
  *
  * @module validation
  */

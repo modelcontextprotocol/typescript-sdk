@@ -22,18 +22,13 @@ function createDefaultAjvInstance(): Ajv {
 }
 
 /**
- * @example Use with default AJV instance (recommended)
- * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_default"
- * const validator = new AjvJsonSchemaValidator();
- * ```
+ * AJV-backed validator used as the default in Node shims.
  *
- * @example Use with custom AJV instance
- * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_customInstance"
- * const ajv = new Ajv({ strict: true, allErrors: true });
- * const validator = new AjvJsonSchemaValidator(ajv);
- * ```
+ * Not part of the public surface: end users get this automatically via the runtime shim and
+ * cannot import it from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`.
+ * To override validation, implement the {@link jsonSchemaValidator} interface.
  *
- * @see `CfWorkerJsonSchemaValidator` for the edge-runtime-compatible validator selected automatically by client/server browser/workerd shims.
+ * @internal
  */
 export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     private _ajv: Ajv;
@@ -42,18 +37,6 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
      * Create an AJV validator
      *
      * @param ajv - Optional pre-configured AJV instance. If not provided, a default instance will be created.
-     *
-     * @example Use default configuration (recommended for most cases)
-     * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_default"
-     * const validator = new AjvJsonSchemaValidator();
-     * ```
-     *
-     * @example Provide custom AJV instance for advanced configuration
-     * ```ts source="./ajvProvider.examples.ts#AjvJsonSchemaValidator_constructor_withFormats"
-     * const ajv = new Ajv({ validateFormats: true });
-     * addFormats(ajv);
-     * const validator = new AjvJsonSchemaValidator(ajv);
-     * ```
      */
     constructor(ajv?: Ajv) {
         this._ajv = ajv ?? createDefaultAjvInstance();

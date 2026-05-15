@@ -901,8 +901,8 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 
 The SDK now automatically selects the appropriate JSON Schema validator based on your runtime environment:
 
-- **Node.js**: Uses `AjvJsonSchemaValidator` (same as v1 default)
-- **Cloudflare Workers**: Uses `CfWorkerJsonSchemaValidator` (previously required manual configuration)
+- **Node.js**: Uses AJV (same as v1 default)
+- **Cloudflare Workers**: Uses `@cfworker/json-schema` (previously required manual configuration)
 
 This means Cloudflare Workers users no longer need to explicitly pass the validator:
 
