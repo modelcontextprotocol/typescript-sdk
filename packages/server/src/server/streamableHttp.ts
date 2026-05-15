@@ -68,7 +68,7 @@ interface StreamMapping {
 }
 
 /**
- * Configuration options for {@linkcode WebStandardStreamableHTTPServerTransport}
+ * Configuration options for {@linkcode LegacyWebStandardStreamableHTTPServerTransport}
  */
 export interface WebStandardStreamableHTTPServerTransportOptions {
     /**
@@ -101,7 +101,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * Useful in cases when you need to clean up resources associated with the session.
      * Note that this is different from the transport closing, if you are handling
      * HTTP requests from multiple nodes you might want to close each
-     * {@linkcode WebStandardStreamableHTTPServerTransport} after a request is completed while still keeping the
+     * {@linkcode LegacyWebStandardStreamableHTTPServerTransport} after a request is completed while still keeping the
      * session open/running.
      * @param sessionId The session ID that was closed
      */

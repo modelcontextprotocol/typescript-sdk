@@ -18,6 +18,8 @@ export enum SdkErrorCode {
     // Capability errors
     /** Required capability is not supported by the remote side */
     CapabilityNotSupported = 'CAPABILITY_NOT_SUPPORTED',
+    /** Operation is not supported on the current protocol path */
+    UnsupportedOperation = 'UNSUPPORTED_OPERATION',
 
     // Transport errors
     /** Request timed out waiting for response */

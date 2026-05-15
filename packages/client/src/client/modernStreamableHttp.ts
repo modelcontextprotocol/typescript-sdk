@@ -152,6 +152,9 @@ export class StreamableHTTPClientTransport implements VersionProbingTransport {
     }
 
     get sessionId(): string | undefined {
+        if (this._mode === 'modern') {
+            return undefined;
+        }
         return this._inner.sessionId;
     }
 
@@ -195,10 +198,16 @@ export class StreamableHTTPClientTransport implements VersionProbingTransport {
     }
 
     async terminateSession(): Promise<void> {
+        if (this._mode === 'modern') {
+            throw new Error('terminateSession() is not available in modern protocol mode (no session to terminate)');
+        }
         return this._inner.terminateSession();
     }
 
     async resumeStream(lastEventId: string, options?: { onresumptiontoken?: (token: string) => void }): Promise<void> {
+        if (this._mode === 'modern') {
+            throw new Error('resumeStream() is not available in modern protocol mode (no SSE stream to resume)');
+        }
         return this._inner.resumeStream(lastEventId, options);
     }
 }

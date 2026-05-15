@@ -51,7 +51,7 @@ export interface StartSSEOptions {
 }
 
 /**
- * Configuration options for reconnection behavior of the {@linkcode StreamableHTTPClientTransport}.
+ * Configuration options for reconnection behavior of the {@linkcode LegacyStreamableHTTPClientTransport}.
  */
 export interface StreamableHTTPReconnectionOptions {
     /**
@@ -91,7 +91,7 @@ export interface StreamableHTTPReconnectionOptions {
  * @param delay - Suggested delay in milliseconds (from backoff calculation).
  * @param attemptCount - Zero-indexed retry attempt number.
  * @returns An optional cancel function. If returned, it will be called on
- * {@linkcode StreamableHTTPClientTransport.close | transport.close()} to abort the
+ * {@linkcode LegacyStreamableHTTPClientTransport.close | transport.close()} to abort the
  * pending reconnection.
  *
  * @example
@@ -105,7 +105,7 @@ export interface StreamableHTTPReconnectionOptions {
 export type ReconnectionScheduler = (reconnect: () => void, delay: number, attemptCount: number) => (() => void) | void;
 
 /**
- * Configuration options for the {@linkcode StreamableHTTPClientTransport}.
+ * Configuration options for the {@linkcode LegacyStreamableHTTPClientTransport}.
  */
 export type StreamableHTTPClientTransportOptions = {
     /**
@@ -122,7 +122,7 @@ export type StreamableHTTPClientTransportOptions = {
      * For OAuth flows, pass an {@linkcode index.OAuthClientProvider | OAuthClientProvider} implementation
      * directly — the transport adapts it to `AuthProvider` internally. Interactive flows: after
      * {@linkcode UnauthorizedError}, redirect the user, then call
-     * {@linkcode StreamableHTTPClientTransport.finishAuth | finishAuth} with the authorization code before
+     * {@linkcode LegacyStreamableHTTPClientTransport.finishAuth | finishAuth} with the authorization code before
      * reconnecting.
      */
     authProvider?: AuthProvider | OAuthClientProvider;

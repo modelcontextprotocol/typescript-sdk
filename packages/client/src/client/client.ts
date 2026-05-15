@@ -51,6 +51,7 @@ import {
     GetPromptResultSchema,
     HandlerRegistry,
     InitializeResultSchema,
+    isStandardSchema,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     ListPromptsResultSchema,
@@ -1179,10 +1180,12 @@ export class Client {
             if (transport.mode === 'modern') {
                 const modern = new ModernClientImpl(
                     this._clientInfo,
-                    this._options?.capabilities ?? {},
+                    this._registry.getCapabilities(),
                     transport.getDiscoverResult()!,
                     this._registry
                 );
+                modern.onclose = this._legacyImpl.onclose;
+                modern.onerror = this._legacyImpl.onerror;
                 await modern.connect(transport);
                 this._modernImpl = modern;
                 return;
@@ -1377,6 +1380,12 @@ export class Client {
     }
 
     async sendRootsListChanged() {
+        if (this._modernImpl) {
+            throw new SdkError(
+                SdkErrorCode.UnsupportedOperation,
+                'Client-to-server notifications are not supported on the modern (2026-06) protocol path'
+            );
+        }
         return this._legacyImpl.sendRootsListChanged();
     }
 
@@ -1395,14 +1404,18 @@ export class Client {
     ): Promise<StandardSchemaV1.InferOutput<T>>;
     request(request: { method: string; params?: Record<string, unknown> }, ...args: unknown[]): Promise<unknown> {
         if (this._modernImpl) {
-            return this._modernImpl.request(request, args[0] as RequestOptions | undefined);
+            const opts = isStandardSchema(args[0]) ? (args[1] as RequestOptions | undefined) : (args[0] as RequestOptions | undefined);
+            return this._modernImpl.request(request, opts);
         }
         return (this._legacyImpl.request as (...a: unknown[]) => Promise<unknown>).call(this._legacyImpl, request, ...args);
     }
 
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
         if (this._modernImpl) {
-            return;
+            throw new SdkError(
+                SdkErrorCode.UnsupportedOperation,
+                'Client-to-server notifications are not supported on the modern (2026-06) protocol path'
+            );
         }
         return this._legacyImpl.notification(notification, options);
     }

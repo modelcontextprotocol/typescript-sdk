@@ -8,7 +8,7 @@ import type {
     ServerCapabilities,
     ServerContext
 } from '@modelcontextprotocol/core';
-import { ProtocolErrorCode } from '@modelcontextprotocol/core';
+import { ProtocolErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 
 export interface ModernHandlerOptions {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -86,7 +86,10 @@ export class ModernProtocolHandler {
                 _meta: request.params?._meta,
                 signal: abortController.signal,
                 send: (async () => {
-                    throw new Error('Server-to-client requests are not supported on the stateless 2026-06 path');
+                    throw new SdkError(
+                        SdkErrorCode.UnsupportedOperation,
+                        'Server-to-client requests are not supported on the stateless 2026-06 path'
+                    );
                 }) as ServerContext['mcpReq']['send'],
                 notify: async () => {
                     /* no-op: notifications deferred on modern path */
@@ -95,10 +98,10 @@ export class ModernProtocolHandler {
                     /* no-op: in-band logging deferred on modern path */
                 },
                 elicitInput: async () => {
-                    throw new Error('Elicitation is not supported on the stateless 2026-06 path');
+                    throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Elicitation is not supported on the stateless 2026-06 path');
                 },
                 requestSampling: async () => {
-                    throw new Error('Sampling is not supported on the stateless 2026-06 path');
+                    throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Sampling is not supported on the stateless 2026-06 path');
                 }
             },
             http: extra

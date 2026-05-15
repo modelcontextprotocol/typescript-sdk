@@ -63,7 +63,7 @@ interface PendingRequest {
 /**
  * A lightweight MCP client for the modern (2026-06) protocol.
  *
- * Unlike {@linkcode import('./client.js').LegacyClient | LegacyClient}, this class does NOT extend Protocol.
+ * Unlike `LegacyClient`, this class does NOT extend Protocol.
  * It manages its own request/response correlation, injects `_meta` with protocol
  * version and client info into every request, and delegates HTTP-level concerns
  * (like the `Mcp-Method` header) to the transport layer.
@@ -367,10 +367,16 @@ export class ModernClientImpl {
                 _meta: request.params?._meta as ClientContext['mcpReq']['_meta'],
                 signal: abortController.signal,
                 send: (() => {
-                    throw new Error('Bidirectional requests not supported on modern client path');
+                    throw new SdkError(
+                        SdkErrorCode.UnsupportedOperation,
+                        'Bidirectional requests not supported on the modern (2026-06) client path'
+                    );
                 }) as ClientContext['mcpReq']['send'],
                 notify: () => {
-                    throw new Error('Bidirectional notifications not supported on modern client path');
+                    throw new SdkError(
+                        SdkErrorCode.UnsupportedOperation,
+                        'Bidirectional notifications not supported on the modern (2026-06) client path'
+                    );
                 }
             }
         };

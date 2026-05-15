@@ -36,7 +36,6 @@ pnpm tsx src/simpleStreamableHttp.ts
 | Form elicitation server                   | Collects **non-sensitive** user input via schema-driven forms.                                  | [`src/elicitationFormExample.ts`](src/elicitationFormExample.ts)                         |
 | URL elicitation server                    | Secure browser-based flows for **sensitive** input (API keys, OAuth, payments).                 | [`src/elicitationUrlExample.ts`](src/elicitationUrlExample.ts)                           |
 | Sampling + tasks server                   | Demonstrates sampling and experimental task-based execution.                                    | [`src/toolWithSampleServer.ts`](src/toolWithSampleServer.ts)                             |
-| Task interactive server                   | Task-based execution with interactive server→client requests.                                   | [`src/simpleTaskInteractive.ts`](src/simpleTaskInteractive.ts)                           |
 | Hono Streamable HTTP server               | Streamable HTTP server built with Hono instead of Express.                                      | [`src/honoWebStandardStreamableHttp.ts`](src/honoWebStandardStreamableHttp.ts)           |
 | SSE polling demo server                   | Legacy SSE server intended for polling demos.                                                   | [`src/ssePollingExample.ts`](src/ssePollingExample.ts)                                   |
 

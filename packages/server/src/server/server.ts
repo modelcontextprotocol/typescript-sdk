@@ -544,7 +544,7 @@ export class LegacyServer extends Protocol<ServerContext> {
 /**
  * An MCP server on top of a pluggable transport.
  *
- * Owns a {@linkcode HandlerRegistry} directly for handler registration and
+ * Owns a `HandlerRegistry` directly for handler registration and
  * capability management. For routing transports, passes registry and config
  * directly. For regular transports, creates a {@linkcode LegacyServer} that
  * shares the same registry.
@@ -686,12 +686,12 @@ export class Server {
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return this._impl.createMessage(params, options);
     }
 
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return this._impl.elicitInput(params, options);
     }
 
@@ -713,12 +713,12 @@ export class Server {
     }
 
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return this._impl.listRoots(params, options);
     }
 
     async ping() {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return this._impl.ping();
     }
 
@@ -732,37 +732,37 @@ export class Server {
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>>;
     request(request: { method: string; params?: Record<string, unknown> }, ...args: unknown[]): Promise<unknown> {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return (this._impl.request as (...a: unknown[]) => Promise<unknown>).call(this._impl, request, ...args);
     }
 
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return this._impl.notification(notification, options);
     }
 
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return this._impl.sendLoggingMessage(params, sessionId);
     }
 
     async sendResourceUpdated(params: ResourceUpdatedNotification['params']) {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return this._impl.sendResourceUpdated(params);
     }
 
     async sendResourceListChanged() {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return this._impl.sendResourceListChanged();
     }
 
     async sendToolListChanged() {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return this._impl.sendToolListChanged();
     }
 
     async sendPromptListChanged() {
-        if (!this._impl) throw new Error('Not connected to a legacy transport');
+        if (!this._impl) throw new SdkError(SdkErrorCode.UnsupportedOperation, 'Not connected to a legacy transport');
         return this._impl.sendPromptListChanged();
     }
 }

@@ -27,7 +27,7 @@ export type RequestHandler<ContextT extends BaseContext> = (request: JSONRPCRequ
 export type NotificationHandler = (notification: JSONRPCNotification) => Promise<void>;
 
 /**
- * Schema bundle accepted by {@linkcode HandlerRegistry.setRequestHandler | setRequestHandler}'s 3-arg form.
+ * Schema bundle accepted by `setRequestHandler`'s 3-arg form.
  *
  * `params` is required and validates the inbound `request.params`. `result` is optional;
  * when supplied it types the handler's return value (no runtime validation is performed
@@ -61,7 +61,7 @@ export interface HandlerRegistryOptions<ContextT extends BaseContext, Caps exten
     capabilities?: Caps;
 
     /**
-     * Optional callback invoked during {@linkcode HandlerRegistry.setRequestHandler | setRequestHandler()}
+     * Optional callback invoked during `setRequestHandler()`
      * to assert that registering a handler for this method is valid given the
      * declared capabilities. For example, a server may reject handler registration
      * for `tools/call` unless `capabilities.tools` is declared.

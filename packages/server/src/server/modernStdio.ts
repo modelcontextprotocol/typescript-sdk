@@ -1,7 +1,7 @@
 import type { Readable, Writable } from 'node:stream';
 
 import type { JSONRPCMessage, ProtocolConfig, Transport, TransportSendOptions } from '@modelcontextprotocol/core';
-import { isJSONRPCRequest } from '@modelcontextprotocol/core';
+import { isJSONRPCRequest, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import { ModernProtocolHandler } from './modernHandler.js';
 import { LegacyServer } from './server.js';
@@ -154,7 +154,7 @@ export class StdioServerTransport implements Transport {
         this._legacyServer.fallbackRequestHandler = async (request, ctx) => {
             const handler = config.requestHandlers.get(request.method);
             if (!handler) {
-                throw new Error(`Method not found: ${request.method}`);
+                throw new ProtocolError(ProtocolErrorCode.MethodNotFound, `Method not found: ${request.method}`);
             }
             return handler(request, ctx);
         };

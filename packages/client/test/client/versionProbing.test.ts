@@ -633,7 +633,82 @@ describe('StreamableHTTPClientTransport', () => {
     });
 
     // -----------------------------------------------------------------------
-    // 4. Content equivalence across all 3 combinations
+    // 4. Legacy-only methods throw in modern mode
+    // -----------------------------------------------------------------------
+    describe('legacy-only methods in modern mode', () => {
+        let server: Server;
+        let baseUrl: URL;
+
+        beforeAll(async () => {
+            server = createRoutingServer();
+            baseUrl = await listenOnRandomPort(server);
+        });
+
+        afterAll(async () => {
+            await closeServer(server);
+        });
+
+        it('terminateSession() throws in modern mode', async () => {
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await transport.start();
+            expect(transport.mode).toBe('modern');
+
+            try {
+                await expect(transport.terminateSession()).rejects.toThrow('terminateSession() is not available in modern protocol mode');
+            } finally {
+                await transport.close();
+            }
+        });
+
+        it('resumeStream() throws in modern mode', async () => {
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await transport.start();
+            expect(transport.mode).toBe('modern');
+
+            try {
+                await expect(transport.resumeStream('some-event-id')).rejects.toThrow(
+                    'resumeStream() is not available in modern protocol mode'
+                );
+            } finally {
+                await transport.close();
+            }
+        });
+
+        it('sessionId returns undefined in modern mode', async () => {
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await transport.start();
+            expect(transport.mode).toBe('modern');
+
+            try {
+                expect(transport.sessionId).toBeUndefined();
+            } finally {
+                await transport.close();
+            }
+        });
+
+        it('terminateSession() works in legacy mode', async () => {
+            const legacyServer = createLegacyOnlyServer();
+            const legacyUrl = await listenOnRandomPort(legacyServer);
+
+            const transport = new StreamableHTTPClientTransport(legacyUrl);
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
+
+            try {
+                await transport.start();
+                expect(transport.mode).toBe('legacy');
+                await client.connect(transport);
+
+                // Should not throw in legacy mode
+                await expect(transport.terminateSession()).resolves.not.toThrow();
+            } finally {
+                await client.close();
+                await closeServer(legacyServer);
+            }
+        });
+    });
+
+    // -----------------------------------------------------------------------
+    // 5. Content equivalence across all 3 combinations
     // -----------------------------------------------------------------------
     describe('content equivalence', () => {
         let routingServer: Server;
