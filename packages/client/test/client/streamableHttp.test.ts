@@ -1,5 +1,5 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';

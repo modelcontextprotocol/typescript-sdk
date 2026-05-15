@@ -85,10 +85,10 @@ export interface SdkHttpErrorData {
  * without unsafe casting.
  *
  * @example
- * ```ts
+ * ```ts source="./sdkErrors.examples.ts#SdkHttpError_basicUsage"
  * if (error instanceof SdkHttpError) {
- *     console.log(error.status);      // number
- *     console.log(error.statusText);  // string | undefined
+ *     console.log(error.status); // number
+ *     console.log(error.statusText); // string | undefined
  * }
  * ```
  */

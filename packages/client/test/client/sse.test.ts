@@ -3,7 +3,7 @@ import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 import type { JSONRPCMessage, OAuthTokens } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
@@ -1575,7 +1575,7 @@ describe('SSEClientTransport', () => {
             await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
         });
 
-        it('enforces circuit breaker on double-401: onUnauthorized called once, then throws SdkError', async () => {
+        it('enforces circuit breaker on double-401: onUnauthorized called once, then throws SdkHttpError', async () => {
             postResponses = [401, 401];
             await setupServer();
 
