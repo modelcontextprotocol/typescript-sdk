@@ -11,6 +11,7 @@ import type {
     ElicitResult,
     Implementation,
     JSONRPCErrorResponse,
+    InputResponses,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -188,6 +189,20 @@ export type BaseContext = {
      * request. Legacy clients use `logging/setLevel` instead.
      */
     logLevel?: LoggingLevel;
+
+    /**
+     * SEP-2322: client responses to a prior `InputRequiredResult`, keyed by
+     * the server-assigned identifiers from `inputRequests`. Present when this
+     * request is a retry carrying `_meta['io.modelcontextprotocol/inputResponses']`.
+     */
+    inputResponses?: InputResponses;
+
+    /**
+     * SEP-2322: opaque state echoed back from a prior `InputRequiredResult`.
+     * Handlers MUST validate this before trusting it (the client is an
+     * untrusted intermediary).
+     */
+    requestState?: string;
 
     /**
      * Information about the MCP request being handled.
@@ -486,6 +501,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
             clientCapabilities: meta.clientCapabilities,
             clientInfo: meta.clientInfo,
             logLevel: meta.logLevel,
+            inputResponses: meta.inputResponses,
+            requestState: meta.requestState,
             mcpReq: {
                 id: request.id,
                 method: request.method,
@@ -732,6 +749,8 @@ export abstract class Protocol<ContextT extends BaseContext> {
             clientCapabilities: clientMeta.clientCapabilities,
             clientInfo: clientMeta.clientInfo,
             logLevel: clientMeta.logLevel,
+            inputResponses: clientMeta.inputResponses,
+            requestState: clientMeta.requestState,
             mcpReq: {
                 id: request.id,
                 method: request.method,

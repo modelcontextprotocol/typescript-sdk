@@ -1,4 +1,4 @@
-import type { ClientCapabilities, Implementation, LoggingLevel } from '../types/types.js';
+import type { ClientCapabilities, Implementation, InputResponses, LoggingLevel } from '../types/types.js';
 
 /**
  * Protocol versions that use the legacy stateful model (initialize handshake,
@@ -20,13 +20,15 @@ export const STATELESS_REMOVED_METHODS: ReadonlySet<string> = new Set([
     'resources/unsubscribe'
 ]);
 
-/** Reserved per-request `_meta` keys defined by SEP-2575. */
+/** Reserved per-request `_meta` keys defined by SEP-2575 and SEP-2322. */
 export const META_KEYS = {
     protocolVersion: 'io.modelcontextprotocol/protocolVersion',
     clientCapabilities: 'io.modelcontextprotocol/clientCapabilities',
     clientInfo: 'io.modelcontextprotocol/clientInfo',
     logLevel: 'io.modelcontextprotocol/logLevel',
-    subscriptionId: 'io.modelcontextprotocol/subscriptionId'
+    subscriptionId: 'io.modelcontextprotocol/subscriptionId',
+    inputResponses: 'io.modelcontextprotocol/inputResponses',
+    requestState: 'io.modelcontextprotocol/requestState'
 } as const;
 
 /**
@@ -38,6 +40,10 @@ export interface ClientMeta {
     clientCapabilities?: ClientCapabilities;
     clientInfo?: Implementation;
     logLevel?: LoggingLevel;
+    /** SEP-2322: client responses to a prior `InputRequiredResult`. */
+    inputResponses?: InputResponses;
+    /** SEP-2322: opaque state echoed back from a prior `InputRequiredResult`. */
+    requestState?: string;
 }
 
 /**
@@ -64,5 +70,9 @@ export function parseClientMeta(params: { _meta?: Record<string, unknown> } | un
     if (info && typeof info === 'object') out.clientInfo = info as Implementation;
     const level = meta[META_KEYS.logLevel];
     if (typeof level === 'string') out.logLevel = level as LoggingLevel;
+    const responses = meta[META_KEYS.inputResponses];
+    if (responses && typeof responses === 'object') out.inputResponses = responses as InputResponses;
+    const state = meta[META_KEYS.requestState];
+    if (typeof state === 'string') out.requestState = state;
     return out;
 }
