@@ -8,7 +8,7 @@
  */
 
 import { ClientCredentialsProvider, createPrivateKeyJwtAuth, PrivateKeyJwtProvider } from './authExtensions.js';
-import { StreamableHTTPClientTransport } from './streamableHttp.js';
+import { StreamableHTTPClientTransport } from './modernStreamableHttp.js';
 
 /**
  * Example: Creating a private key JWT authentication function.

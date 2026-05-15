@@ -162,11 +162,18 @@ export type StreamableHTTPClientTransportOptions = {
     protocolVersion?: string;
 
     /**
+     * When `true`, skip the `server/discover` probe and always use the legacy (2025-11)
+     * protocol path. Useful for connecting to known legacy servers or for testing
+     * legacy protocol behavior explicitly.
+     */
+    forceLegacy?: boolean;
+
+    /**
      * Optional callback to inject extra HTTP headers into every outgoing POST request.
      * Called after the standard headers are built, so returned headers can override them.
      *
-     * This is used by {@linkcode index.VersionProbingHTTPClientTransport | VersionProbingHTTPClientTransport}
-     * to add the `Mcp-Method` header for modern (2026-06) protocol requests.
+     * Used internally by the probing transport to add the `Mcp-Method` header
+     * for modern (2026-06) protocol requests.
      */
     getExtraHeaders?: (message: JSONRPCMessage | JSONRPCMessage[]) => Record<string, string>;
 };
@@ -176,7 +183,7 @@ export type StreamableHTTPClientTransportOptions = {
  * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
  */
-export class StreamableHTTPClientTransport implements Transport {
+export class LegacyStreamableHTTPClientTransport implements Transport {
     private _abortController?: AbortController;
     private _url: URL;
     private _resourceMetadataUrl?: URL;
@@ -762,7 +769,7 @@ export class StreamableHTTPClientTransport implements Transport {
         return this._protocolVersion;
     }
 
-    /** @internal Exposes the endpoint URL for use by wrapping transports (e.g. VersionProbingHTTPClientTransport). */
+    /** @internal Exposes the endpoint URL for use by the probing transport wrapper. */
     get url(): URL {
         return this._url;
     }

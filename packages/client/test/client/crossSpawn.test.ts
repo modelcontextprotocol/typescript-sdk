@@ -4,13 +4,13 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import spawn from 'cross-spawn';
 import type { Mock, MockedFunction } from 'vitest';
 
-import { getDefaultEnvironment, StdioClientTransport } from '../../src/client/stdio.js';
+import { getDefaultEnvironment, LegacyStdioClientTransport } from '../../src/client/stdio.js';
 
 // mock cross-spawn
 vi.mock('cross-spawn');
 const mockSpawn = spawn as unknown as MockedFunction<typeof spawn>;
 
-describe('StdioClientTransport using cross-spawn', () => {
+describe('LegacyStdioClientTransport using cross-spawn', () => {
     beforeEach(() => {
         // mock cross-spawn's return value
         mockSpawn.mockImplementation(() => {
@@ -44,7 +44,7 @@ describe('StdioClientTransport using cross-spawn', () => {
     });
 
     test('should call cross-spawn correctly', async () => {
-        const transport = new StdioClientTransport({
+        const transport = new LegacyStdioClientTransport({
             command: 'test-command',
             args: ['arg1', 'arg2']
         });
@@ -63,7 +63,7 @@ describe('StdioClientTransport using cross-spawn', () => {
 
     test('should pass environment variables correctly', async () => {
         const customEnv = { TEST_VAR: 'test-value' };
-        const transport = new StdioClientTransport({
+        const transport = new LegacyStdioClientTransport({
             command: 'test-command',
             env: customEnv
         });
@@ -84,7 +84,7 @@ describe('StdioClientTransport using cross-spawn', () => {
     });
 
     test('should use default environment when env is undefined', async () => {
-        const transport = new StdioClientTransport({
+        const transport = new LegacyStdioClientTransport({
             command: 'test-command',
             env: undefined
         });
@@ -102,7 +102,7 @@ describe('StdioClientTransport using cross-spawn', () => {
     });
 
     test('should send messages correctly', async () => {
-        const transport = new StdioClientTransport({
+        const transport = new LegacyStdioClientTransport({
             command: 'test-command'
         });
 
@@ -167,7 +167,7 @@ describe('StdioClientTransport using cross-spawn', () => {
                 value: 'win32'
             });
 
-            const transport = new StdioClientTransport({
+            const transport = new LegacyStdioClientTransport({
                 command: 'test-command'
             });
 
@@ -187,7 +187,7 @@ describe('StdioClientTransport using cross-spawn', () => {
                 value: 'linux'
             });
 
-            const transport = new StdioClientTransport({
+            const transport = new LegacyStdioClientTransport({
                 command: 'test-command'
             });
 

@@ -8,15 +8,15 @@
  */
 
 import { McpServer } from './mcp.js';
-import { StdioServerTransport } from './stdio.js';
+import { LegacyStdioServerTransport } from './stdio.js';
 
 /**
  * Example: Basic stdio transport usage.
  */
-async function StdioServerTransport_basicUsage() {
-    //#region StdioServerTransport_basicUsage
+async function LegacyStdioServerTransport_basicUsage() {
+    //#region LegacyStdioServerTransport_basicUsage
     const server = new McpServer({ name: 'my-server', version: '1.0.0' });
-    const transport = new StdioServerTransport();
+    const transport = new LegacyStdioServerTransport();
     await server.connect(transport);
-    //#endregion StdioServerTransport_basicUsage
+    //#endregion LegacyStdioServerTransport_basicUsage
 }

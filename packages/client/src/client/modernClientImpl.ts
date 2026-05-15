@@ -136,7 +136,7 @@ export class ModernClientImpl {
             this.onerror?.(error);
         };
 
-        // Transport is already started by VersionProbingHTTPClientTransport.start()
+        // Transport is already started by StreamableHTTPClientTransport.start()
     }
 
     /**
@@ -246,6 +246,10 @@ export class ModernClientImpl {
             return { tools: [] };
         }
         return this._request('tools/list', params, options);
+    }
+
+    async request(request: { method: string; params?: Record<string, unknown> }, options?: RequestOptions): Promise<Result> {
+        return this._request(request.method, request.params, options);
     }
 
     // ---------------------------------------------------------------------------

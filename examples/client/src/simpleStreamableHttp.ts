@@ -8,13 +8,7 @@ import type {
     ReadResourceRequest,
     ResourceLink
 } from '@modelcontextprotocol/client';
-import {
-    Client,
-    getDisplayName,
-    ProtocolError,
-    ProtocolErrorCode,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { Client, getDisplayName, ProtocolError, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { Ajv } from 'ajv';
 
 // Create readline interface for user input
@@ -241,7 +235,7 @@ async function connect(url?: string): Promise<void> {
         };
 
         // Set up elicitation request handler with proper validation
-        client.setRequestHandler('elicitation/create', async (request) => {
+        client.setRequestHandler('elicitation/create', async request => {
             if (request.params.mode !== 'form') {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
@@ -249,13 +243,6 @@ async function connect(url?: string): Promise<void> {
             console.log(`Message: ${request.params.message}`);
             console.log('Requested Schema:');
             console.log(JSON.stringify(request.params.requestedSchema, null, 2));
-
-            const returnResult = (result: {
-                action: 'accept' | 'decline' | 'cancel';
-                content?: Record<string, string | number | boolean | string[]>;
-            }) => {
-                return result;
-            };
 
             const schema = request.params.requestedSchema;
             const properties = schema.properties;
@@ -390,7 +377,7 @@ async function connect(url?: string): Promise<void> {
                 }
 
                 if (inputCancelled) {
-                    return returnResult({ action: 'cancel' });
+                    return { action: 'cancel' };
                 }
 
                 // If we didn't complete all fields due to an error, try again
@@ -403,7 +390,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return returnResult({ action: 'decline' });
+                        return { action: 'decline' };
                     }
                 }
 
@@ -422,7 +409,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return returnResult({ action: 'decline' });
+                        return { action: 'decline' };
                     }
                 }
 
@@ -439,14 +426,14 @@ async function connect(url?: string): Promise<void> {
                 switch (confirmAnswer) {
                     case 'yes':
                     case 'y': {
-                        return returnResult({
+                        return {
                             action: 'accept',
                             content
-                        });
+                        };
                     }
                     case 'cancel':
                     case 'c': {
-                        return returnResult({ action: 'cancel' });
+                        return { action: 'cancel' };
                     }
                     case 'no':
                     case 'n': {
@@ -454,7 +441,7 @@ async function connect(url?: string): Promise<void> {
                             console.log('Please re-enter the information...');
                             continue;
                         } else {
-                            return returnResult({ action: 'decline' });
+                            return { action: 'decline' };
                         }
 
                         break;
@@ -464,7 +451,7 @@ async function connect(url?: string): Promise<void> {
             }
 
             console.log('Maximum attempts reached. Declining request.');
-            return returnResult({ action: 'decline' });
+            return { action: 'decline' };
         });
 
         transport = new StreamableHTTPClientTransport(new URL(serverUrl), {

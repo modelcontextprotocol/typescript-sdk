@@ -86,7 +86,8 @@ describe('Process cleanup', () => {
         const transport = new StdioClientTransport({
             command: 'node',
             args: ['--import', 'tsx', 'serverThatHangs.ts'],
-            cwd: FIXTURES_DIR
+            cwd: FIXTURES_DIR,
+            forceLegacy: true
         });
 
         await client.connect(transport);

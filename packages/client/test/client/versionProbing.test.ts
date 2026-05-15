@@ -1,5 +1,5 @@
 /**
- * Integration tests for VersionProbingHTTPClientTransport.
+ * Integration tests for StreamableHTTPClientTransport.
  *
  * These tests spin up lightweight HTTP mock servers (node:http) that emulate
  * the MCP server-side behaviour -- both the modern (2026-06) routing path and
@@ -14,8 +14,8 @@ import type { AddressInfo } from 'node:net';
 import type { JSONRPCMessage, JSONRPCRequest, JSONRPCResponse } from '@modelcontextprotocol/core';
 
 import { Client } from '../../src/client/client.js';
-import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
-import { VersionProbingHTTPClientTransport } from '../../src/client/versionProbingHttp.js';
+import { LegacyStreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
+import { StreamableHTTPClientTransport } from '../../src/client/modernStreamableHttp.js';
 
 // ---------------------------------------------------------------------------
 // Shared constants
@@ -444,7 +444,7 @@ function closeServer(server: Server): Promise<void> {
 // Tests
 // ===========================================================================
 
-describe('VersionProbingHTTPClientTransport', () => {
+describe('StreamableHTTPClientTransport', () => {
     // -----------------------------------------------------------------------
     // 1. Modern client + routing server
     // -----------------------------------------------------------------------
@@ -462,7 +462,7 @@ describe('VersionProbingHTTPClientTransport', () => {
         });
 
         it('probes server/discover and enters modern mode', async () => {
-            const transport = new VersionProbingHTTPClientTransport(baseUrl);
+            const transport = new StreamableHTTPClientTransport(baseUrl);
             try {
                 await transport.start();
 
@@ -476,7 +476,7 @@ describe('VersionProbingHTTPClientTransport', () => {
         });
 
         it('callTool works via Client in modern mode', async () => {
-            const transport = new VersionProbingHTTPClientTransport(baseUrl);
+            const transport = new StreamableHTTPClientTransport(baseUrl);
             const client = new Client({ name: 'test-client', version: '1.0.0' });
             try {
                 await transport.start();
@@ -492,7 +492,7 @@ describe('VersionProbingHTTPClientTransport', () => {
         });
 
         it('listTools works via Client in modern mode', async () => {
-            const transport = new VersionProbingHTTPClientTransport(baseUrl);
+            const transport = new StreamableHTTPClientTransport(baseUrl);
             const client = new Client({ name: 'test-client', version: '1.0.0' });
             try {
                 await transport.start();
@@ -507,7 +507,7 @@ describe('VersionProbingHTTPClientTransport', () => {
         });
 
         it('getServerCapabilities returns capabilities from discover', async () => {
-            const transport = new VersionProbingHTTPClientTransport(baseUrl);
+            const transport = new StreamableHTTPClientTransport(baseUrl);
             const client = new Client({ name: 'test-client', version: '1.0.0' });
             try {
                 await transport.start();
@@ -541,7 +541,7 @@ describe('VersionProbingHTTPClientTransport', () => {
         });
 
         it('probe fails gracefully and falls back to legacy mode', async () => {
-            const transport = new VersionProbingHTTPClientTransport(baseUrl);
+            const transport = new StreamableHTTPClientTransport(baseUrl);
             try {
                 await transport.start();
 
@@ -553,7 +553,7 @@ describe('VersionProbingHTTPClientTransport', () => {
         });
 
         it('callTool works via Client in legacy fallback mode', async () => {
-            const transport = new VersionProbingHTTPClientTransport(baseUrl);
+            const transport = new StreamableHTTPClientTransport(baseUrl);
             const client = new Client({ name: 'test-client', version: '1.0.0' });
             try {
                 await transport.start();
@@ -570,7 +570,7 @@ describe('VersionProbingHTTPClientTransport', () => {
         });
 
         it('listTools works via Client in legacy fallback mode', async () => {
-            const transport = new VersionProbingHTTPClientTransport(baseUrl);
+            const transport = new StreamableHTTPClientTransport(baseUrl);
             const client = new Client({ name: 'test-client', version: '1.0.0' });
             try {
                 await transport.start();
@@ -601,11 +601,11 @@ describe('VersionProbingHTTPClientTransport', () => {
             await closeServer(server);
         });
 
-        it('callTool works via plain StreamableHTTPClientTransport (no probe)', async () => {
-            const transport = new StreamableHTTPClientTransport(baseUrl);
+        it('callTool works via plain LegacyStreamableHTTPClientTransport (no probe)', async () => {
+            const transport = new LegacyStreamableHTTPClientTransport(baseUrl);
             const client = new Client({ name: 'legacy-client', version: '1.0.0' });
             try {
-                // Plain StreamableHTTPClientTransport does not probe -- it goes
+                // Plain LegacyStreamableHTTPClientTransport does not probe -- it goes
                 // straight to the initialize handshake which the routing server
                 // routes to the legacy path (no Mcp-Method header).
                 await client.connect(transport);
@@ -617,8 +617,8 @@ describe('VersionProbingHTTPClientTransport', () => {
             }
         });
 
-        it('listTools works via plain StreamableHTTPClientTransport', async () => {
-            const transport = new StreamableHTTPClientTransport(baseUrl);
+        it('listTools works via plain LegacyStreamableHTTPClientTransport', async () => {
+            const transport = new LegacyStreamableHTTPClientTransport(baseUrl);
             const client = new Client({ name: 'legacy-client', version: '1.0.0' });
             try {
                 await client.connect(transport);
@@ -655,7 +655,7 @@ describe('VersionProbingHTTPClientTransport', () => {
             const toolArgs = { name: TOOL_NAME, arguments: { name: 'Alice' } };
 
             // -- Combination 1: Modern client + routing server --
-            const modernTransport = new VersionProbingHTTPClientTransport(routingUrl);
+            const modernTransport = new StreamableHTTPClientTransport(routingUrl);
             const modernClient = new Client({ name: 'modern-client', version: '1.0.0' });
             await modernTransport.start();
             expect(modernTransport.mode).toBe('modern');
@@ -663,7 +663,7 @@ describe('VersionProbingHTTPClientTransport', () => {
             const modernResult = await modernClient.callTool(toolArgs);
 
             // -- Combination 2: Modern client + legacy server (fallback) --
-            const fallbackTransport = new VersionProbingHTTPClientTransport(legacyUrl);
+            const fallbackTransport = new StreamableHTTPClientTransport(legacyUrl);
             const fallbackClient = new Client({ name: 'fallback-client', version: '1.0.0' });
             await fallbackTransport.start();
             expect(fallbackTransport.mode).toBe('legacy');
@@ -671,7 +671,7 @@ describe('VersionProbingHTTPClientTransport', () => {
             const fallbackResult = await fallbackClient.callTool(toolArgs);
 
             // -- Combination 3: Legacy client + routing server --
-            const legacyTransport = new StreamableHTTPClientTransport(routingUrl);
+            const legacyTransport = new LegacyStreamableHTTPClientTransport(routingUrl);
             const legacyClient = new Client({ name: 'legacy-client', version: '1.0.0' });
             await legacyClient.connect(legacyTransport);
             const legacyResult = await legacyClient.callTool(toolArgs);

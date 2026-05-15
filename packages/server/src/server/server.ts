@@ -57,8 +57,6 @@ import {
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
-import { HTTPVersionRoutingTransport } from './httpVersionRoutingTransport.js';
-
 export type ServerOptions = ProtocolOptions & {
     capabilities?: ServerCapabilities;
     instructions?: string;
@@ -588,7 +586,7 @@ export class Server {
     async connect(transport: Transport): Promise<void> {
         this._transport = transport;
 
-        if (transport instanceof HTTPVersionRoutingTransport) {
+        if (transport.setProtocolConfig) {
             transport.setProtocolConfig({
                 requestHandlers: this._registry.requestHandlers,
                 serverInfo: this._serverInfo,

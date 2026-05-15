@@ -156,4 +156,12 @@ export interface Transport {
      * This allows the server to pass its supported versions to the transport.
      */
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
+
+    /**
+     * Configures a routing transport with protocol-level metadata and handler registry.
+     *
+     * When present, `Server.connect()` treats the transport as a routing transport
+     * and calls this method instead of creating a `LegacyServer` internally.
+     */
+    setProtocolConfig?: ((config: ProtocolConfig) => void) | undefined;
 }

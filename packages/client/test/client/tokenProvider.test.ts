@@ -8,10 +8,10 @@ import type { Mock } from 'vitest';
 
 import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
-import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
+import { LegacyStreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
 
-describe('StreamableHTTPClientTransport with AuthProvider', () => {
-    let transport: StreamableHTTPClientTransport;
+describe('LegacyStreamableHTTPClientTransport with AuthProvider', () => {
+    let transport: LegacyStreamableHTTPClientTransport;
 
     afterEach(async () => {
         await transport?.close().catch(() => {});
@@ -22,7 +22,7 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
 
     it('should set Authorization header from AuthProvider.token()', async () => {
         const authProvider: AuthProvider = { token: vi.fn(async () => 'my-bearer-token') };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
         vi.spyOn(globalThis, 'fetch');
 
         (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
@@ -36,7 +36,7 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
 
     it('should not set Authorization header when token() returns undefined', async () => {
         const authProvider: AuthProvider = { token: vi.fn(async () => undefined) };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
         vi.spyOn(globalThis, 'fetch');
 
         (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
@@ -49,7 +49,7 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
 
     it('should throw UnauthorizedError on 401 when onUnauthorized is not provided', async () => {
         const authProvider: AuthProvider = { token: vi.fn(async () => 'rejected-token') };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
         vi.spyOn(globalThis, 'fetch');
 
         (globalThis.fetch as Mock).mockResolvedValueOnce({
@@ -71,7 +71,7 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
                 currentToken = 'new-token';
             })
         };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
         vi.spyOn(globalThis, 'fetch');
 
         (globalThis.fetch as Mock)
@@ -91,7 +91,7 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
             token: vi.fn(async () => 'still-bad'),
             onUnauthorized: vi.fn(async () => {})
         };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
         vi.spyOn(globalThis, 'fetch');
 
         (globalThis.fetch as Mock)
@@ -109,7 +109,7 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
             token: vi.fn(async () => 'token'),
             onUnauthorized: vi.fn().mockRejectedValueOnce(new Error('transient network error')).mockResolvedValueOnce(undefined)
         };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
         vi.spyOn(globalThis, 'fetch');
 
         (globalThis.fetch as Mock)
@@ -127,7 +127,7 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
     });
 
     it('should work with no authProvider at all', async () => {
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
         vi.spyOn(globalThis, 'fetch');
 
         (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
@@ -140,14 +140,14 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
 
     it('should throw when finishAuth is called with a non-OAuth AuthProvider', async () => {
         const authProvider: AuthProvider = { token: async () => 'api-key' };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
 
         await expect(transport.finishAuth('auth-code')).rejects.toThrow('finishAuth requires an OAuthClientProvider');
     });
 
     it('should throw UnauthorizedError on GET-SSE 401 with no onUnauthorized (via resumeStream)', async () => {
         const authProvider: AuthProvider = { token: async () => 'api-key' };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
         vi.spyOn(globalThis, 'fetch');
 
         (globalThis.fetch as Mock).mockResolvedValueOnce({
@@ -168,7 +168,7 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
                 currentToken = 'new-token';
             })
         };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
         vi.spyOn(globalThis, 'fetch');
 
         // First GET: 401. Second GET (retry): 405 (server doesn't offer SSE — clean exit)
@@ -189,7 +189,7 @@ describe('AuthProvider integration — both modes against a real server', () => 
     let server: Server;
     let serverUrl: URL;
     let capturedRequests: IncomingMessage[];
-    let transport: StreamableHTTPClientTransport;
+    let transport: LegacyStreamableHTTPClientTransport;
 
     const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'ping', params: {}, id: '1' };
 
@@ -216,7 +216,7 @@ describe('AuthProvider integration — both modes against a real server', () => 
 
     it('MODE A: minimal AuthProvider { token } sends Authorization header', async () => {
         const authProvider: AuthProvider = { token: async () => 'mode-a-token' };
-        transport = new StreamableHTTPClientTransport(serverUrl, { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(serverUrl, { authProvider });
 
         await transport.send(message);
 
@@ -243,7 +243,7 @@ describe('AuthProvider integration — both modes against a real server', () => 
         });
         serverUrl = await listenOnRandomPort(server);
 
-        transport = new StreamableHTTPClientTransport(serverUrl, { authProvider });
+        transport = new LegacyStreamableHTTPClientTransport(serverUrl, { authProvider });
 
         await expect(transport.send(message)).rejects.toThrow('user action required');
         expect(uiSignal).toHaveBeenCalledWith('show-reauth-prompt');
@@ -274,7 +274,7 @@ describe('AuthProvider integration — both modes against a real server', () => 
             }
         };
 
-        transport = new StreamableHTTPClientTransport(serverUrl, { authProvider: oauthProvider });
+        transport = new LegacyStreamableHTTPClientTransport(serverUrl, { authProvider: oauthProvider });
 
         await transport.send(message);
 
@@ -284,14 +284,14 @@ describe('AuthProvider integration — both modes against a real server', () => 
 
     it('both modes use the same option slot and same send() call', async () => {
         // Mode A
-        const transportA = new StreamableHTTPClientTransport(serverUrl, {
+        const transportA = new LegacyStreamableHTTPClientTransport(serverUrl, {
             authProvider: { token: async () => 'a-token' }
         });
         await transportA.send(message);
         await transportA.close();
 
         // Mode B — same constructor, same option name, different shape
-        const transportB = new StreamableHTTPClientTransport(serverUrl, {
+        const transportB = new LegacyStreamableHTTPClientTransport(serverUrl, {
             authProvider: {
                 get redirectUrl() {
                     return undefined;

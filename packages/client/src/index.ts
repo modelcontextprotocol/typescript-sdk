@@ -65,14 +65,15 @@ export { SSEClientTransport, SseError } from './client/sse.js';
 // the './stdio' subpath to keep the root entry free of process-spawning runtime dependencies (child_process, cross-spawn).
 export type { DiscoverResult } from './client/modernClientImpl.js';
 export { ModernClientImpl } from './client/modernClientImpl.js';
+export { StreamableHTTPClientTransport } from './client/modernStreamableHttp.js';
 export type {
     ReconnectionScheduler,
     StartSSEOptions,
     StreamableHTTPClientTransportOptions,
     StreamableHTTPReconnectionOptions
 } from './client/streamableHttp.js';
-export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
-export { VersionProbingHTTPClientTransport } from './client/versionProbingHttp.js';
+export type { VersionProbingTransport } from './client/versionProbing.js';
+export { isVersionProbingTransport } from './client/versionProbing.js';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema.js';

@@ -3,7 +3,7 @@ import { Readable, Writable } from 'node:stream';
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
 
-import { StdioServerTransport } from '../../src/server/stdio.js';
+import { LegacyStdioServerTransport } from '../../src/server/stdio.js';
 
 let input: Readable;
 let outputBuffer: ReadBuffer;
@@ -25,7 +25,7 @@ beforeEach(() => {
 });
 
 test('should start then close cleanly', async () => {
-    const server = new StdioServerTransport(input, output);
+    const server = new LegacyStdioServerTransport(input, output);
     server.onerror = error => {
         throw error;
     };
@@ -42,7 +42,7 @@ test('should start then close cleanly', async () => {
 });
 
 test('should not read until started', async () => {
-    const server = new StdioServerTransport(input, output);
+    const server = new LegacyStdioServerTransport(input, output);
     server.onerror = error => {
         throw error;
     };
@@ -68,7 +68,7 @@ test('should not read until started', async () => {
 });
 
 test('should read multiple messages', async () => {
-    const server = new StdioServerTransport(input, output);
+    const server = new LegacyStdioServerTransport(input, output);
     server.onerror = error => {
         throw error;
     };
@@ -104,7 +104,7 @@ test('should read multiple messages', async () => {
 });
 
 test('should close and fire onerror when stdout errors', async () => {
-    const server = new StdioServerTransport(input, output);
+    const server = new LegacyStdioServerTransport(input, output);
 
     let receivedError: Error | undefined;
     server.onerror = err => {
@@ -123,7 +123,7 @@ test('should close and fire onerror when stdout errors', async () => {
 });
 
 test('should not fire onclose twice when close() is called after stdout error', async () => {
-    const server = new StdioServerTransport(input, output);
+    const server = new LegacyStdioServerTransport(input, output);
     server.onerror = () => {};
 
     let closeCount = 0;
@@ -147,7 +147,7 @@ test('should reject send() when stdout errors before drain', async () => {
         }
     });
 
-    const server = new StdioServerTransport(input, slowOutput);
+    const server = new LegacyStdioServerTransport(input, slowOutput);
     server.onerror = () => {};
     await server.start();
 
@@ -160,7 +160,7 @@ test('should reject send() when stdout errors before drain', async () => {
 });
 
 test('should reject send() after transport is closed', async () => {
-    const server = new StdioServerTransport(input, output);
+    const server = new LegacyStdioServerTransport(input, output);
     await server.start();
     await server.close();
 
@@ -168,7 +168,7 @@ test('should reject send() after transport is closed', async () => {
 });
 
 test('should fire onerror before onclose on stdout error', async () => {
-    const server = new StdioServerTransport(input, output);
+    const server = new LegacyStdioServerTransport(input, output);
 
     const events: string[] = [];
     server.onerror = () => events.push('error');

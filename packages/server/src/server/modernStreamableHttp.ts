@@ -1,21 +1,35 @@
-import type { AuthInfo, JSONRPCMessage, ProtocolConfig, ServerCapabilities, Transport } from '@modelcontextprotocol/core';
+import type {
+    AuthInfo,
+    JSONRPCMessage,
+    ProtocolConfig,
+    RequestId,
+    ServerCapabilities,
+    Transport,
+    TransportSendOptions
+} from '@modelcontextprotocol/core';
 import { isJSONRPCRequest, JSONRPCMessageSchema, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import { ModernProtocolHandler } from './modernHandler.js';
 import { LegacyServer } from './server.js';
 import type { HandleRequestOptions, WebStandardStreamableHTTPServerTransportOptions } from './streamableHttp.js';
-import { WebStandardStreamableHTTPServerTransport } from './streamableHttp.js';
+import { LegacyWebStandardStreamableHTTPServerTransport } from './streamableHttp.js';
 
 interface LegacySessionEntry {
-    transport: WebStandardStreamableHTTPServerTransport;
+    transport: LegacyWebStandardStreamableHTTPServerTransport;
     server: LegacyServer;
 }
 
-export interface HTTPVersionRoutingTransportOptions {
-    sessionIdGenerator?: () => string;
-}
-
-export class HTTPVersionRoutingTransport implements Transport {
+/**
+ * Dual-protocol HTTP server transport that transparently serves both legacy (2025-11)
+ * and modern (2026-06) MCP clients on a single endpoint.
+ *
+ * Modern clients are detected via the `Mcp-Method` header and dispatched to a stateless
+ * handler. Legacy clients are routed to per-session transport stacks.
+ *
+ * Accepts the same options as the legacy transport — all legacy-specific options
+ * (sessionIdGenerator, eventStore, etc.) are forwarded to per-session legacy stacks.
+ */
+export class WebStandardStreamableHTTPServerTransport implements Transport {
     onmessage?: Transport['onmessage'];
     onclose?: Transport['onclose'];
     onerror?: Transport['onerror'];
@@ -24,9 +38,9 @@ export class HTTPVersionRoutingTransport implements Transport {
     private protocolConfig?: ProtocolConfig;
     private modernHandler?: ModernProtocolHandler;
     private legacySessions = new Map<string, LegacySessionEntry>();
-    private options: HTTPVersionRoutingTransportOptions;
+    private options: WebStandardStreamableHTTPServerTransportOptions;
 
-    constructor(options?: HTTPVersionRoutingTransportOptions) {
+    constructor(options?: WebStandardStreamableHTTPServerTransportOptions) {
         this.options = options ?? {};
     }
 
@@ -51,11 +65,23 @@ export class HTTPVersionRoutingTransport implements Transport {
         }
     }
 
-    async send(_message: JSONRPCMessage): Promise<void> {
+    async send(_message: JSONRPCMessage, _options?: TransportSendOptions): Promise<void> {
         throw new Error(
-            'HTTPVersionRoutingTransport.send() should never be called. ' +
+            'WebStandardStreamableHTTPServerTransport.send() should never be called. ' +
                 'All dispatch goes through ModernProtocolHandler or per-session legacy transports.'
         );
+    }
+
+    closeSSEStream(requestId: RequestId): void {
+        for (const entry of this.legacySessions.values()) {
+            entry.transport.closeSSEStream(requestId);
+        }
+    }
+
+    closeStandaloneSSEStream(): void {
+        for (const entry of this.legacySessions.values()) {
+            entry.transport.closeStandaloneSSEStream();
+        }
     }
 
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
@@ -63,7 +89,7 @@ export class HTTPVersionRoutingTransport implements Transport {
     }
 
     private isStatelessProtocolRequest(req: Request): boolean {
-        return req.headers.has('mcp-method');
+        return !this.options.forceLegacy && req.headers.has('mcp-method');
     }
 
     private async handleModernRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
@@ -154,12 +180,21 @@ export class HTTPVersionRoutingTransport implements Transport {
 
         const transportOptions: WebStandardStreamableHTTPServerTransportOptions = {
             sessionIdGenerator: this.options.sessionIdGenerator ?? (() => crypto.randomUUID()),
-            onsessioninitialized: (sid: string) => {
+            onsessioninitialized: async (sid: string) => {
                 this.legacySessions.set(sid, { transport: innerTransport, server: innerServer });
-            }
+                await this.options.onsessioninitialized?.(sid);
+            },
+            onsessionclosed: this.options.onsessionclosed,
+            enableJsonResponse: this.options.enableJsonResponse,
+            eventStore: this.options.eventStore,
+            allowedHosts: this.options.allowedHosts,
+            allowedOrigins: this.options.allowedOrigins,
+            enableDnsRebindingProtection: this.options.enableDnsRebindingProtection,
+            retryInterval: this.options.retryInterval,
+            supportedProtocolVersions: this.options.supportedProtocolVersions
         };
 
-        const innerTransport = new WebStandardStreamableHTTPServerTransport(transportOptions);
+        const innerTransport = new LegacyWebStandardStreamableHTTPServerTransport(transportOptions);
 
         innerTransport.onclose = () => {
             const sid = innerTransport.sessionId;

@@ -68,7 +68,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { ModernClientImpl } from './modernClientImpl.js';
-import { VersionProbingHTTPClientTransport } from './versionProbingHttp.js';
+import { isVersionProbingTransport } from './versionProbing.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
@@ -1168,24 +1168,27 @@ export class Client {
     /**
      * Connects to a server via the given transport.
      *
-     * If the transport is a {@linkcode VersionProbingHTTPClientTransport} that detected
-     * modern (2026-06) protocol support, a {@linkcode ModernClientImpl} is used instead
-     * of the legacy Protocol-based implementation. Otherwise, the legacy path (with
+     * If the transport implements version probing and detected modern (2026-06)
+     * protocol support, a {@linkcode ModernClientImpl} is used instead of the
+     * legacy Protocol-based implementation. Otherwise, the legacy path (with
      * full initialize handshake) is used.
      */
     async connect(transport: Transport, options?: RequestOptions): Promise<void> {
-        if (transport instanceof VersionProbingHTTPClientTransport && transport.mode === 'modern') {
-            const modern = new ModernClientImpl(
-                this._clientInfo,
-                this._options?.capabilities ?? {},
-                transport.getDiscoverResult()!,
-                this._registry
-            );
-            await modern.connect(transport);
-            this._modernImpl = modern;
-        } else {
-            return this._legacyImpl.connect(transport, options);
+        if (isVersionProbingTransport(transport)) {
+            await transport.start();
+            if (transport.mode === 'modern') {
+                const modern = new ModernClientImpl(
+                    this._clientInfo,
+                    this._options?.capabilities ?? {},
+                    transport.getDiscoverResult()!,
+                    this._registry
+                );
+                await modern.connect(transport);
+                this._modernImpl = modern;
+                return;
+            }
         }
+        return this._legacyImpl.connect(transport, options);
     }
 
     async close(): Promise<void> {
@@ -1391,10 +1394,16 @@ export class Client {
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>>;
     request(request: { method: string; params?: Record<string, unknown> }, ...args: unknown[]): Promise<unknown> {
+        if (this._modernImpl) {
+            return this._modernImpl.request(request, args[0] as RequestOptions | undefined);
+        }
         return (this._legacyImpl.request as (...a: unknown[]) => Promise<unknown>).call(this._legacyImpl, request, ...args);
     }
 
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
+        if (this._modernImpl) {
+            return;
+        }
         return this._legacyImpl.notification(notification, options);
     }
 }

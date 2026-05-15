@@ -31,10 +31,9 @@ export { Server } from './server/server.js';
 // StdioServerTransport is exported from the './stdio' subpath — server stdio has only type-level Node
 // imports (erased at compile time), but matching the client's `./stdio` subpath gives consumers a
 // consistent shape across packages.
-export type { HTTPVersionRoutingTransportOptions } from './server/httpVersionRoutingTransport.js';
-export { HTTPVersionRoutingTransport } from './server/httpVersionRoutingTransport.js';
 export type { ModernHandlerOptions } from './server/modernHandler.js';
 export { ModernProtocolHandler } from './server/modernHandler.js';
+export { WebStandardStreamableHTTPServerTransport } from './server/modernStreamableHttp.js';
 export type {
     EventId,
     EventStore,
@@ -42,7 +41,6 @@ export type {
     StreamId,
     WebStandardStreamableHTTPServerTransportOptions
 } from './server/streamableHttp.js';
-export { WebStandardStreamableHTTPServerTransport } from './server/streamableHttp.js';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema.js';

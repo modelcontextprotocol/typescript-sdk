@@ -5,7 +5,7 @@ import * as z from 'zod/v4';
 
 import { McpServer } from '../../src/server/mcp.js';
 import type { EventId, EventStore, StreamId } from '../../src/server/streamableHttp.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
+import { LegacyWebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
 
 /**
  * Common test messages
@@ -119,7 +119,7 @@ function expectErrorResponse(data: unknown, expectedCode: number, expectedMessag
 
 describe('Zod v4', () => {
     describe('HTTPServerTransport', () => {
-        let transport: WebStandardStreamableHTTPServerTransport;
+        let transport: LegacyWebStandardStreamableHTTPServerTransport;
         let mcpServer: McpServer;
         let sessionId: string;
 
@@ -137,7 +137,7 @@ describe('Zod v4', () => {
                 }
             );
 
-            transport = new WebStandardStreamableHTTPServerTransport({
+            transport = new LegacyWebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID()
             });
 
@@ -428,7 +428,7 @@ describe('Zod v4', () => {
     });
 
     describe('HTTPServerTransport - Stateless Mode', () => {
-        let transport: WebStandardStreamableHTTPServerTransport;
+        let transport: LegacyWebStandardStreamableHTTPServerTransport;
         let mcpServer: McpServer;
 
         beforeEach(async () => {
@@ -442,7 +442,7 @@ describe('Zod v4', () => {
                 }
             );
 
-            transport = new WebStandardStreamableHTTPServerTransport({
+            transport = new LegacyWebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: undefined
             });
 
@@ -475,7 +475,7 @@ describe('Zod v4', () => {
     });
 
     describe('HTTPServerTransport - JSON Response Mode', () => {
-        let transport: WebStandardStreamableHTTPServerTransport;
+        let transport: LegacyWebStandardStreamableHTTPServerTransport;
         let mcpServer: McpServer;
         let sessionId: string;
 
@@ -490,7 +490,7 @@ describe('Zod v4', () => {
                 }
             );
 
-            transport = new WebStandardStreamableHTTPServerTransport({
+            transport = new LegacyWebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 enableJsonResponse: true
             });
@@ -566,7 +566,7 @@ describe('Zod v4', () => {
             const onInitialized = vi.fn();
 
             const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
-            const transport = new WebStandardStreamableHTTPServerTransport({
+            const transport = new LegacyWebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => 'test-session-123',
                 onsessioninitialized: onInitialized
             });
@@ -585,7 +585,7 @@ describe('Zod v4', () => {
             const onClosed = vi.fn();
 
             const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
-            const transport = new WebStandardStreamableHTTPServerTransport({
+            const transport = new LegacyWebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => 'test-session-456',
                 onsessionclosed: onClosed
             });
@@ -605,7 +605,7 @@ describe('Zod v4', () => {
     });
 
     describe('HTTPServerTransport - Event Store (Resumability)', () => {
-        let transport: WebStandardStreamableHTTPServerTransport;
+        let transport: LegacyWebStandardStreamableHTTPServerTransport;
         let mcpServer: McpServer;
         let eventStore: EventStore;
         let storedEvents: Map<EventId, { streamId: StreamId; message: JSONRPCMessage }>;
@@ -662,7 +662,7 @@ describe('Zod v4', () => {
                 }
             );
 
-            transport = new WebStandardStreamableHTTPServerTransport({
+            transport = new LegacyWebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore
             });
@@ -708,14 +708,14 @@ describe('Zod v4', () => {
     });
 
     describe('HTTPServerTransport - Protocol Version Validation', () => {
-        let transport: WebStandardStreamableHTTPServerTransport;
+        let transport: LegacyWebStandardStreamableHTTPServerTransport;
         let mcpServer: McpServer;
         let sessionId: string;
 
         beforeEach(async () => {
             mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
-            transport = new WebStandardStreamableHTTPServerTransport({
+            transport = new LegacyWebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID()
             });
 
@@ -756,7 +756,7 @@ describe('Zod v4', () => {
 
     describe('HTTPServerTransport - start() method', () => {
         it('should throw error when started twice', async () => {
-            const transport = new WebStandardStreamableHTTPServerTransport({
+            const transport = new LegacyWebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID()
             });
 
@@ -767,7 +767,7 @@ describe('Zod v4', () => {
     });
 
     describe('HTTPServerTransport - onerror callback', () => {
-        let transport: WebStandardStreamableHTTPServerTransport;
+        let transport: LegacyWebStandardStreamableHTTPServerTransport;
         let mcpServer: McpServer;
         let errors: Error[];
 
@@ -775,7 +775,7 @@ describe('Zod v4', () => {
             errors = [];
             mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
 
-            transport = new WebStandardStreamableHTTPServerTransport({
+            transport = new LegacyWebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: () => randomUUID()
             });
 
@@ -959,7 +959,7 @@ describe('Zod v4', () => {
 
     describe('close() re-entrancy guard', () => {
         it('should not recurse when onclose triggers a second close()', async () => {
-            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
+            const transport = new LegacyWebStandardStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
 
             let closeCallCount = 0;
             transport.onclose = () => {
@@ -975,7 +975,7 @@ describe('Zod v4', () => {
         });
 
         it('should clean up all streams exactly once even when close() is called concurrently', async () => {
-            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
+            const transport = new LegacyWebStandardStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
 
             const cleanupCalls: string[] = [];
 

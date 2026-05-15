@@ -1,34 +1,36 @@
-import type { JSONRPCMessage, JSONRPCRequest, MessageExtraInfo, Transport, TransportSendOptions } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, MessageExtraInfo, TransportSendOptions } from '@modelcontextprotocol/core';
 import { isJSONRPCRequest } from '@modelcontextprotocol/core';
 
 import type { DiscoverResult } from './modernClientImpl.js';
 import type { StreamableHTTPClientTransportOptions } from './streamableHttp.js';
-import { StreamableHTTPClientTransport } from './streamableHttp.js';
+import { LegacyStreamableHTTPClientTransport } from './streamableHttp.js';
+import type { VersionProbingTransport } from './versionProbing.js';
 
 /**
- * A version-probing HTTP client transport that wraps {@linkcode StreamableHTTPClientTransport}.
+ * Dual-protocol HTTP client transport with automatic version probing.
  *
- * During {@linkcode start | start()}, it sends a `server/discover` probe to detect whether
+ * During {@linkcode start | start()}, sends a `server/discover` probe to detect whether
  * the server supports the modern (2026-06) MCP protocol. If the probe succeeds, the
  * transport operates in `modern` mode and automatically adds the `Mcp-Method` header
- * to every outgoing request. If the probe fails, the transport falls back to `legacy`
- * mode and behaves identically to a plain {@linkcode StreamableHTTPClientTransport}.
+ * to every outgoing request. If the probe fails, falls back to `legacy` mode.
  *
  * Use {@linkcode getDiscoverResult | getDiscoverResult()} after {@linkcode start | start()} to
  * retrieve the server's capabilities when in modern mode.
  */
-export class VersionProbingHTTPClientTransport implements Transport {
-    private _inner: StreamableHTTPClientTransport;
+export class StreamableHTTPClientTransport implements VersionProbingTransport {
+    private _inner: LegacyStreamableHTTPClientTransport;
     private _mode: 'modern' | 'legacy' = 'legacy';
     private _discoverResult?: DiscoverResult;
     private _started = false;
+    private _forceLegacy: boolean;
 
     private _onclose?: (() => void) | undefined;
     private _onerror?: ((error: Error) => void) | undefined;
     private _onmessage?: (<T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void) | undefined;
 
     constructor(url: URL, options?: StreamableHTTPClientTransportOptions) {
-        this._inner = new StreamableHTTPClientTransport(url, {
+        this._forceLegacy = options?.forceLegacy ?? false;
+        this._inner = new LegacyStreamableHTTPClientTransport(url, {
             ...options,
             getExtraHeaders: (message: JSONRPCMessage | JSONRPCMessage[]) => {
                 // Merge user-provided extra headers first
@@ -56,6 +58,10 @@ export class VersionProbingHTTPClientTransport implements Transport {
         this._started = true;
 
         await this._inner.start();
+
+        if (this._forceLegacy) {
+            return;
+        }
 
         try {
             const result = await this._probeFetch();
@@ -178,5 +184,21 @@ export class VersionProbingHTTPClientTransport implements Transport {
 
     setProtocolVersion(version: string): void {
         this._inner.setProtocolVersion(version);
+    }
+
+    get protocolVersion(): string | undefined {
+        return this._inner.protocolVersion;
+    }
+
+    async finishAuth(authorizationCode: string): Promise<void> {
+        return this._inner.finishAuth(authorizationCode);
+    }
+
+    async terminateSession(): Promise<void> {
+        return this._inner.terminateSession();
+    }
+
+    async resumeStream(lastEventId: string, options?: { onresumptiontoken?: (token: string) => void }): Promise<void> {
+        return this._inner.resumeStream(lastEventId, options);
     }
 }

@@ -10,7 +10,7 @@ import type {
     ReadResourceResult
 } from '@modelcontextprotocol/core';
 import { McpServer } from '../../src/server/mcp.js';
-import { HTTPVersionRoutingTransport } from '../../src/server/httpVersionRoutingTransport.js';
+import { WebStandardStreamableHTTPServerTransport } from '../../src/server/modernStreamableHttp.js';
 
 interface DiscoverResult {
     supportedVersions: string[];
@@ -24,9 +24,9 @@ interface JsonRpcOk<T> {
 }
 type JsonRpcErr = JSONRPCErrorResponse;
 
-describe('HTTPVersionRoutingTransport', () => {
+describe('WebStandardStreamableHTTPServerTransport', () => {
     let server: McpServer;
-    let transport: HTTPVersionRoutingTransport;
+    let transport: WebStandardStreamableHTTPServerTransport;
 
     beforeEach(async () => {
         server = new McpServer({ name: 'test-server', version: '1.0.0' });
@@ -43,7 +43,7 @@ describe('HTTPVersionRoutingTransport', () => {
             messages: [{ role: 'user', content: { type: 'text', text: 'Hello from prompt' } }]
         }));
 
-        transport = new HTTPVersionRoutingTransport({
+        transport = new WebStandardStreamableHTTPServerTransport({
             sessionIdGenerator: () => crypto.randomUUID()
         });
 

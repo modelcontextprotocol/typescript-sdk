@@ -1,7 +1,7 @@
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 
 import type { StdioServerParameters } from '../../src/client/stdio.js';
-import { StdioClientTransport } from '../../src/client/stdio.js';
+import { LegacyStdioClientTransport } from '../../src/client/stdio.js';
 
 // Configure default server parameters based on OS
 // Uses 'more' command for Windows and 'tee' command for Unix/Linux
@@ -15,7 +15,7 @@ const getDefaultServerParameters = (): StdioServerParameters => {
 const serverParameters = getDefaultServerParameters();
 
 test('should start then close cleanly', async () => {
-    const client = new StdioClientTransport(serverParameters);
+    const client = new LegacyStdioClientTransport(serverParameters);
     client.onerror = error => {
         throw error;
     };
@@ -32,7 +32,7 @@ test('should start then close cleanly', async () => {
 });
 
 test('should read messages', async () => {
-    const client = new StdioClientTransport(serverParameters);
+    const client = new LegacyStdioClientTransport(serverParameters);
     client.onerror = error => {
         throw error;
     };
@@ -70,7 +70,7 @@ test('should read messages', async () => {
 });
 
 test('should return child process pid', async () => {
-    const client = new StdioClientTransport(serverParameters);
+    const client = new LegacyStdioClientTransport(serverParameters);
 
     await client.start();
     expect(client.pid).not.toBeNull();

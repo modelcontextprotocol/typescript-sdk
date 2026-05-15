@@ -72,6 +72,13 @@ interface StreamMapping {
  */
 export interface WebStandardStreamableHTTPServerTransportOptions {
     /**
+     * When `true`, ignore the `Mcp-Method` header and treat all requests as legacy (2025-11)
+     * protocol. Modern clients that probe with `server/discover` will fail and fall back
+     * to the legacy protocol automatically.
+     */
+    forceLegacy?: boolean;
+
+    /**
      * Function that generates a session ID for the transport.
      * The session ID SHOULD be globally unique and cryptographically secure (e.g., a securely generated UUID, a JWT, or a cryptographic hash)
      *
@@ -221,7 +228,7 @@ export interface HandleRequestOptions {
  * };
  * ```
  */
-export class WebStandardStreamableHTTPServerTransport implements Transport {
+export class LegacyWebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
     private _started: boolean = false;

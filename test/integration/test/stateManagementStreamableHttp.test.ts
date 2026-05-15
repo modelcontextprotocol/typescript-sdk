@@ -212,7 +212,7 @@ describe('Zod v4', () => {
                     version: '1.0.0'
                 });
 
-                const transport = new StreamableHTTPClientTransport(baseUrl);
+                const transport = new StreamableHTTPClientTransport(baseUrl, { forceLegacy: true });
 
                 // Verify protocol version is not set before connecting
                 expect(transport.protocolVersion).toBeUndefined();
@@ -255,7 +255,7 @@ describe('Zod v4', () => {
                     version: '1.0.0'
                 });
 
-                const transport = new StreamableHTTPClientTransport(baseUrl);
+                const transport = new StreamableHTTPClientTransport(baseUrl, { forceLegacy: true });
                 await client.connect(transport);
 
                 // Verify that a session ID was set

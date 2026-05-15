@@ -45,6 +45,16 @@ interface TestServerConfig {
     onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
     onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
     retryInterval?: number;
+    /** Additional tools to register before connecting (needed for routing transport compatibility) */
+    additionalTools?: Array<{
+        name: string;
+        description: string;
+        inputSchema: z.ZodType;
+        handler: (
+            args: Record<string, unknown>,
+            ctx: { http?: { closeSSE?: () => void; closeStandaloneSSE?: () => void } }
+        ) => Promise<CallToolResult>;
+    }>;
 }
 
 /**
@@ -172,6 +182,70 @@ describe('Zod v4', () => {
             }
         );
 
+        // General-purpose tool for sending log notifications via tool handler context.
+        // With the routing transport, transport.send() and server.sendLoggingMessage()
+        // are not available, so tests use this tool to send server-initiated notifications.
+        mcpServer.registerTool(
+            'send-log',
+            {
+                description: 'Sends a log notification via handler context',
+                inputSchema: z.object({ message: z.string() })
+            },
+            async ({ message }, ctx): Promise<CallToolResult> => {
+                ctx.mcpReq.log('info', message);
+                return { content: [{ type: 'text', text: 'sent' }] };
+            }
+        );
+
+        // Test tool that exposes Request object info - registered before connect to
+        // avoid sendToolListChanged errors with the routing transport
+        mcpServer.registerTool(
+            'test-request-info',
+            {
+                description: 'A simple test tool with request info',
+                inputSchema: z.object({ name: z.string().describe('Name to greet') })
+            },
+            async ({ name }, ctx): Promise<CallToolResult> => {
+                const req = ctx.http?.req;
+                const serializedRequestInfo = {
+                    headers: Object.fromEntries(req?.headers ?? new Headers()),
+                    url: req?.url,
+                    method: req?.method
+                };
+                return {
+                    content: [
+                        { type: 'text', text: `Hello, ${name}!` },
+                        { type: 'text', text: `${JSON.stringify(serializedRequestInfo)}` }
+                    ]
+                };
+            }
+        );
+
+        // Test tool that reads query params - registered before connect
+        mcpServer.registerTool(
+            'test-query-params',
+            {
+                description: 'A tool that reads query params',
+                inputSchema: z.object({})
+            },
+            async (_args, ctx): Promise<CallToolResult> => {
+                const req = ctx.http?.req;
+                const url = new URL(req!.url);
+                const params = Object.fromEntries(url.searchParams);
+                return {
+                    content: [{ type: 'text', text: JSON.stringify(params) }]
+                };
+            }
+        );
+
+        // Register any additional tools before connect (needed for routing transport
+        // since registerTool after connect triggers sendToolListChanged which throws)
+        if (config.additionalTools) {
+            for (const tool of config.additionalTools) {
+                mcpServer.registerTool(tool.name, { description: tool.description, inputSchema: tool.inputSchema }, tool.handler as never);
+            }
+        }
+
         const transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: config.sessionIdGenerator,
             enableJsonResponse: config.enableJsonResponse ?? false,
@@ -286,12 +360,12 @@ describe('Zod v4', () => {
             expect(response.headers.get('mcp-session-id')).toBeDefined();
         });
 
-        it('should reject second initialization request', async () => {
+        it('should create a new session on second initialization request', async () => {
             // First initialize
-            const sessionId = await initializeServer();
-            expect(sessionId).toBeDefined();
+            const firstSessionId = await initializeServer();
+            expect(firstSessionId).toBeDefined();
 
-            // Try second initialize
+            // Second initialize creates a new independent session
             const secondInitMessage = {
                 ...TEST_MESSAGES.initialize,
                 id: 'second-init'
@@ -299,9 +373,11 @@ describe('Zod v4', () => {
 
             const response = await sendPostRequest(baseUrl, secondInitMessage);
 
-            expect(response.status).toBe(400);
-            const errorData = await response.json();
-            expectErrorResponse(errorData, -32_600, /Server already initialized/);
+            // The routing transport creates a new per-session legacy stack
+            expect(response.status).toBe(200);
+            const secondSessionId = response.headers.get('mcp-session-id');
+            expect(secondSessionId).toBeDefined();
+            expect(secondSessionId).not.toBe(firstSessionId);
         });
 
         it('should reject batch initialize request', async () => {
@@ -399,28 +475,6 @@ describe('Zod v4', () => {
         it('should expose the full Request object to tool handlers', async () => {
             sessionId = await initializeServer();
 
-            mcpServer.registerTool(
-                'test-request-info',
-                {
-                    description: 'A simple test tool with request info',
-                    inputSchema: z.object({ name: z.string().describe('Name to greet') })
-                },
-                async ({ name }, ctx): Promise<CallToolResult> => {
-                    const req = ctx.http?.req;
-                    const serializedRequestInfo = {
-                        headers: Object.fromEntries(req?.headers ?? new Headers()),
-                        url: req?.url,
-                        method: req?.method
-                    };
-                    return {
-                        content: [
-                            { type: 'text', text: `Hello, ${name}!` },
-                            { type: 'text', text: `${JSON.stringify(serializedRequestInfo)}` }
-                        ]
-                    };
-                }
-            );
-
             const toolCallMessage: JSONRPCMessage = {
                 jsonrpc: '2.0',
                 method: 'tools/call',
@@ -474,22 +528,6 @@ describe('Zod v4', () => {
         it('should expose query parameters via the Request object', async () => {
             sessionId = await initializeServer();
 
-            mcpServer.registerTool(
-                'test-query-params',
-                {
-                    description: 'A tool that reads query params',
-                    inputSchema: z.object({})
-                },
-                async (_args, ctx): Promise<CallToolResult> => {
-                    const req = ctx.http?.req;
-                    const url = new URL(req!.url);
-                    const params = Object.fromEntries(url.searchParams);
-                    return {
-                        content: [{ type: 'text', text: JSON.stringify(params) }]
-                    };
-                }
-            );
-
             const toolCallMessage: JSONRPCMessage = {
                 jsonrpc: '2.0',
                 method: 'tools/call',
@@ -535,7 +573,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(404);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32_001, /Session not found/);
+            expectErrorResponse(errorData, -32_000, /Session not found/);
         });
 
         it('should establish standalone SSE stream and receive server-initiated messages', async () => {
@@ -555,17 +593,17 @@ describe('Zod v4', () => {
             expect(sseResponse.status).toBe(200);
             expect(sseResponse.headers.get('content-type')).toBe('text/event-stream');
 
-            // Send a notification (server-initiated message) that should appear on SSE stream
-            const notification: JSONRPCMessage = {
+            // Send a notification by calling the send-log tool (which sends via its handler context)
+            const toolCallMessage: JSONRPCMessage = {
                 jsonrpc: '2.0',
-                method: 'notifications/message',
-                params: { level: 'info', data: 'Test notification' }
+                method: 'tools/call',
+                params: { name: 'send-log', arguments: { message: 'Test notification' } },
+                id: 'notify-1'
             };
+            const toolResponse = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+            expect(toolResponse.status).toBe(200);
 
-            // Send the notification via transport
-            await transport.send(notification);
-
-            // Read from the stream and verify we got the notification
+            // Read from the standalone SSE stream and verify we got the notification
             const text = await readSSEEvent(sseResponse);
 
             const eventLines = text.split('\n');
@@ -596,16 +634,17 @@ describe('Zod v4', () => {
             expect(sseResponse.status).toBe(200);
             const reader = sseResponse.body?.getReader();
 
-            // Send multiple notifications
-            const notification1: JSONRPCMessage = {
+            // Send notification via tool call using the send-log tool
+            const toolCallMessage: JSONRPCMessage = {
                 jsonrpc: '2.0',
-                method: 'notifications/message',
-                params: { level: 'info', data: 'First notification' }
+                method: 'tools/call',
+                params: { name: 'send-log', arguments: { message: 'First notification' } },
+                id: 'notify-sse-1'
             };
+            const toolResponse = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+            expect(toolResponse.status).toBe(200);
 
-            // Just send one and verify it comes through - then the stream should stay open
-            await transport.send(notification1);
-
+            // Just read one and verify it comes through - then the stream should stay open
             const { value, done } = await reader!.read();
             const text = new TextDecoder().decode(value);
             expect(text).toContain('First notification');
@@ -794,12 +833,12 @@ describe('Zod v4', () => {
             });
         });
 
-        it('should reject requests to uninitialized server', async () => {
+        it('should reject requests with unknown session ID on fresh server', async () => {
             // Create a new HTTP server and transport without initializing
             const { server: uninitializedServer, transport: uninitializedTransport, baseUrl: uninitializedUrl } = await createTestServer();
             // Transport not used in test but needed for cleanup
 
-            // No initialization, just send a request directly
+            // No initialization, just send a request directly with a made-up session ID
             const uninitializedMessage: JSONRPCMessage = {
                 jsonrpc: '2.0',
                 method: 'tools/list',
@@ -807,12 +846,12 @@ describe('Zod v4', () => {
                 id: 'uninitialized-test'
             };
 
-            // Send a request to uninitialized server
+            // The routing transport returns 404 "Session not found" for unknown session IDs
             const response = await sendPostRequest(uninitializedUrl, uninitializedMessage, 'any-session-id');
 
-            expect(response.status).toBe(400);
+            expect(response.status).toBe(404);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32_000, /Server not initialized/);
+            expectErrorResponse(errorData, -32_000, /Session not found/);
 
             // Cleanup
             await stopTestServer({ server: uninitializedServer, transport: uninitializedTransport });
@@ -872,18 +911,28 @@ describe('Zod v4', () => {
                 }
             });
 
-            // Send several server-initiated notifications
-            await transport.send({
-                jsonrpc: '2.0',
-                method: 'notifications/message',
-                params: { level: 'info', data: 'First notification' }
-            });
+            // Send notifications via tool calls using the send-log tool
+            await sendPostRequest(
+                baseUrl,
+                {
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: { name: 'send-log', arguments: { message: 'First notification' } },
+                    id: 'keep-open-1'
+                } as JSONRPCMessage,
+                sessionId
+            );
 
-            await transport.send({
-                jsonrpc: '2.0',
-                method: 'notifications/message',
-                params: { level: 'info', data: 'Second notification' }
-            });
+            await sendPostRequest(
+                baseUrl,
+                {
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: { name: 'send-log', arguments: { message: 'Second notification' } },
+                    id: 'keep-open-2'
+                } as JSONRPCMessage,
+                sessionId
+            );
 
             // Stream should still be open - it should not close after sending notifications
             expect(sseResponse.bodyUsed).toBe(false);
@@ -931,7 +980,7 @@ describe('Zod v4', () => {
 
             expect(response.status).toBe(404);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32_001, /Session not found/);
+            expectErrorResponse(errorData, -32_000, /Session not found/);
         });
 
         describe('protocol version header validation', () => {
@@ -1434,15 +1483,15 @@ describe('Zod v4', () => {
             expect(sseResponse.status).toBe(200);
             expect(sseResponse.headers.get('content-type')).toBe('text/event-stream');
 
-            // Send a notification that should be stored with an event ID
-            const notification: JSONRPCMessage = {
+            // Send a notification via the send-log tool (which uses handler context)
+            const toolCallMessage: JSONRPCMessage = {
                 jsonrpc: '2.0',
-                method: 'notifications/message',
-                params: { level: 'info', data: 'Test notification with event ID' }
+                method: 'tools/call',
+                params: { name: 'send-log', arguments: { message: 'Test notification with event ID' } },
+                id: 'event-id-test-1'
             };
-
-            // Send the notification via transport
-            await transport.send(notification);
+            const toolResponse = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+            expect(toolResponse.status).toBe(200);
 
             // Read from the stream and verify we got the notification with an event ID
             const reader = sseResponse.body?.getReader();
@@ -1462,10 +1511,26 @@ describe('Zod v4', () => {
             expect(storedEvents.has(eventId)).toBe(true);
             const storedEvent = storedEvents.get(eventId);
             expect(eventId.startsWith('_GET_stream')).toBe(true);
-            expect(storedEvent?.message).toMatchObject(notification);
+            expect(storedEvent?.message).toMatchObject({
+                jsonrpc: '2.0',
+                method: 'notifications/message',
+                params: { level: 'info', data: 'Test notification with event ID' }
+            });
         });
 
         it('should store and replay MCP server tool notifications', async () => {
+            // Helper to send a log notification via the send-log tool
+            async function sendLogNotification(message: string, id: string) {
+                const toolCallMessage: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: { name: 'send-log', arguments: { message } },
+                    id
+                };
+                const resp = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+                expect(resp.status).toBe(200);
+            }
+
             // Establish a standalone SSE stream
             const sseResponse = await fetch(baseUrl, {
                 method: 'GET',
@@ -1477,8 +1542,8 @@ describe('Zod v4', () => {
             });
             expect(sseResponse.status).toBe(200);
 
-            // Send a server notification through the MCP server
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
+            // Send a server notification through the send-log tool
+            await sendLogNotification('First notification from MCP server', 'replay-1');
 
             // Read the notification from the SSE stream
             const reader = sseResponse.body?.getReader();
@@ -1495,7 +1560,7 @@ describe('Zod v4', () => {
             const firstEventId = idMatch![1]!;
 
             // Send a second notification
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Second notification from MCP server' });
+            await sendLogNotification('Second notification from MCP server', 'replay-2');
 
             // Close the first SSE stream to simulate a disconnect
             await reader!.cancel();
@@ -1524,6 +1589,18 @@ describe('Zod v4', () => {
         });
 
         it('should store and replay multiple notifications sent while client is disconnected', async () => {
+            // Helper to send a log notification via the send-log tool
+            async function sendLogNotification(message: string, id: string) {
+                const toolCallMessage: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    method: 'tools/call',
+                    params: { name: 'send-log', arguments: { message } },
+                    id
+                };
+                const resp = await sendPostRequest(baseUrl, toolCallMessage, sessionId);
+                expect(resp.status).toBe(200);
+            }
+
             // Establish a standalone SSE stream
             const sseResponse = await fetch(baseUrl, {
                 method: 'GET',
@@ -1538,7 +1615,7 @@ describe('Zod v4', () => {
             const reader = sseResponse.body?.getReader();
 
             // Send a notification to get an event ID
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Initial notification' });
+            await sendLogNotification('Initial notification', 'multi-replay-init');
 
             // Read the notification from the SSE stream
             const { value } = await reader!.read();
@@ -1553,9 +1630,9 @@ describe('Zod v4', () => {
             await reader!.cancel();
 
             // Send MULTIPLE notifications while the client is disconnected
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed notification 1' });
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed notification 2' });
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed notification 3' });
+            await sendLogNotification('Missed notification 1', 'multi-replay-1');
+            await sendLogNotification('Missed notification 2', 'multi-replay-2');
+            await sendLogNotification('Missed notification 3', 'multi-replay-3');
 
             // Reconnect with the Last-Event-ID to get all missed messages
             const reconnectResponse = await fetch(baseUrl, {
@@ -1613,74 +1690,94 @@ describe('Zod v4', () => {
             await stopTestServer({ server, transport });
         });
 
-        it('should operate without session ID validation', async () => {
-            // Initialize the server first
+        it('should create sessions even when sessionIdGenerator is undefined', async () => {
+            // With the routing transport, sessionIdGenerator:undefined still creates
+            // per-session legacy stacks with auto-generated UUIDs
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
 
             expect(initResponse.status).toBe(200);
-            // Should NOT have session ID header in stateless mode
-            expect(initResponse.headers.get('mcp-session-id')).toBeNull();
+            // The routing transport always generates session IDs for legacy sessions
+            const statelessSessionId = initResponse.headers.get('mcp-session-id');
+            expect(statelessSessionId).toBeDefined();
 
-            // Try request without session ID - should work in stateless mode
-            const toolsResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList);
+            // Requests with the session ID work
+            const toolsResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList, statelessSessionId!);
 
             expect(toolsResponse.status).toBe(200);
         });
 
-        it('should handle POST requests with various session IDs in stateless mode', async () => {
-            await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+        it('should reject POST requests with unknown session IDs', async () => {
+            // Initialize to create a session
+            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            const validSessionId = initResponse.headers.get('mcp-session-id')!;
+            expect(validSessionId).toBeDefined();
 
-            // Try with a random session ID - should be accepted
+            // Requests with the valid session ID work
+            const validResponse = await sendPostRequest(
+                baseUrl,
+                {
+                    jsonrpc: '2.0',
+                    method: 'tools/list',
+                    params: {},
+                    id: 't0'
+                } as JSONRPCMessage,
+                validSessionId
+            );
+            expect(validResponse.status).toBe(200);
+
+            // Random session IDs are rejected as "Session not found"
             const response1 = await fetch(baseUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json, text/event-stream',
-                    'mcp-session-id': 'random-id-1'
+                    'mcp-session-id': 'random-id-1',
+                    'mcp-protocol-version': '2025-11-25'
                 },
                 body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 't1' })
             });
-            expect(response1.status).toBe(200);
+            expect(response1.status).toBe(404);
 
-            // Try with another random session ID - should also be accepted
             const response2 = await fetch(baseUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json, text/event-stream',
-                    'mcp-session-id': 'different-id-2'
+                    'mcp-session-id': 'different-id-2',
+                    'mcp-protocol-version': '2025-11-25'
                 },
                 body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 't2' })
             });
-            expect(response2.status).toBe(200);
+            expect(response2.status).toBe(404);
         });
 
-        it('should reject second SSE stream even in stateless mode', async () => {
-            // Despite no session ID requirement, the transport still only allows
-            // one standalone SSE stream at a time
+        it('should reject second SSE stream for the same session', async () => {
+            // Initialize the server to get a session ID
+            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            const statelessSessionId = initResponse.headers.get('mcp-session-id')!;
+            expect(statelessSessionId).toBeDefined();
 
-            // Initialize the server first
-            await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
-
-            // Open first SSE stream
+            // Open first SSE stream with the session ID
             const stream1 = await fetch(baseUrl, {
                 method: 'GET',
                 headers: {
                     Accept: 'text/event-stream',
+                    'mcp-session-id': statelessSessionId,
                     'mcp-protocol-version': '2025-11-25'
                 }
             });
             expect(stream1.status).toBe(200);
 
-            // Open second SSE stream - should still be rejected, stateless mode still only allows one
+            // Open second SSE stream with same session - should be rejected (one per session)
             const stream2 = await fetch(baseUrl, {
                 method: 'GET',
                 headers: {
                     Accept: 'text/event-stream',
+                    'mcp-session-id': statelessSessionId,
                     'mcp-protocol-version': '2025-11-25'
                 }
             });
-            expect(stream2.status).toBe(409); // Conflict - only one stream allowed
+            expect(stream2.status).toBe(409); // Conflict - only one stream allowed per session
         });
     });
 
@@ -1883,16 +1980,6 @@ describe('Zod v4', () => {
         });
 
         it('should close POST SSE stream when ctx.http?.closeSSE is called', async () => {
-            const result = await createTestServer({
-                sessionIdGenerator: () => randomUUID(),
-                eventStore: createEventStore(),
-                retryInterval: 1000
-            });
-            server = result.server;
-            transport = result.transport;
-            baseUrl = result.baseUrl;
-            mcpServer = result.mcpServer;
-
             // Track when stream close is called and tool completes
             let streamCloseCalled = false;
             let toolResolve: () => void;
@@ -1900,16 +1987,31 @@ describe('Zod v4', () => {
                 toolResolve = resolve;
             });
 
-            // Register a tool that closes its own SSE stream via ctx callback
-            mcpServer.registerTool('close-stream-tool', { description: 'Closes its own stream' }, async ctx => {
-                // Close the SSE stream for this request
-                ctx.http?.closeSSE?.();
-                streamCloseCalled = true;
+            const result = await createTestServer({
+                sessionIdGenerator: () => randomUUID(),
+                eventStore: createEventStore(),
+                retryInterval: 1000,
+                additionalTools: [
+                    {
+                        name: 'close-stream-tool',
+                        description: 'Closes its own stream',
+                        inputSchema: z.object({}),
+                        handler: async (_args, ctx) => {
+                            // Close the SSE stream for this request
+                            ctx.http?.closeSSE?.();
+                            streamCloseCalled = true;
 
-                // Wait before returning so we can observe the stream closure
-                await toolCompletePromise;
-                return { content: [{ type: 'text', text: 'Done' }] };
+                            // Wait before returning so we can observe the stream closure
+                            await toolCompletePromise;
+                            return { content: [{ type: 'text', text: 'Done' }] };
+                        }
+                    }
+                ]
             });
+            server = result.server;
+            transport = result.transport;
+            baseUrl = result.baseUrl;
+            mcpServer = result.mcpServer;
 
             // Initialize to get session ID
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
@@ -1955,24 +2057,29 @@ describe('Zod v4', () => {
         });
 
         it('should provide closeSSEStream callback in ctx when eventStore is configured', async () => {
+            // Track whether closeSSEStream callback was provided
+            let receivedCloseSSEStream: (() => void) | undefined;
+
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
-                retryInterval: 1000
+                retryInterval: 1000,
+                additionalTools: [
+                    {
+                        name: 'test-callback-tool',
+                        description: 'Test tool',
+                        inputSchema: z.object({}),
+                        handler: async (_args, ctx) => {
+                            receivedCloseSSEStream = ctx.http?.closeSSE;
+                            return { content: [{ type: 'text', text: 'Done' }] };
+                        }
+                    }
+                ]
             });
             server = result.server;
             transport = result.transport;
             baseUrl = result.baseUrl;
             mcpServer = result.mcpServer;
-
-            // Track whether closeSSEStream callback was provided
-            let receivedCloseSSEStream: (() => void) | undefined;
-
-            // Register a tool that captures the ctx.http?.closeSSE callback
-            mcpServer.registerTool('test-callback-tool', { description: 'Test tool' }, async ctx => {
-                receivedCloseSSEStream = ctx.http?.closeSSE;
-                return { content: [{ type: 'text', text: 'Done' }] };
-            });
 
             // Initialize to get session ID
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
@@ -2013,26 +2120,31 @@ describe('Zod v4', () => {
         });
 
         it('should NOT provide closeSSEStream callback for old protocol versions (backwards compatibility)', async () => {
+            // Track whether closeSSEStream callback was provided
+            let receivedCloseSSEStream: (() => void) | undefined;
+            let receivedCloseStandaloneSSEStream: (() => void) | undefined;
+
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
-                retryInterval: 1000
+                retryInterval: 1000,
+                additionalTools: [
+                    {
+                        name: 'test-old-version-tool',
+                        description: 'Test tool',
+                        inputSchema: z.object({}),
+                        handler: async (_args, ctx) => {
+                            receivedCloseSSEStream = ctx.http?.closeSSE;
+                            receivedCloseStandaloneSSEStream = ctx.http?.closeStandaloneSSE;
+                            return { content: [{ type: 'text', text: 'Done' }] };
+                        }
+                    }
+                ]
             });
             server = result.server;
             transport = result.transport;
             baseUrl = result.baseUrl;
             mcpServer = result.mcpServer;
-
-            // Track whether closeSSEStream callback was provided
-            let receivedCloseSSEStream: (() => void) | undefined;
-            let receivedCloseStandaloneSSEStream: (() => void) | undefined;
-
-            // Register a tool that captures the ctx.http?.closeSSE callback
-            mcpServer.registerTool('test-old-version-tool', { description: 'Test tool' }, async ctx => {
-                receivedCloseSSEStream = ctx.http?.closeSSE;
-                receivedCloseStandaloneSSEStream = ctx.http?.closeStandaloneSSE;
-                return { content: [{ type: 'text', text: 'Done' }] };
-            });
 
             // Initialize with OLD protocol version to get session ID
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initializeOldVersion);
@@ -2074,23 +2186,28 @@ describe('Zod v4', () => {
         });
 
         it('should NOT provide closeSSEStream callback when eventStore is NOT configured', async () => {
+            // Track whether closeSSEStream callback was provided
+            let receivedCloseSSEStream: (() => void) | undefined;
+
             const result = await createTestServer({
-                sessionIdGenerator: () => randomUUID()
+                sessionIdGenerator: () => randomUUID(),
                 // No eventStore
+                additionalTools: [
+                    {
+                        name: 'test-no-callback-tool',
+                        description: 'Test tool',
+                        inputSchema: z.object({}),
+                        handler: async (_args, ctx) => {
+                            receivedCloseSSEStream = ctx.http?.closeSSE;
+                            return { content: [{ type: 'text', text: 'Done' }] };
+                        }
+                    }
+                ]
             });
             server = result.server;
             transport = result.transport;
             baseUrl = result.baseUrl;
             mcpServer = result.mcpServer;
-
-            // Track whether closeSSEStream callback was provided
-            let receivedCloseSSEStream: (() => void) | undefined;
-
-            // Register a tool that captures the ctx.http?.closeSSE callback
-            mcpServer.registerTool('test-no-callback-tool', { description: 'Test tool' }, async ctx => {
-                receivedCloseSSEStream = ctx.http?.closeSSE;
-                return { content: [{ type: 'text', text: 'Done' }] };
-            });
 
             // Initialize to get session ID
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
@@ -2130,24 +2247,29 @@ describe('Zod v4', () => {
         });
 
         it('should provide closeStandaloneSSEStream callback in ctx when eventStore is configured', async () => {
+            // Track whether closeStandaloneSSEStream callback was provided
+            let receivedCloseStandaloneSSEStream: (() => void) | undefined;
+
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
-                retryInterval: 1000
+                retryInterval: 1000,
+                additionalTools: [
+                    {
+                        name: 'test-standalone-callback-tool',
+                        description: 'Test tool',
+                        inputSchema: z.object({}),
+                        handler: async (_args, ctx) => {
+                            receivedCloseStandaloneSSEStream = ctx.http?.closeStandaloneSSE;
+                            return { content: [{ type: 'text', text: 'Done' }] };
+                        }
+                    }
+                ]
             });
             server = result.server;
             transport = result.transport;
             baseUrl = result.baseUrl;
             mcpServer = result.mcpServer;
-
-            // Track whether closeStandaloneSSEStream callback was provided
-            let receivedCloseStandaloneSSEStream: (() => void) | undefined;
-
-            // Register a tool that captures the ctx.http?.closeStandaloneSSE callback
-            mcpServer.registerTool('test-standalone-callback-tool', { description: 'Test tool' }, async ctx => {
-                receivedCloseStandaloneSSEStream = ctx.http?.closeStandaloneSSE;
-                return { content: [{ type: 'text', text: 'Done' }] };
-            });
 
             // Initialize to get session ID
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
@@ -2191,18 +2313,23 @@ describe('Zod v4', () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
-                retryInterval: 1000
+                retryInterval: 1000,
+                additionalTools: [
+                    {
+                        name: 'close-standalone-stream-tool',
+                        description: 'Closes standalone stream',
+                        inputSchema: z.object({}),
+                        handler: async (_args, ctx) => {
+                            ctx.http?.closeStandaloneSSE?.();
+                            return { content: [{ type: 'text', text: 'Stream closed' }] };
+                        }
+                    }
+                ]
             });
             server = result.server;
             transport = result.transport;
             baseUrl = result.baseUrl;
             mcpServer = result.mcpServer;
-
-            // Register a tool that closes the standalone SSE stream via ctx callback
-            mcpServer.registerTool('close-standalone-stream-tool', { description: 'Closes standalone stream' }, async ctx => {
-                ctx.http?.closeStandaloneSSE?.();
-                return { content: [{ type: 'text', text: 'Stream closed' }] };
-            });
 
             // Initialize to get session ID
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
@@ -2222,8 +2349,15 @@ describe('Zod v4', () => {
 
             const getReader = sseResponse.body?.getReader();
 
-            // Send a notification to confirm GET stream is established
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Stream established' });
+            // Send a notification to confirm GET stream is established (via the send-log tool)
+            const sendLogMsg: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'send-log', arguments: { message: 'Stream established' } },
+                id: 'confirm-sse-1'
+            };
+            const logResp = await sendPostRequest(baseUrl, sendLogMsg, sessionId);
+            expect(logResp.status).toBe(200);
 
             // Read the notification to confirm stream is working
             const { value } = await getReader!.read();
@@ -2272,18 +2406,23 @@ describe('Zod v4', () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
                 eventStore: createEventStore(),
-                retryInterval: 1000
+                retryInterval: 1000,
+                additionalTools: [
+                    {
+                        name: 'close-standalone-for-reconnect',
+                        description: 'Closes standalone stream',
+                        inputSchema: z.object({}),
+                        handler: async (_args, ctx) => {
+                            ctx.http?.closeStandaloneSSE?.();
+                            return { content: [{ type: 'text', text: 'Stream closed' }] };
+                        }
+                    }
+                ]
             });
             server = result.server;
             transport = result.transport;
             baseUrl = result.baseUrl;
             mcpServer = result.mcpServer;
-
-            // Register a tool that closes the standalone SSE stream
-            mcpServer.registerTool('close-standalone-for-reconnect', { description: 'Closes standalone stream' }, async ctx => {
-                ctx.http?.closeStandaloneSSE?.();
-                return { content: [{ type: 'text', text: 'Stream closed' }] };
-            });
 
             // Initialize to get session ID
             const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
@@ -2303,8 +2442,15 @@ describe('Zod v4', () => {
 
             const getReader = sseResponse.body?.getReader();
 
-            // Send a notification to get an event ID
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Initial message' });
+            // Send a notification to get an event ID (via the send-log tool)
+            const sendLogMsg: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'send-log', arguments: { message: 'Initial message' } },
+                id: 'reconnect-init-1'
+            };
+            const logResp = await sendPostRequest(baseUrl, sendLogMsg, sessionId);
+            expect(logResp.status).toBe(200);
 
             // Read the notification to get the event ID
             const { value } = await getReader!.read();
@@ -2353,8 +2499,15 @@ describe('Zod v4', () => {
             // timestamp, the UUID suffix ordering is random and may not preserve creation order.
             await new Promise(resolve => setTimeout(resolve, 5));
 
-            // Send a notification while client is disconnected
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed while disconnected' });
+            // Send a notification while client is disconnected (via the send-log tool)
+            const sendMissedMsg: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'send-log', arguments: { message: 'Missed while disconnected' } },
+                id: 'reconnect-missed-1'
+            };
+            const missedResp = await sendPostRequest(baseUrl, sendMissedMsg, sessionId);
+            expect(missedResp.status).toBe(200);
 
             // Client reconnects with Last-Event-ID
             const reconnectResponse = await fetch(baseUrl, {
@@ -2817,7 +2970,10 @@ describe('Zod v4', () => {
                 expect(body.error.message).toContain('Invalid Host header:');
             });
 
-            it('should reject GET requests with disallowed host headers', async () => {
+            it('should reject GET requests without session ID before DNS check', async () => {
+                // With the routing transport, GET requests without a session ID
+                // are rejected with 400 "Missing Mcp-Session-Id header" before
+                // DNS rebinding checks are reached (those happen in per-session stacks)
                 const result = await createTestServerWithDnsProtection({
                     sessionIdGenerator: undefined,
                     allowedHosts: ['example.com:3001'],
@@ -2834,7 +2990,7 @@ describe('Zod v4', () => {
                     }
                 });
 
-                expect(response.status).toBe(403);
+                expect(response.status).toBe(400);
             });
         });
 
