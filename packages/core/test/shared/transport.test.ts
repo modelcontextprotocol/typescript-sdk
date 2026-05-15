@@ -1,4 +1,4 @@
-import { createFetchWithInit, type FetchLike, normalizeHeaders } from '../../src/shared/transport.js';
+import { createFetchWithInit, type FetchLike, normalizeHeaders } from '../../src/shared/transport';
 
 describe('normalizeHeaders', () => {
     test('returns empty object for undefined', () => {

@@ -9,9 +9,9 @@ import path from 'node:path';
 
 import { vi } from 'vitest';
 
-import { AjvJsonSchemaValidator } from '../../src/validators/ajvProvider.js';
-import { CfWorkerJsonSchemaValidator } from '../../src/validators/cfWorkerProvider.js';
-import type { JsonSchemaType } from '../../src/validators/types.js';
+import { AjvJsonSchemaValidator } from '../../src/validators/ajvProvider';
+import { CfWorkerJsonSchemaValidator } from '../../src/validators/cfWorkerProvider';
+import type { JsonSchemaType } from '../../src/validators/types';
 
 // Test with both AJV and CfWorker validators
 // AJV validator will use default configuration with format validation enabled
@@ -554,7 +554,7 @@ describe('Missing dependencies', () => {
             });
 
             // Attempting to import ajv-provider should fail
-            await expect(import('../../src/validators/ajvProvider.js')).rejects.toThrow();
+            await expect(import('../../src/validators/ajvProvider')).rejects.toThrow();
         });
 
         it('should be able to import cfWorkerProvider when ajv is missing', async () => {
@@ -568,7 +568,7 @@ describe('Missing dependencies', () => {
             });
 
             // But cfWorkerProvider should import successfully
-            const cfworkerModule = await import('../../src/validators/cfWorkerProvider.js');
+            const cfworkerModule = await import('../../src/validators/cfWorkerProvider');
             expect(cfworkerModule.CfWorkerJsonSchemaValidator).toBeDefined();
 
             // And should work correctly
@@ -595,7 +595,7 @@ describe('Missing dependencies', () => {
             });
 
             // Attempting to import cfWorkerProvider should fail
-            await expect(import('../../src/validators/cfWorkerProvider.js')).rejects.toThrow();
+            await expect(import('../../src/validators/cfWorkerProvider')).rejects.toThrow();
         });
 
         it('should be able to import ajv-provider when @cfworker/json-schema is missing', async () => {
@@ -605,7 +605,7 @@ describe('Missing dependencies', () => {
             });
 
             // But ajv-provider should import successfully
-            const ajvModule = await import('../../src/validators/ajvProvider.js');
+            const ajvModule = await import('../../src/validators/ajvProvider');
             expect(ajvModule.AjvJsonSchemaValidator).toBeDefined();
 
             // And should work correctly

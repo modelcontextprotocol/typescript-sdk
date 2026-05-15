@@ -10,7 +10,7 @@
 
 import { Validator } from '@cfworker/json-schema';
 
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types.js';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 
 /**
  * JSON Schema draft version supported by `@cfworker/json-schema`.

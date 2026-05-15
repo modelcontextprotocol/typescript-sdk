@@ -15,7 +15,7 @@ import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
-import { InMemoryEventStore } from './inMemoryEventStore.js';
+import { InMemoryEventStore } from './inMemoryEventStore';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');

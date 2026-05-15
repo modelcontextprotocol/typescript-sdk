@@ -21,7 +21,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 
-import { InMemoryEventStore } from './inMemoryEventStore.js';
+import { InMemoryEventStore } from './inMemoryEventStore';
 
 // Create a fresh MCP server per client connection to avoid shared state between clients
 const getServer = () => {

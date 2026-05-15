@@ -9,7 +9,7 @@ import {
     JSONRPCResponseSchema,
     JSONRPCResultResponseSchema,
     TaskAugmentedRequestParamsSchema
-} from './schemas.js';
+} from './schemas';
 import type {
     CallToolResult,
     CompleteRequest,
@@ -24,7 +24,7 @@ import type {
     JSONRPCResponse,
     JSONRPCResultResponse,
     TaskAugmentedRequestParams
-} from './types.js';
+} from './types';
 
 /**
  * Validates and parses an unknown value as a JSON-RPC message.

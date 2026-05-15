@@ -1,5 +1,5 @@
-import { ReadBuffer, STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../src/shared/stdio.js';
-import type { JSONRPCMessage } from '../../src/types/index.js';
+import { ReadBuffer, STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../src/shared/stdio';
+import type { JSONRPCMessage } from '../../src/types/index';
 
 const testMessage: JSONRPCMessage = {
     jsonrpc: '2.0',

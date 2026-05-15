@@ -9,7 +9,7 @@
 
 /* eslint-disable unicorn/consistent-function-scoping -- examples must live inside region blocks */
 
-import type { ReconnectionScheduler } from './streamableHttp.js';
+import type { ReconnectionScheduler } from './streamableHttp';
 
 // Stub for a hypothetical platform-specific background scheduling API
 declare const platformBackgroundTask: {

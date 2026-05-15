@@ -1,11 +1,11 @@
 import express from 'express';
-import { Client } from '../src/client/index.js';
-import { SSEClientTransport } from '../src/client/sse.js';
-import { StdioClientTransport } from '../src/client/stdio.js';
-import { Server } from '../src/server/index.js';
-import { SSEServerTransport } from '../src/server/sse.js';
-import { StdioServerTransport } from '../src/server/stdio.js';
-import { ListResourcesResultSchema } from '../src/types.js';
+import { Client } from '../src/client/index';
+import { SSEClientTransport } from '../src/client/sse';
+import { StdioClientTransport } from '../src/client/stdio';
+import { Server } from '../src/server/index';
+import { SSEServerTransport } from '../src/server/sse';
+import { StdioServerTransport } from '../src/server/stdio';
+import { ListResourcesResultSchema } from '../src/types';
 
 async function runClient(url_or_command: string, args: string[]) {
     const client = new Client(

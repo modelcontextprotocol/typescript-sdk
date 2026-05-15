@@ -1,8 +1,8 @@
 import { vi } from 'vitest';
 import * as z from 'zod/v4';
 
-import { standardSchemaToJsonSchema } from '../../src/util/standardSchema.js';
-import { isZodRawShape, normalizeRawShapeSchema } from '../../src/util/zodCompat.js';
+import { standardSchemaToJsonSchema } from '../../src/util/standardSchema';
+import { isZodRawShape, normalizeRawShapeSchema } from '../../src/util/zodCompat';
 
 describe('isZodRawShape', () => {
     test('treats empty object as a raw shape (matches v1)', () => {

@@ -1,5 +1,5 @@
-import { ProtocolErrorCode } from './enums.js';
-import type { ElicitRequestURLParams, UnsupportedProtocolVersionErrorData } from './types.js';
+import { ProtocolErrorCode } from './enums';
+import type { ElicitRequestURLParams, UnsupportedProtocolVersionErrorData } from './types';
 
 /**
  * Protocol errors are JSON-RPC errors that cross the wire as error responses.

@@ -6,9 +6,9 @@ import { SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock } from 'vitest';
 
-import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
-import { UnauthorizedError } from '../../src/client/auth.js';
-import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth';
+import { UnauthorizedError } from '../../src/client/auth';
+import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
 describe('StreamableHTTPClientTransport with AuthProvider', () => {
     let transport: StreamableHTTPClientTransport;
