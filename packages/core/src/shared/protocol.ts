@@ -13,11 +13,11 @@ import type {
     InputResponses,
     JSONRPCErrorResponse,
     JSONRPCNotification,
-    ListRootsRequest,
-    ListRootsResult,
     JSONRPCRequest,
     JSONRPCResponse,
     JSONRPCResultResponse,
+    ListRootsRequest,
+    ListRootsResult,
     LoggingLevel,
     MessageExtraInfo,
     Notification,
@@ -347,6 +347,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
+
+    /**
+     * Look up a registered request handler. Protected so subclasses (e.g.
+     * Client driving the SEP-2322 resume loop) can dispatch to the user's
+     * handlers without going over the wire.
+     */
+    protected _getRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
+        return this._requestHandlers.get(method);
+    }
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();

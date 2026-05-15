@@ -9,6 +9,8 @@ import type {
     CompleteRequest,
     GetPromptRequest,
     Implementation,
+    InputRequiredResult,
+    InputResponses,
     JSONRPCRequest,
     JsonSchemaType,
     JsonSchemaValidator,
@@ -62,6 +64,7 @@ import {
     ProtocolError,
     ProtocolErrorCode,
     ReadResourceResultSchema,
+    ResultSchema,
     SdkError,
     SdkErrorCode,
     STATEFUL_PROTOCOL_VERSIONS
@@ -571,6 +574,86 @@ export class Client extends Protocol<ClientContext> {
         return super.notification(notification, options);
     }
 
+    /** Hard cap on SEP-2322 retry rounds before giving up. */
+    private static readonly MAX_MRTR_ROUNDS = 10;
+
+    /**
+     * SEP-2322: like {@linkcode _requestWithSchema} but, when the result has
+     * `resultType: 'input_required'`, dispatches each `inputRequests` entry to
+     * the matching handler the user registered via `setRequestHandler` (e.g.
+     * `elicitation/create`), then retries with `_meta.inputResponses` and
+     * echoed `requestState`. Loops until a final result or
+     * {@linkcode MAX_MRTR_ROUNDS} rounds. Only used by methods the spec allows
+     * `InputRequiredResult` on (`tools/call`, `prompts/get`, `resources/read`).
+     */
+    private async _requestWithResume<T extends StandardSchemaV1>(
+        method: string,
+        params: Record<string, unknown>,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<StandardSchemaV1.InferOutput<T>> {
+        let currentParams = params;
+        for (let round = 0; round < Client.MAX_MRTR_ROUNDS; round++) {
+            // Validate against the loose base ResultSchema so an
+            // InputRequiredResult (which lacks the final-result fields) parses;
+            // the final-round result is re-validated against resultSchema below.
+            const result = await this._requestWithSchema({ method, params: currentParams }, ResultSchema, options);
+            if (result.resultType !== 'input_required') {
+                // All callers pass zod schemas (CallToolResultSchema etc.), so AnySchema is satisfied.
+                const parsed = parseSchema(resultSchema as unknown as Parameters<typeof parseSchema>[0], result);
+                if (!parsed.success) {
+                    throw new SdkError(SdkErrorCode.InvalidResult, `Invalid ${method} result: ${parsed.error.message}`);
+                }
+                return parsed.data as StandardSchemaV1.InferOutput<T>;
+            }
+
+            const ir = result as unknown as InputRequiredResult;
+            const responses: InputResponses = {};
+            for (const [key, req] of Object.entries(ir.inputRequests ?? {})) {
+                const handler = this._getRequestHandler(req.method);
+                if (handler === undefined) {
+                    throw new SdkError(
+                        SdkErrorCode.CapabilityNotSupported,
+                        `Server requested '${req.method}' but no handler is registered for it`
+                    );
+                }
+                const ctx = this._buildSyntheticContext(req.method);
+                responses[key] = (await handler({ jsonrpc: '2.0', id: 0, ...req }, ctx)) as InputResponses[string];
+            }
+            // 2322-R13/R14/R15: echo requestState exactly if present, omit if absent.
+            const meta: Record<string, unknown> = {
+                ...(currentParams._meta as Record<string, unknown> | undefined),
+                [META_KEYS.inputResponses]: responses
+            };
+            if (ir.requestState === undefined) {
+                delete meta[META_KEYS.requestState];
+            } else {
+                meta[META_KEYS.requestState] = ir.requestState;
+            }
+            // 2322-R16: distinct JSON-RPC id per round is satisfied by _requestWithSchema's id allocator.
+            currentParams = { ...currentParams, _meta: meta };
+        }
+        throw new SdkError(SdkErrorCode.RequestTimeout, `MRTR exceeded ${Client.MAX_MRTR_ROUNDS} rounds for '${method}'`);
+    }
+
+    /** Minimal {@linkcode ClientContext} for invoking a registered handler synthetically (no wire). */
+    private _buildSyntheticContext(method: string): ClientContext {
+        return this.buildContext({
+            sessionId: this.transport?.sessionId,
+            mcpReq: {
+                id: 0,
+                method,
+                signal: new AbortController().signal,
+                send: Client._mrtrSyntheticSend as unknown as ClientContext['mcpReq']['send'],
+                notify: () => Promise.resolve()
+            }
+        });
+    }
+
+    private static _mrtrSyntheticSend(): never {
+        throw new SdkError(SdkErrorCode.NotConnected, 'Not available from a synthetic MRTR handler invocation');
+    }
+
     /**
      * After initialization has completed, this will be populated with the server's reported capabilities.
      */
@@ -762,7 +845,7 @@ export class Client extends Protocol<ClientContext> {
 
     /** Retrieves a prompt by name from the server, passing the given arguments for template substitution. */
     async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions) {
-        return this._requestWithSchema({ method: 'prompts/get', params }, GetPromptResultSchema, options);
+        return this._requestWithResume('prompts/get', params, GetPromptResultSchema, options);
     }
 
     /**
@@ -844,7 +927,7 @@ export class Client extends Protocol<ClientContext> {
 
     /** Reads the contents of a resource by URI. */
     async readResource(params: ReadResourceRequest['params'], options?: RequestOptions) {
-        return this._requestWithSchema({ method: 'resources/read', params }, ReadResourceResultSchema, options);
+        return this._requestWithResume('resources/read', params, ReadResourceResultSchema, options);
     }
 
     /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
@@ -907,7 +990,7 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
-        const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
+        const result = await this._requestWithResume('tools/call', params, CallToolResultSchema, options);
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
