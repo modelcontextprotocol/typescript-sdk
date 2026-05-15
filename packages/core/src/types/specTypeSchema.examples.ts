@@ -13,9 +13,9 @@ declare const untrusted: unknown;
 declare const value: unknown;
 declare const mixed: unknown[];
 
-async function specTypeSchemas_basicUsage() {
+function specTypeSchemas_basicUsage() {
     //#region specTypeSchemas_basicUsage
-    const result = await specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
+    const result = specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
     if (result.issues === undefined) {
         // result.value is CallToolResult
     }
