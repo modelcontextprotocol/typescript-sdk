@@ -265,7 +265,7 @@ for (const [key, schema] of Object.entries(authSchemas)) {
  *
  * @example
  * ```ts source="./specTypeSchema.examples.ts#specTypeSchemas_basicUsage"
- * const result = await specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
+ * const result = specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
  * if (result.issues === undefined) {
  *     // result.value is CallToolResult
  * }

@@ -99,7 +99,7 @@ Notes:
 | `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                         |
 
 All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are no longer part of the public API — they are internal to the SDK. For runtime validation, use
-`isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or `specTypeSchemas.TypeName` for the `StandardSchemaV1` validator object. The keys are typed as `SpecTypeName`, a literal union of all spec type names.
+`isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or `specTypeSchemas.TypeName` for the `StandardSchemaV1Sync` validator object. The keys are typed as `SpecTypeName`, a literal union of all spec type names.
 
 ### Error class changes
 
@@ -468,8 +468,8 @@ If a `*Schema` constant was used for **runtime validation** (not just as a `requ
 | -------------------------------------------------- | -------------------------------------------------------------------------------------- |
 | `CallToolResultSchema.safeParse(value).success`    | `isSpecType.CallToolResult(value)`                                                     |
 | `<TypeName>Schema.safeParse(value).success`        | `isSpecType.<TypeName>(value)`                                                         |
-| `<TypeName>Schema.parse(value)`                    | `await specTypeSchemas.<TypeName>['~standard'].validate(value)` (returns a `Result`, not the value) |
-| Passing `<TypeName>Schema` as a validator argument | `specTypeSchemas.<TypeName>` (a `StandardSchemaV1<In, Out>`)                           |
+| `<TypeName>Schema.parse(value)`                    | `specTypeSchemas.<TypeName>['~standard'].validate(value)` (returns a `Result` synchronously, not the value) |
+| Passing `<TypeName>Schema` as a validator argument | `specTypeSchemas.<TypeName>` (a `StandardSchemaV1Sync<In, Out>`)                       |
 
 `isCallToolResult(value)` still works, but `isSpecType` covers every spec type by name.
 

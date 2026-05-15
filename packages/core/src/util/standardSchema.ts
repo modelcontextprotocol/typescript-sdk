@@ -124,9 +124,13 @@ export namespace StandardSchemaWithJSON {
  * `StandardSchemaV1Sync` is assignable to `StandardSchemaV1` — it is a strict subtype.
  */
 export interface StandardSchemaV1Sync<Input = unknown, Output = Input> extends StandardSchemaV1<Input, Output> {
-    readonly '~standard': StandardSchemaV1<Input, Output>['~standard'] & {
+    readonly '~standard': StandardSchemaV1Sync.Props<Input, Output>;
+}
+
+export namespace StandardSchemaV1Sync {
+    export interface Props<Input = unknown, Output = Input> extends StandardSchemaV1.Props<Input, Output> {
         readonly validate: (value: unknown, options?: StandardSchemaV1.Options | undefined) => StandardSchemaV1.Result<Output>;
-    };
+    }
 }
 
 // Type guards
