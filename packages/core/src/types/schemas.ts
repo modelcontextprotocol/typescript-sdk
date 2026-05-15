@@ -629,6 +629,44 @@ export const SubscriptionsAcknowledgedNotificationSchema = NotificationSchema.ex
     })
 });
 
+/* Multi Round-Trip Requests (SEP-2322) */
+
+/**
+ * Distinguishes a final result from one that needs further client input
+ * before the server can complete the request. Absent means `'complete'`.
+ */
+export const ResultTypeSchema = z.enum(['complete', 'input_required']);
+
+/**
+ * A server-initiated request the client must fulfil before retrying. Carried
+ * inside an {@linkcode InputRequiredResultSchema | InputRequiredResult} rather
+ * than sent as a standalone JSON-RPC request, since the stateless model has no
+ * server-to-client request channel.
+ */
+export const InputRequestSchema = z.lazy(() => z.union([CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema]));
+
+/** Map of server-assigned key to {@linkcode InputRequestSchema | InputRequest}. */
+export const InputRequestsSchema = z.record(z.string(), InputRequestSchema);
+
+/** A client response to an {@linkcode InputRequestSchema | InputRequest}. */
+export const InputResponseSchema = z.lazy(() => z.union([CreateMessageResultSchema, ElicitResultSchema, ListRootsResultSchema]));
+
+/** Map of server-assigned key (matching {@linkcode InputRequestsSchema}) to response. */
+export const InputResponsesSchema = z.record(z.string(), InputResponseSchema);
+
+/**
+ * Returned in place of a final result when the server needs additional input
+ * (sampling, elicitation, roots) before it can complete. The client gathers
+ * the responses and retries the same request with `inputResponses` and the
+ * echoed `requestState` in `_meta`. At least one of `inputRequests` or
+ * `requestState` MUST be present.
+ */
+export const InputRequiredResultSchema = ResultSchema.extend({
+    resultType: z.literal('input_required'),
+    inputRequests: InputRequestsSchema.optional(),
+    requestState: z.string().optional()
+});
+
 /* Ping */
 /**
  * A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.

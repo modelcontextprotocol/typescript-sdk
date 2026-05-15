@@ -61,6 +61,11 @@ import type {
     InitializeRequestParamsSchema,
     InitializeRequestSchema,
     InitializeResultSchema,
+    InputRequestSchema,
+    InputRequestsSchema,
+    InputRequiredResultSchema,
+    InputResponseSchema,
+    InputResponsesSchema,
     JSONRPCErrorResponseSchema,
     JSONRPCMessageSchema,
     JSONRPCNotificationSchema,
@@ -121,6 +126,7 @@ import type {
     ResourceUpdatedNotificationParamsSchema,
     ResourceUpdatedNotificationSchema,
     ResultSchema,
+    ResultTypeSchema,
     RoleSchema,
     RootSchema,
     RootsListChangedNotificationSchema,
@@ -241,6 +247,14 @@ export type MissingRequiredClientCapabilityErrorData = Infer<typeof MissingRequi
 export type SubscriptionsListenRequest = Infer<typeof SubscriptionsListenRequestSchema>;
 export type SubscriptionsListenFilter = Infer<typeof SubscriptionsListenFilterSchema>;
 export type SubscriptionsAcknowledgedNotification = Infer<typeof SubscriptionsAcknowledgedNotificationSchema>;
+
+/* Multi Round-Trip Requests (SEP-2322) */
+export type ResultType = Infer<typeof ResultTypeSchema>;
+export type InputRequest = Infer<typeof InputRequestSchema>;
+export type InputRequests = Infer<typeof InputRequestsSchema>;
+export type InputResponse = Infer<typeof InputResponseSchema>;
+export type InputResponses = Infer<typeof InputResponsesSchema>;
+export type InputRequiredResult = Infer<typeof InputRequiredResultSchema>;
 
 /* Ping */
 export type PingRequest = Infer<typeof PingRequestSchema>;
