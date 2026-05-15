@@ -166,6 +166,13 @@ import { SdkHttpError, SdkErrorCode } from '@modelcontextprotocol/client';
 if (error instanceof SdkHttpError) {
     console.log('HTTP status:', error.status);     // number — typed accessor
     console.log('Status text:', error.statusText); // string | undefined
+    switch (error.code) {
+        case SdkErrorCode.ClientHttpAuthentication:    // 401 after re-auth
+        case SdkErrorCode.ClientHttpForbidden:         // 403 after upscoping
+        case SdkErrorCode.ClientHttpFailedToOpenStream:
+        case SdkErrorCode.ClientHttpNotImplemented:
+            break;
+    }
 }
 ```
 
