@@ -131,6 +131,9 @@ export namespace StandardSchemaV1Sync {
     export interface Props<Input = unknown, Output = Input> extends StandardSchemaV1.Props<Input, Output> {
         readonly validate: (value: unknown, options?: StandardSchemaV1.Options | undefined) => StandardSchemaV1.Result<Output>;
     }
+
+    export type InferInput<Schema extends StandardTypedV1> = StandardTypedV1.InferInput<Schema>;
+    export type InferOutput<Schema extends StandardTypedV1> = StandardTypedV1.InferOutput<Schema>;
 }
 
 // Type guards
