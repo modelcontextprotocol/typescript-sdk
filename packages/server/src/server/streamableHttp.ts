@@ -15,8 +15,12 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
+    STATEFUL_PROTOCOL_VERSIONS,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
+
+import type { CreateMcpServer, FetchHandler } from './handleStatelessHttp.js';
+import { handleStatelessHttp } from './handleStatelessHttp.js';
 
 export type StreamId = string;
 export type EventId = string;
@@ -152,6 +156,20 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
+
+    /**
+     * Factory that builds an MCP server. When provided, the transport handles
+     * version routing and session management itself: stateless-version requests
+     * (per the `MCP-Protocol-Version` header) are dispatched against a fresh
+     * `createMcpServer()` per request; pre-2026 requests get an SDK-owned
+     * session map (one `createMcpServer()` per session). The user just calls
+     * `transport.handleRequest(req)`. Do NOT call `server.connect(transport)`
+     * when this option is set.
+     *
+     * When not provided, behavior is unchanged: the user manages sessions
+     * (one transport per session, `server.connect(transport)`).
+     */
+    createMcpServer?: CreateMcpServer;
 }
 
 /**
@@ -241,6 +259,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
 
+    // Router mode (only when options.createMcpServer is provided): the
+    // transport owns the session map and per-request stateless dispatch, so
+    // the user can pass a single transport to their HTTP framework.
+    private _createMcpServer?: CreateMcpServer;
+    private _statelessHandler?: FetchHandler;
+    private _sessions?: Map<string, WebStandardStreamableHTTPServerTransport>;
+
     sessionId?: string;
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -257,6 +282,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        if (options.createMcpServer) {
+            this._createMcpServer = options.createMcpServer;
+            this._statelessHandler = handleStatelessHttp(options.createMcpServer, { allowedHosts: options.allowedHosts });
+            this._sessions = new Map();
+        }
     }
 
     /**
@@ -345,6 +375,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Returns a `Response` object (Web Standard)
      */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
+        if (this._createMcpServer) {
+            return this._handleRoutedRequest(req, options);
+        }
         // Validate request headers for DNS rebinding protection
         const validationError = this.validateRequestHeaders(req);
         if (validationError) {
@@ -365,6 +398,78 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return this.handleUnsupportedRequest();
             }
         }
+    }
+
+    /**
+     * Router-mode dispatch. Only called when {@linkcode _createMcpServer} is
+     * set. Stateless requests go through {@linkcode handleStatelessHttp};
+     * legacy requests are routed to a per-session child transport (created on
+     * `initialize`, looked up by `mcp-session-id` after).
+     */
+    private async _handleRoutedRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
+        const validationError = this.validateRequestHeaders(req);
+        if (validationError) return validationError;
+
+        const version = req.headers.get('mcp-protocol-version');
+        // Any version not in the closed stateful list is treated as stateless
+        // (matches the isStateless() primitive). server/discover from a client
+        // that hasn't decided yet has no header, so it falls into the legacy
+        // path, where the per-session transport handles it.
+        if (version !== null && !(STATEFUL_PROTOCOL_VERSIONS as readonly string[]).includes(version)) {
+            return this._statelessHandler!(req, { authInfo: options?.authInfo, parsedBody: options?.parsedBody });
+        }
+
+        const sessionId = req.headers.get('mcp-session-id');
+        if (sessionId) {
+            const child = this._sessions!.get(sessionId);
+            if (!child) {
+                return Response.json(
+                    { jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null },
+                    { status: 404, headers: { 'content-type': 'application/json' } }
+                );
+            }
+            return child.handleRequest(req, options);
+        }
+
+        // No session id: only POST initialize starts a session.
+        if (req.method !== 'POST') return this.handleUnsupportedRequest();
+        const body =
+            options?.parsedBody ??
+            (await req
+                .clone()
+                .json()
+                .catch(() => {}));
+        if (!isInitializeRequest(body)) {
+            return Response.json(
+                {
+                    jsonrpc: '2.0',
+                    error: { code: -32_000, message: 'Bad Request: missing session id (and not an initialize request)' },
+                    id: null
+                },
+                { status: 400, headers: { 'content-type': 'application/json' } }
+            );
+        }
+
+        const child = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: this.sessionIdGenerator ?? (() => crypto.randomUUID()),
+            enableJsonResponse: this._enableJsonResponse,
+            eventStore: this._eventStore,
+            retryInterval: this._retryInterval,
+            supportedProtocolVersions: this._supportedProtocolVersions,
+            onsessioninitialized: async sid => {
+                this._sessions!.set(sid, child);
+                await this._onsessioninitialized?.(sid);
+            },
+            onsessionclosed: async sid => {
+                this._sessions!.delete(sid);
+                await this._onsessionclosed?.(sid);
+            }
+        });
+        child.onclose = () => {
+            if (child.sessionId) this._sessions!.delete(child.sessionId);
+        };
+        await this._createMcpServer!().connect(child);
+        return child.handleRequest(req, { ...options, parsedBody: body });
     }
 
     /**
