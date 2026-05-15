@@ -523,8 +523,14 @@ export class Client extends Protocol<ClientContext> {
         } catch (error) {
             // Any protocol-level rejection (method not found, invalid params, internal
             // error, or any other JSON-RPC error): server is legacy or doesn't support
-            // discover; fall back. Transport-level failures (network, abort) propagate.
-            if (error instanceof ProtocolError) {
+            // discover; fall back. Same for an HTTP 4xx: the canonical stateful-server
+            // pattern gates session creation on `isInitializeRequest` and replies 400
+            // to anything else, which the transport surfaces as an SdkError carrying
+            // `{status}` rather than a ProtocolError. Transport-level failures
+            // (network, abort, 5xx) still propagate so they aren't masked by a
+            // second request that would fail the same way.
+            const status = error instanceof SdkError ? (error.data as { status?: number } | undefined)?.status : undefined;
+            if (error instanceof ProtocolError || (typeof status === 'number' && status >= 400 && status < 500)) {
                 // Clear the speculative header so the legacy `initialize` fallback
                 // doesn't carry a stateless-model version.
                 this.transport?.setProtocolVersion?.('');
