@@ -85,7 +85,7 @@ export function handleStatelessHttp(createMcpServer: CreateMcpServer, options?: 
 
         const versionCheck = validateProtocolVersion(req, first);
         if (versionCheck) {
-            return jsonError(400, ProtocolErrorCode.InvalidParams, versionCheck.message, id, undefined, versionCheck.data);
+            return jsonError(400, versionCheck.code, versionCheck.message, id, undefined, versionCheck.data);
         }
 
         const missing = missingRequiredMeta(first);
@@ -179,7 +179,7 @@ function missingRequiredMeta(first: JSONRPCMessage | undefined): string | undefi
 function validateProtocolVersion(
     req: Request,
     first: JSONRPCMessage | undefined
-): { message: string; data?: Record<string, unknown> } | undefined {
+): { code: ProtocolErrorCode; message: string; data?: Record<string, unknown> } | undefined {
     const fromHeader = req.headers.get('mcp-protocol-version');
     const fromMeta =
         isJSONRPCRequest(first) || isJSONRPCNotification(first)
@@ -187,18 +187,26 @@ function validateProtocolVersion(
             : undefined;
 
     if (fromMeta === undefined) {
-        return { message: `Invalid params: missing required _meta field '${META_KEYS.protocolVersion}'` };
+        return {
+            code: ProtocolErrorCode.InvalidParams,
+            message: `Invalid params: missing required _meta field '${META_KEYS.protocolVersion}'`
+        };
     }
     if (!fromHeader) {
-        return { message: 'Invalid Request: MCP-Protocol-Version header is required' };
+        return {
+            code: ProtocolErrorCode.HeaderMismatch,
+            message: 'Invalid Request: MCP-Protocol-Version header is required'
+        };
     }
     if (fromHeader !== fromMeta) {
         return {
+            code: ProtocolErrorCode.HeaderMismatch,
             message: `Invalid Request: MCP-Protocol-Version header ('${fromHeader}') must match _meta.protocolVersion ('${fromMeta}')`
         };
     }
     if (!SUPPORTED_PROTOCOL_VERSIONS.includes(fromMeta) || (STATEFUL_PROTOCOL_VERSIONS as readonly string[]).includes(fromMeta)) {
         return {
+            code: ProtocolErrorCode.InvalidParams,
             message: `Unsupported protocol version: '${fromMeta}'.`,
             data: { supported: [...SUPPORTED_PROTOCOL_VERSIONS], requested: fromMeta }
         };

@@ -99,7 +99,7 @@ describe('handleStatelessHttp', () => {
             expect(res.status).toBe(400);
             const body = (await res.json()) as { id: number; error: { code: number; message: string } };
             expect(body.id).toBe(9);
-            expect(body.error.code).toBe(-32_602);
+            expect(body.error.code).toBe(-32_001);
             expect(body.error.message).toContain('MCP-Protocol-Version header');
         });
 
@@ -115,7 +115,7 @@ describe('handleStatelessHttp', () => {
             );
             expect(res.status).toBe(400);
             const body = (await res.json()) as { error: { code: number; message: string } };
-            expect(body.error.code).toBe(-32_602);
+            expect(body.error.code).toBe(-32_001);
             expect(body.error.message).toContain('must match');
         });
 

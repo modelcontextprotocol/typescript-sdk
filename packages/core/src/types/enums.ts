@@ -11,6 +11,11 @@ export enum ProtocolErrorCode {
     InternalError = -32_603,
 
     // MCP-specific error codes
+    /**
+     * The `MCP-Protocol-Version` HTTP header does not match `_meta.protocolVersion`
+     * in the request body. Transport-layer mismatch.
+     */
+    HeaderMismatch = -32_001,
     ResourceNotFound = -32_002,
     /**
      * Processing the request requires a client capability the client did not declare
