@@ -294,7 +294,8 @@ export class SSEClientTransport implements Transport {
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
                         throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
+                            status: 401,
+                            statusText: response.statusText
                         });
                     }
                     throw new UnauthorizedError();

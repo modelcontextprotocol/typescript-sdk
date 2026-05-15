@@ -242,6 +242,7 @@ describe('StreamableHTTPClientTransport', () => {
         await expect(transport.send(message)).rejects.toThrow(
             new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: Session not found', {
                 status: 404,
+                statusText: 'Not Found',
                 text: 'Session not found'
             })
         );

@@ -275,7 +275,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
                         throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
+                            status: 401,
+                            statusText: response.statusText
                         });
                     }
                     throw new UnauthorizedError();
@@ -583,7 +584,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
                         throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
+                            status: 401,
+                            statusText: response.statusText
                         });
                     }
                     throw new UnauthorizedError();
@@ -601,6 +603,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         if (this._lastUpscopingHeader === wwwAuthHeader) {
                             throw new SdkHttpError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
                                 status: 403,
+                                statusText: response.statusText,
                                 text
                             });
                         }
@@ -632,6 +635,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
                 throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
                     status: response.status,
+                    statusText: response.statusText,
                     text
                 });
             }
