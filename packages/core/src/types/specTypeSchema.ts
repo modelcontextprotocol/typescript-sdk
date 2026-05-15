@@ -12,9 +12,9 @@ import {
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     OpenIdProviderMetadataSchema
-} from '../shared/auth.js';
-import type { StandardSchemaV1, StandardSchemaV1Sync } from '../util/standardSchema.js';
-import * as schemas from './schemas.js';
+} from '../shared/auth';
+import type { StandardSchemaV1, StandardSchemaV1Sync } from '../util/standardSchema';
+import * as schemas from './schemas';
 
 /**
  * Explicit allowlist of protocol Zod schemas that correspond to a public spec type in `types.ts`.

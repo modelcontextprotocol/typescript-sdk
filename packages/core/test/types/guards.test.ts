@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { JSONRPC_VERSION } from '../../src/types/constants.js';
-import { isCallToolResult, isJSONRPCErrorResponse, isJSONRPCResponse, isJSONRPCResultResponse } from '../../src/types/guards.js';
+import { JSONRPC_VERSION } from '../../src/types/constants';
+import { isCallToolResult, isJSONRPCErrorResponse, isJSONRPCResponse, isJSONRPCResultResponse } from '../../src/types/guards';
 
 describe('isJSONRPCResponse', () => {
     it('returns true for a valid result response', () => {

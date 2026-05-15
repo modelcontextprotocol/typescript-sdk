@@ -1,4 +1,4 @@
-import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
+import { SdkError, SdkErrorCode } from '../errors/sdkErrors';
 import type {
     AuthInfo,
     CancelledNotification,
@@ -29,7 +29,7 @@ import type {
     Result,
     ResultTypeMap,
     ServerCapabilities
-} from '../types/index.js';
+} from '../types/index';
 import {
     getNotificationSchema,
     getRequestSchema,
@@ -41,10 +41,10 @@ import {
     ProtocolError,
     ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '../types/index.js';
-import type { StandardSchemaV1 } from '../util/standardSchema.js';
-import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
-import type { Transport, TransportSendOptions } from './transport.js';
+} from '../types/index';
+import type { StandardSchemaV1 } from '../util/standardSchema';
+import { isStandardSchema, validateStandardSchema } from '../util/standardSchema';
+import type { Transport, TransportSendOptions } from './transport';
 
 /**
  * Callback for progress notifications.

@@ -12,7 +12,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { McpServer } from '@modelcontextprotocol/server';
 
-import { NodeStreamableHTTPServerTransport } from './streamableHttp.js';
+import { NodeStreamableHTTPServerTransport } from './streamableHttp';
 
 /**
  * Example: Stateful Streamable HTTP transport (Node.js).

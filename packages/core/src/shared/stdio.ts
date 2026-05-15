@@ -1,5 +1,5 @@
-import type { JSONRPCMessage } from '../types/index.js';
-import { JSONRPCMessageSchema } from '../types/index.js';
+import type { JSONRPCMessage } from '../types/index';
+import { JSONRPCMessageSchema } from '../types/index';
 
 /**
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.

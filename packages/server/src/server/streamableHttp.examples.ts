@@ -7,8 +7,8 @@
  * @module
  */
 
-import { McpServer } from './mcp.js';
-import { WebStandardStreamableHTTPServerTransport } from './streamableHttp.js';
+import { McpServer } from './mcp';
+import { WebStandardStreamableHTTPServerTransport } from './streamableHttp';
 
 /**
  * Example: Stateful Streamable HTTP transport (Web Standard).
