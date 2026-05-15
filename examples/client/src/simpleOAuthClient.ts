@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { createInterface } from 'node:readline';
 import { URL } from 'node:url';
 
-import type { CallToolResult, ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
+import type { ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 import open from 'open';
 
@@ -209,7 +209,6 @@ class InteractiveOAuthClient {
         console.log('Commands:');
         console.log('  list - List available tools');
         console.log('  call <tool_name> [args] - Call a tool');
-        console.log('  stream <tool_name> [args] - Call a tool with streaming (shows task status)');
         console.log('  quit - Exit the client');
         console.log();
 
@@ -229,10 +228,8 @@ class InteractiveOAuthClient {
                     await this.listTools();
                 } else if (command.startsWith('call ')) {
                     await this.handleCallTool(command);
-                } else if (command.startsWith('stream ')) {
-                    await this.handleStreamTool(command);
                 } else {
-                    console.log("❌ Unknown command. Try 'list', 'call <tool_name>', 'stream <tool_name>', or 'quit'");
+                    console.log("❌ Unknown command. Try 'list', 'call <tool_name>', or 'quit'");
                 }
             } catch (error) {
                 if (error instanceof Error && error.message === 'SIGINT') {
@@ -325,94 +322,6 @@ class InteractiveOAuthClient {
             }
         } catch (error) {
             console.error(`❌ Failed to call tool '${toolName}':`, error);
-        }
-    }
-
-    private async handleStreamTool(command: string): Promise<void> {
-        const parts = command.split(/\s+/);
-        const toolName = parts[1];
-
-        if (!toolName) {
-            console.log('❌ Please specify a tool name');
-            return;
-        }
-
-        // Parse arguments (simple JSON-like format)
-        let toolArgs: Record<string, unknown> = {};
-        if (parts.length > 2) {
-            const argsString = parts.slice(2).join(' ');
-            try {
-                toolArgs = JSON.parse(argsString);
-            } catch {
-                console.log('❌ Invalid arguments format (expected JSON)');
-                return;
-            }
-        }
-
-        await this.streamTool(toolName, toolArgs);
-    }
-
-    private async streamTool(toolName: string, toolArgs: Record<string, unknown>): Promise<void> {
-        if (!this.client) {
-            console.log('❌ Not connected to server');
-            return;
-        }
-
-        try {
-            // Using the experimental tasks API - WARNING: may change without notice
-            console.log(`\n🔧 Streaming tool '${toolName}'...`);
-
-            const stream = this.client.experimental.tasks.callToolStream(
-                {
-                    name: toolName,
-                    arguments: toolArgs
-                },
-                {
-                    task: {
-                        taskId: `task-${Date.now()}`,
-                        ttl: 60_000
-                    }
-                }
-            );
-
-            // Iterate through all messages yielded by the generator
-            for await (const message of stream) {
-                switch (message.type) {
-                    case 'taskCreated': {
-                        console.log(`✓ Task created: ${message.task.taskId}`);
-                        break;
-                    }
-
-                    case 'taskStatus': {
-                        console.log(`⟳ Status: ${message.task.status}`);
-                        if (message.task.statusMessage) {
-                            console.log(`  ${message.task.statusMessage}`);
-                        }
-                        break;
-                    }
-
-                    case 'result': {
-                        console.log('✓ Completed!');
-                        const toolResult = message.result as CallToolResult;
-                        for (const content of toolResult.content) {
-                            if (content.type === 'text') {
-                                console.log(content.text);
-                            } else {
-                                console.log(content);
-                            }
-                        }
-                        break;
-                    }
-
-                    case 'error': {
-                        console.log('✗ Error:');
-                        console.log(`  ${message.error.message}`);
-                        break;
-                    }
-                }
-            }
-        } catch (error) {
-            console.error(`❌ Failed to stream tool '${toolName}':`, error);
         }
     }
 

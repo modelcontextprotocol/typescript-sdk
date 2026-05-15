@@ -1,32 +1,10 @@
-import type { Result, Task } from '../types/index.js';
+import type { Result } from '../types/index.js';
 
 /**
  * Base message type for the response stream.
  */
 export interface BaseResponseMessage {
     type: string;
-}
-
-/**
- * Task status update message.
- *
- * Yielded on each poll iteration while the task is active (e.g. while
- * `working`). May be emitted multiple times with the same status.
- */
-export interface TaskStatusMessage extends BaseResponseMessage {
-    type: 'taskStatus';
-    task: Task;
-}
-
-/**
- * Task created message.
- *
- * Yielded once when the server creates a new task for a long-running operation.
- * This is always the first message for task-augmented requests.
- */
-export interface TaskCreatedMessage extends BaseResponseMessage {
-    type: 'taskCreated';
-    task: Task;
 }
 
 /**
@@ -51,20 +29,11 @@ export interface ErrorMessage extends BaseResponseMessage {
 }
 
 /**
- * Union of all message types yielded by task-aware streaming APIs such as
- * {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#callToolStream | callToolStream()},
- * {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#requestStream | ExperimentalClientTasks.requestStream()}, and
- * {@linkcode @modelcontextprotocol/server!experimental/tasks/server.ExperimentalServerTasks#requestStream | ExperimentalServerTasks.requestStream()}.
+ * Union of all message types yielded by streaming APIs.
  *
- * A typical sequence is:
- * 1. `taskCreated` — task is registered (once)
- * 2. `taskStatus`  — zero or more progress updates
- * 3. `result` **or** `error` — terminal message (once)
- *
- * Progress notifications are handled through the existing {@linkcode index.RequestOptions | onprogress} callback.
- * Side-channeled messages (server requests/notifications) are handled through registered handlers.
+ * A stream yields either a `result` (success) or `error` (failure) — both terminal.
  */
-export type ResponseMessage<T extends Result> = TaskStatusMessage | TaskCreatedMessage | ResultMessage<T> | ErrorMessage;
+export type ResponseMessage<T extends Result> = ResultMessage<T> | ErrorMessage;
 
 export type AsyncGeneratorValue<T> = T extends AsyncGenerator<infer U> ? U : never;
 
@@ -81,9 +50,8 @@ export async function toArrayAsync<T extends AsyncGenerator<unknown>>(it: T): Pr
 }
 
 /**
- * Consumes a {@linkcode ResponseMessage} stream and returns the final result,
- * discarding intermediate `taskCreated` and `taskStatus` messages. Throws
- * if an `error` message is received or the stream ends without a result.
+ * Consumes a {@linkcode ResponseMessage} stream and returns the final result.
+ * Throws if an `error` message is received or the stream ends without a result.
  */
 export async function takeResult<T extends Result, U extends AsyncGenerator<ResponseMessage<T>>>(it: U): Promise<T> {
     for await (const o of it) {

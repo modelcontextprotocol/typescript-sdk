@@ -420,9 +420,6 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `extra.requestInfo`              | `ctx.http?.req` (standard Web `Request`, only `ServerContext`)             |
 | `extra.closeSSEStream`           | `ctx.http?.closeSSE` (only `ServerContext`)                                |
 | `extra.closeStandaloneSSEStream` | `ctx.http?.closeStandaloneSSE` (only `ServerContext`)                      |
-| `extra.taskStore`                | `ctx.task?.store`                                                          |
-| `extra.taskId`                   | `ctx.task?.id`                                                             |
-| `extra.taskRequestedTtl`         | `ctx.task?.requestedTtl`                                                   |
 
 `ServerContext` convenience methods (new in v2, no v1 equivalent):
 
@@ -473,30 +470,11 @@ If a `*Schema` constant was used for **runtime validation** (not just as a `requ
 
 `isCallToolResult(value)` still works, but `isSpecType` covers every spec type by name.
 
-## 12. Experimental: `TaskCreationParams.ttl` no longer accepts `null`
-
-`TaskCreationParams.ttl` changed from `z.union([z.number(), z.null()]).optional()` to `z.number().optional()`. Per the MCP spec, `null` TTL (unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Omit `ttl` to let the server decide.
-
-| v1                     | v2                                 |
-| ---------------------- | ---------------------------------- |
-| `task: { ttl: null }`  | `task: {}` (omit ttl)              |
-| `task: { ttl: 60000 }` | `task: { ttl: 60000 }` (unchanged) |
-
-Type changes in handler context:
-
-| Type                                        | v1                            | v2                    |
-| ------------------------------------------- | ----------------------------- | --------------------- |
-| `TaskContext.requestedTtl`                  | `number \| null \| undefined` | `number \| undefined` |
-| `CreateTaskServerContext.task.requestedTtl` | `number \| null \| undefined` | `number \| undefined` |
-| `TaskServerContext.task.requestedTtl`       | `number \| null \| undefined` | `number \| undefined` |
-
-> These task APIs are `@experimental` and may change without notice.
-
-## 13. Client Behavioral Changes
+## 12. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
-## 14. Runtime-Specific JSON Schema Validators (Enhancement)
+## 13. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
 
@@ -524,7 +502,7 @@ Access validators explicitly:
 - AJV (Node.js): `import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';`
 - CF Worker: `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';`
 
-## 15. Migration Steps (apply in this order)
+## 14. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`

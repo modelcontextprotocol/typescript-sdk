@@ -485,7 +485,7 @@ const result = await client.callTool({ name: 'my-tool', arguments: {} }, Compati
 const result = await client.callTool({ name: 'my-tool', arguments: {} });
 ```
 
-The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult | CreateTaskResult>`.
+The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult>`.
 
 For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
@@ -591,16 +591,12 @@ The `RequestHandlerExtra` type has been replaced with a structured context type 
 | `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
 | `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
 | `extra.sessionId`                        | `ctx.sessionId`                                                        |
-| `extra.taskStore`                        | `ctx.task?.store`                                                      |
-| `extra.taskId`                           | `ctx.task?.id`                                                         |
-| `extra.taskRequestedTtl`                 | `ctx.task?.requestedTtl`                                               |
 
 **Before (v1):**
 
 ```typescript
 server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const headers = extra.requestInfo?.headers;
-    const taskStore = extra.taskStore;
     await extra.sendNotification({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
     return { content: [{ type: 'text', text: 'result' }] };
 });
@@ -611,17 +607,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
     const headers = ctx.http?.req?.headers; // standard Web Request object
-    const taskStore = ctx.task?.store;
     await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
     return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
-Context fields are organized into 4 groups:
+Context fields are organized into 2 groups:
 
 - **`mcpReq`** — request-level concerns: `id`, `method`, `_meta`, `signal`, `send()`, `notify()`, plus server-only `log()`, `elicitInput()`, and `requestSampling()`
 - **`http?`** — HTTP transport concerns (undefined for stdio): `authInfo`, plus server-only `req`, `closeSSE`, `closeStandaloneSSE`
-- **`task?`** — task lifecycle: `id`, `store`, `requestedTtl`
 
 `BaseContext` is the common base type shared by both `ServerContext` and `ClientContext`. `ServerContext` extends each group with server-specific additions via type intersection.
 
@@ -852,47 +846,6 @@ try {
     }
 }
 ```
-
-### Experimental: `TaskCreationParams.ttl` no longer accepts `null`
-
-The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let
-the server decide the lifetime.
-
-This also narrows the type of `requestedTtl` in `TaskContext`, `CreateTaskServerContext`, and `TaskServerContext` from `number | null | undefined` to `number | undefined`.
-
-**Before (v1):**
-
-```typescript
-// Requesting unlimited lifetime by passing null
-const result = await client.callTool({
-    name: 'long-task',
-    arguments: {},
-    task: { ttl: null }
-});
-
-// Handler context had number | null | undefined
-server.setRequestHandler('tools/call', async (request, ctx) => {
-    const ttl: number | null | undefined = ctx.task?.requestedTtl;
-});
-```
-
-**After (v2):**
-
-```typescript
-// Omit ttl to let the server decide (server may return null for unlimited)
-const result = await client.callTool({
-    name: 'long-task',
-    arguments: {},
-    task: {}
-});
-
-// Handler context is now number | undefined
-server.setRequestHandler('tools/call', async (request, ctx) => {
-    const ttl: number | undefined = ctx.task?.requestedTtl;
-});
-```
-
-> **Note:** These task APIs are marked `@experimental` and may change without notice.
 
 ## Enhancements
 

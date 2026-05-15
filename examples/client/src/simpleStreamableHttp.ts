@@ -1,7 +1,6 @@
 import { createInterface } from 'node:readline';
 
 import type {
-    CallToolResult,
     GetPromptRequest,
     ListPromptsRequest,
     ListResourcesRequest,
@@ -9,15 +8,7 @@ import type {
     ReadResourceRequest,
     ResourceLink
 } from '@modelcontextprotocol/client';
-import {
-    Client,
-    getDisplayName,
-    InMemoryTaskStore,
-    ProtocolError,
-    ProtocolErrorCode,
-    RELATED_TASK_META_KEY,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { Client, getDisplayName, ProtocolError, ProtocolErrorCode, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { Ajv } from 'ajv';
 
 // Create readline interface for user input
@@ -56,11 +47,9 @@ function printHelp(): void {
     console.log('  reconnect                  - Reconnect to the server');
     console.log('  list-tools                 - List available tools');
     console.log('  call-tool <name> [args]    - Call a tool with optional JSON arguments');
-    console.log('  call-tool-task <name> [args] - Call a tool with task-based execution (example: call-tool-task delay {"duration":3000})');
     console.log('  greet [name]               - Call the greet tool');
     console.log('  multi-greet [name]         - Call the multi-greet tool with notifications');
     console.log('  collect-info [type]        - Test form elicitation with collect-user-info tool (contact/preferences/feedback)');
-    console.log('  collect-info-task [type]   - Test bidirectional task support (server+client tasks) with elicitation');
     console.log('  start-notifications [interval] [count] - Start periodic notifications');
     console.log('  run-notifications-tool-with-resumability [interval] [count] - Run notification tool with resumability');
     console.log('  list-prompts               - List available prompts');
@@ -136,11 +125,6 @@ function commandLoop(): void {
                     break;
                 }
 
-                case 'collect-info-task': {
-                    await callCollectInfoWithTask(args[1] || 'contact');
-                    break;
-                }
-
                 case 'start-notifications': {
                     const interval = args[1] ? Number.parseInt(args[1], 10) : 2000;
                     const count = args[2] ? Number.parseInt(args[2], 10) : 10;
@@ -152,24 +136,6 @@ function commandLoop(): void {
                     const interval = args[1] ? Number.parseInt(args[1], 10) : 2000;
                     const count = args[2] ? Number.parseInt(args[2], 10) : 10;
                     await runNotificationsToolWithResumability(interval, count);
-                    break;
-                }
-
-                case 'call-tool-task': {
-                    if (args.length < 2) {
-                        console.log('Usage: call-tool-task <name> [args]');
-                    } else {
-                        const toolName = args[1]!;
-                        let toolArgs = {};
-                        if (args.length > 2) {
-                            try {
-                                toolArgs = JSON.parse(args.slice(2).join(' '));
-                            } catch {
-                                console.log('Invalid JSON arguments. Using empty args.');
-                            }
-                        }
-                        await callToolTask(toolName, toolArgs);
-                    }
                     break;
                 }
 
@@ -250,10 +216,7 @@ async function connect(url?: string): Promise<void> {
     console.log(`Connecting to ${serverUrl}...`);
 
     try {
-        // Create task store for client-side task support
-        const clientTaskStore = new InMemoryTaskStore();
-
-        // Create a new client with form elicitation capability and task support
+        // Create a new client with form elicitation capability
         client = new Client(
             {
                 name: 'example-client',
@@ -263,14 +226,6 @@ async function connect(url?: string): Promise<void> {
                 capabilities: {
                     elicitation: {
                         form: {}
-                    },
-                    tasks: {
-                        taskStore: clientTaskStore,
-                        requests: {
-                            elicitation: {
-                                create: {}
-                            }
-                        }
                     }
                 }
             }
@@ -279,32 +234,15 @@ async function connect(url?: string): Promise<void> {
             console.error('\u001B[31mClient error:', error, '\u001B[0m');
         };
 
-        // Set up elicitation request handler with proper validation and task support
-        client.setRequestHandler('elicitation/create', async (request, extra) => {
+        // Set up elicitation request handler with proper validation
+        client.setRequestHandler('elicitation/create', async request => {
             if (request.params.mode !== 'form') {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unsupported elicitation mode: ${request.params.mode}`);
             }
             console.log('\n🔔 Elicitation (form) Request Received:');
             console.log(`Message: ${request.params.message}`);
-            console.log(`Related Task: ${request.params._meta?.[RELATED_TASK_META_KEY]?.taskId}`);
-            console.log(`Task Creation Requested: ${request.params.task ? 'yes' : 'no'}`);
             console.log('Requested Schema:');
             console.log(JSON.stringify(request.params.requestedSchema, null, 2));
-
-            // Helper to return result, optionally creating a task if requested
-            const returnResult = async (result: {
-                action: 'accept' | 'decline' | 'cancel';
-                content?: Record<string, string | number | boolean | string[]>;
-            }) => {
-                if (request.params.task && extra.task?.store) {
-                    // Create a task and store the result
-                    const task = await extra.task.store.createTask({ ttl: extra.task.requestedTtl });
-                    await extra.task.store.storeTaskResult(task.taskId, 'completed', result);
-                    console.log(`📋 Created client-side task: ${task.taskId}`);
-                    return { task };
-                }
-                return result;
-            };
 
             const schema = request.params.requestedSchema;
             const properties = schema.properties;
@@ -439,7 +377,7 @@ async function connect(url?: string): Promise<void> {
                 }
 
                 if (inputCancelled) {
-                    return returnResult({ action: 'cancel' });
+                    return { action: 'cancel' };
                 }
 
                 // If we didn't complete all fields due to an error, try again
@@ -452,7 +390,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return returnResult({ action: 'decline' });
+                        return { action: 'decline' };
                     }
                 }
 
@@ -471,7 +409,7 @@ async function connect(url?: string): Promise<void> {
                         continue;
                     } else {
                         console.log('Maximum attempts reached. Declining request.');
-                        return returnResult({ action: 'decline' });
+                        return { action: 'decline' };
                     }
                 }
 
@@ -488,14 +426,14 @@ async function connect(url?: string): Promise<void> {
                 switch (confirmAnswer) {
                     case 'yes':
                     case 'y': {
-                        return returnResult({
+                        return {
                             action: 'accept',
                             content
-                        });
+                        };
                     }
                     case 'cancel':
                     case 'c': {
-                        return returnResult({ action: 'cancel' });
+                        return { action: 'cancel' };
                     }
                     case 'no':
                     case 'n': {
@@ -503,7 +441,7 @@ async function connect(url?: string): Promise<void> {
                             console.log('Please re-enter the information...');
                             continue;
                         } else {
-                            return returnResult({ action: 'decline' });
+                            return { action: 'decline' };
                         }
 
                         break;
@@ -513,7 +451,7 @@ async function connect(url?: string): Promise<void> {
             }
 
             console.log('Maximum attempts reached. Declining request.');
-            return returnResult({ action: 'decline' });
+            return { action: 'decline' };
         });
 
         transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
@@ -716,12 +654,6 @@ async function callCollectInfoTool(infoType: string): Promise<void> {
     await callTool('collect-user-info', { infoType });
 }
 
-async function callCollectInfoWithTask(infoType: string): Promise<void> {
-    console.log(`\n🔄 Testing bidirectional task support with collect-user-info-task tool (${infoType})...`);
-    console.log('This will create a task on the server, which will elicit input and create a task on the client.\n');
-    await callToolTask('collect-user-info-task', { infoType });
-}
-
 async function startNotifications(interval: number, count: number): Promise<void> {
     console.log(`Starting notification stream: interval=${interval}ms, count=${count || 'unlimited'}`);
     await callTool('start-notification-stream', { interval, count });
@@ -877,70 +809,6 @@ async function readResource(uri: string): Promise<void> {
         }
     } catch (error) {
         console.log(`Error reading resource ${uri}: ${error}`);
-    }
-}
-
-async function callToolTask(name: string, args: Record<string, unknown>): Promise<void> {
-    if (!client) {
-        console.log('Not connected to server.');
-        return;
-    }
-
-    console.log(`Calling tool '${name}' with task-based execution...`);
-    console.log('Arguments:', args);
-
-    // Use task-based execution - call now, fetch later
-    // Using the experimental tasks API - WARNING: may change without notice
-    console.log('This will return immediately while processing continues in the background...');
-
-    try {
-        // Call the tool with task metadata using streaming API
-        const stream = client.experimental.tasks.callToolStream(
-            {
-                name,
-                arguments: args
-            },
-            {
-                task: {
-                    ttl: 60_000 // Keep results for 60 seconds
-                }
-            }
-        );
-
-        console.log('Waiting for task completion...');
-
-        let lastStatus = '';
-        for await (const message of stream) {
-            switch (message.type) {
-                case 'taskCreated': {
-                    console.log('Task created successfully with ID:', message.task.taskId);
-                    break;
-                }
-                case 'taskStatus': {
-                    if (lastStatus !== message.task.status) {
-                        console.log(`  ${message.task.status}${message.task.statusMessage ? ` - ${message.task.statusMessage}` : ''}`);
-                    }
-                    lastStatus = message.task.status;
-                    break;
-                }
-                case 'result': {
-                    console.log('Task completed!');
-                    console.log('Tool result:');
-                    const toolResult = message.result as CallToolResult;
-                    for (const item of toolResult.content) {
-                        if (item.type === 'text') {
-                            console.log(`  ${item.text}`);
-                        }
-                    }
-                    break;
-                }
-                case 'error': {
-                    throw message.error;
-                }
-            }
-        }
-    } catch (error) {
-        console.log(`Error with task-based execution: ${error}`);
     }
 }
 

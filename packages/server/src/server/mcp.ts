@@ -1,12 +1,9 @@
 import type {
     BaseMetadata,
-    CallToolRequest,
     CallToolResult,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
-    CreateTaskResult,
-    CreateTaskServerContext,
     GetPromptResult,
     Implementation,
     ListPromptsResult,
@@ -23,7 +20,6 @@ import type {
     StandardSchemaWithJSON,
     Tool,
     ToolAnnotations,
-    ToolExecution,
     Transport,
     Variables
 } from '@modelcontextprotocol/core';
@@ -41,8 +37,6 @@ import {
 } from '@modelcontextprotocol/core';
 import type * as z from 'zod/v4';
 
-import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
-import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
@@ -72,26 +66,9 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
-    private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
-    }
-
-    /**
-     * Access experimental features.
-     *
-     * WARNING: These APIs are experimental and may change without notice.
-     *
-     * @experimental
-     */
-    get experimental(): { tasks: ExperimentalMcpServerTasks } {
-        if (!this._experimental) {
-            this._experimental = {
-                tasks: new ExperimentalMcpServerTasks(this)
-            };
-        }
-        return this._experimental;
     }
 
     /**
@@ -147,7 +124,6 @@ export class McpServer {
                                 ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
-                            execution: tool.execution,
                             _meta: tool._meta
                         };
 
@@ -160,7 +136,7 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | CreateTaskResult> => {
+        this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult> => {
             const tool = this._registeredTools[request.params.name];
             if (!tool) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
@@ -170,46 +146,14 @@ export class McpServer {
             }
 
             try {
-                const isTaskRequest = !!request.params.task;
-                const taskSupport = tool.execution?.taskSupport;
-                const isTaskHandler = 'createTask' in (tool.handler as AnyToolHandler<StandardSchemaWithJSON>);
-
-                // Validate task hint configuration
-                if ((taskSupport === 'required' || taskSupport === 'optional') && !isTaskHandler) {
-                    throw new ProtocolError(
-                        ProtocolErrorCode.InternalError,
-                        `Tool ${request.params.name} has taskSupport '${taskSupport}' but was not registered with registerToolTask`
-                    );
-                }
-
-                // Handle taskSupport 'required' without task augmentation
-                if (taskSupport === 'required' && !isTaskRequest) {
-                    throw new ProtocolError(
-                        ProtocolErrorCode.MethodNotFound,
-                        `Tool ${request.params.name} requires task augmentation (taskSupport: 'required')`
-                    );
-                }
-
-                // Handle taskSupport 'optional' without task augmentation - automatic polling
-                if (taskSupport === 'optional' && !isTaskRequest && isTaskHandler) {
-                    return await this.handleAutomaticTaskPolling(tool, request, ctx);
-                }
-
-                // Normal execution path
                 const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
                 const result = await this.executeToolHandler(tool, args, ctx);
 
-                // Return CreateTaskResult immediately for task requests
-                if (isTaskRequest) {
-                    return result;
-                }
-
-                // Validate output schema for non-task requests
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
-                    throw error; // Return the error to the caller without wrapping in CallToolResult
+                    throw error;
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
@@ -265,13 +209,8 @@ export class McpServer {
     /**
      * Validates tool output against the tool's output schema.
      */
-    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult | CreateTaskResult, toolName: string): Promise<void> {
+    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult, toolName: string): Promise<void> {
         if (!tool.outputSchema) {
-            return;
-        }
-
-        // Only validate CallToolResult, not CreateTaskResult
-        if (!('content' in result)) {
             return;
         }
 
@@ -297,45 +236,11 @@ export class McpServer {
     }
 
     /**
-     * Executes a tool handler (either regular or task-based).
+     * Executes a tool handler.
      */
-    private async executeToolHandler(tool: RegisteredTool, args: unknown, ctx: ServerContext): Promise<CallToolResult | CreateTaskResult> {
+    private async executeToolHandler(tool: RegisteredTool, args: unknown, ctx: ServerContext): Promise<CallToolResult> {
         // Executor encapsulates handler invocation with proper types
         return tool.executor(args, ctx);
-    }
-
-    /**
-     * Handles automatic task polling for tools with `taskSupport` `'optional'`.
-     */
-    private async handleAutomaticTaskPolling<RequestT extends CallToolRequest>(
-        tool: RegisteredTool,
-        request: RequestT,
-        ctx: ServerContext
-    ): Promise<CallToolResult> {
-        if (!ctx.task?.store) {
-            throw new Error('No task store provided for task-capable tool.');
-        }
-
-        // Validate input and create task using the executor
-        const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
-        const createTaskResult = (await tool.executor(args, ctx)) as CreateTaskResult;
-
-        // Poll until completion
-        const taskId = createTaskResult.task.taskId;
-        let task = createTaskResult.task;
-        const pollInterval = task.pollInterval ?? 5000;
-
-        while (task.status !== 'completed' && task.status !== 'failed' && task.status !== 'cancelled') {
-            await new Promise(resolve => setTimeout(resolve, pollInterval));
-            const updatedTask = await ctx.task.store.getTask(taskId);
-            if (!updatedTask) {
-                throw new ProtocolError(ProtocolErrorCode.InternalError, `Task ${taskId} not found during polling`);
-            }
-            task = updatedTask;
-        }
-
-        // Return the final result
-        return (await ctx.task.store.getTaskResult(taskId)) as CallToolResult;
     }
 
     private _completionHandlerInitialized = false;
@@ -773,7 +678,6 @@ export class McpServer {
         inputSchema: StandardSchemaWithJSON | undefined,
         outputSchema: StandardSchemaWithJSON | undefined,
         annotations: ToolAnnotations | undefined,
-        execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
@@ -789,7 +693,6 @@ export class McpServer {
             inputSchema,
             outputSchema,
             annotations,
-            execution,
             _meta,
             handler: handler,
             executor: createToolExecutor(inputSchema, handler),
@@ -914,7 +817,6 @@ export class McpServer {
             normalizeRawShapeSchema(inputSchema),
             normalizeRawShapeSchema(outputSchema),
             annotations,
-            { taskSupport: 'forbidden' },
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
@@ -1148,14 +1050,14 @@ export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undef
 >;
 
 /**
- * Supertype that can handle both regular tools (simple callback) and task-based tools (task handler object).
+ * Tool handler type — either a regular callback or (for compatibility) itself.
  */
-export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = undefined> = ToolCallback<Args> | ToolTaskHandler<Args>;
+export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = undefined> = ToolCallback<Args>;
 
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
  */
-type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult | CreateTaskResult>;
+type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult>;
 
 export type RegisteredTool = {
     title?: string;
@@ -1163,7 +1065,6 @@ export type RegisteredTool = {
     inputSchema?: StandardSchemaWithJSON;
     outputSchema?: StandardSchemaWithJSON;
     annotations?: ToolAnnotations;
-    execution?: ToolExecution;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
@@ -1194,23 +1095,6 @@ function createToolExecutor(
     inputSchema: StandardSchemaWithJSON | undefined,
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
 ): ToolExecutor {
-    const isTaskHandler = 'createTask' in handler;
-
-    if (isTaskHandler) {
-        const taskHandler = handler as TaskHandlerInternal;
-        return async (args, ctx) => {
-            if (!ctx.task?.store) {
-                throw new Error('No task store provided.');
-            }
-            const taskCtx: CreateTaskServerContext = { ...ctx, task: { store: ctx.task.store, requestedTtl: ctx.task?.requestedTtl } };
-            if (inputSchema) {
-                return taskHandler.createTask(args, taskCtx);
-            }
-            // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
-            return (taskHandler.createTask as (ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>)(taskCtx);
-        };
-    }
-
     if (inputSchema) {
         const callback = handler as ToolCallbackInternal;
         return async (args, ctx) => callback(args, ctx);
@@ -1299,10 +1183,6 @@ export type PromptCallback<Args extends StandardSchemaWithJSON | undefined = und
 type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult>;
 
 type ToolCallbackInternal = (args: unknown, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
-
-type TaskHandlerInternal = {
-    createTask: (args: unknown, ctx: CreateTaskServerContext) => CreateTaskResult | Promise<CreateTaskResult>;
-};
 
 export type RegisteredPrompt = {
     title?: string;

@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 
-import { JSONRPC_VERSION, RELATED_TASK_META_KEY } from './constants.js';
+import { JSONRPC_VERSION } from './constants.js';
 import type {
     JSONArray,
     JSONObject,
@@ -27,42 +27,11 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  */
 export const CursorSchema = z.string();
 
-/**
- * Task creation parameters, used to ask that the server create a task to represent a request.
- */
-export const TaskCreationParamsSchema = z.looseObject({
-    /**
-     * Requested duration in milliseconds to retain task from creation.
-     */
-    ttl: z.number().optional(),
-
-    /**
-     * Time in milliseconds to wait between task status requests.
-     */
-    pollInterval: z.number().optional()
-});
-
-export const TaskMetadataSchema = z.object({
-    ttl: z.number().optional()
-});
-
-/**
- * Metadata for associating messages with a task.
- * Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
- */
-export const RelatedTaskMetadataSchema = z.object({
-    taskId: z.string()
-});
-
 export const RequestMetaSchema = z.looseObject({
     /**
      * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
      */
-    progressToken: ProgressTokenSchema.optional(),
-    /**
-     * If specified, this request is related to the provided task.
-     */
-    [RELATED_TASK_META_KEY]: RelatedTaskMetadataSchema.optional()
+    progressToken: ProgressTokenSchema.optional()
 });
 
 /**
@@ -73,21 +42,6 @@ export const BaseRequestParamsSchema = z.object({
      * See [General fields: `_meta`](/specification/draft/basic/index#meta) for notes on `_meta` usage.
      */
     _meta: RequestMetaSchema.optional()
-});
-
-/**
- * Common params for any task-augmented request.
- */
-export const TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
-    /**
-     * If specified, the caller is requesting task-augmented execution for this request.
-     * The request will return a `CreateTaskResult` immediately, and the actual result can be
-     * retrieved later via `tasks/result`.
-     *
-     * Task augmentation is subject to capability negotiation - receivers MUST declare support
-     * for task augmentation of specific request types in their capabilities.
-     */
-    task: TaskMetadataSchema.optional()
 });
 
 export const RequestSchema = z.object({
@@ -332,72 +286,6 @@ const ElicitationCapabilitySchema = z.preprocess(
 );
 
 /**
- * Task capabilities for clients, indicating which request types support task creation.
- */
-export const ClientTasksCapabilitySchema = z.looseObject({
-    /**
-     * Present if the client supports listing tasks.
-     */
-    list: JSONObjectSchema.optional(),
-    /**
-     * Present if the client supports cancelling tasks.
-     */
-    cancel: JSONObjectSchema.optional(),
-    /**
-     * Capabilities for task creation on specific request types.
-     */
-    requests: z
-        .looseObject({
-            /**
-             * Task support for sampling requests.
-             */
-            sampling: z
-                .looseObject({
-                    createMessage: JSONObjectSchema.optional()
-                })
-                .optional(),
-            /**
-             * Task support for elicitation requests.
-             */
-            elicitation: z
-                .looseObject({
-                    create: JSONObjectSchema.optional()
-                })
-                .optional()
-        })
-        .optional()
-});
-
-/**
- * Task capabilities for servers, indicating which request types support task creation.
- */
-export const ServerTasksCapabilitySchema = z.looseObject({
-    /**
-     * Present if the server supports listing tasks.
-     */
-    list: JSONObjectSchema.optional(),
-    /**
-     * Present if the server supports cancelling tasks.
-     */
-    cancel: JSONObjectSchema.optional(),
-    /**
-     * Capabilities for task creation on specific request types.
-     */
-    requests: z
-        .looseObject({
-            /**
-             * Task support for tool requests.
-             */
-            tools: z
-                .looseObject({
-                    call: JSONObjectSchema.optional()
-                })
-                .optional()
-        })
-        .optional()
-});
-
-/**
  * Capabilities a client may support. Known capabilities are defined here, in this schema, but this is not a closed set: any client can define its own, additional capabilities.
  */
 export const ClientCapabilitiesSchema = z.object({
@@ -436,10 +324,6 @@ export const ClientCapabilitiesSchema = z.object({
             listChanged: z.boolean().optional()
         })
         .optional(),
-    /**
-     * Present if the client supports task creation.
-     */
-    tasks: ClientTasksCapabilitySchema.optional(),
     /**
      * Extensions that the client supports. Keys are extension identifiers (vendor-prefix/extension-name).
      */
@@ -516,10 +400,6 @@ export const ServerCapabilitiesSchema = z.object({
             listChanged: z.boolean().optional()
         })
         .optional(),
-    /**
-     * Present if the server supports task creation.
-     */
-    tasks: ServerTasksCapabilitySchema.optional(),
     /**
      * Extensions that the server supports. Keys are extension identifiers (vendor-prefix/extension-name).
      */
@@ -615,120 +495,6 @@ export const PaginatedResultSchema = ResultSchema.extend({
      */
     nextCursor: CursorSchema.optional()
 });
-
-/**
- * The status of a task.
- * */
-export const TaskStatusSchema = z.enum(['working', 'input_required', 'completed', 'failed', 'cancelled']);
-
-/* Tasks */
-/**
- * A pollable state object associated with a request.
- */
-export const TaskSchema = z.object({
-    taskId: z.string(),
-    status: TaskStatusSchema,
-    /**
-     * Time in milliseconds to keep task results available after completion.
-     * If `null`, the task has unlimited lifetime until manually cleaned up.
-     */
-    ttl: z.union([z.number(), z.null()]),
-    /**
-     * ISO 8601 timestamp when the task was created.
-     */
-    createdAt: z.string(),
-    /**
-     * ISO 8601 timestamp when the task was last updated.
-     */
-    lastUpdatedAt: z.string(),
-    pollInterval: z.optional(z.number()),
-    /**
-     * Optional diagnostic message for failed tasks or other status information.
-     */
-    statusMessage: z.optional(z.string())
-});
-
-/**
- * Result returned when a task is created, containing the task data wrapped in a `task` field.
- */
-export const CreateTaskResultSchema = ResultSchema.extend({
-    task: TaskSchema
-});
-
-/**
- * Parameters for task status notification.
- */
-export const TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
-
-/**
- * A notification sent when a task's status changes.
- */
-export const TaskStatusNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/tasks/status'),
-    params: TaskStatusNotificationParamsSchema
-});
-
-/**
- * A request to get the state of a specific task.
- */
-export const GetTaskRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/get'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
-
-/**
- * The response to a {@linkcode GetTaskRequest | tasks/get} request.
- */
-export const GetTaskResultSchema = ResultSchema.merge(TaskSchema);
-
-/**
- * A request to get the result of a specific task.
- */
-export const GetTaskPayloadRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/result'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
-
-/**
- * The response to a `tasks/result` request.
- * The structure matches the result type of the original request.
- * For example, a {@linkcode CallToolRequest | tools/call} task would return the `CallToolResult` structure.
- *
- */
-export const GetTaskPayloadResultSchema = ResultSchema.loose();
-
-/**
- * A request to list tasks.
- */
-export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
-    method: z.literal('tasks/list')
-});
-
-/**
- * The response to a {@linkcode ListTasksRequest | tasks/list} request.
- */
-export const ListTasksResultSchema = PaginatedResultSchema.extend({
-    tasks: z.array(TaskSchema)
-});
-
-/**
- * A request to cancel a specific task.
- */
-export const CancelTaskRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/cancel'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
-
-/**
- * The response to a {@linkcode CancelTaskRequest | tasks/cancel} request.
- */
-export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
 
 /* Resources */
 /**
@@ -1283,21 +1049,6 @@ export const ToolAnnotationsSchema = z.object({
 });
 
 /**
- * Execution-related properties for a tool.
- */
-export const ToolExecutionSchema = z.object({
-    /**
-     * Indicates the tool's preference for task-augmented execution.
-     * - `"required"`: Clients MUST invoke the tool as a task
-     * - `"optional"`: Clients MAY invoke the tool as a task or normal request
-     * - `"forbidden"`: Clients MUST NOT attempt to invoke the tool as a task
-     *
-     * If not present, defaults to `"forbidden"`.
-     */
-    taskSupport: z.enum(['required', 'optional', 'forbidden']).optional()
-});
-
-/**
  * Definition for a tool the client can call.
  */
 export const ToolSchema = z.object({
@@ -1335,10 +1086,6 @@ export const ToolSchema = z.object({
      * Optional additional tool information.
      */
     annotations: ToolAnnotationsSchema.optional(),
-    /**
-     * Execution-related properties for this tool.
-     */
-    execution: ToolExecutionSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1409,7 +1156,7 @@ export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
 /**
  * Parameters for a `tools/call` request.
  */
-export const CallToolRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
+export const CallToolRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * The name of the tool to call.
      */
@@ -1607,7 +1354,7 @@ export const SamplingMessageSchema = z.object({
 /**
  * Parameters for a `sampling/createMessage` request.
  */
-export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
+export const CreateMessageRequestParamsSchema = BaseRequestParamsSchema.extend({
     messages: z.array(SamplingMessageSchema),
     /**
      * The server's preferences for which model to select. The client MAY modify or omit this request.
@@ -1846,7 +1593,7 @@ export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, Boolea
 /**
  * Parameters for an `elicitation/create` request for form-based elicitation.
  */
-export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.extend({
+export const ElicitRequestFormParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * The elicitation mode.
      *
@@ -1873,7 +1620,7 @@ export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.ex
 /**
  * Parameters for an {@linkcode ElicitRequest | elicitation/create} request for URL-based elicitation.
  */
-export const ElicitRequestURLParamsSchema = TaskAugmentedRequestParamsSchema.extend({
+export const ElicitRequestURLParamsSchema = BaseRequestParamsSchema.extend({
     /**
      * The elicitation mode.
      */
@@ -2089,19 +1836,14 @@ export const ClientRequestSchema = z.union([
     SubscribeRequestSchema,
     UnsubscribeRequestSchema,
     CallToolRequestSchema,
-    ListToolsRequestSchema,
-    GetTaskRequestSchema,
-    GetTaskPayloadRequestSchema,
-    ListTasksRequestSchema,
-    CancelTaskRequestSchema
+    ListToolsRequestSchema
 ]);
 
 export const ClientNotificationSchema = z.union([
     CancelledNotificationSchema,
     ProgressNotificationSchema,
     InitializedNotificationSchema,
-    RootsListChangedNotificationSchema,
-    TaskStatusNotificationSchema
+    RootsListChangedNotificationSchema
 ]);
 
 export const ClientResultSchema = z.union([
@@ -2109,23 +1851,11 @@ export const ClientResultSchema = z.union([
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
-    ListRootsResultSchema,
-    GetTaskResultSchema,
-    ListTasksResultSchema,
-    CreateTaskResultSchema
+    ListRootsResultSchema
 ]);
 
 /* Server messages */
-export const ServerRequestSchema = z.union([
-    PingRequestSchema,
-    CreateMessageRequestSchema,
-    ElicitRequestSchema,
-    ListRootsRequestSchema,
-    GetTaskRequestSchema,
-    GetTaskPayloadRequestSchema,
-    ListTasksRequestSchema,
-    CancelTaskRequestSchema
-]);
+export const ServerRequestSchema = z.union([PingRequestSchema, CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema]);
 
 export const ServerNotificationSchema = z.union([
     CancelledNotificationSchema,
@@ -2135,7 +1865,6 @@ export const ServerNotificationSchema = z.union([
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
-    TaskStatusNotificationSchema,
     ElicitationCompleteNotificationSchema
 ]);
 
@@ -2149,10 +1878,7 @@ export const ServerResultSchema = z.union([
     ListResourceTemplatesResultSchema,
     ReadResourceResultSchema,
     CallToolResultSchema,
-    ListToolsResultSchema,
-    GetTaskResultSchema,
-    ListTasksResultSchema,
-    CreateTaskResultSchema
+    ListToolsResultSchema
 ]);
 
 /* Runtime schema lookup — result schemas by method */
@@ -2168,15 +1894,11 @@ const resultSchemas: Record<string, z.core.$ZodType> = {
     'resources/read': ReadResourceResultSchema,
     'resources/subscribe': EmptyResultSchema,
     'resources/unsubscribe': EmptyResultSchema,
-    'tools/call': z.union([CallToolResultSchema, CreateTaskResultSchema]),
+    'tools/call': CallToolResultSchema,
     'tools/list': ListToolsResultSchema,
-    'sampling/createMessage': z.union([CreateMessageResultWithToolsSchema, CreateTaskResultSchema]),
-    'elicitation/create': z.union([ElicitResultSchema, CreateTaskResultSchema]),
-    'roots/list': ListRootsResultSchema,
-    'tasks/get': GetTaskResultSchema,
-    'tasks/result': ResultSchema,
-    'tasks/list': ListTasksResultSchema,
-    'tasks/cancel': CancelTaskResultSchema
+    'sampling/createMessage': CreateMessageResultWithToolsSchema,
+    'elicitation/create': ElicitResultSchema,
+    'roots/list': ListRootsResultSchema
 };
 
 /**
