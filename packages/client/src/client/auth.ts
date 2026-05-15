@@ -46,6 +46,8 @@ export interface UnauthorizedContext {
     serverUrl: URL;
     /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
     fetchFn: FetchLike;
+    /** The merged scope accumulated across prior 401/403 challenges, when available. */
+    accumulatedScope?: string;
 }
 
 /**
@@ -105,7 +107,7 @@ export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx
     const result = await auth(provider, {
         serverUrl: ctx.serverUrl,
         resourceMetadataUrl,
-        scope,
+        scope: ctx.accumulatedScope ?? scope,
         fetchFn: ctx.fetchFn
     });
     if (result !== 'AUTHORIZED') {

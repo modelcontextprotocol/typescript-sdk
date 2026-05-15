@@ -8,6 +8,7 @@ import {
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
+    mergeScopes,
     normalizeHeaders,
     SdkError,
     SdkErrorCode
@@ -257,15 +258,18 @@ export class StreamableHTTPClientTransport implements Transport {
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
-                        this._scope = scope;
+                        if (resourceMetadataUrl) {
+                            this._resourceMetadataUrl = resourceMetadataUrl;
+                        }
+                        this._scope = mergeScopes(this._scope, scope);
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
+                            fetchFn: this._fetchWithInit,
+                            accumulatedScope: this._scope
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
@@ -565,15 +569,18 @@ export class StreamableHTTPClientTransport implements Transport {
                     // Store WWW-Authenticate params for interactive finishAuth() path
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
-                        this._scope = scope;
+                        if (resourceMetadataUrl) {
+                            this._resourceMetadataUrl = resourceMetadataUrl;
+                        }
+                        this._scope = mergeScopes(this._scope, scope);
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
                         await this._authProvider.onUnauthorized({
                             response,
                             serverUrl: this._url,
-                            fetchFn: this._fetchWithInit
+                            fetchFn: this._fetchWithInit,
+                            accumulatedScope: this._scope
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
@@ -605,7 +612,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
 
                         if (scope) {
-                            this._scope = scope;
+                            this._scope = mergeScopes(this._scope, scope);
                         }
 
                         if (resourceMetadataUrl) {

@@ -1171,6 +1171,160 @@ describe('SSEClientTransport', () => {
             await expect(() => transport.start()).rejects.toMatchObject(expectedError);
             expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
         });
+
+        it('accumulates scopes from sequential 401 responses in send()', async () => {
+            // Create server that accepts SSE connection but returns 401 on POST
+            // with different scopes on successive requests
+            resourceServer.close();
+
+            let postCallCount = 0;
+            resourceServer = createServer((req, res) => {
+                lastServerRequest = req;
+
+                if (req.method === 'GET') {
+                    if (req.url !== '/') {
+                        res.writeHead(404).end();
+                        return;
+                    }
+
+                    res.writeHead(200, {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache, no-transform',
+                        Connection: 'keep-alive'
+                    });
+                    res.write('event: endpoint\n');
+                    res.write(`data: ${resourceBaseUrl.href}\n\n`);
+                    return;
+                }
+
+                if (req.method === 'POST') {
+                    postCallCount++;
+                    if (postCallCount === 1) {
+                        // First POST: 401 with scope="read:op1"
+                        res.writeHead(401, {
+                            'WWW-Authenticate': 'Bearer scope="read:op1"'
+                        });
+                        res.end();
+                    } else if (postCallCount === 2) {
+                        // Second POST: 401 with scope="read:op2"
+                        res.writeHead(401, {
+                            'WWW-Authenticate': 'Bearer scope="read:op2"'
+                        });
+                        res.end();
+                    } else {
+                        res.writeHead(200);
+                        res.end();
+                    }
+                }
+            });
+
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            // Use a minimal AuthProvider (not OAuthClientProvider) so onUnauthorized
+            // is not set and 401 throws UnauthorizedError, letting us inspect _scope.
+            const minimalAuthProvider: AuthProvider = {
+                token: vi.fn().mockResolvedValue('test-token')
+            };
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: minimalAuthProvider
+            });
+
+            await transport.start();
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            // First send: 401 with scope="read:op1" — throws UnauthorizedError
+            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+            expect((transport as unknown as { _scope: string | undefined })['_scope']).toBe('read:op1');
+
+            // Second send: 401 with scope="read:op2" — scope should accumulate
+            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+
+            // Verify _scope has accumulated both tokens
+            const finalScope = (transport as unknown as { _scope: string | undefined })['_scope'];
+            expect(finalScope).toBeDefined();
+            const finalScopeTokens = String(finalScope).split(' ').toSorted();
+            expect(finalScopeTokens).toEqual(['read:op1', 'read:op2']);
+        });
+
+        it('preserves resource metadata URL across repeated 401 POST responses without resource_metadata', async () => {
+            resourceServer.close();
+
+            let postCallCount = 0;
+            const resourceMetadataUrl = 'http://example.com/.well-known/oauth-protected-resource';
+            resourceServer = createServer((req, res) => {
+                lastServerRequest = req;
+
+                if (req.method === 'GET') {
+                    if (req.url !== '/') {
+                        res.writeHead(404).end();
+                        return;
+                    }
+
+                    res.writeHead(200, {
+                        'Content-Type': 'text/event-stream',
+                        'Cache-Control': 'no-cache, no-transform',
+                        Connection: 'keep-alive'
+                    });
+                    res.write('event: endpoint\n');
+                    res.write(`data: ${resourceBaseUrl.href}\n\n`);
+                    return;
+                }
+
+                if (req.method === 'POST') {
+                    postCallCount++;
+                    if (postCallCount === 1) {
+                        res.writeHead(401, {
+                            'WWW-Authenticate': `Bearer resource_metadata="${resourceMetadataUrl}", scope="read:op1"`
+                        });
+                        res.end();
+                    } else if (postCallCount === 2) {
+                        res.writeHead(401, {
+                            'WWW-Authenticate': 'Bearer scope="read:op2"'
+                        });
+                        res.end();
+                    } else {
+                        res.writeHead(200);
+                        res.end();
+                    }
+                }
+            });
+
+            resourceBaseUrl = await listenOnRandomPort(resourceServer);
+
+            const minimalAuthProvider: AuthProvider = {
+                token: vi.fn().mockResolvedValue('test-token')
+            };
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: minimalAuthProvider
+            });
+
+            await transport.start();
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+            expect((transport as unknown as { _resourceMetadataUrl: URL | undefined })['_resourceMetadataUrl']).toEqual(
+                new URL(resourceMetadataUrl)
+            );
+
+            await expect(transport.send(message)).rejects.toThrow(UnauthorizedError);
+            expect((transport as unknown as { _resourceMetadataUrl: URL | undefined })['_resourceMetadataUrl']).toEqual(
+                new URL(resourceMetadataUrl)
+            );
+        });
     });
 
     describe('custom fetch in auth code paths', () => {
