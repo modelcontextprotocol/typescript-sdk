@@ -117,9 +117,9 @@ export namespace StandardSchemaWithJSON {
 /**
  * Narrowing of {@linkcode StandardSchemaV1} whose `validate` is guaranteed synchronous.
  *
- * Zod schemas always validate synchronously, so every entry in `specTypeSchemas` satisfies
- * this interface. Consumers can call `validate()` and access `.issues` / `.value` on the
- * result without `await`.
+ * The Zod schemas backing `specTypeSchemas` contain no async refinements or transforms,
+ * so every entry satisfies this interface. Consumers can call `validate()` and access
+ * `.issues` / `.value` on the result without `await`.
  *
  * `StandardSchemaV1Sync` is assignable to `StandardSchemaV1` — it is a strict subtype.
  */
