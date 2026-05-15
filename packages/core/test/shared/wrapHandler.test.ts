@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { Protocol } from '../../src/shared/protocol.js';
+import { HandlerRegistry } from '../../src/shared/handlerRegistry.js';
 import type { BaseContext, JSONRPCRequest, Result } from '../../src/exports/public/index.js';
 
 class TestProtocol extends Protocol<BaseContext> {
@@ -9,22 +10,22 @@ class TestProtocol extends Protocol<BaseContext> {
     }
     protected assertCapabilityForMethod(): void {}
     protected assertNotificationCapability(): void {}
-    protected assertRequestHandlerCapability(): void {}
+
+    constructor(registry: HandlerRegistry<BaseContext, any>) {
+        super(registry);
+    }
 }
 
-describe('Protocol._wrapHandler', () => {
-    it('routes setRequestHandler registration through _wrapHandler', () => {
+describe('HandlerRegistry wrapHandler callback', () => {
+    it('routes setRequestHandler registration through wrapHandler callback', () => {
         const seen: string[] = [];
-        class SpyProtocol extends TestProtocol {
-            protected override _wrapHandler(
-                method: string,
-                handler: (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result>
-            ): (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result> {
+        const registry = new HandlerRegistry<BaseContext, any>({
+            wrapHandler: (method: string, handler: (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result>) => {
                 seen.push(method);
                 return handler;
             }
-        }
-        const p = new SpyProtocol();
+        });
+        const p = new TestProtocol(registry);
         seen.length = 0;
         p.setRequestHandler('tools/list', () => ({ tools: [] }));
         p.setRequestHandler('resources/list', () => ({ resources: [] }));

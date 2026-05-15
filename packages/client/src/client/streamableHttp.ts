@@ -160,6 +160,15 @@ export type StreamableHTTPClientTransportOptions = {
      * handshake so the reconnected transport continues sending the required header.
      */
     protocolVersion?: string;
+
+    /**
+     * Optional callback to inject extra HTTP headers into every outgoing POST request.
+     * Called after the standard headers are built, so returned headers can override them.
+     *
+     * This is used by {@linkcode index.VersionProbingHTTPClientTransport | VersionProbingHTTPClientTransport}
+     * to add the `Mcp-Method` header for modern (2026-06) protocol requests.
+     */
+    getExtraHeaders?: (message: JSONRPCMessage | JSONRPCMessage[]) => Record<string, string>;
 };
 
 /**
@@ -184,6 +193,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
+    private _getExtraHeaders?: (message: JSONRPCMessage | JSONRPCMessage[]) => Record<string, string>;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -206,6 +216,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
         this._reconnectionScheduler = opts?.reconnectionScheduler;
+        this._getExtraHeaders = opts?.getExtraHeaders;
     }
 
     private async _commonHeaders(): Promise<Headers> {
@@ -539,6 +550,12 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             const headers = await this._commonHeaders();
+            if (this._getExtraHeaders) {
+                const extra = this._getExtraHeaders(message);
+                for (const [k, v] of Object.entries(extra)) {
+                    headers.set(k, v);
+                }
+            }
             headers.set('content-type', 'application/json');
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
@@ -743,6 +760,26 @@ export class StreamableHTTPClientTransport implements Transport {
     }
     get protocolVersion(): string | undefined {
         return this._protocolVersion;
+    }
+
+    /** @internal Exposes the endpoint URL for use by wrapping transports (e.g. VersionProbingHTTPClientTransport). */
+    get url(): URL {
+        return this._url;
+    }
+
+    /** @internal Builds common headers. Exposed for wrapping transports to use during probing. */
+    async commonHeaders(): Promise<Headers> {
+        return this._commonHeaders();
+    }
+
+    /** @internal Exposes the fetch function for use by wrapping transports. */
+    get fetchFn(): (url: string | URL, init?: RequestInit) => Promise<Response> {
+        return this._fetch ?? fetch;
+    }
+
+    /** @internal Exposes the base requestInit for use by wrapping transports. */
+    get requestInit(): RequestInit | undefined {
+        return this._requestInit;
     }
 
     /**

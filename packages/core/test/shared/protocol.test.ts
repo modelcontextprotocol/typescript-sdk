@@ -4,7 +4,9 @@ import * as z from 'zod/v4';
 import type { ZodType } from 'zod/v4';
 
 import type { BaseContext } from '../../src/shared/protocol.js';
-import { mergeCapabilities, Protocol } from '../../src/shared/protocol.js';
+import type { ProtocolOptions } from '../../src/shared/protocol.js';
+import { Protocol } from '../../src/shared/protocol.js';
+import { HandlerRegistry, mergeCapabilities } from '../../src/shared/handlerRegistry.js';
 import type { Transport, TransportSendOptions } from '../../src/shared/transport.js';
 import type {
     ClientCapabilities,
@@ -25,9 +27,12 @@ import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
 class TestProtocolImpl extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}
     protected assertNotificationCapability(): void {}
-    protected assertRequestHandlerCapability(): void {}
     protected buildContext(ctx: BaseContext): BaseContext {
         return ctx;
+    }
+
+    constructor(options?: ProtocolOptions) {
+        super(new HandlerRegistry<BaseContext, any>(), options);
     }
 }
 

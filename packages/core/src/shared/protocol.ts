@@ -2,7 +2,6 @@ import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import type {
     AuthInfo,
     CancelledNotification,
-    ClientCapabilities,
     CreateMessageRequest,
     CreateMessageResult,
     CreateMessageResultWithTools,
@@ -27,12 +26,9 @@ import type {
     RequestMethod,
     RequestTypeMap,
     Result,
-    ResultTypeMap,
-    ServerCapabilities
+    ResultTypeMap
 } from '../types/index.js';
 import {
-    getNotificationSchema,
-    getRequestSchema,
     getResultSchema,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
@@ -44,6 +40,7 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
+import type { HandlerRegistry, InferHandlerResult, RequestHandlerSchemas } from './handlerRegistry.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -275,19 +272,13 @@ type TimeoutInfo = {
 export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
-    private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
-    private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
     protected _supportedProtocolVersions: string[];
-
-    protected get requestHandlers(): ReadonlyMap<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> {
-        return this._requestHandlers;
-    }
 
     protected setTransport(transport: Transport | undefined): void {
         this._transport = transport;
@@ -310,25 +301,39 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * A handler to invoke for any request types that do not have their own handler installed.
      */
-    fallbackRequestHandler?: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>;
+    get fallbackRequestHandler() {
+        return this._registry.fallbackRequestHandler;
+    }
+    set fallbackRequestHandler(h) {
+        this._registry.fallbackRequestHandler = h;
+    }
 
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
      */
-    fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
+    get fallbackNotificationHandler() {
+        return this._registry.fallbackNotificationHandler;
+    }
+    set fallbackNotificationHandler(h) {
+        this._registry.fallbackNotificationHandler = h;
+    }
 
-    constructor(private _options?: ProtocolOptions) {
+    constructor(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Caps type varies by subclass
+        protected _registry: HandlerRegistry<ContextT, any>,
+        private _options?: ProtocolOptions
+    ) {
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
 
-        this.setNotificationHandler('notifications/cancelled', notification => {
+        this._registry.setNotificationHandler('notifications/cancelled', notification => {
             this._oncancel(notification);
         });
 
-        this.setNotificationHandler('notifications/progress', notification => {
+        this._registry.setNotificationHandler('notifications/progress', notification => {
             this._onprogress(notification);
         });
 
-        this.setRequestHandler(
+        this._registry.setRequestHandler(
             'ping',
             // Automatic pong by default.
             _request => ({}) as Result
@@ -471,7 +476,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onnotification(notification: JSONRPCNotification): void {
-        const handler = this._notificationHandlers.get(notification.method) ?? this.fallbackNotificationHandler;
+        const handler = this._registry.notificationHandlers.get(notification.method) ?? this._registry.fallbackNotificationHandler;
 
         // Ignore notifications not being subscribed to.
         if (handler === undefined) {
@@ -485,7 +490,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
-        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+        const handler = this._registry.requestHandlers.get(request.method) ?? this._registry.fallbackRequestHandler;
 
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
@@ -654,13 +659,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * This should be implemented by subclasses.
      */
     protected abstract assertNotificationCapability(method: NotificationMethod | string): void;
-
-    /**
-     * A method to check if a request handler is supported by the local side, for the given method to be handled.
-     *
-     * This should be implemented by subclasses.
-     */
-    protected abstract assertRequestHandlerCapability(method: string): void;
 
     /**
      * Sends a request and waits for a response.
@@ -869,6 +867,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         await this._transport.send(jsonrpcNotification!, options);
     }
 
+    // -----------------------------------------------------------------------
+    // Handler registration — delegates to HandlerRegistry
+    // -----------------------------------------------------------------------
+
     /**
      * Registers a handler to invoke when this protocol object receives a request with the given method.
      *
@@ -904,64 +906,25 @@ export abstract class Protocol<ContextT extends BaseContext> {
         schemasOrHandler: RequestHandlerSchemas | ((request: unknown, ctx: ContextT) => Result | Promise<Result>),
         maybeHandler?: (params: unknown, ctx: ContextT) => Result | Promise<Result>
     ): void {
-        this.assertRequestHandlerCapability(method);
-
-        let stored: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>;
-
-        if (typeof schemasOrHandler === 'function') {
-            const schema = getRequestSchema(method);
-            if (!schema) {
-                throw new TypeError(
-                    `'${method}' is not a spec request method; pass schemas as the second argument to setRequestHandler().`
-                );
-            }
-            stored = (request, ctx) => Promise.resolve(schemasOrHandler(schema.parse(request), ctx));
-        } else if (maybeHandler) {
-            stored = async (request, ctx) => {
-                const userParams = { ...request.params };
-                delete userParams._meta;
-                const parsed = await validateStandardSchema(schemasOrHandler.params, userParams);
-                if (!parsed.success) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error}`);
-                }
-                return maybeHandler(parsed.data, ctx);
-            };
+        if (maybeHandler) {
+            this._registry.setRequestHandler(method, schemasOrHandler as RequestHandlerSchemas, maybeHandler);
         } else {
-            throw new TypeError('setRequestHandler: handler is required');
+            (this._registry.setRequestHandler as (...a: unknown[]) => void).call(this._registry, method, schemasOrHandler);
         }
-
-        this._requestHandlers.set(method, this._wrapHandler(method, stored));
-    }
-
-    /**
-     * Hook for subclasses to wrap a registered request handler with role-specific
-     * validation or behavior (e.g. `Server` validates `tools/call` results, `Client`
-     * validates `elicitation/create` mode and result). Runs for both the 2-arg and
-     * 3-arg registration paths. The default implementation is identity.
-     *
-     * Subclasses overriding this hook avoid redeclaring `setRequestHandler`'s overload set.
-     */
-    protected _wrapHandler(
-        _method: string,
-        handler: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
-    ): (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> {
-        return handler;
     }
 
     /**
      * Removes the request handler for the given method.
      */
     removeRequestHandler(method: RequestMethod | string): void {
-        this._requestHandlers.delete(method);
+        this._registry.removeRequestHandler(method);
     }
 
     /**
      * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
      */
     assertCanSetRequestHandler(method: RequestMethod | string): void {
-        if (this._requestHandlers.has(method)) {
-            throw new Error(`A request handler for ${method} already exists, which would be overridden`);
-        }
+        this._registry.assertCanSetRequestHandler(method);
     }
 
     /**
@@ -989,73 +952,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
         schemasOrHandler: { params: StandardSchemaV1 } | ((notification: unknown) => void | Promise<void>),
         maybeHandler?: (params: unknown, notification: Notification) => void | Promise<void>
     ): void {
-        if (typeof schemasOrHandler === 'function') {
-            const schema = getNotificationSchema(method);
-            if (!schema) {
-                throw new TypeError(
-                    `'${method}' is not a spec notification method; pass schemas as the second argument to setNotificationHandler().`
-                );
-            }
-            this._notificationHandlers.set(method, notification => Promise.resolve(schemasOrHandler(schema.parse(notification))));
-            return;
+        if (maybeHandler) {
+            this._registry.setNotificationHandler(method, schemasOrHandler as { params: StandardSchemaV1 }, maybeHandler);
+        } else {
+            (this._registry.setNotificationHandler as (...a: unknown[]) => void).call(this._registry, method, schemasOrHandler);
         }
-
-        if (!maybeHandler) {
-            throw new TypeError('setNotificationHandler: handler is required');
-        }
-        this._notificationHandlers.set(method, async notification => {
-            const userParams = { ...notification.params };
-            delete userParams._meta;
-            const parsed = await validateStandardSchema(schemasOrHandler.params, userParams);
-            if (!parsed.success) {
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for notification ${method}: ${parsed.error}`);
-            }
-            await maybeHandler(parsed.data, notification);
-        });
     }
 
     /**
      * Removes the notification handler for the given method.
      */
     removeNotificationHandler(method: NotificationMethod | string): void {
-        this._notificationHandlers.delete(method);
+        this._registry.removeNotificationHandler(method);
     }
-}
-
-/**
- * Schema bundle accepted by {@linkcode Protocol.setRequestHandler | setRequestHandler}'s 3-arg form.
- *
- * `params` is required and validates the inbound `request.params`. `result` is optional;
- * when supplied it types the handler's return value (no runtime validation is performed
- * on the result).
- */
-export interface RequestHandlerSchemas<
-    P extends StandardSchemaV1 = StandardSchemaV1,
-    R extends StandardSchemaV1 | undefined = StandardSchemaV1 | undefined
-> {
-    params: P;
-    result?: R;
-}
-
-type InferHandlerResult<R extends StandardSchemaV1 | undefined> = R extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<R> : Result;
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-    return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-export function mergeCapabilities(base: ServerCapabilities, additional: Partial<ServerCapabilities>): ServerCapabilities;
-export function mergeCapabilities(base: ClientCapabilities, additional: Partial<ClientCapabilities>): ClientCapabilities;
-export function mergeCapabilities<T extends ServerCapabilities | ClientCapabilities>(base: T, additional: Partial<T>): T {
-    const result: T = { ...base };
-    for (const key in additional) {
-        const k = key as keyof T;
-        const addValue = additional[k];
-        if (addValue === undefined) continue;
-        const baseValue = result[k];
-        result[k] =
-            isPlainObject(baseValue) && isPlainObject(addValue)
-                ? ({ ...(baseValue as Record<string, unknown>), ...(addValue as Record<string, unknown>) } as T[typeof k])
-                : (addValue as T[typeof k]);
-    }
-    return result;
 }

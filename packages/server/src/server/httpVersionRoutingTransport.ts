@@ -59,7 +59,11 @@ export class HTTPVersionRoutingTransport implements Transport {
     }
 
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
-        return req.headers.has('mcp-method') ? this.handleModernRequest(req, options) : this.handleLegacyRequest(req, options);
+        return this.isStatelessProtocolRequest(req) ? this.handleModernRequest(req, options) : this.handleLegacyRequest(req, options);
+    }
+
+    private isStatelessProtocolRequest(req: Request): boolean {
+        return req.headers.has('mcp-method');
     }
 
     private async handleModernRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {

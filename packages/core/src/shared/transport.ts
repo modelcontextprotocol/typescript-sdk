@@ -156,11 +156,4 @@ export interface Transport {
      * This allows the server to pass its supported versions to the transport.
      */
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
-
-    /**
-     * Called during connect() to pass protocol configuration to routing transports.
-     * Routing transports use this to access the handler registry and server metadata
-     * for direct request dispatch.
-     */
-    setProtocolConfig?: ((config: ProtocolConfig) => void) | undefined;
 }

@@ -44,10 +44,10 @@ import {
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    HandlerRegistry,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
-    mergeCapabilities,
     parseSchema,
     Protocol,
     ProtocolError,
@@ -57,11 +57,104 @@ import {
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
+import { HTTPVersionRoutingTransport } from './httpVersionRoutingTransport.js';
+
 export type ServerOptions = ProtocolOptions & {
     capabilities?: ServerCapabilities;
     instructions?: string;
     jsonSchemaValidator?: jsonSchemaValidator;
+    /**
+     * Optional pre-built HandlerRegistry. When supplied (e.g., by Server wrapper),
+     * LegacyServer will use this registry instead of creating its own.
+     * @internal
+     */
+    registry?: HandlerRegistry<ServerContext, ServerCapabilities>;
 };
+
+// ---------------------------------------------------------------------------
+// Standalone functions extracted from LegacyServer for use as callbacks
+// ---------------------------------------------------------------------------
+
+function assertServerHandlerCapability(method: string, capabilities: ServerCapabilities): void {
+    switch (method) {
+        case 'completion/complete': {
+            if (!capabilities.completions) {
+                throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support completions (required for ${method})`);
+            }
+            break;
+        }
+
+        case 'logging/setLevel': {
+            if (!capabilities.logging) {
+                throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
+            }
+            break;
+        }
+
+        case 'prompts/get':
+        case 'prompts/list': {
+            if (!capabilities.prompts) {
+                throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support prompts (required for ${method})`);
+            }
+            break;
+        }
+
+        case 'resources/list':
+        case 'resources/templates/list':
+        case 'resources/read': {
+            if (!capabilities.resources) {
+                throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support resources (required for ${method})`);
+            }
+            break;
+        }
+
+        case 'tools/call':
+        case 'tools/list': {
+            if (!capabilities.tools) {
+                throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support tools (required for ${method})`);
+            }
+            break;
+        }
+
+        case 'ping':
+        case 'initialize': {
+            break;
+        }
+    }
+}
+
+function serverWrapHandler(
+    method: string,
+    handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
+): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
+    if (method !== 'tools/call') {
+        return handler;
+    }
+    return async (request, ctx) => {
+        const result = await handler(request, ctx);
+
+        const validationResult = parseSchema(CallToolResultSchema, result);
+        if (!validationResult.success) {
+            const errorMessage = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
+        }
+
+        return validationResult.data;
+    };
+}
+
+/**
+ * Creates a server HandlerRegistry with server-specific callbacks.
+ * @internal
+ */
+export function createServerRegistry(capabilities?: ServerCapabilities): HandlerRegistry<ServerContext, ServerCapabilities> {
+    const registry = new HandlerRegistry<ServerContext, ServerCapabilities>({
+        capabilities,
+        assertRequestHandlerCapability: method => assertServerHandlerCapability(method, registry.getCapabilities()),
+        wrapHandler: serverWrapHandler
+    });
+    return registry;
+}
 
 /**
  * The Protocol-based MCP server implementation. Handles JSON-RPC dispatch,
@@ -73,7 +166,6 @@ export type ServerOptions = ProtocolOptions & {
 export class LegacyServer extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
-    _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _serverInfo: Implementation;
     private _jsonSchemaValidator: jsonSchemaValidator;
@@ -81,29 +173,35 @@ export class LegacyServer extends Protocol<ServerContext> {
     oninitialized?: () => void;
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
-        super(options);
+        const registry = options?.registry ?? createServerRegistry(options?.capabilities);
+        super(registry, options);
         this._serverInfo = serverInfo;
-        this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
 
-        this.setRequestHandler('initialize', request => this._oninitialize(request));
-        this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
+        // Only register default handlers if they haven't been registered already
+        // (e.g., the Server wrapper may have pre-populated the shared registry)
+        if (!this._registry.requestHandlers.has('initialize')) {
+            this.setRequestHandler('initialize', request => this._oninitialize(request));
+        }
+        if (!this._registry.notificationHandlers.has('notifications/initialized')) {
+            this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
+        }
 
-        if (this._capabilities.logging) {
+        if (this._registry.getCapabilities().logging) {
             this._registerLoggingHandler();
         }
     }
 
     getProtocolConfig(): ProtocolConfig {
         return {
-            requestHandlers: this.requestHandlers,
+            requestHandlers: this._registry.requestHandlers,
             serverInfo: this._serverInfo,
-            capabilities: this._capabilities,
+            capabilities: this._registry.getCapabilities(),
             instructions: this._instructions,
             createServer: () =>
                 new LegacyServer(this._serverInfo, {
-                    capabilities: this._capabilities,
+                    capabilities: this._registry.getCapabilities(),
                     instructions: this._instructions
                 })
         };
@@ -155,32 +253,11 @@ export class LegacyServer extends Protocol<ServerContext> {
         if (this.transport) {
             throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
         }
-        const hadLogging = !!this._capabilities.logging;
-        this._capabilities = mergeCapabilities(this._capabilities, capabilities);
-        if (!hadLogging && this._capabilities.logging) {
+        const hadLogging = !!this._registry.getCapabilities().logging;
+        this._registry.registerCapabilities(capabilities);
+        if (!hadLogging && this._registry.getCapabilities().logging) {
             this._registerLoggingHandler();
         }
-    }
-
-    protected override _wrapHandler(
-        method: string,
-        handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
-    ): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
-        if (method !== 'tools/call') {
-            return handler;
-        }
-        return async (request, ctx) => {
-            const result = await handler(request, ctx);
-
-            const validationResult = parseSchema(CallToolResultSchema, result);
-            if (!validationResult.success) {
-                const errorMessage =
-                    validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
-            }
-
-            return validationResult.data;
-        };
     }
 
     protected assertCapabilityForMethod(method: RequestMethod | string): void {
@@ -218,7 +295,7 @@ export class LegacyServer extends Protocol<ServerContext> {
     protected assertNotificationCapability(method: NotificationMethod | string): void {
         switch (method) {
             case 'notifications/message': {
-                if (!this._capabilities.logging) {
+                if (!this._registry.getCapabilities().logging) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
                 }
                 break;
@@ -226,7 +303,7 @@ export class LegacyServer extends Protocol<ServerContext> {
 
             case 'notifications/resources/updated':
             case 'notifications/resources/list_changed': {
-                if (!this._capabilities.resources) {
+                if (!this._registry.getCapabilities().resources) {
                     throw new SdkError(
                         SdkErrorCode.CapabilityNotSupported,
                         `Server does not support notifying about resources (required for ${method})`
@@ -236,7 +313,7 @@ export class LegacyServer extends Protocol<ServerContext> {
             }
 
             case 'notifications/tools/list_changed': {
-                if (!this._capabilities.tools) {
+                if (!this._registry.getCapabilities().tools) {
                     throw new SdkError(
                         SdkErrorCode.CapabilityNotSupported,
                         `Server does not support notifying of tool list changes (required for ${method})`
@@ -246,7 +323,7 @@ export class LegacyServer extends Protocol<ServerContext> {
             }
 
             case 'notifications/prompts/list_changed': {
-                if (!this._capabilities.prompts) {
+                if (!this._registry.getCapabilities().prompts) {
                     throw new SdkError(
                         SdkErrorCode.CapabilityNotSupported,
                         `Server does not support notifying of prompt list changes (required for ${method})`
@@ -267,54 +344,6 @@ export class LegacyServer extends Protocol<ServerContext> {
 
             case 'notifications/cancelled':
             case 'notifications/progress': {
-                break;
-            }
-        }
-    }
-
-    protected assertRequestHandlerCapability(method: string): void {
-        switch (method) {
-            case 'completion/complete': {
-                if (!this._capabilities.completions) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support completions (required for ${method})`);
-                }
-                break;
-            }
-
-            case 'logging/setLevel': {
-                if (!this._capabilities.logging) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
-                }
-                break;
-            }
-
-            case 'prompts/get':
-            case 'prompts/list': {
-                if (!this._capabilities.prompts) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support prompts (required for ${method})`);
-                }
-                break;
-            }
-
-            case 'resources/list':
-            case 'resources/templates/list':
-            case 'resources/read': {
-                if (!this._capabilities.resources) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support resources (required for ${method})`);
-                }
-                break;
-            }
-
-            case 'tools/call':
-            case 'tools/list': {
-                if (!this._capabilities.tools) {
-                    throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support tools (required for ${method})`);
-                }
-                break;
-            }
-
-            case 'ping':
-            case 'initialize': {
                 break;
             }
         }
@@ -349,7 +378,7 @@ export class LegacyServer extends Protocol<ServerContext> {
     }
 
     public getCapabilities(): ServerCapabilities {
-        return this._capabilities;
+        return this._registry.getCapabilities();
     }
 
     async ping() {
@@ -492,7 +521,7 @@ export class LegacyServer extends Protocol<ServerContext> {
     }
 
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
-        if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {
+        if (this._registry.getCapabilities().logging && !this.isMessageIgnored(params.level, sessionId)) {
             return this.notification({ method: 'notifications/message', params });
         }
     }
@@ -517,51 +546,75 @@ export class LegacyServer extends Protocol<ServerContext> {
 /**
  * An MCP server on top of a pluggable transport.
  *
- * Composes a {@linkcode LegacyServer} internally for handler registration and
- * protocol participation. For routing transports, passes configuration directly
- * without wiring Protocol's message loop. For regular transports, delegates to
- * the inner LegacyServer.
- *
- * @deprecated Use {@linkcode server/mcp.McpServer | McpServer} instead for the high-level API. Only use `Server` for advanced use cases.
+ * Owns a {@linkcode HandlerRegistry} directly for handler registration and
+ * capability management. For routing transports, passes registry and config
+ * directly. For regular transports, creates a {@linkcode LegacyServer} that
+ * shares the same registry.
  */
 export class Server {
-    private _impl: LegacyServer;
+    private _registry: HandlerRegistry<ServerContext, ServerCapabilities>;
+    private _impl?: LegacyServer;
     private _transport?: Transport;
+    private _serverInfo: Implementation;
+    private _instructions?: string;
+    private _options?: ServerOptions;
 
     oninitialized?: () => void;
     onclose?: () => void;
     onerror?: (error: Error) => void;
-    fallbackRequestHandler?: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>;
+
+    get fallbackRequestHandler() {
+        return this._registry.fallbackRequestHandler;
+    }
+    set fallbackRequestHandler(h) {
+        this._registry.fallbackRequestHandler = h;
+    }
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
-        this._impl = new LegacyServer(serverInfo, options);
+        this._serverInfo = serverInfo;
+        this._instructions = options?.instructions;
+        this._options = options;
+
+        this._registry = createServerRegistry(options?.capabilities);
+    }
+
+    private _createLegacyServer(): LegacyServer {
+        return new LegacyServer(this._serverInfo, {
+            ...this._options,
+            registry: this._registry
+        });
     }
 
     async connect(transport: Transport): Promise<void> {
         this._transport = transport;
 
-        if (transport.setProtocolConfig) {
-            const config = this._impl.getProtocolConfig();
-            transport.setProtocolConfig(config);
+        if (transport instanceof HTTPVersionRoutingTransport) {
+            transport.setProtocolConfig({
+                requestHandlers: this._registry.requestHandlers,
+                serverInfo: this._serverInfo,
+                capabilities: this._registry.getCapabilities(),
+                instructions: this._instructions,
+                createServer: () => this._createLegacyServer()
+            });
             await transport.start();
         } else {
+            this._impl = this._createLegacyServer();
             if (this.oninitialized) this._impl.oninitialized = this.oninitialized;
             if (this.onclose) this._impl.onclose = this.onclose;
             if (this.onerror) this._impl.onerror = this.onerror;
-            if (this.fallbackRequestHandler) this._impl.fallbackRequestHandler = this.fallbackRequestHandler;
             await this._impl.connect(transport);
         }
     }
 
     async close(): Promise<void> {
-        await (this._impl.transport ? this._impl.close() : this._transport?.close());
+        await (this._impl?.transport ? this._impl.close() : this._transport?.close());
     }
 
     get transport(): Transport | undefined {
-        return this._impl.transport ?? this._transport;
+        return this._impl?.transport ?? this._transport;
     }
 
-    // Handler registration — delegates to LegacyServer (which extends Protocol)
+    // Handler registration — delegates to shared registry
     setRequestHandler<M extends RequestMethod>(
         method: M,
         handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
@@ -577,7 +630,7 @@ export class Server {
             | Promise<R extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<R> : Result>
     ): void;
     setRequestHandler(method: string, ...args: unknown[]): void {
-        (this._impl.setRequestHandler as (...a: unknown[]) => unknown).call(this._impl, method, ...args);
+        (this._registry.setRequestHandler as (...a: unknown[]) => void).call(this._registry, method, ...args);
     }
 
     setNotificationHandler<M extends NotificationMethod>(
@@ -590,35 +643,38 @@ export class Server {
         handler: (params: StandardSchemaV1.InferOutput<P>, notification: Notification) => void | Promise<void>
     ): void;
     setNotificationHandler(method: string, ...args: unknown[]): void {
-        (this._impl.setNotificationHandler as (...a: unknown[]) => unknown).call(this._impl, method, ...args);
+        (this._registry.setNotificationHandler as (...a: unknown[]) => void).call(this._registry, method, ...args);
     }
 
     removeRequestHandler(method: RequestMethod | string): void {
-        this._impl.removeRequestHandler(method);
+        this._registry.removeRequestHandler(method);
     }
 
     removeNotificationHandler(method: NotificationMethod | string): void {
-        this._impl.removeNotificationHandler(method);
+        this._registry.removeNotificationHandler(method);
     }
 
     assertCanSetRequestHandler(method: RequestMethod | string): void {
-        this._impl.assertCanSetRequestHandler(method);
+        this._registry.assertCanSetRequestHandler(method);
     }
 
     registerCapabilities(capabilities: ServerCapabilities): void {
-        this._impl.registerCapabilities(capabilities);
+        if (this._impl?.transport || this._transport) {
+            throw new SdkError(SdkErrorCode.AlreadyConnected, 'Cannot register capabilities after connecting to transport');
+        }
+        this._registry.registerCapabilities(capabilities);
     }
 
     getCapabilities(): ServerCapabilities {
-        return this._impl.getCapabilities();
+        return this._registry.getCapabilities();
     }
 
     getClientCapabilities(): ClientCapabilities | undefined {
-        return this._impl.getClientCapabilities();
+        return this._impl?.getClientCapabilities();
     }
 
     getClientVersion(): Implementation | undefined {
-        return this._impl.getClientVersion();
+        return this._impl?.getClientVersion();
     }
 
     // Server-to-client methods — only work when connected to a regular transport
@@ -632,15 +688,17 @@ export class Server {
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return this._impl.createMessage(params, options);
     }
 
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return this._impl.elicitInput(params, options);
     }
 
     createElicitationCompletionNotifier(elicitationId: string, options?: NotificationOptions): () => Promise<void> {
-        if (!this._impl.getClientCapabilities()?.elicitation?.url) {
+        if (!this._impl?.getClientCapabilities()?.elicitation?.url) {
             throw new SdkError(
                 SdkErrorCode.CapabilityNotSupported,
                 'Client does not support URL elicitation (required for notifications/elicitation/complete)'
@@ -657,10 +715,12 @@ export class Server {
     }
 
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return this._impl.listRoots(params, options);
     }
 
     async ping() {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return this._impl.ping();
     }
 
@@ -674,30 +734,37 @@ export class Server {
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>>;
     request(request: { method: string; params?: Record<string, unknown> }, ...args: unknown[]): Promise<unknown> {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return (this._impl.request as (...a: unknown[]) => Promise<unknown>).call(this._impl, request, ...args);
     }
 
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return this._impl.notification(notification, options);
     }
 
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return this._impl.sendLoggingMessage(params, sessionId);
     }
 
     async sendResourceUpdated(params: ResourceUpdatedNotification['params']) {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return this._impl.sendResourceUpdated(params);
     }
 
     async sendResourceListChanged() {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return this._impl.sendResourceListChanged();
     }
 
     async sendToolListChanged() {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return this._impl.sendToolListChanged();
     }
 
     async sendPromptListChanged() {
+        if (!this._impl) throw new Error('Not connected to a legacy transport');
         return this._impl.sendPromptListChanged();
     }
 }

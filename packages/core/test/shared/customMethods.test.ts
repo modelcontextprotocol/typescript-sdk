@@ -2,10 +2,22 @@ import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v4';
 
 import { Protocol } from '../../src/shared/protocol.js';
+import { HandlerRegistry } from '../../src/shared/handlerRegistry.js';
 import type { BaseContext, JSONRPCRequest, Result, StandardSchemaV1 } from '../../src/exports/public/index.js';
 import { ProtocolError } from '../../src/types/index.js';
 import { SdkErrorCode } from '../../src/errors/sdkErrors.js';
 import { InMemoryTransport } from '../../src/util/inMemory.js';
+
+function createTestRegistry(
+    wrapHandler?: (
+        method: string,
+        handler: (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result>
+    ) => (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result>
+): HandlerRegistry<BaseContext, any> {
+    return new HandlerRegistry<BaseContext, any>({
+        wrapHandler
+    });
+}
 
 class TestProtocol extends Protocol<BaseContext> {
     protected buildContext(ctx: BaseContext): BaseContext {
@@ -13,7 +25,10 @@ class TestProtocol extends Protocol<BaseContext> {
     }
     protected assertCapabilityForMethod(): void {}
     protected assertNotificationCapability(): void {}
-    protected assertRequestHandlerCapability(): void {}
+
+    constructor(registry?: HandlerRegistry<BaseContext, any>) {
+        super(registry ?? createTestRegistry());
+    }
 }
 
 async function pair(): Promise<[TestProtocol, TestProtocol]> {
@@ -79,18 +94,15 @@ describe('Protocol custom-method support', () => {
             expect(() => p.setRequestHandler('acme/unknown' as never, () => ({}) as never)).toThrow(TypeError);
         });
 
-        it('routes both 2-arg and 3-arg registration through _wrapHandler', () => {
+        it('routes both 2-arg and 3-arg registration through wrapHandler callback', () => {
             const seen: string[] = [];
-            class SpyProtocol extends TestProtocol {
-                protected override _wrapHandler(
-                    method: string,
-                    handler: (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result>
-                ): (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result> {
-                    seen.push(method);
-                    return handler;
-                }
-            }
-            const p = new SpyProtocol();
+            const registry = createTestRegistry((method, handler) => {
+                seen.push(method);
+                return handler;
+            });
+            const p = new TestProtocol(registry);
+            // Clear entries added by Protocol constructor (ping)
+            seen.length = 0;
             p.setRequestHandler('tools/list', () => ({ tools: [] }));
             p.setRequestHandler('acme/custom', { params: z.object({}) }, () => ({}));
             expect(seen).toContain('tools/list');

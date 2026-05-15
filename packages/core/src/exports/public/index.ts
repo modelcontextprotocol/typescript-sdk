@@ -45,11 +45,13 @@ export type {
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
-    RequestHandlerSchemas,
     RequestOptions,
     ServerContext
 } from '../../shared/protocol.js';
 export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
+
+// Handler registry types
+export type { RequestHandlerSchemas } from '../../shared/handlerRegistry.js';
 
 // Response message types
 export type { BaseResponseMessage, ErrorMessage, ResponseMessage, ResultMessage } from '../../shared/responseMessage.js';
@@ -59,7 +61,7 @@ export { takeResult, toArrayAsync } from '../../shared/responseMessage.js';
 export { deserializeMessage, ReadBuffer, serializeMessage } from '../../shared/stdio.js';
 
 // Transport types (NOT normalizeHeaders)
-export type { FetchLike, ProtocolConfig, Transport, TransportSendOptions } from '../../shared/transport.js';
+export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
 export { createFetchWithInit } from '../../shared/transport.js';
 export { InMemoryTransport } from '../../util/inMemory.js';
 

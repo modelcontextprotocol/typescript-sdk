@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 
 import type { BaseContext } from '../../src/shared/protocol.js';
 import { Protocol } from '../../src/shared/protocol.js';
+import { HandlerRegistry } from '../../src/shared/handlerRegistry.js';
 import type { Transport } from '../../src/shared/transport.js';
 import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from '../../src/types/index.js';
 
@@ -35,9 +36,11 @@ describe('Protocol transport handling bug', () => {
 
     beforeEach(() => {
         protocol = new (class extends Protocol<BaseContext> {
+            constructor() {
+                super(new HandlerRegistry<BaseContext, any>());
+            }
             protected assertCapabilityForMethod(): void {}
             protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
             protected buildContext(ctx: BaseContext): BaseContext {
                 return ctx;
             }
