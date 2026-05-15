@@ -48,7 +48,7 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
-import { parseClientMeta, STATELESS_REMOVED_METHODS } from './protocolMode.js';
+import { InputRequiredError, parseClientMeta, STATELESS_REMOVED_METHODS } from './protocolMode.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -531,6 +531,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
             const result = await handler(request, ctx);
             return { jsonrpc: '2.0', id: request.id, result };
         } catch (error) {
+            if (error instanceof InputRequiredError) {
+                return {
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    result: {
+                        resultType: 'input_required',
+                        inputRequests: error.inputRequests,
+                        ...(error.requestState !== undefined && { requestState: error.requestState })
+                    }
+                };
+            }
             // Only intentional protocol errors surface message/data to the client.
             const intentional = error instanceof SdkError || error instanceof ProtocolError;
             const e = error as { code?: unknown; message?: string; data?: unknown };
@@ -805,6 +816,20 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 async error => {
                     if (abortController.signal.aborted) {
                         // Request was cancelled
+                        return;
+                    }
+
+                    if (error instanceof InputRequiredError) {
+                        const response: JSONRPCResponse = {
+                            jsonrpc: '2.0',
+                            id: request.id,
+                            result: {
+                                resultType: 'input_required',
+                                inputRequests: error.inputRequests,
+                                ...(error.requestState !== undefined && { requestState: error.requestState })
+                            }
+                        };
+                        await capturedTransport?.send(response);
                         return;
                     }
 
