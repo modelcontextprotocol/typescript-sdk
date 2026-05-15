@@ -288,6 +288,13 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
+                // Per MCP spec §Session Management point 4: when a client receives HTTP 404
+                // in response to a request containing an Mcp-Session-Id, it MUST start a new
+                // session. Clear the stale session ID so the next send goes without it.
+                if (response.status === 404 && this._sessionId) {
+                    this._sessionId = undefined;
+                }
+
                 throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
                     status: response.status,
                     statusText: response.statusText
@@ -627,6 +634,13 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         return this._send(message, options, isAuthRetry);
                     }
+                }
+
+                // Per MCP spec §Session Management point 4: when a client receives HTTP 404
+                // in response to a request containing an Mcp-Session-Id, it MUST start a new
+                // session. Clear the stale session ID so the next send goes without it.
+                if (response.status === 404 && this._sessionId) {
+                    this._sessionId = undefined;
                 }
 
                 throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {

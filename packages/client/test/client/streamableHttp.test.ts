@@ -248,6 +248,94 @@ describe('StreamableHTTPClientTransport', () => {
         expect(errorSpy).toHaveBeenCalled();
     });
 
+    it('should clear session ID on 404 POST (per spec §Session Management)', async () => {
+        // Simulate a transport that already has an established session
+        const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'stale-session-id'
+        });
+        expect(sessionTransport.sessionId).toBe('stale-session-id');
+
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'tools/list',
+            params: {},
+            id: 'test-id'
+        };
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            text: () => Promise.resolve('Session not found'),
+            headers: new Headers()
+        });
+
+        sessionTransport.onerror = vi.fn();
+        await expect(sessionTransport.send(message)).rejects.toThrow();
+
+        // Per spec, session ID MUST be cleared on 404 so the next request goes without it
+        expect(sessionTransport.sessionId).toBeUndefined();
+
+        await sessionTransport.close().catch(() => {});
+    });
+
+    it('should clear session ID on 404 GET SSE (per spec §Session Management)', async () => {
+        // Simulate a transport that already has an established session
+        const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'stale-session-id'
+        });
+        expect(sessionTransport.sessionId).toBe('stale-session-id');
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found',
+            headers: new Headers()
+        });
+
+        sessionTransport.onerror = vi.fn();
+        await transport.start();
+        await expect(
+            (sessionTransport as unknown as { _startOrAuthSse: (opts: StartSSEOptions) => Promise<void> })._startOrAuthSse({})
+        ).rejects.toThrow();
+
+        // Per spec, session ID MUST be cleared on 404 so the next request goes without it
+        expect(sessionTransport.sessionId).toBeUndefined();
+
+        await sessionTransport.close().catch(() => {});
+    });
+
+    it('should NOT clear session ID on non-404 errors', async () => {
+        // Simulate a transport that already has an established session
+        const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            sessionId: 'active-session-id'
+        });
+        expect(sessionTransport.sessionId).toBe('active-session-id');
+
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'tools/list',
+            params: {},
+            id: 'test-id'
+        };
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 500,
+            statusText: 'Internal Server Error',
+            text: () => Promise.resolve('Server error'),
+            headers: new Headers()
+        });
+
+        sessionTransport.onerror = vi.fn();
+        await expect(sessionTransport.send(message)).rejects.toThrow();
+
+        // Session ID should NOT be cleared for non-404 errors
+        expect(sessionTransport.sessionId).toBe('active-session-id');
+
+        await sessionTransport.close().catch(() => {});
+    });
+
     it('should handle non-streaming JSON response', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
