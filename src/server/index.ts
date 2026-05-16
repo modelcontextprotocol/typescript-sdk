@@ -1,4 +1,11 @@
-import { mergeCapabilities, Protocol, type NotificationOptions, type ProtocolOptions, type RequestOptions } from '../shared/protocol.js';
+import {
+    mergeCapabilities,
+    Protocol,
+    type NotificationOptions,
+    type ProtocolOptions,
+    type RequestHandlerResult,
+    type RequestOptions
+} from '../shared/protocol.js';
 import {
     type ClientCapabilities,
     type CreateMessageRequest,
@@ -220,7 +227,7 @@ export class Server<
         handler: (
             request: SchemaOutput<T>,
             extra: RequestHandlerExtra<ServerRequest | RequestT, ServerNotification | NotificationT>
-        ) => ServerResult | ResultT | Promise<ServerResult | ResultT>
+        ) => RequestHandlerResult<T, ServerResult | ResultT> | Promise<RequestHandlerResult<T, ServerResult | ResultT>>
     ): void {
         const shape = getObjectShape(requestSchema);
         const methodSchema = shape?.method;

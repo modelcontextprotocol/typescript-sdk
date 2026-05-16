@@ -115,6 +115,59 @@ describe('Zod v3', () => {
 });
 
 describe('Zod v4', () => {
+    test('should reject invalid standard request handler results at typecheck time', () => {
+        const server = new Server(
+            {
+                name: 'TypecheckServer',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    prompts: {},
+                    resources: {},
+                    tools: {}
+                }
+            }
+        );
+
+        server.setRequestHandler(
+            ListToolsRequestSchema,
+            // @ts-expect-error tools/list results must include tools
+            async () => ({})
+        );
+        server.setRequestHandler(
+            CallToolRequestSchema,
+            // @ts-expect-error tools/call results must include content, structuredContent, or a task
+            async () => ({})
+        );
+        server.setRequestHandler(
+            ListResourcesRequestSchema,
+            // @ts-expect-error resources/list results must include resources
+            async () => ({})
+        );
+        server.setRequestHandler(
+            ListPromptsRequestSchema,
+            // @ts-expect-error prompts/list results must include prompts
+            async () => ({})
+        );
+
+        server.setRequestHandler(CallToolRequestSchema, async () => ({
+            content: [{ type: 'text', text: 'ok' }]
+        }));
+        server.setRequestHandler(CallToolRequestSchema, async () => ({
+            structuredContent: { ok: true }
+        }));
+        server.setRequestHandler(CallToolRequestSchema, async () => ({
+            task: {
+                taskId: 'tool-task',
+                status: 'working',
+                ttl: null,
+                createdAt: '2026-05-16T00:00:00.000Z',
+                lastUpdatedAt: '2026-05-16T00:00:00.000Z'
+            }
+        }));
+    });
+
     test('should typecheck', () => {
         const GetWeatherRequestSchema = RequestSchema.extend({
             method: z4.literal('weather/get'),
@@ -452,13 +505,18 @@ test('should respect client elicitation capabilities', async () => {
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, params => ({
-        action: 'accept',
-        content: {
-            username: params.params.message.includes('username') ? 'test-user' : undefined,
+    client.setRequestHandler(ElicitRequestSchema, params => {
+        const content: Record<string, string | number | boolean | string[]> = {
             confirmed: true
+        };
+        if (params.params.message.includes('username')) {
+            content.username = 'test-user';
         }
-    }));
+        return {
+            action: 'accept',
+            content
+        };
+    });
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -536,13 +594,18 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
         }
     );
 
-    client.setRequestHandler(ElicitRequestSchema, params => ({
-        action: 'accept',
-        content: {
-            username: params.params.message.includes('username') ? 'test-user' : undefined,
+    client.setRequestHandler(ElicitRequestSchema, params => {
+        const content: Record<string, string | number | boolean | string[]> = {
             confirmed: true
+        };
+        if (params.params.message.includes('username')) {
+            content.username = 'test-user';
         }
-    }));
+        return {
+            action: 'accept',
+            content
+        };
+    });
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -2596,7 +2659,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'server-test-user', confirmed: true }
                 };
 
@@ -2677,7 +2740,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
 
@@ -2756,7 +2819,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'result-user', confirmed: true }
                 };
 
@@ -2837,7 +2900,7 @@ describe('Task-based execution', () => {
 
             client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
                 const result = {
-                    action: 'accept',
+                    action: 'accept' as const,
                     content: { username: 'list-user' }
                 };
 
@@ -3180,7 +3243,7 @@ test('should respect client task capabilities', async () => {
 
     client.setRequestHandler(ElicitRequestSchema, async (request, extra) => {
         const result = {
-            action: 'accept',
+            action: 'accept' as const,
             content: { username: 'test-user' }
         };
 
