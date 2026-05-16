@@ -1,9 +1,10 @@
 import { Client } from '@modelcontextprotocol/client';
-import type { CallToolResult, Notification, TextContent } from '@modelcontextprotocol/core';
+import type { AuthInfo, CallToolResult, JSONRPCMessage, Notification, ServerContext, TextContent } from '@modelcontextprotocol/core';
 import {
     getDisplayName,
     InMemoryTaskStore,
     InMemoryTransport,
+    isJSONRPCResultResponse,
     ProtocolErrorCode,
     UriTemplate,
     UrlElicitationRequiredError
@@ -26,6 +27,13 @@ function createLatch() {
         },
         waitForLatch
     };
+}
+
+function waitForMessage(transport: InMemoryTransport): Promise<JSONRPCMessage> {
+    return new Promise((resolve, reject) => {
+        transport.onerror = reject;
+        transport.onmessage = message => resolve(message);
+    });
 }
 
 describe('Zod v4', () => {
@@ -3122,6 +3130,73 @@ describe('Zod v4', () => {
             expect(result.completion.total).toBe(2);
         });
 
+        test('should pass request context to resource template completion callbacks', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const authInfo: AuthInfo = {
+                token: 'resource-token',
+                clientId: 'test-client',
+                scopes: ['resources:read']
+            };
+            let receivedContext: ServerContext | undefined;
+
+            mcpServer.registerResource(
+                'test',
+                new ResourceTemplate('test://resource/{category}', {
+                    list: undefined,
+                    complete: {
+                        category: (_value, _context, ctx) => {
+                            receivedContext = ctx;
+                            return ['books'];
+                        }
+                    }
+                }),
+                {},
+                async () => ({
+                    contents: [{ uri: 'test://resource/test', text: 'Test content' }]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const responsePromise = waitForMessage(clientTransport);
+
+            await mcpServer.server.connect(serverTransport);
+            await clientTransport.send(
+                {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/resource',
+                            uri: 'test://resource/{category}'
+                        },
+                        argument: {
+                            name: 'category',
+                            value: ''
+                        }
+                    }
+                },
+                { authInfo }
+            );
+
+            const response = await responsePromise;
+
+            expect(isJSONRPCResultResponse(response)).toBe(true);
+            expect(response.result).toEqual({
+                completion: {
+                    values: ['books'],
+                    total: 1,
+                    hasMore: false
+                }
+            });
+            expect(receivedContext?.http?.authInfo).toEqual(authInfo);
+            expect(receivedContext?.mcpReq.signal).toBeInstanceOf(AbortSignal);
+            expect(receivedContext?.mcpReq.signal.aborted).toBe(false);
+        });
+
         /***
          * Test: Pass Request ID to Resource Callback
          */
@@ -4028,6 +4103,79 @@ describe('Zod v4', () => {
 
             expect(result.completion.values).toEqual(['Alice']);
             expect(result.completion.total).toBe(1);
+        });
+
+        test('should pass request context to prompt completion callbacks', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const authInfo: AuthInfo = {
+                token: 'prompt-token',
+                clientId: 'test-client',
+                scopes: ['prompts:read']
+            };
+            let receivedContext: ServerContext | undefined;
+
+            mcpServer.registerPrompt(
+                'test-prompt',
+                {
+                    argsSchema: z.object({
+                        name: completable(z.string(), (_value, _context, ctx) => {
+                            receivedContext = ctx;
+                            return ['Alice'];
+                        })
+                    })
+                },
+                async ({ name }) => ({
+                    messages: [
+                        {
+                            role: 'assistant',
+                            content: {
+                                type: 'text',
+                                text: `Hello ${name}`
+                            }
+                        }
+                    ]
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const responsePromise = waitForMessage(clientTransport);
+
+            await mcpServer.server.connect(serverTransport);
+            await clientTransport.send(
+                {
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'completion/complete',
+                    params: {
+                        ref: {
+                            type: 'ref/prompt',
+                            name: 'test-prompt'
+                        },
+                        argument: {
+                            name: 'name',
+                            value: ''
+                        }
+                    }
+                },
+                { authInfo }
+            );
+
+            const response = await responsePromise;
+
+            expect(isJSONRPCResultResponse(response)).toBe(true);
+            expect(response.result).toEqual({
+                completion: {
+                    values: ['Alice'],
+                    total: 1,
+                    hasMore: false
+                }
+            });
+            expect(receivedContext?.http?.authInfo).toEqual(authInfo);
+            expect(receivedContext?.mcpReq.signal).toBeInstanceOf(AbortSignal);
+            expect(receivedContext?.mcpReq.signal.aborted).toBe(false);
         });
 
         /***

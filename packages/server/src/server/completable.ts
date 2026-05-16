@@ -1,4 +1,4 @@
-import type { StandardSchemaV1 } from '@modelcontextprotocol/core';
+import type { ServerContext, StandardSchemaV1 } from '@modelcontextprotocol/core';
 
 export const COMPLETABLE_SYMBOL: unique symbol = Symbol.for('mcp.completable');
 
@@ -6,7 +6,8 @@ export type CompleteCallback<T extends StandardSchemaV1 = StandardSchemaV1> = (
     value: StandardSchemaV1.InferInput<T>,
     context?: {
         arguments?: Record<string, string>;
-    }
+    },
+    ctx?: ServerContext
 ) => StandardSchemaV1.InferInput<T>[] | Promise<StandardSchemaV1.InferInput<T>[]>;
 
 export type CompletableMeta<T extends StandardSchemaV1 = StandardSchemaV1> = {
