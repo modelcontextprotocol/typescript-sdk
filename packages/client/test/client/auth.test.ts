@@ -2158,6 +2158,58 @@ describe('OAuth Authorization', () => {
             vi.clearAllMocks();
         });
 
+        it('propagates saveTokens errors after a successful refresh', async () => {
+            const saveError = new Error('failed to persist refreshed tokens');
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://auth.example.com',
+                    authorizationServerMetadata: {
+                        issuer: 'https://auth.example.com',
+                        authorization_endpoint: 'https://auth.example.com/authorize',
+                        token_endpoint: 'https://auth.example.com/token',
+                        response_types_supported: ['code'],
+                        code_challenge_methods_supported: ['S256']
+                    }
+                }),
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'test-client-id',
+                    client_secret: 'test-client-secret'
+                }),
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'expired-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                }),
+                saveTokens: vi.fn().mockRejectedValue(saveError),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn()
+            };
+
+            mockFetch.mockResolvedValue({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    access_token: 'new-token',
+                    token_type: 'bearer',
+                    expires_in: 3600,
+                    refresh_token: 'new-refresh-token'
+                })
+            });
+
+            await expect(auth(provider, { serverUrl: 'https://resource.example.com' })).rejects.toThrow(saveError);
+            expect(provider.redirectToAuthorization).not.toHaveBeenCalled();
+        });
+
         it('performs client_credentials with private_key_jwt when provider has addClientAuthentication', async () => {
             // Arrange: metadata discovery for PRM and AS
             mockFetch.mockImplementation(url => {
