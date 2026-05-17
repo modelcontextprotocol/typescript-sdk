@@ -8,39 +8,18 @@
 import type { ChildProcess } from 'node:child_process';
 import { execSync, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
-import { createServer } from 'node:net';
 import * as os from 'node:os';
 import path from 'node:path';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+const PORT = 8787;
+
 interface TestEnv {
     tempDir: string;
-    port: number;
     process: ChildProcess;
     cleanup: () => Promise<void>;
-}
-
-async function getAvailablePort(): Promise<number> {
-    return await new Promise((resolve, reject) => {
-        const server = createServer();
-        server.on('error', reject);
-        server.listen(0, '127.0.0.1', () => {
-            const address = server.address();
-            server.close(() => {
-                if (address && typeof address === 'object') {
-                    resolve(address.port);
-                } else {
-                    reject(new Error('Unable to allocate an available port'));
-                }
-            });
-        });
-    });
-}
-
-async function delay(ms: number): Promise<void> {
-    await new Promise(resolve => setTimeout(resolve, ms));
 }
 
 describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
@@ -48,7 +27,6 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
 
     beforeAll(async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-worker-test-'));
-        const port = await getAvailablePort();
 
         // Pack server package
         const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
@@ -104,10 +82,10 @@ export default {
         fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource);
 
         // Install dependencies
-        execSync('npm install --prefer-offline --no-audit --no-fund', { cwd: tempDir, stdio: 'pipe', timeout: 180_000 });
+        execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
 
         // Start wrangler dev server
-        const proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(port)], {
+        const proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT)], {
             cwd: tempDir,
             shell: true,
             stdio: 'pipe'
@@ -162,8 +140,8 @@ export default {
             }
         };
 
-        env = { tempDir, port, process: proc, cleanup };
-    }, 240_000);
+        env = { tempDir, process: proc, cleanup };
+    }, 120_000);
 
     afterAll(async () => {
         await env?.cleanup();
@@ -172,25 +150,28 @@ export default {
     it('should handle MCP requests', async () => {
         expect(env).not.toBeNull();
 
-        // Retry the full round trip — wrangler may report "Ready" before it can
-        // consistently serve the first few requests.
+        // Retry connection — wrangler may report "Ready" before it can handle requests
+        let client!: Client;
         let lastError: unknown;
-        for (let attempt = 0; attempt < 8; attempt++) {
-            const client = new Client({ name: 'test-client', version: '1.0.0' });
-            const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${env!.port}/`));
+        for (let attempt = 0; attempt < 5; attempt++) {
             try {
+                client = new Client({ name: 'test-client', version: '1.0.0' });
+                const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${PORT}/`));
                 await client.connect(transport);
-                const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
-                expect(result.content).toEqual([{ type: 'text', text: 'Hello, World!' }]);
-                await client.close();
-                return;
+                lastError = undefined;
+                break;
             } catch (error) {
                 lastError = error;
-                await client.close().catch(() => {});
-                await delay(1000);
+                await new Promise(resolve => setTimeout(resolve, 1000));
             }
         }
+        if (lastError) {
+            throw lastError;
+        }
 
-        throw lastError;
+        const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
+        expect(result.content).toEqual([{ type: 'text', text: 'Hello, World!' }]);
+
+        await client.close();
     }, 30_000);
 });
