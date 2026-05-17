@@ -409,11 +409,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
     protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
-        if (!notification.params.requestId) {
+        const requestId = notification.params.requestId;
+        if (requestId === undefined) {
             return;
         }
         // Handle request cancellation
-        const controller = this._requestHandlerAbortControllers.get(notification.params.requestId);
+        const controller = this._requestHandlerAbortControllers.get(requestId);
         controller?.abort(notification.params.reason);
     }
 
