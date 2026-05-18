@@ -60,14 +60,14 @@ An array of repo entries. Each entry specifies a GitHub repo and one or more pac
 }
 ```
 
-| Field | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `repo` | yes | — | GitHub `owner/name` |
-| `ref` | no | `main` | Branch or tag to clone |
-| `packages` | no | `[{ "dir": ".", "sourceDir": "src" }]` | Package targets within the repo |
-| `packages[].dir` | yes | — | Path to package root (where `package.json` lives) |
-| `packages[].sourceDir` | no | `src` | Source directory relative to `dir` (passed to codemod) |
-| `packages[].checks` | no | auto-detect | Override check commands; set a value to `null` to skip that check |
+| Field                  | Required | Default                                | Description                                                       |
+| ---------------------- | -------- | -------------------------------------- | ----------------------------------------------------------------- |
+| `repo`                 | yes      | —                                      | GitHub `owner/name`                                               |
+| `ref`                  | no       | `main`                                 | Branch or tag to clone                                            |
+| `packages`             | no       | `[{ "dir": ".", "sourceDir": "src" }]` | Package targets within the repo                                   |
+| `packages[].dir`       | yes      | —                                      | Path to package root (where `package.json` lives)                 |
+| `packages[].sourceDir` | no       | `src`                                  | Source directory relative to `dir` (passed to codemod)            |
+| `packages[].checks`    | no       | auto-detect                            | Override check commands; set a value to `null` to skip that check |
 
 When `checks` is omitted, the runner auto-detects commands from the package's `package.json` scripts (probing names like `typecheck`, `build`, `test`, `lint`). The package manager is auto-detected from the lockfile at the repo root.
 
@@ -75,12 +75,12 @@ When `checks` is omitted, the runner auto-detects commands from the package's `p
 
 `analyze-prompt.md` contains instructions for Claude Code to run the batch test and produce a categorized analysis. Each error is classified as:
 
-| Category | Meaning |
-|----------|---------|
-| `codemod-bug` | A transform produced incorrect output |
+| Category            | Meaning                                            |
+| ------------------- | -------------------------------------------------- |
+| `codemod-bug`       | A transform produced incorrect output              |
 | `missing-transform` | The codemod should handle this pattern but doesn't |
-| `manual-migration` | Expected — requires human judgment |
-| `repo-specific` | Unusual pattern not worth handling in the codemod |
+| `manual-migration`  | Expected — requires human judgment                 |
+| `repo-specific`     | Unusual pattern not worth handling in the codemod  |
 
 ## Adding a repo
 
