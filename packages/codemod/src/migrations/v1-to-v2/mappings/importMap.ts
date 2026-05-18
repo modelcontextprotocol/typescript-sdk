@@ -77,6 +77,12 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         target: '@modelcontextprotocol/express',
         status: 'moved'
     },
+    '@modelcontextprotocol/sdk/server/zod-compat.js': {
+        target: '',
+        status: 'removed',
+        removalMessage:
+            'zod-compat removed in v2. AnySchema and SchemaOutput types have no v2 equivalent — v2 uses StandardSchemaV1 from @standard-schema/spec. Rewrite generic function signatures to use StandardSchemaV1 directly.'
+    },
 
     '@modelcontextprotocol/sdk/server/auth/types.js': {
         target: '',
@@ -111,7 +117,10 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
 
     '@modelcontextprotocol/sdk/types.js': {
         target: 'RESOLVE_BY_CONTEXT',
-        status: 'moved'
+        status: 'moved',
+        renamedSymbols: {
+            ResourceTemplate: 'ResourceTemplateType'
+        }
     },
     '@modelcontextprotocol/sdk/shared/protocol.js': {
         target: 'RESOLVE_BY_CONTEXT',

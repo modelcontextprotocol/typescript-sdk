@@ -127,15 +127,17 @@ function handleReference(
     // Pattern: XSchema used as value (function arg, assignment, etc.)
     const parent = ref.getParent();
     if (parent && Node.isPropertyAccessExpression(parent) && parent.getExpression() === ref) {
-        // Some other method call on the schema — diagnostic
+        const line = ref.getStartLineNumber();
+        ref.replaceWithText(`specTypeSchemas.${typeName}`);
+        ensureImport(sourceFile, 'specTypeSchemas');
         diagnostics.push(
             warning(
                 sourceFile.getFilePath(),
-                ref.getStartLineNumber(),
-                `${localName} is not exported in v2. Use \`specTypeSchemas.${typeName}\` (typed as StandardSchemaV1) or \`isSpecType.${typeName}\` for validation.`
+                line,
+                `Replaced ${localName} with specTypeSchemas.${typeName}. Note: typed as StandardSchemaV1, not ZodType — Zod methods like .safeParse()/.parse()/.parseAsync() are not available. Manual rewrite required.`
             )
         );
-        return false;
+        return true;
     }
 
     if (parent && Node.isExportSpecifier(parent)) {
@@ -291,7 +293,19 @@ function rewriteCapturedSafeParse(
                 break;
             }
             case 'error': {
-                replacements.push({ node, newText: `${varName}.issues` });
+                const errorParent = node.getParent();
+                if (errorParent && Node.isPropertyAccessExpression(errorParent) && errorParent.getExpression() === node) {
+                    const subProp = errorParent.getName();
+                    if (subProp === 'issues') {
+                        replacements.push({ node: errorParent, newText: `${varName}.issues` });
+                    } else if (subProp === 'message') {
+                        replacements.push({ node: errorParent, newText: `${varName}.issues?.map(i => i.message).join(', ')` });
+                    } else {
+                        replacements.push({ node: errorParent, newText: `${varName}.issues` });
+                    }
+                } else {
+                    replacements.push({ node, newText: `${varName}.issues` });
+                }
                 break;
             }
         }

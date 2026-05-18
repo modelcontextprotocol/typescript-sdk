@@ -410,6 +410,34 @@ describe('import-paths transform', () => {
         expect(result.usedPackages!.has('@modelcontextprotocol/client/stdio')).toBe(true);
     });
 
+    it('removes zod-compat import with warning', () => {
+        const input = `import { AnySchema, SchemaOutput } from '@modelcontextprotocol/sdk/server/zod-compat.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(sourceFile.getFullText()).not.toContain('AnySchema');
+        expect(sourceFile.getFullText()).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.changesCount).toBeGreaterThan(0);
+        expect(result.diagnostics.length).toBeGreaterThan(0);
+        expect(result.diagnostics[0]!.message).toContain('zod-compat');
+    });
+
+    it('renames ResourceTemplate to ResourceTemplateType in types.js imports', () => {
+        const input = [
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `import { ResourceTemplate } from '@modelcontextprotocol/sdk/types.js';`,
+            `const t: ResourceTemplate = getTemplate();`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const output = sourceFile.getFullText();
+        expect(result.changesCount).toBeGreaterThan(0);
+        expect(output).toContain('ResourceTemplateType');
+        expect(output).not.toMatch(/(?<!ResourceTemplate)(?<![a-zA-Z])ResourceTemplate(?!Type)(?![a-zA-Z])/);
+    });
+
     it('resolves InMemoryTransport based on sibling client imports', () => {
         const input = [
             `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,

@@ -125,6 +125,44 @@ describe('spec-schema-access transform', () => {
             expect(text).toMatch(/import.*specTypeSchemas.*from/);
         });
 
+        it('rewrites .error.issues to .issues (unwrap double nesting)', () => {
+            const input = [
+                `import { CallToolResultSchema } from '@modelcontextprotocol/server';`,
+                `const parsed = CallToolResultSchema.safeParse(data);`,
+                `if (!parsed.success) { console.log(parsed.error.issues); }`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).toContain('parsed.issues');
+            expect(text).not.toContain('parsed.issues.issues');
+            expect(text).not.toContain('parsed.error');
+        });
+
+        it('rewrites .error.message to issues map expression', () => {
+            const input = [
+                `import { CallToolResultSchema } from '@modelcontextprotocol/server';`,
+                `const parsed = CallToolResultSchema.safeParse(data);`,
+                `if (!parsed.success) { console.log(parsed.error.message); }`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).not.toContain('parsed.error');
+            expect(text).not.toContain('parsed.issues.message');
+            expect(text).toContain("parsed.issues?.map(i => i.message).join(', ')");
+        });
+
+        it('rewrites bare .error to .issues (unchanged behavior)', () => {
+            const input = [
+                `import { ToolSchema } from '@modelcontextprotocol/server';`,
+                `const result = ToolSchema.safeParse(raw);`,
+                `if (!result.success) { console.log(result.error); }`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).toContain('result.issues');
+            expect(text).not.toContain('result.error');
+        });
+
         it('falls back to diagnostic for non-captured safeParse (bare expression)', () => {
             const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `ToolSchema.safeParse(data);`, ''].join('\n');
             const { result } = applyTransform(input);
@@ -191,6 +229,54 @@ describe('spec-schema-access transform', () => {
             expect(text).toContain('parsed.success');
             expect(result.changesCount).toBe(0);
             expect(result.diagnostics.length).toBe(0);
+        });
+    });
+
+    describe('auto-transform: generic property access → specTypeSchemas.X', () => {
+        it('replaces schema identifier in .parseAsync() call', () => {
+            const input = [
+                `import { OAuthTokensSchema } from '@modelcontextprotocol/server';`,
+                `const tokens = await OAuthTokensSchema.parseAsync(data);`,
+                ''
+            ].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('specTypeSchemas.OAuthTokens.parseAsync(data)');
+            expect(text).not.toMatch(/import\s*\{[^}]*OAuthTokensSchema[^}]*\}/);
+            expect(result.changesCount).toBeGreaterThan(0);
+            expect(result.diagnostics.length).toBeGreaterThan(0);
+        });
+
+        it('replaces schema identifier in .or() call', () => {
+            const input = [
+                `import { ServerNotificationSchema } from '@modelcontextprotocol/server';`,
+                `const union = ServerNotificationSchema.or(otherSchema);`,
+                ''
+            ].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('specTypeSchemas.ServerNotification.or(otherSchema)');
+            expect(text).not.toMatch(/import\s*\{[^}]*ServerNotificationSchema[^}]*\}/);
+            expect(result.changesCount).toBeGreaterThan(0);
+        });
+
+        it('replaces schema identifier in .extend() call', () => {
+            const input = [
+                `import { ToolSchema } from '@modelcontextprotocol/server';`,
+                `const extended = ToolSchema.extend({ extra: z.string() });`,
+                ''
+            ].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('specTypeSchemas.Tool.extend');
+            expect(result.changesCount).toBeGreaterThan(0);
+        });
+
+        it('adds specTypeSchemas import for generic property access', () => {
+            const input = [
+                `import { OAuthTokensSchema } from '@modelcontextprotocol/server';`,
+                `const tokens = await OAuthTokensSchema.parseAsync(data);`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).toMatch(/import.*specTypeSchemas.*from/);
         });
     });
 
