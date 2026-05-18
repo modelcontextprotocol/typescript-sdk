@@ -31,6 +31,13 @@ export function createPrivateKeyJwtAuth(options: {
     alg: string;
     audience?: string | URL;
     lifetimeSeconds?: number;
+    /**
+     * Additional custom JWT claims to include in the signed assertion.
+     *
+     * These are merged into the JWT payload, but the standard JWT claims
+     * (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`) are always set explicitly by the SDK and
+     * will override any overlapping keys provided here.
+     */
     claims?: Record<string, unknown>;
 }): AddClientAuthentication {
     return async (_headers, params, url, metadata) => {
