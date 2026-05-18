@@ -178,7 +178,12 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
     const std = schema['~standard'];
     let result: Record<string, unknown>;
     if (std.jsonSchema) {
-        result = std.jsonSchema[io]({ target: 'draft-2020-12' });
+        // Force `reused: 'inline'` so reused subschemas are inlined rather than emitted as
+        // `$ref` pointers. Strict MCP clients (e.g. kimi) reject ref forms other than
+        // `#/$defs/...`, and zod's `reused` default has varied across 4.x minors (the SDK
+        // pins `zod ^4.2.0`). Threading via `libraryOptions` is how zod's standard-schema
+        // entrypoint accepts converter options. See issue #2100.
+        result = std.jsonSchema[io]({ target: 'draft-2020-12', libraryOptions: { reused: 'inline' } });
     } else if (std.vendor === 'zod') {
         // zod 4.0–4.1 implements StandardSchemaV1 but not StandardJSONSchemaV1 (`~standard.jsonSchema`).
         // The SDK already bundles zod 4, so fall back to its converter rather than crashing on tools/list.
@@ -197,7 +202,13 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
                     'Falling back to z.toJSONSchema(). Upgrade to zod >=4.2.0 to silence this warning.'
             );
         }
-        result = z.toJSONSchema(schema as unknown as z.ZodType, { target: 'draft-2020-12', io }) as Record<string, unknown>;
+        // See note above on line 181: pin `reused: 'inline'` for the zod 4.0–4.1 fallback
+        // path too, so older zod versions whose default was `'ref'` still produce inline
+        // schemas. Fixes #2100.
+        result = z.toJSONSchema(schema as unknown as z.ZodType, { target: 'draft-2020-12', io, reused: 'inline' }) as Record<
+            string,
+            unknown
+        >;
     } else {
         throw new Error(
             `Schema library "${std.vendor}" does not implement StandardJSONSchemaV1 (\`~standard.jsonSchema\`). ` +
