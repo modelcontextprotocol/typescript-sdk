@@ -7,7 +7,6 @@ import type {
     CompleteRequest,
     GetPromptRequest,
     Implementation,
-    JSONRPCRequest,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
@@ -19,12 +18,12 @@ import type {
     ListToolsRequest,
     LoggingLevel,
     MessageExtraInfo,
+    Middleware,
     NotificationMethod,
     ProtocolOptions,
     ReadResourceRequest,
     RequestMethod,
     RequestOptions,
-    Result,
     ServerCapabilities,
     SubscribeRequest,
     Tool,
@@ -229,6 +228,8 @@ export class Client extends Protocol<ClientContext> {
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
 
+        this.dispatcher.use(this._validationMiddleware);
+
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
             this._pendingListChangedConfig = options.listChanged;
@@ -283,93 +284,86 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * Enforces client-side validation for `elicitation/create` and `sampling/createMessage`
-     * regardless of how the handler was registered.
+     * regardless of how the handler was registered. Installed as a {@linkcode Dispatcher}
+     * middleware so it applies to both the legacy `_onrequest` path and the 2026-06
+     * dispatch path.
      */
-    protected override _wrapHandler(
-        method: string,
-        handler: (request: JSONRPCRequest, ctx: ClientContext) => Promise<Result>
-    ): (request: JSONRPCRequest, ctx: ClientContext) => Promise<Result> {
-        if (method === 'elicitation/create') {
-            return async (request, ctx) => {
-                const validatedRequest = parseSchema(ElicitRequestSchema, request);
-                if (!validatedRequest.success) {
-                    // Type guard: if success is false, error is guaranteed to exist
-                    const errorMessage =
-                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
+    private readonly _validationMiddleware: Middleware<ClientContext> = async (request, _ctx, next) => {
+        if (request.method === 'elicitation/create') {
+            const validatedRequest = parseSchema(ElicitRequestSchema, request);
+            if (!validatedRequest.success) {
+                const errorMessage =
+                    validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
+            }
+
+            const { params } = validatedRequest.data;
+            params.mode = params.mode ?? 'form';
+            const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
+
+            if (params.mode === 'form' && !supportsFormMode) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Client does not support form-mode elicitation requests');
+            }
+
+            if (params.mode === 'url' && !supportsUrlMode) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
+            }
+
+            const result = await next();
+
+            const validationResult = parseSchema(ElicitResultSchema, result);
+            if (!validationResult.success) {
+                const errorMessage =
+                    validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
+            }
+
+            const validatedResult = validationResult.data;
+            const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
+
+            if (
+                params.mode === 'form' &&
+                validatedResult.action === 'accept' &&
+                validatedResult.content &&
+                requestedSchema &&
+                this._capabilities.elicitation?.form?.applyDefaults
+            ) {
+                try {
+                    applyElicitationDefaults(requestedSchema, validatedResult.content);
+                } catch {
+                    // gracefully ignore errors in default application
                 }
+            }
 
-                const { params } = validatedRequest.data;
-                params.mode = params.mode ?? 'form';
-                const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
-
-                if (params.mode === 'form' && !supportsFormMode) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Client does not support form-mode elicitation requests');
-                }
-
-                if (params.mode === 'url' && !supportsUrlMode) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
-                }
-
-                const result = await handler(request, ctx);
-
-                const validationResult = parseSchema(ElicitResultSchema, result);
-                if (!validationResult.success) {
-                    // Type guard: if success is false, error is guaranteed to exist
-                    const errorMessage =
-                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
-                }
-
-                const validatedResult = validationResult.data;
-                const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
-
-                if (
-                    params.mode === 'form' &&
-                    validatedResult.action === 'accept' &&
-                    validatedResult.content &&
-                    requestedSchema &&
-                    this._capabilities.elicitation?.form?.applyDefaults
-                ) {
-                    try {
-                        applyElicitationDefaults(requestedSchema, validatedResult.content);
-                    } catch {
-                        // gracefully ignore errors in default application
-                    }
-                }
-
-                return validatedResult;
-            };
+            return validatedResult;
         }
 
-        if (method === 'sampling/createMessage') {
-            return async (request, ctx) => {
-                const validatedRequest = parseSchema(CreateMessageRequestSchema, request);
-                if (!validatedRequest.success) {
-                    const errorMessage =
-                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
-                }
+        if (request.method === 'sampling/createMessage') {
+            const validatedRequest = parseSchema(CreateMessageRequestSchema, request);
+            if (!validatedRequest.success) {
+                const errorMessage =
+                    validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
+            }
 
-                const { params } = validatedRequest.data;
+            const { params } = validatedRequest.data;
 
-                const result = await handler(request, ctx);
+            const result = await next();
 
-                const hasTools = params.tools || params.toolChoice;
-                const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
-                const validationResult = parseSchema(resultSchema, result);
-                if (!validationResult.success) {
-                    const errorMessage =
-                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
-                }
+            const hasTools = params.tools || params.toolChoice;
+            const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
+            const validationResult = parseSchema(resultSchema, result);
+            if (!validationResult.success) {
+                const errorMessage =
+                    validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
+            }
 
-                return validationResult.data;
-            };
+            return validationResult.data;
         }
 
-        return handler;
-    }
+        return next();
+    };
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {
         if (!this._serverCapabilities?.[capability]) {

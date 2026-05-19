@@ -32,7 +32,6 @@ import type {
 } from '../types/index.js';
 import {
     getNotificationSchema,
-    getRequestSchema,
     getResultSchema,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
@@ -44,6 +43,8 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
+import type { Handler, InferHandlerResult, RequestHandlerSchemas } from './dispatcher.js';
+import { Dispatcher, errorResponse } from './dispatcher.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -57,7 +58,7 @@ export type ProgressCallback = (progress: Progress) => void;
 export type ProtocolOptions = {
     /**
      * Protocol versions supported. First version is preferred (sent by client,
-     * used as fallback by server). Passed to transport during {@linkcode Protocol.connect | connect()}.
+     * used as fallback by server). Passed to transport during `connect()`.
      *
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
@@ -275,7 +276,8 @@ type TimeoutInfo = {
 export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
-    private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
+    /** The handler registry. Both `_onrequest` and `_dispatchStateless` route through it. */
+    protected readonly dispatcher = new Dispatcher<ContextT>();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
@@ -302,7 +304,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
     /**
      * A handler to invoke for any request types that do not have their own handler installed.
      */
-    fallbackRequestHandler?: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>;
+    get fallbackRequestHandler(): Handler<ContextT> | undefined {
+        return this.dispatcher.fallbackHandler;
+    }
+    set fallbackRequestHandler(handler: Handler<ContextT> | undefined) {
+        this.dispatcher.fallbackHandler = handler;
+    }
 
     /**
      * A handler to invoke for any notification types that do not have their own handler installed.
@@ -320,7 +327,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
             this._onprogress(notification);
         });
 
-        this.setRequestHandler(
+        // Register directly on the dispatcher (not via setRequestHandler) so
+        // the abstract assertRequestHandlerCapability is not called before
+        // subclass fields are initialised.
+        this.dispatcher.setRequestHandler(
             'ping',
             // Automatic pong by default.
             _request => ({}) as Result
@@ -462,7 +472,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this.onerror?.(error);
     }
 
-    private _onnotification(notification: JSONRPCNotification): void {
+    protected _onnotification(notification: JSONRPCNotification): void {
         const handler = this._notificationHandlers.get(notification.method) ?? this.fallbackNotificationHandler;
 
         // Ignore notifications not being subscribed to.
@@ -477,28 +487,20 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
-        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
-
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
+
+        if (!this.dispatcher.canHandle(request.method)) {
+            capturedTransport
+                ?.send(errorResponse(request.id, ProtocolErrorCode.MethodNotFound, 'Method not found'))
+                .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)));
+            return;
+        }
 
         const sendNotification = (notification: Notification, options?: NotificationOptions) =>
             this.notification(notification, { ...options, relatedRequestId: request.id });
         const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
             this._requestWithSchema(r, resultSchema, { ...options, relatedRequestId: request.id });
-
-        if (handler === undefined) {
-            const errorResponse: JSONRPCErrorResponse = {
-                jsonrpc: '2.0',
-                id: request.id,
-                error: {
-                    code: ProtocolErrorCode.MethodNotFound,
-                    message: 'Method not found'
-                }
-            };
-            capturedTransport?.send(errorResponse).catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
-            return;
-        }
 
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
@@ -532,41 +534,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
         };
         const ctx = this.buildContext(baseCtx, extra);
 
-        // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        Promise.resolve()
-            .then(() => handler(request, ctx))
-            .then(
-                async result => {
-                    if (abortController.signal.aborted) {
-                        // Request was cancelled
-                        return;
-                    }
-
-                    const response: JSONRPCResponse = {
-                        result,
-                        jsonrpc: '2.0',
-                        id: request.id
-                    };
-                    await capturedTransport?.send(response);
-                },
-                async error => {
-                    if (abortController.signal.aborted) {
-                        // Request was cancelled
-                        return;
-                    }
-
-                    const errorResponse: JSONRPCErrorResponse = {
-                        jsonrpc: '2.0',
-                        id: request.id,
-                        error: {
-                            code: Number.isSafeInteger(error['code']) ? error['code'] : ProtocolErrorCode.InternalError,
-                            message: error.message ?? 'Internal error',
-                            ...(error['data'] !== undefined && { data: error['data'] })
-                        }
-                    };
-                    await capturedTransport?.send(errorResponse);
+        this.dispatcher
+            .dispatch(request, ctx)
+            .then(async response => {
+                if (abortController.signal.aborted) {
+                    return;
                 }
-            )
+                await capturedTransport?.send(response);
+            })
             .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)))
             .finally(() => {
                 if (this._requestHandlerAbortControllers.get(request.id) === abortController) {
@@ -902,63 +877,23 @@ export abstract class Protocol<ContextT extends BaseContext> {
         maybeHandler?: (params: unknown, ctx: ContextT) => Result | Promise<Result>
     ): void {
         this.assertRequestHandlerCapability(method);
-
-        let stored: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>;
-
-        if (typeof schemasOrHandler === 'function') {
-            const schema = getRequestSchema(method);
-            if (!schema) {
-                throw new TypeError(
-                    `'${method}' is not a spec request method; pass schemas as the second argument to setRequestHandler().`
-                );
-            }
-            stored = (request, ctx) => Promise.resolve(schemasOrHandler(schema.parse(request), ctx));
-        } else if (maybeHandler) {
-            stored = async (request, ctx) => {
-                const userParams = { ...request.params };
-                delete userParams._meta;
-                const parsed = await validateStandardSchema(schemasOrHandler.params, userParams);
-                if (!parsed.success) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error}`);
-                }
-                return maybeHandler(parsed.data, ctx);
-            };
-        } else {
-            throw new TypeError('setRequestHandler: handler is required');
-        }
-
-        this._requestHandlers.set(method, this._wrapHandler(method, stored));
-    }
-
-    /**
-     * Hook for subclasses to wrap a registered request handler with role-specific
-     * validation or behavior (e.g. `Server` validates `tools/call` results, `Client`
-     * validates `elicitation/create` mode and result). Runs for both the 2-arg and
-     * 3-arg registration paths. The default implementation is identity.
-     *
-     * Subclasses overriding this hook avoid redeclaring `setRequestHandler`'s overload set.
-     */
-    protected _wrapHandler(
-        _method: string,
-        handler: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>
-    ): (request: JSONRPCRequest, ctx: ContextT) => Promise<Result> {
-        return handler;
+        // Unsound only at the impl signature; the public overloads are sound, and
+        // Dispatcher.setRequestHandler has the identical impl signature.
+        this.dispatcher.setRequestHandler(method, schemasOrHandler as never, maybeHandler as never);
     }
 
     /**
      * Removes the request handler for the given method.
      */
     removeRequestHandler(method: RequestMethod | string): void {
-        this._requestHandlers.delete(method);
+        this.dispatcher.removeRequestHandler(method);
     }
 
     /**
      * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
      */
     assertCanSetRequestHandler(method: RequestMethod | string): void {
-        if (this._requestHandlers.has(method)) {
-            throw new Error(`A request handler for ${method} already exists, which would be overridden`);
-        }
+        this.dispatcher.assertCanSetRequestHandler(method);
     }
 
     /**
@@ -1018,23 +953,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this._notificationHandlers.delete(method);
     }
 }
-
-/**
- * Schema bundle accepted by {@linkcode Protocol.setRequestHandler | setRequestHandler}'s 3-arg form.
- *
- * `params` is required and validates the inbound `request.params`. `result` is optional;
- * when supplied it types the handler's return value (no runtime validation is performed
- * on the result).
- */
-export interface RequestHandlerSchemas<
-    P extends StandardSchemaV1 = StandardSchemaV1,
-    R extends StandardSchemaV1 | undefined = StandardSchemaV1 | undefined
-> {
-    params: P;
-    result?: R;
-}
-
-type InferHandlerResult<R extends StandardSchemaV1 | undefined> = R extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<R> : Result;
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);

@@ -161,10 +161,11 @@ When a request arrives from the remote side:
 1. **Transport** receives message, calls `transport.onmessage()`
 2. **`Protocol.connect()`** routes to `_onrequest()`, `_onresponse()`, or `_onnotification()`
 3. **`Protocol._onrequest()`**:
-    - Looks up handler in `_requestHandlers` map (keyed by method name)
+    - Checks `dispatcher.canHandle(method)`; sends a `MethodNotFound` error and returns early if no handler (or fallback) is registered
     - Creates `BaseContext` with `signal`, `sessionId`, `sendNotification`, `sendRequest`, etc.
     - Calls `buildContext()` to let subclasses enrich the context (e.g., Server adds HTTP request info)
-    - Invokes handler, sends JSON-RPC response back via transport
+    - Calls `dispatcher.dispatch()` which looks up the handler (keyed by method name), runs the middleware chain, invokes the handler, and wraps the result as a JSON-RPC response
+    - Sends the response back via transport
 4. **Handler** was registered via `setRequestHandler('method', handler)`
 
 ### Handler Registration

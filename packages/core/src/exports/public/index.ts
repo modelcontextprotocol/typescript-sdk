@@ -38,6 +38,9 @@ export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/aut
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils.js';
 
+// Dispatcher types (handler registry; consumed by Protocol)
+export type { RequestHandlerSchemas } from '../../shared/dispatcher.js';
+
 // Protocol types (NOT the Protocol class itself or mergeCapabilities)
 export type {
     BaseContext,
@@ -45,7 +48,6 @@ export type {
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
-    RequestHandlerSchemas,
     RequestOptions,
     ServerContext
 } from '../../shared/protocol.js';

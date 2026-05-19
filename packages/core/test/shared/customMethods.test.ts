@@ -79,20 +79,20 @@ describe('Protocol custom-method support', () => {
             expect(() => p.setRequestHandler('acme/unknown' as never, () => ({}) as never)).toThrow(TypeError);
         });
 
-        it('routes both 2-arg and 3-arg registration through _wrapHandler', () => {
+        it('runs Dispatcher middleware for both 2-arg and 3-arg registration', async () => {
+            const [a, b] = await pair();
             const seen: string[] = [];
-            class SpyProtocol extends TestProtocol {
-                protected override _wrapHandler(
-                    method: string,
-                    handler: (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result>
-                ): (request: JSONRPCRequest, ctx: BaseContext) => Promise<Result> {
-                    seen.push(method);
-                    return handler;
+            // dispatcher is protected; reach it via prototype access for test purposes.
+            (b as unknown as { dispatcher: { use: (mw: unknown) => void } }).dispatcher.use(
+                async (request: JSONRPCRequest, _ctx: BaseContext, next: () => Promise<Result>) => {
+                    seen.push(request.method);
+                    return next();
                 }
-            }
-            const p = new SpyProtocol();
-            p.setRequestHandler('tools/list', () => ({ tools: [] }));
-            p.setRequestHandler('acme/custom', { params: z.object({}) }, () => ({}));
+            );
+            b.setRequestHandler('tools/list', () => ({ tools: [] }));
+            b.setRequestHandler('acme/custom', { params: z.object({}) }, () => ({}));
+            await a.request({ method: 'tools/list' });
+            await a.request({ method: 'acme/custom' }, z.unknown());
             expect(seen).toContain('tools/list');
             expect(seen).toContain('acme/custom');
         });

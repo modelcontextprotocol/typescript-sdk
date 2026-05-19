@@ -12,20 +12,19 @@ import type {
     Implementation,
     InitializeRequest,
     InitializeResult,
-    JSONRPCRequest,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
     LoggingLevel,
     LoggingMessageNotification,
     MessageExtraInfo,
+    Middleware,
     NotificationMethod,
     NotificationOptions,
     ProtocolOptions,
     RequestMethod,
     RequestOptions,
     ResourceUpdatedNotification,
-    Result,
     ServerCapabilities,
     ServerContext,
     ToolResultContent,
@@ -104,6 +103,8 @@ export class Server extends Protocol<ServerContext> {
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
 
+        this.dispatcher.use(Server._callToolResultMiddleware);
+
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
@@ -177,35 +178,26 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * Enforces server-side validation for `tools/call` results regardless of how the
-     * handler was registered.
+     * handler was registered. Installed as a {@linkcode Dispatcher} middleware so
+     * it applies to both the legacy `_onrequest` path and the 2026-06 dispatch path.
      */
-    protected override _wrapHandler(
-        method: string,
-        handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
-    ): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
-        if (method !== 'tools/call') {
-            return handler;
+    private static readonly _callToolResultMiddleware: Middleware<ServerContext> = async (request, _ctx, next) => {
+        if (request.method !== 'tools/call') {
+            return next();
         }
-        return async (request, ctx) => {
-            const validatedRequest = parseSchema(CallToolRequestSchema, request);
-            if (!validatedRequest.success) {
-                const errorMessage =
-                    validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
-            }
-
-            const result = await handler(request, ctx);
-
-            const validationResult = parseSchema(CallToolResultSchema, result);
-            if (!validationResult.success) {
-                const errorMessage =
-                    validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
-            }
-
-            return validationResult.data;
-        };
-    }
+        const validatedRequest = parseSchema(CallToolRequestSchema, request);
+        if (!validatedRequest.success) {
+            const errorMessage = validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
+        }
+        const result = await next();
+        const validationResult = parseSchema(CallToolResultSchema, result);
+        if (!validationResult.success) {
+            const errorMessage = validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
+        }
+        return validationResult.data;
+    };
 
     protected assertCapabilityForMethod(method: RequestMethod | string): void {
         switch (method) {
