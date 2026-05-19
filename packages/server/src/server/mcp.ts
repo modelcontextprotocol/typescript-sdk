@@ -20,7 +20,6 @@ import type {
     StandardSchemaWithJSON,
     Tool,
     ToolAnnotations,
-    ToolExecution,
     Transport,
     Variables
 } from '@modelcontextprotocol/core';
@@ -125,7 +124,6 @@ export class McpServer {
                                 ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
-                            execution: tool.execution,
                             _meta: tool._meta
                         };
 
@@ -679,7 +677,6 @@ export class McpServer {
         inputSchema: StandardSchemaWithJSON | undefined,
         outputSchema: StandardSchemaWithJSON | undefined,
         annotations: ToolAnnotations | undefined,
-        execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
@@ -695,7 +692,6 @@ export class McpServer {
             inputSchema,
             outputSchema,
             annotations,
-            execution,
             _meta,
             handler: handler,
             executor: createToolExecutor(inputSchema, handler),
@@ -820,7 +816,6 @@ export class McpServer {
             normalizeRawShapeSchema(inputSchema),
             normalizeRawShapeSchema(outputSchema),
             annotations,
-            undefined,
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
@@ -1069,7 +1064,6 @@ export type RegisteredTool = {
     inputSchema?: StandardSchemaWithJSON;
     outputSchema?: StandardSchemaWithJSON;
     annotations?: ToolAnnotations;
-    execution?: ToolExecution;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */

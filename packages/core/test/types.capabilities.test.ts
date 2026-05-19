@@ -1,4 +1,5 @@
-import { ClientCapabilitiesSchema, InitializeRequestParamsSchema } from '../src/types/index.js';
+import { ClientCapabilitiesSchema } from '../src/types/index.js';
+import { InitializeRequestParamsSchema } from '../src/types/legacyWireSchemas.js';
 
 describe('ClientCapabilitiesSchema backwards compatibility', () => {
     describe('ElicitationCapabilitySchema preprocessing', () => {

@@ -27,12 +27,30 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  */
 export const CursorSchema = z.string();
 
+/**
+ * Request `_meta` shape.
+ *
+ * The 2026-06 spec marks the namespaced `io.modelcontextprotocol/*` keys as
+ * required. They are intentionally NOT enumerated in this zod schema:
+ *
+ * 1. Adding `ClientCapabilitiesSchema`/`ImplementationSchema` here (even lazy)
+ *    pushes every request-type inference past TS2589's depth budget.
+ * 2. The same base schema must validate pre-2026 (no namespaced keys) and 2026
+ *    (keys present) wire shapes.
+ * 3. Strict validation of the namespaced keys is owned by the stateless
+ *    dispatch layer (added later in the v2-stateless stack).
+ *
+ * `looseObject` passes through unknown keys, so 2026 `_meta` shapes parse fine.
+ */
 export const RequestMetaSchema = z.looseObject({
     /**
      * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
      */
     progressToken: ProgressTokenSchema.optional()
 });
+
+/** Alias mirroring `spec.types.ts` naming. */
+export const RequestMetaObjectSchema = RequestMetaSchema;
 
 /**
  * Common params for any request.
@@ -44,17 +62,33 @@ export const BaseRequestParamsSchema = z.object({
     _meta: RequestMetaSchema.optional()
 });
 
+/**
+ * Request params carrying responses to a prior `input_required` result.
+ *
+ * Declared ahead of the MRTR block (which defines `InputResponsesSchema`) so
+ * `ReadResourceRequestParamsSchema` / `GetPromptRequestParamsSchema` /
+ * `CallToolRequestParamsSchema` can extend it; `z.lazy` defers the forward
+ * reference until parse time.
+ */
+export const InputResponseRequestParamsSchema = BaseRequestParamsSchema.extend({
+    inputResponses: z.lazy(() => InputResponsesSchema).optional(),
+    requestState: z.string().optional()
+});
+
 export const RequestSchema = z.object({
     method: z.string(),
     params: BaseRequestParamsSchema.loose().optional()
 });
+
+/** Generic `MetaObject` (open record). */
+export const MetaObjectSchema = z.record(z.string(), z.unknown());
 
 export const NotificationsParamsSchema = z.object({
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on `_meta` usage.
      */
-    _meta: RequestMetaSchema.optional()
+    _meta: MetaObjectSchema.optional()
 });
 
 export const NotificationSchema = z.object({
@@ -62,12 +96,20 @@ export const NotificationSchema = z.object({
     params: NotificationsParamsSchema.loose().optional()
 });
 
+export const ResultTypeSchema = z.enum(['complete', 'input_required']);
+
 export const ResultSchema = z.looseObject({
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on `_meta` usage.
      */
-    _meta: RequestMetaSchema.optional()
+    _meta: MetaObjectSchema.optional(),
+    /**
+     * Indicates the type of the result. Spec marks this required for 2026-06
+     * servers; kept optional here so the schema also accepts pre-2026 results
+     * (which omit it). Clients MUST treat absent as `"complete"`.
+     */
+    resultType: ResultTypeSchema.optional()
 });
 
 /**
@@ -166,7 +208,7 @@ export const CancelledNotificationParamsSchema = NotificationsParamsSchema.exten
  *
  * This notification indicates that the result will be unused, so any associated processing SHOULD cease.
  *
- * A client MUST NOT attempt to cancel its {@linkcode InitializeRequest | initialize} request.
+ * A client MUST NOT attempt to cancel its `initialize` (pre-2026) or `server/discover` request.
  */
 export const CancelledNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/cancelled'),
@@ -330,22 +372,6 @@ export const ClientCapabilitiesSchema = z.object({
     extensions: z.record(z.string(), JSONObjectSchema).optional()
 });
 
-export const InitializeRequestParamsSchema = BaseRequestParamsSchema.extend({
-    /**
-     * The latest version of the Model Context Protocol that the client supports. The client MAY decide to support older versions as well.
-     */
-    protocolVersion: z.string(),
-    capabilities: ClientCapabilitiesSchema,
-    clientInfo: ImplementationSchema
-});
-/**
- * This request is sent from the client to the server when it first connects, asking it to begin initialization.
- */
-export const InitializeRequestSchema = RequestSchema.extend({
-    method: z.literal('initialize'),
-    params: InitializeRequestParamsSchema
-});
-
 /**
  * Capabilities that a server may support. Known capabilities are defined here, in this schema, but this is not a closed set: any server can define its own, additional capabilities.
  */
@@ -406,39 +432,33 @@ export const ServerCapabilitiesSchema = z.object({
     extensions: z.record(z.string(), JSONObjectSchema).optional()
 });
 
+/* Discover (2026-06 negotiation) */
+
 /**
- * After receiving an initialize request from the client, the server sends this response.
+ * Sent by the client to discover the server's supported protocol versions
+ * and capabilities. Replaces the pre-2026 `initialize` handshake.
  */
-export const InitializeResultSchema = ResultSchema.extend({
-    /**
-     * The version of the Model Context Protocol that the server wants to use. This may not match the version that the client requested. If the client cannot support this version, it MUST disconnect.
-     */
-    protocolVersion: z.string(),
+export const DiscoverRequestSchema = RequestSchema.extend({
+    method: z.literal('server/discover'),
+    params: BaseRequestParamsSchema.optional()
+});
+
+export const DiscoverResultSchema = ResultSchema.extend({
+    supportedVersions: z.array(z.string()),
     capabilities: ServerCapabilitiesSchema,
     serverInfo: ImplementationSchema,
-    /**
-     * Instructions describing how to use the server and its features.
-     *
-     * This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.
-     */
     instructions: z.string().optional()
 });
 
-/**
- * This notification is sent from the client to the server after initialization has finished.
- */
-export const InitializedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/initialized'),
-    params: NotificationsParamsSchema.optional()
+/* Error data shapes */
+
+export const UnsupportedProtocolVersionErrorDataSchema = z.object({
+    supported: z.array(z.string()),
+    requested: z.string()
 });
 
-/* Ping */
-/**
- * A ping, issued by either the server or the client, to check that the other party is still alive. The receiver must promptly respond, or else may be disconnected.
- */
-export const PingRequestSchema = RequestSchema.extend({
-    method: z.literal('ping'),
-    params: BaseRequestParamsSchema.optional()
+export const MissingRequiredClientCapabilityErrorDataSchema = z.object({
+    requiredCapabilities: ClientCapabilitiesSchema
 });
 
 /* Progress notifications */
@@ -488,7 +508,21 @@ export const PaginatedRequestSchema = RequestSchema.extend({
     params: PaginatedRequestParamsSchema.optional()
 });
 
-export const PaginatedResultSchema = ResultSchema.extend({
+/* Caching (SEP-2243) */
+
+export const CacheScopeSchema = z.enum(['public', 'private']);
+
+/**
+ * Result fields for cache hints. Spec marks `ttlMs`/`cacheScope` required;
+ * kept optional here so the schema accepts servers that have not yet
+ * implemented SEP-2243.
+ */
+export const CacheableResultSchema = ResultSchema.extend({
+    ttlMs: z.number().int().nonnegative().optional(),
+    cacheScope: CacheScopeSchema.optional()
+});
+
+export const PaginatedResultSchema = CacheableResultSchema.extend({
     /**
      * An opaque token representing the pagination position after the last returned result.
      * If present, there may be more results available.
@@ -691,7 +725,7 @@ export const ResourceRequestParamsSchema = BaseRequestParamsSchema.extend({
 /**
  * Parameters for a {@linkcode ReadResourceRequest | resources/read} request.
  */
-export const ReadResourceRequestParamsSchema = ResourceRequestParamsSchema;
+export const ReadResourceRequestParamsSchema = InputResponseRequestParamsSchema.extend(ResourceRequestParamsSchema.shape);
 
 /**
  * Sent from the client to the server, to read a specific resource URI.
@@ -704,7 +738,7 @@ export const ReadResourceRequestSchema = RequestSchema.extend({
 /**
  * The server's response to a {@linkcode ReadResourceRequest | resources/read} request from the client.
  */
-export const ReadResourceResultSchema = ResultSchema.extend({
+export const ReadResourceResultSchema = CacheableResultSchema.extend({
     contents: z.array(z.union([TextResourceContentsSchema, BlobResourceContentsSchema]))
 });
 
@@ -714,24 +748,6 @@ export const ReadResourceResultSchema = ResultSchema.extend({
 export const ResourceListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/resources/list_changed'),
     params: NotificationsParamsSchema.optional()
-});
-
-export const SubscribeRequestParamsSchema = ResourceRequestParamsSchema;
-/**
- * Sent from the client to request `resources/updated` notifications from the server whenever a particular resource changes.
- */
-export const SubscribeRequestSchema = RequestSchema.extend({
-    method: z.literal('resources/subscribe'),
-    params: SubscribeRequestParamsSchema
-});
-
-export const UnsubscribeRequestParamsSchema = ResourceRequestParamsSchema;
-/**
- * Sent from the client to request cancellation of {@linkcode ResourceUpdatedNotification | resources/updated} notifications from the server. This should follow a previous {@linkcode SubscribeRequest | resources/subscribe} request.
- */
-export const UnsubscribeRequestSchema = RequestSchema.extend({
-    method: z.literal('resources/unsubscribe'),
-    params: UnsubscribeRequestParamsSchema
 });
 
 /**
@@ -745,11 +761,38 @@ export const ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema
 });
 
 /**
- * A notification from the server to the client, informing it that a resource has changed and may need to be read again. This should only be sent if the client previously sent a {@linkcode SubscribeRequest | resources/subscribe} request.
+ * A notification from the server to the client, informing it that a resource has changed and may need to be read again.
  */
 export const ResourceUpdatedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/resources/updated'),
     params: ResourceUpdatedNotificationParamsSchema
+});
+
+/* Subscriptions (2026-06) */
+
+export const SubscriptionFilterSchema = z.object({
+    toolsListChanged: z.boolean().optional(),
+    promptsListChanged: z.boolean().optional(),
+    resourcesListChanged: z.boolean().optional(),
+    resourceSubscriptions: z.array(z.string()).optional()
+});
+
+export const SubscriptionsListenRequestParamsSchema = BaseRequestParamsSchema.extend({
+    notifications: SubscriptionFilterSchema
+});
+
+export const SubscriptionsListenRequestSchema = RequestSchema.extend({
+    method: z.literal('subscriptions/listen'),
+    params: SubscriptionsListenRequestParamsSchema
+});
+
+export const SubscriptionsAcknowledgedNotificationParamsSchema = NotificationsParamsSchema.extend({
+    notifications: SubscriptionFilterSchema
+});
+
+export const SubscriptionsAcknowledgedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/subscriptions/acknowledged'),
+    params: SubscriptionsAcknowledgedNotificationParamsSchema
 });
 
 /* Prompts */
@@ -809,7 +852,7 @@ export const ListPromptsResultSchema = PaginatedResultSchema.extend({
 /**
  * Parameters for a {@linkcode GetPromptRequest | prompts/get} request.
  */
-export const GetPromptRequestParamsSchema = BaseRequestParamsSchema.extend({
+export const GetPromptRequestParamsSchema = InputResponseRequestParamsSchema.extend({
     /**
      * The name of the prompt or prompt template.
      */
@@ -1049,14 +1092,6 @@ export const ToolAnnotationsSchema = z.object({
 });
 
 /**
- * Execution-related properties for a tool.
- */
-export const ToolExecutionSchema = z.object({
-    // taskSupport field removed in P0.2 alongside spec.types.ts regen (kept here only while spec.types.ts still declares it).
-    taskSupport: z.enum(['required', 'optional', 'forbidden']).optional()
-});
-
-/**
  * Definition for a tool the client can call.
  */
 export const ToolSchema = z.object({
@@ -1073,20 +1108,16 @@ export const ToolSchema = z.object({
     inputSchema: z
         .object({
             type: z.literal('object'),
-            properties: z.record(z.string(), JSONValueSchema).optional(),
-            required: z.array(z.string()).optional()
+            $schema: z.string().optional()
         })
         .catchall(z.unknown()),
     /**
      * An optional JSON Schema 2020-12 object defining the structure of the tool's output
      * returned in the `structuredContent` field of a `CallToolResult`.
-     * Must have `type: 'object'` at the root level per MCP spec.
      */
     outputSchema: z
         .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), JSONValueSchema).optional(),
-            required: z.array(z.string()).optional()
+            $schema: z.string().optional()
         })
         .catchall(z.unknown())
         .optional(),
@@ -1094,10 +1125,6 @@ export const ToolSchema = z.object({
      * Optional additional tool information.
      */
     annotations: ToolAnnotationsSchema.optional(),
-    /**
-     * Execution-related properties for this tool.
-     */
-    execution: ToolExecutionSchema.optional(),
 
     /**
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
@@ -1137,7 +1164,7 @@ export const CallToolResultSchema = ResultSchema.extend({
      *
      * If the `Tool` defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
      */
-    structuredContent: z.record(z.string(), z.unknown()).optional(),
+    structuredContent: z.unknown().optional(),
 
     /**
      * Whether the tool call ended in an error.
@@ -1168,7 +1195,7 @@ export const CompatibilityCallToolResultSchema = CallToolResultSchema.or(
 /**
  * Parameters for a `tools/call` request.
  */
-export const CallToolRequestParamsSchema = BaseRequestParamsSchema.extend({
+export const CallToolRequestParamsSchema = InputResponseRequestParamsSchema.extend({
     /**
      * The name of the tool to call.
      */
@@ -1225,23 +1252,6 @@ export const ListChangedOptionsBaseSchema = z.object({
  * The severity of a log message.
  */
 export const LoggingLevelSchema = z.enum(['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']);
-
-/**
- * Parameters for a `logging/setLevel` request.
- */
-export const SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
-    /**
-     * The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as `notifications/logging/message`.
-     */
-    level: LoggingLevelSchema
-});
-/**
- * A request from the client to the server, to enable or adjust logging.
- */
-export const SetLevelRequestSchema = RequestSchema.extend({
-    method: z.literal('logging/setLevel'),
-    params: SetLevelRequestParamsSchema
-});
 
 /**
  * Parameters for a `notifications/message` notification.
@@ -1322,7 +1332,7 @@ export const ToolResultContentSchema = z.object({
     type: z.literal('tool_result'),
     toolUseId: z.string().describe('The unique identifier for the corresponding tool call.'),
     content: z.array(ContentBlockSchema).default([]),
-    structuredContent: z.object({}).loose().optional(),
+    structuredContent: z.unknown().optional(),
     isError: z.boolean().optional(),
 
     /**
@@ -1826,37 +1836,45 @@ export const ListRootsResultSchema = ResultSchema.extend({
     roots: z.array(RootSchema)
 });
 
+/* MRTR (input_required) */
+
 /**
- * A notification from the client to the server, informing it that the list of roots has changed.
+ * Union of request shapes a server may include in `inputRequests`.
+ * These are the same shapes as the (now-removed) standalone server→client RPCs.
  */
-export const RootsListChangedNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/roots/list_changed'),
-    params: NotificationsParamsSchema.optional()
+export const InputRequestSchema = z.union([CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema]);
+
+export const InputRequestsSchema = z.record(z.string(), InputRequestSchema);
+
+export const InputResponseSchema = z.union([CreateMessageResultWithToolsSchema, ElicitResultSchema, ListRootsResultSchema]);
+
+export const InputResponsesSchema = z.record(z.string(), InputResponseSchema);
+
+/**
+ * Result indicating the server requires additional input before completing.
+ * At least one of `inputRequests` or `requestState` MUST be present.
+ */
+export const InputRequiredResultSchema = ResultSchema.extend({
+    resultType: z.literal('input_required'),
+    inputRequests: InputRequestsSchema.optional(),
+    requestState: z.string().optional()
 });
 
-/* Client messages */
+/* Client messages (2026 spec methods only — legacy methods are merged in `types.ts` from `legacyWireSchemas.ts`) */
 export const ClientRequestSchema = z.union([
-    PingRequestSchema,
-    InitializeRequestSchema,
+    DiscoverRequestSchema,
     CompleteRequestSchema,
-    SetLevelRequestSchema,
     GetPromptRequestSchema,
     ListPromptsRequestSchema,
     ListResourcesRequestSchema,
     ListResourceTemplatesRequestSchema,
     ReadResourceRequestSchema,
-    SubscribeRequestSchema,
-    UnsubscribeRequestSchema,
     CallToolRequestSchema,
-    ListToolsRequestSchema
+    ListToolsRequestSchema,
+    SubscriptionsListenRequestSchema
 ]);
 
-export const ClientNotificationSchema = z.union([
-    CancelledNotificationSchema,
-    ProgressNotificationSchema,
-    InitializedNotificationSchema,
-    RootsListChangedNotificationSchema
-]);
+export const ClientNotificationSchema = z.union([CancelledNotificationSchema, ProgressNotificationSchema]);
 
 export const ClientResultSchema = z.union([
     EmptyResultSchema,
@@ -1866,8 +1884,11 @@ export const ClientResultSchema = z.union([
     ListRootsResultSchema
 ]);
 
-/* Server messages */
-export const ServerRequestSchema = z.union([PingRequestSchema, CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema]);
+/* Server messages. Under 2026 stateless these three are not sent as RPCs;
+ * they appear as InputRequest payloads inside InputRequiredResult. The
+ * schemas are still needed for legacy server→client RPCs and for MRTR
+ * payload validation. */
+export const ServerRequestSchema = z.union([CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema]);
 
 export const ServerNotificationSchema = z.union([
     CancelledNotificationSchema,
@@ -1877,12 +1898,14 @@ export const ServerNotificationSchema = z.union([
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
-    ElicitationCompleteNotificationSchema
+    ElicitationCompleteNotificationSchema,
+    SubscriptionsAcknowledgedNotificationSchema
 ]);
 
 export const ServerResultSchema = z.union([
     EmptyResultSchema,
-    InitializeResultSchema,
+    DiscoverResultSchema,
+    InputRequiredResultSchema,
     CompleteResultSchema,
     GetPromptResultSchema,
     ListPromptsResultSchema,
@@ -1893,21 +1916,20 @@ export const ServerResultSchema = z.union([
     ListToolsResultSchema
 ]);
 
-/* Runtime schema lookup — result schemas by method */
+/* Runtime schema lookup — result schemas by method.
+ * 2026 spec methods are seeded here; pre-2026 methods are merged in by
+ * `legacyWireSchemas.ts` at module load via `registerLegacySchemas()`. */
 const resultSchemas: Record<string, z.core.$ZodType> = {
-    ping: EmptyResultSchema,
-    initialize: InitializeResultSchema,
+    'server/discover': DiscoverResultSchema,
     'completion/complete': CompleteResultSchema,
-    'logging/setLevel': EmptyResultSchema,
     'prompts/get': GetPromptResultSchema,
     'prompts/list': ListPromptsResultSchema,
     'resources/list': ListResourcesResultSchema,
     'resources/templates/list': ListResourceTemplatesResultSchema,
     'resources/read': ReadResourceResultSchema,
-    'resources/subscribe': EmptyResultSchema,
-    'resources/unsubscribe': EmptyResultSchema,
     'tools/call': CallToolResultSchema,
     'tools/list': ListToolsResultSchema,
+    'subscriptions/listen': EmptyResultSchema,
     'sampling/createMessage': CreateMessageResultWithToolsSchema,
     'elicitation/create': ElicitResultSchema,
     'roots/list': ListRootsResultSchema
@@ -1925,9 +1947,6 @@ export function getResultSchema(method: string): z.ZodType | undefined {
 }
 
 /* Runtime schema lookup — request schemas by method */
-type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
-type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];
-
 function buildSchemaMap<T extends { shape: { method: { value: string } } }>(schemas: readonly T[]): Record<string, T> {
     const map: Record<string, T> = {};
     for (const schema of schemas) {
@@ -1938,13 +1957,29 @@ function buildSchemaMap<T extends { shape: { method: { value: string } } }>(sche
 }
 
 const requestSchemas = buildSchemaMap([...ClientRequestSchema.options, ...ServerRequestSchema.options] as const) as Record<
-    RequestMethod,
-    RequestSchemaType
+    string,
+    z.core.$ZodType
 >;
 const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options, ...ServerNotificationSchema.options] as const) as Record<
-    NotificationMethod,
-    NotificationSchemaType
+    string,
+    z.core.$ZodType
 >;
+
+/**
+ * Called by `legacyWireSchemas.ts` at module load to merge pre-2026 method
+ * schemas into the runtime lookup maps. Keeps `schemas.ts` 2026-only at the
+ * source level while preserving legacy `getRequestSchema('initialize')` etc.
+ * @internal
+ */
+export function registerLegacySchemas(legacy: {
+    requests: Record<string, z.core.$ZodType>;
+    results: Record<string, z.core.$ZodType>;
+    notifications: Record<string, z.core.$ZodType>;
+}): void {
+    Object.assign(requestSchemas, legacy.requests);
+    Object.assign(resultSchemas, legacy.results);
+    Object.assign(notificationSchemas, legacy.notifications);
+}
 
 /**
  * Gets the Zod schema for a given request method.

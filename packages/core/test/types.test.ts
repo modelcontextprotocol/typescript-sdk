@@ -478,7 +478,7 @@ describe('Types', () => {
             expect(result.success).toBe(false);
         });
 
-        test('should still require type: object at root for outputSchema', () => {
+        test('outputSchema accepts any JSON Schema (spec @142b3c3c dropped the type:object constraint)', () => {
             const tool = {
                 name: 'test',
                 inputSchema: { type: 'object' },
@@ -487,7 +487,7 @@ describe('Types', () => {
                 }
             };
             const result = ToolSchema.safeParse(tool);
-            expect(result.success).toBe(false);
+            expect(result.success).toBe(true);
         });
 
         test('should accept simple minimal schema (backward compatibility)', () => {

@@ -4,6 +4,9 @@ export * from './constants.js';
 export * from './enums.js';
 export * from './errors.js';
 export * from './guards.js';
+/* eslint-disable import/export -- legacy type names overlap with types.ts re-exports; TS resolves deterministically. */
+export * from './legacyWireSchemas.js';
 export * from './schemas.js';
 export * from './specTypeSchema.js';
 export * from './types.js';
+/* eslint-enable import/export */
