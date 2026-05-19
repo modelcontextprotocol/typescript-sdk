@@ -15,6 +15,7 @@
         "@modelcontextprotocol/client": "workspace:^"
     },
     "devDependencies": {
+        "@modelcontextprotocol/tsconfig": "workspace:^",
         "@types/node": "^24.10.1",
         "typescript": "catalog:devTools"
     }

@@ -90,8 +90,8 @@ Create a `tsconfig.json` in the root of your project:
   "compilerOptions": {
     "target": "ES2023",
     "lib": ["ES2023"],
-    "module": "Node16",
-    "moduleResolution": "Node16",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     "outDir": "./build",
     "rootDir": "./src",
     "strict": true,
@@ -236,7 +236,8 @@ Now let's add the core functionality for processing queries and handling tool ca
           messages,
         });
 
-        finalText.push(followUp.content[0].type === 'text' ? followUp.content[0].text : '');
+        const firstBlock = followUp.content[0];
+        finalText.push(firstBlock?.type === 'text' ? firstBlock.text : '');
       }
     }
 
@@ -284,13 +285,14 @@ Finally, we'll add the main execution logic:
 
 ```ts source="../examples/client-quickstart/src/index.ts#main"
 async function main() {
-  if (process.argv.length < 3) {
+  const serverScriptPath = process.argv[2];
+  if (!serverScriptPath) {
     console.log('Usage: node build/index.js <path_to_server_script>');
     return;
   }
   const mcpClient = new MCPClient();
   try {
-    await mcpClient.connectToServer(process.argv[2]);
+    await mcpClient.connectToServer(serverScriptPath);
 
     // Check if we have a valid API key to continue
     const apiKey = process.env.ANTHROPIC_API_KEY;
