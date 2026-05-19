@@ -1,15 +1,10 @@
 {
+    "extends": "@modelcontextprotocol/tsconfig",
     "compilerOptions": {
-        "target": "ES2023",
-        "lib": ["ES2023"],
-        "module": "ESNext",
-        "moduleResolution": "bundler",
         "outDir": "./build",
         "rootDir": "./src",
-        "strict": true,
-        "esModuleInterop": true,
-        "skipLibCheck": true,
-        "forceConsistentCasingInFileNames": true,
+        "declaration": false,
+        "declarationMap": false,
         "paths": {
             "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
             "@modelcontextprotocol/client/stdio": ["./node_modules/@modelcontextprotocol/client/src/stdio.ts"],
