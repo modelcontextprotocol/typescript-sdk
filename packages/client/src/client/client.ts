@@ -7,6 +7,9 @@ import type {
     CompleteRequest,
     GetPromptRequest,
     Implementation,
+    InputRequiredResult,
+    JSONRPCMessage,
+    JSONRPCNotification,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
@@ -20,12 +23,16 @@ import type {
     MessageExtraInfo,
     Middleware,
     NotificationMethod,
+    Progress,
+    ProgressToken,
     ProtocolOptions,
     ReadResourceRequest,
     RequestMethod,
     RequestOptions,
     ServerCapabilities,
+    StandardSchemaV1,
     SubscribeRequest,
+    SubscriptionFilter,
     Tool,
     Transport,
     UnsubscribeRequest
@@ -36,11 +43,19 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    DEFAULT_REQUEST_TIMEOUT_MSEC,
+    DiscoverResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
     GetPromptResultSchema,
     InitializeResultSchema,
+    InputRequiredResultSchema,
+    isJSONRPCErrorResponse,
+    isJSONRPCNotification,
+    isJSONRPCResultResponse,
+    isStatelessProtocolVersion,
+    JSONRPC_VERSION,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     ListPromptsResultSchema,
@@ -48,6 +63,7 @@ import {
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
     mergeCapabilities,
+    META_KEYS,
     parseSchema,
     Protocol,
     ProtocolError,
@@ -56,6 +72,38 @@ import {
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
+
+const MRTR_MAX_ROUNDS = 16;
+const MAX_INPUT_REQUESTS_PER_ROUND = 16;
+
+/** Only these methods may appear as `inputRequests` (defense-in-depth; schema also constrains). */
+const MRTR_INPUT_METHODS: ReadonlySet<string> = new Set(['sampling/createMessage', 'elicitation/create', 'roots/list']);
+
+type ListChangedKinds = Record<
+    string,
+    {
+        filterKey: Exclude<keyof SubscriptionFilter, 'resourceSubscriptions'>;
+        config: ListChangedOptions<unknown>;
+        fetcher: () => Promise<unknown[]>;
+        autoRefresh: boolean;
+        debounceMs?: number;
+    }
+>;
+
+/**
+ * Returns true for `server/discover` failures that should fall through to the
+ * legacy `initialize` handshake (server doesn't speak 2026-06).
+ */
+function isFallbackable(e: unknown): boolean {
+    if (e instanceof ProtocolError) {
+        return e.code === ProtocolErrorCode.MethodNotFound;
+    }
+    if (e instanceof SdkError) {
+        const status = (e.data as { status?: number } | undefined)?.status;
+        return e.code === SdkErrorCode.InvalidResult || (typeof status === 'number' && status >= 400 && status < 500);
+    }
+    return false;
+}
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
@@ -239,6 +287,339 @@ export class Client extends Protocol<ClientContext> {
     protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
         return ctx;
     }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // 2026 stateless (SEP-2575/2322)
+    // ═══════════════════════════════════════════════════════════════════════
+
+    /** Set true by {@linkcode _negotiate} when `server/discover` succeeds. */
+    private _isStateless = false;
+
+    /** Log level included in per-request `_meta` (set by {@linkcode setLoggingLevel}). */
+    private _logLevel?: LoggingLevel;
+
+    /**
+     * Builds the namespaced `_meta` object this client sends on every 2026-06
+     * request: protocol version, client identity, capabilities, log level.
+     */
+    private _buildMeta(version?: string): Record<string, unknown> {
+        const meta: Record<string, unknown> = {
+            [META_KEYS.protocolVersion]: version ?? this._negotiatedProtocolVersion,
+            [META_KEYS.clientInfo]: this._clientInfo,
+            [META_KEYS.clientCapabilities]: this._capabilities
+        };
+        if (this._logLevel !== undefined) meta[META_KEYS.logLevel] = this._logLevel;
+        return meta;
+    }
+
+    /**
+     * Merges {@linkcode _buildMeta} + `extra` into `params._meta`. Caller-supplied
+     * `params._meta` keys take precedence over the namespaced identity keys, but
+     * SDK-set `extra` (e.g. the correlation `progressToken`) is spread last so it
+     * always wins, matching {@linkcode Protocol.request}.
+     */
+    private _withMeta(params: Record<string, unknown> | undefined, extra?: Record<string, unknown>): Record<string, unknown> {
+        return { ...params, _meta: { ...this._buildMeta(), ...(params?._meta as object | undefined), ...extra } };
+    }
+
+    /**
+     * Drains a `sendAndReceive` async iterable: routes `notifications/progress`
+     * with the matching token to `opts.onprogress`, routes any other
+     * notification through {@linkcode _onnotification} so registered handlers
+     * fire, parses and returns the first response, throws on JSON-RPC error.
+     */
+    private async _collect(
+        it: AsyncIterable<JSONRPCMessage>,
+        opts?: { signal?: AbortSignal; onprogress?: (p: Progress) => void; progressToken?: ProgressToken }
+    ): Promise<Record<string, unknown>> {
+        for await (const m of it) {
+            opts?.signal?.throwIfAborted();
+            if (isJSONRPCErrorResponse(m)) {
+                throw new ProtocolError(m.error.code, m.error.message, m.error.data);
+            }
+            if (isJSONRPCResultResponse(m)) {
+                return m.result;
+            }
+            if (isJSONRPCNotification(m)) {
+                if (
+                    m.method === 'notifications/progress' &&
+                    opts?.onprogress &&
+                    (m.params as { progressToken?: ProgressToken }).progressToken === opts.progressToken
+                ) {
+                    opts.onprogress(m.params as Progress);
+                } else {
+                    // Route other notifications (e.g. notifications/message) through
+                    // Protocol's _onnotification so any handler registered via
+                    // setNotificationHandler fires, with the fallback as last resort.
+                    this._onnotification(m);
+                }
+            }
+            // Anything else (e.g. a stray request) is ignored.
+        }
+        if (opts?.signal?.aborted) throw opts.signal.reason ?? new DOMException('Aborted', 'AbortError');
+        throw new SdkError(SdkErrorCode.ConnectionClosed, 'Stream ended without a response');
+    }
+
+    /**
+     * Routes one client-to-server request. When not stateless (or transport
+     * lacks `sendAndReceive`), delegates to {@linkcode Protocol.request | request()}.
+     * Otherwise sends via `sendAndReceive` and runs the MRTR resume loop:
+     * on `resultType: 'input_required'`, dispatch each input request through
+     * `this.dispatcher.dispatch` (so {@linkcode _validationMiddleware} runs),
+     * accumulate `inputResponses` + thread `requestState`, re-send.
+     */
+    private async _send<T extends StandardSchemaV1>(
+        request: { method: string; params?: Record<string, unknown> },
+        schema: T,
+        options?: RequestOptions
+    ): Promise<StandardSchemaV1.InferOutput<T>> {
+        const sar = this.transport?.sendAndReceive?.bind(this.transport);
+        if (!this._isStateless || !sar) {
+            return this._requestWithSchema(request, schema, options);
+        }
+        if (this._enforceStrictCapabilities) {
+            this.assertCapabilityForMethod(request.method);
+        }
+
+        const progressToken: ProgressToken | undefined = options?.onprogress ? crypto.randomUUID() : undefined;
+        const accumulated: Record<string, unknown> = {};
+        let requestState: string | undefined;
+
+        // Compose `options.signal` + `options.maxTotalTimeout` + a resettable
+        // per-request `options.timeout` (default 60s, same as Protocol.request)
+        // into one signal. `resetTimeoutOnProgress` resets the per-request timer
+        // when progress arrives; `maxTotalTimeout` is never reset.
+        const timeoutMs = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
+        const timeoutCtl = new AbortController();
+        const armTimeout = () =>
+            setTimeout(
+                () => timeoutCtl.abort(new SdkError(SdkErrorCode.RequestTimeout, 'Request timed out', { timeout: timeoutMs })),
+                timeoutMs
+            );
+        let timeoutHandle = armTimeout();
+        const onprogress = (p: Progress) => {
+            if (options?.resetTimeoutOnProgress) {
+                clearTimeout(timeoutHandle);
+                timeoutHandle = armTimeout();
+            }
+            options?.onprogress?.(p);
+        };
+        const parts: AbortSignal[] = [timeoutCtl.signal];
+        if (options?.signal) parts.push(options.signal);
+        if (options?.maxTotalTimeout !== undefined) parts.push(AbortSignal.timeout(options.maxTotalTimeout));
+        const signal = parts.length === 1 ? parts[0]! : AbortSignal.any(parts);
+
+        try {
+            for (let round = 0; round < MRTR_MAX_ROUNDS; round++) {
+                signal.throwIfAborted();
+                // SEP-2322: inputResponses + requestState are params-level fields
+                // (spec InputResponseRequestParams), not _meta keys.
+                const params: Record<string, unknown> = { ...request.params };
+                if (Object.keys(accumulated).length > 0) params.inputResponses = accumulated;
+                if (requestState !== undefined) params.requestState = requestState;
+                const metaExtra = progressToken === undefined ? undefined : { progressToken };
+
+                const raw = await this._collect(sar({ method: request.method, params: this._withMeta(params, metaExtra) }, { signal }), {
+                    signal,
+                    onprogress,
+                    progressToken
+                });
+
+                if (raw.resultType !== 'input_required') {
+                    const parsed = await schema['~standard'].validate(raw);
+                    if (parsed.issues) {
+                        throw new SdkError(SdkErrorCode.InvalidResult, `Invalid result: ${JSON.stringify(parsed.issues)}`);
+                    }
+                    return parsed.value;
+                }
+                const ir = InputRequiredResultSchema.parse(raw) as InputRequiredResult;
+                requestState = ir.requestState;
+                const entries = Object.entries(ir.inputRequests ?? {});
+                if (entries.length > MAX_INPUT_REQUESTS_PER_ROUND) {
+                    throw new SdkError(
+                        SdkErrorCode.InvalidResult,
+                        `Too many input requests (${entries.length}); server may issue at most ${MAX_INPUT_REQUESTS_PER_ROUND} per round`
+                    );
+                }
+                for (const [key, irq] of entries) {
+                    signal.throwIfAborted();
+                    if (!MRTR_INPUT_METHODS.has(irq.method)) {
+                        throw new SdkError(SdkErrorCode.InvalidResult, `inputRequests['${key}'].method '${irq.method}' is not allowed`);
+                    }
+                    // Dispatch through the same middleware chain as legacy
+                    // server-to-client requests so _validationMiddleware applies.
+                    const ctx = this.buildContext({
+                        sessionId: undefined,
+                        mcpReq: {
+                            id: key,
+                            method: irq.method,
+                            signal,
+                            send: (() => {
+                                throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'send is not available inside MRTR input handlers');
+                            }) as ClientContext['mcpReq']['send'],
+                            notify: async () => {}
+                        }
+                    });
+                    const res = await this.dispatcher.dispatch(
+                        { jsonrpc: JSONRPC_VERSION, id: key, method: irq.method, params: irq.params as Record<string, unknown> },
+                        ctx
+                    );
+                    if ('error' in res) {
+                        throw new ProtocolError(res.error.code, res.error.message, res.error.data);
+                    }
+                    accumulated[key] = res.result;
+                }
+            }
+            throw new SdkError(SdkErrorCode.RequestTimeout, `MRTR exceeded ${MRTR_MAX_ROUNDS} rounds for ${request.method}`);
+        } finally {
+            clearTimeout(timeoutHandle);
+        }
+    }
+
+    /**
+     * Probes `server/discover` via `transport.sendAndReceive`. On success,
+     * marks this client stateless and populates server identity/capabilities
+     * from the result. On {@linkcode isFallbackable} failure, leaves state
+     * untouched (the legacy `initialize` already populated it via `connect()`).
+     *
+     * Called from {@linkcode connect} (in C13).
+     */
+    private async _negotiate(transport: Transport): Promise<void> {
+        const sar = transport.sendAndReceive?.bind(transport);
+        const preferred = this._supportedProtocolVersions.find(v => isStatelessProtocolVersion(v));
+        if (!sar || !preferred) return;
+
+        transport.setProtocolVersion?.(preferred);
+        try {
+            const raw = await this._collect(sar({ method: 'server/discover', params: { _meta: this._buildMeta(preferred) } }));
+            const dr = DiscoverResultSchema.parse(raw);
+            const negotiated = dr.supportedVersions.find(v => this._supportedProtocolVersions.includes(v));
+            if (negotiated && isStatelessProtocolVersion(negotiated)) {
+                this._serverCapabilities = dr.capabilities;
+                this._serverVersion = dr.serverInfo;
+                this._instructions = dr.instructions;
+                this._negotiatedProtocolVersion = negotiated;
+                this._isStateless = true;
+                transport.setProtocolVersion?.(negotiated);
+                return;
+            }
+        } catch (error) {
+            if (!isFallbackable(error)) throw error;
+        }
+        // Reset header to whatever legacy initialize set.
+        transport.setProtocolVersion?.(this._negotiatedProtocolVersion ?? '');
+    }
+
+    /**
+     * Opens a `subscriptions/listen` stream and yields each notification.
+     * Throws unless this client negotiated stateless mode and the transport
+     * supports `sendAndReceive`. Breaking out of the loop (or aborting the
+     * signal) cancels the underlying transport stream, which the server treats
+     * as unsubscribe.
+     */
+    async *subscribe(filter: SubscriptionFilter, opts?: { signal?: AbortSignal }): AsyncGenerator<JSONRPCNotification, void, void> {
+        const sar = this.transport?.sendAndReceive?.bind(this.transport);
+        if (!this._isStateless || !sar) {
+            throw new SdkError(
+                SdkErrorCode.CapabilityNotSupported,
+                'subscribe() requires a stateless protocol version and a transport that supports sendAndReceive'
+            );
+        }
+        for await (const m of sar(
+            { method: 'subscriptions/listen', params: this._withMeta({ notifications: filter }) },
+            { signal: opts?.signal }
+        )) {
+            if (isJSONRPCNotification(m)) {
+                yield m;
+            } else if (isJSONRPCErrorResponse(m)) {
+                throw new ProtocolError(m.error.code, m.error.message, m.error.data);
+            }
+        }
+    }
+
+    private _listChangedAbort?: AbortController;
+
+    /**
+     * Stateless backing for `options.listChanged`: opens ONE
+     * `subscriptions/listen` for all configured list-changed kinds and calls
+     * the matching `onChanged` per notification (debounced by `debounceMs`).
+     */
+    private async _listChangedLoop(kinds: ListChangedKinds): Promise<void> {
+        const filter: SubscriptionFilter = {};
+        const debounced: Record<string, () => void> = {};
+        const timers = new Map<string, ReturnType<typeof setTimeout>>();
+        for (const [method, k] of Object.entries(kinds)) {
+            filter[k.filterKey] = true;
+            const { autoRefresh, debounceMs } = k;
+            const refresh = async () => {
+                if (!autoRefresh) {
+                    k.config.onChanged(null, null);
+                    return;
+                }
+                try {
+                    k.config.onChanged(null, await k.fetcher());
+                } catch (error) {
+                    k.config.onChanged(error instanceof Error ? error : new Error(String(error)), null);
+                }
+            };
+            // eslint-disable-next-line unicorn/consistent-function-scoping -- closes over per-iteration `refresh`
+            const run = () =>
+                void refresh().catch(error => (this.onerror ?? console.error)(error instanceof Error ? error : new Error(String(error))));
+            debounced[method] = debounceMs
+                ? () => {
+                      const t = timers.get(method);
+                      if (t) clearTimeout(t);
+                      timers.set(method, setTimeout(run, debounceMs));
+                  }
+                : run;
+        }
+        this._listChangedAbort?.abort();
+        this._listChangedAbort = new AbortController();
+        const { signal } = this._listChangedAbort;
+        try {
+            for await (const n of this.subscribe(filter, { signal })) {
+                debounced[n.method]?.();
+            }
+            // Stream ended without error and without our abort: surface so the
+            // caller knows list-changed delivery has stopped.
+            if (!signal.aborted) {
+                throw new SdkError(SdkErrorCode.ConnectionClosed, 'subscriptions/listen stream ended');
+            }
+        } finally {
+            for (const t of timers.values()) clearTimeout(t);
+            timers.clear();
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // dual-mode (SEP-2575/2567)
+    //
+    // `connect()` probes `server/discover` then falls back to legacy
+    // `initialize`. `_setupListChanged()` and `setLoggingLevel()` branch on
+    // `_isStateless`. Typed request methods (callTool/listTools/etc.) route
+    // via `_send`, which falls back to `Protocol.request()` when not
+    // stateless. These methods appear inline below among session-dependent
+    // code for diff-minimality; the dual-mode set is: connect, close,
+    // _initialize, _setupListChanged, setLoggingLevel, callTool, listTools,
+    // getPrompt, listPrompts, readResource, listResources,
+    // listResourceTemplates, complete.
+    // ═══════════════════════════════════════════════════════════════════════
+
+    override async close(): Promise<void> {
+        this._isStateless = false;
+        this._listChangedAbort?.abort();
+        this._listChangedAbort = undefined;
+        await super.close();
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // session-dependent (existing — bodies unchanged unless noted dual-mode above)
+    //
+    // `connect()` performs the legacy `initialize` handshake. The 2026-06
+    // discover auto-probe is wired in C13. `ping`, `subscribeResource`,
+    // `unsubscribeResource`, and `_setupListChangedHandler*` use the
+    // persistent connection; `_listChangedLoop` (above) is the 2026 path.
+    // ═══════════════════════════════════════════════════════════════════════
 
     /**
      * Set up handlers for list changed notifications based on config and server capabilities.
@@ -460,6 +841,89 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
+     * Legacy `initialize` handshake; called from {@linkcode connect} when the
+     * 2026-06 discover probe is unavailable or falls back.
+     */
+    private async _initialize(transport: Transport, options?: RequestOptions): Promise<void> {
+        const result = await this._requestWithSchema(
+            {
+                method: 'initialize',
+                params: {
+                    protocolVersion: this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION,
+                    capabilities: this._capabilities,
+                    clientInfo: this._clientInfo
+                }
+            },
+            InitializeResultSchema,
+            options
+        );
+
+        if (result === undefined) {
+            throw new Error(`Server sent invalid initialize result: ${result}`);
+        }
+
+        if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
+            throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
+        }
+
+        this._serverCapabilities = result.capabilities;
+        this._serverVersion = result.serverInfo;
+        this._negotiatedProtocolVersion = result.protocolVersion;
+        // HTTP transports must set the protocol version in each header after initialization.
+        if (transport.setProtocolVersion) {
+            transport.setProtocolVersion(result.protocolVersion);
+        }
+
+        this._instructions = result.instructions;
+
+        await this.notification({
+            method: 'notifications/initialized'
+        });
+    }
+
+    /**
+     * Wires `options.listChanged` after capabilities are known. Stateless
+     * connections use `subscriptions/listen` ({@linkcode _listChangedLoop});
+     * legacy connections register notification handlers.
+     */
+    private _setupListChanged(): void {
+        const config = this._pendingListChangedConfig;
+        if (!config) return;
+        if (!this._isStateless) {
+            this._pendingListChangedConfig = undefined;
+            this._setupListChangedHandlers(config);
+            return;
+        }
+        const kinds: ListChangedKinds = {};
+        const add = <T>(
+            method: string,
+            filterKey: Exclude<keyof SubscriptionFilter, 'resourceSubscriptions'>,
+            cfg: ListChangedOptions<T>,
+            fetcher: () => Promise<T[]>
+        ): void => {
+            const parsed = parseSchema(ListChangedOptionsBaseSchema, cfg);
+            if (!parsed.success) throw new Error(`Invalid ${String(filterKey)} listChanged options: ${parsed.error.message}`);
+            kinds[method] = { filterKey, config: cfg as ListChangedOptions<unknown>, fetcher, ...parsed.data };
+        };
+        if (config.tools && this._serverCapabilities?.tools?.listChanged) {
+            add('notifications/tools/list_changed', 'toolsListChanged', config.tools, () => this.listTools().then(r => r.tools));
+        }
+        if (config.prompts && this._serverCapabilities?.prompts?.listChanged) {
+            add('notifications/prompts/list_changed', 'promptsListChanged', config.prompts, () => this.listPrompts().then(r => r.prompts));
+        }
+        if (config.resources && this._serverCapabilities?.resources?.listChanged) {
+            add('notifications/resources/list_changed', 'resourcesListChanged', config.resources, () =>
+                this.listResources().then(r => r.resources)
+            );
+        }
+        if (Object.keys(kinds).length > 0) {
+            this._listChangedLoop(kinds).catch(error =>
+                (this.onerror ?? console.error)(error instanceof Error ? error : new Error(String(error)))
+            );
+        }
+    }
+
+    /**
      * After initialization has completed, this will be populated with the server's reported capabilities.
      */
     getServerCapabilities(): ServerCapabilities | undefined {
@@ -620,23 +1084,32 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
+    /**
+     * @deprecated `ping` is removed in the 2026-06 protocol. This method requires a pre-2026 connection.
+     */
     async ping(options?: RequestOptions) {
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
     }
 
     /** Requests argument autocompletion suggestions from the server for a prompt or resource. */
     async complete(params: CompleteRequest['params'], options?: RequestOptions) {
-        return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
+        return this._send({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
-    /** Sets the minimum severity level for log messages sent by the server. */
+    /**
+     * Sets the minimum severity level for log messages sent by the server.
+     * Stored locally for per-request `_meta.logLevel`; when not stateless,
+     * also sends the legacy `logging/setLevel` RPC.
+     */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
+        this._logLevel = level;
+        if (this._isStateless) return {};
         return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
 
     /** Retrieves a prompt by name from the server, passing the given arguments for template substitution. */
     async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions) {
-        return this._requestWithSchema({ method: 'prompts/get', params }, GetPromptResultSchema, options);
+        return this._send({ method: 'prompts/get', params }, GetPromptResultSchema, options);
     }
 
     /**
@@ -666,7 +1139,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
-        return this._requestWithSchema({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
+        return this._send({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
     }
 
     /**
@@ -696,7 +1169,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
-        return this._requestWithSchema({ method: 'resources/list', params }, ListResourcesResultSchema, options);
+        return this._send({ method: 'resources/list', params }, ListResourcesResultSchema, options);
     }
 
     /**
@@ -713,20 +1186,28 @@ export class Client extends Protocol<ClientContext> {
             );
             return { resourceTemplates: [] };
         }
-        return this._requestWithSchema({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
+        return this._send({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
     }
 
     /** Reads the contents of a resource by URI. */
     async readResource(params: ReadResourceRequest['params'], options?: RequestOptions) {
-        return this._requestWithSchema({ method: 'resources/read', params }, ReadResourceResultSchema, options);
+        return this._send({ method: 'resources/read', params }, ReadResourceResultSchema, options);
     }
 
-    /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
+    /**
+     * Subscribes to change notifications for a resource. The server must support resource subscriptions.
+     *
+     * @deprecated Use `client.subscribe({ resourceSubscriptions: [uri] })` when connected to a 2026-06 server. This RPC form requires a pre-2026 connection.
+     */
     async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions) {
         return this._requestWithSchema({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
     }
 
-    /** Unsubscribes from change notifications for a resource. */
+    /**
+     * Unsubscribes from change notifications for a resource.
+     *
+     * @deprecated Use `client.subscribe()` and break out of the loop / abort its signal to stop, when connected to a 2026-06 server. This RPC form requires a pre-2026 connection.
+     */
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions) {
         return this._requestWithSchema({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
@@ -769,7 +1250,7 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
-        const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
+        const result = await this._send({ method: 'tools/call', params }, CallToolResultSchema, options);
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
@@ -859,7 +1340,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
-        const result = await this._requestWithSchema({ method: 'tools/list', params }, ListToolsResultSchema, options);
+        const result = await this._send({ method: 'tools/list', params }, ListToolsResultSchema, options);
 
         // Cache the tools and their output schemas for future validation
         this.cacheToolMetadata(result.tools);
@@ -927,7 +1408,11 @@ export class Client extends Protocol<ClientContext> {
         this.setNotificationHandler(notificationMethod, handler);
     }
 
-    /** Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability. */
+    /**
+     * Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability.
+     *
+     * @deprecated Under the 2026-06 protocol the server polls roots via MRTR; there is no client-to-server notification path. This form requires a pre-2026 connection.
+     */
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
     }
