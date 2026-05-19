@@ -1,7 +1,7 @@
+import type { InitializedNotification, InitializeRequest } from './legacyWireSchemas.js';
+import { InitializedNotificationSchema, InitializeRequestSchema } from './legacyWireSchemas.js';
 import {
     CallToolResultSchema,
-    InitializedNotificationSchema,
-    InitializeRequestSchema,
     JSONRPCErrorResponseSchema,
     JSONRPCMessageSchema,
     JSONRPCNotificationSchema,
@@ -14,8 +14,6 @@ import type {
     CompleteRequest,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
-    InitializedNotification,
-    InitializeRequest,
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,

@@ -355,6 +355,33 @@ describe('protocol tests', () => {
         });
     });
 
+    describe('notifications/cancelled behavior', () => {
+        test('should abort request handler when notifications/cancelled is received', async () => {
+            await protocol.connect(transport);
+
+            let wasAborted = false;
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                wasAborted = ctx.mcpReq.signal.aborted;
+                return {};
+            });
+
+            const requestId = 123;
+            transport.onmessage?.({ jsonrpc: '2.0', id: requestId, method: 'ping', params: {} });
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/cancelled',
+                params: { requestId, reason: 'User cancelled' }
+            });
+
+            await new Promise(resolve => setTimeout(resolve, 150));
+            expect(wasAborted).toBe(true);
+        });
+    });
+
     describe('progress notification timeout behavior', () => {
         beforeEach(() => {
             vi.useFakeTimers();

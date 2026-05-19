@@ -12,6 +12,8 @@ import type {
     BaseRequestParamsSchema,
     BlobResourceContentsSchema,
     BooleanSchemaSchema,
+    CacheableResultSchema,
+    CacheScopeSchema,
     CallToolRequestParamsSchema,
     CallToolRequestSchema,
     CallToolResultSchema,
@@ -31,6 +33,8 @@ import type {
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     CursorSchema,
+    DiscoverRequestSchema,
+    DiscoverResultSchema,
     ElicitationCompleteNotificationParamsSchema,
     ElicitationCompleteNotificationSchema,
     ElicitRequestFormParamsSchema,
@@ -48,10 +52,12 @@ import type {
     IconsSchema,
     ImageContentSchema,
     ImplementationSchema,
-    InitializedNotificationSchema,
-    InitializeRequestParamsSchema,
-    InitializeRequestSchema,
-    InitializeResultSchema,
+    InputRequestSchema,
+    InputRequestsSchema,
+    InputRequiredResultSchema,
+    InputResponseRequestParamsSchema,
+    InputResponseSchema,
+    InputResponsesSchema,
     JSONRPCErrorResponseSchema,
     JSONRPCMessageSchema,
     JSONRPCNotificationSchema,
@@ -72,6 +78,7 @@ import type {
     LoggingLevelSchema,
     LoggingMessageNotificationParamsSchema,
     LoggingMessageNotificationSchema,
+    MissingRequiredClientCapabilityErrorDataSchema,
     ModelHintSchema,
     ModelPreferencesSchema,
     MultiSelectEnumSchemaSchema,
@@ -81,7 +88,6 @@ import type {
     PaginatedRequestParamsSchema,
     PaginatedRequestSchema,
     PaginatedResultSchema,
-    PingRequestSchema,
     PrimitiveSchemaDefinitionSchema,
     ProgressNotificationParamsSchema,
     ProgressNotificationSchema,
@@ -108,9 +114,9 @@ import type {
     ResourceUpdatedNotificationParamsSchema,
     ResourceUpdatedNotificationSchema,
     ResultSchema,
+    ResultTypeSchema,
     RoleSchema,
     RootSchema,
-    RootsListChangedNotificationSchema,
     SamplingContentSchema,
     SamplingMessageContentBlockSchema,
     SamplingMessageSchema,
@@ -118,28 +124,50 @@ import type {
     ServerNotificationSchema,
     ServerRequestSchema,
     ServerResultSchema,
-    SetLevelRequestParamsSchema,
-    SetLevelRequestSchema,
     SingleSelectEnumSchemaSchema,
     StringSchemaSchema,
-    SubscribeRequestParamsSchema,
-    SubscribeRequestSchema,
+    SubscriptionFilterSchema,
+    SubscriptionsAcknowledgedNotificationParamsSchema,
+    SubscriptionsAcknowledgedNotificationSchema,
+    SubscriptionsListenRequestParamsSchema,
+    SubscriptionsListenRequestSchema,
     TextContentSchema,
     TextResourceContentsSchema,
     TitledMultiSelectEnumSchemaSchema,
     TitledSingleSelectEnumSchemaSchema,
     ToolAnnotationsSchema,
     ToolChoiceSchema,
-    ToolExecutionSchema,
     ToolListChangedNotificationSchema,
     ToolResultContentSchema,
     ToolSchema,
     ToolUseContentSchema,
-    UnsubscribeRequestParamsSchema,
-    UnsubscribeRequestSchema,
+    UnsupportedProtocolVersionErrorDataSchema,
     UntitledMultiSelectEnumSchemaSchema,
     UntitledSingleSelectEnumSchemaSchema
 } from './schemas.js';
+
+// Pre-2026 wire types (initialize/ping/setLevel/subscribe/etc.) are SDK-maintained
+// in `legacyWireSchemas.ts` and re-exported here so existing public type names stay intact.
+export type {
+    InitializedNotification,
+    InitializeRequest,
+    InitializeRequestParams,
+    InitializeResult,
+    LegacyNotificationMethod,
+    LegacyRequestMetaObject,
+    LegacyRequestMethod,
+    LegacyRequestParams,
+    LegacyResult,
+    PingRequest,
+    RootsListChangedNotification,
+    SetLevelRequest,
+    SetLevelRequestParams,
+    SubscribeRequest,
+    SubscribeRequestParams,
+    UnsubscribeRequest,
+    UnsubscribeRequestParams
+} from './legacyWireSchemas.js';
+import type * as legacy from './legacyWireSchemas.js';
 
 /* JSON types */
 export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
@@ -197,17 +225,23 @@ export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
 export type Annotations = Infer<typeof AnnotationsSchema>;
 export type Role = Infer<typeof RoleSchema>;
 
-/* Initialization */
+/* Capabilities & implementation */
 export type Implementation = Infer<typeof ImplementationSchema>;
 export type ClientCapabilities = Infer<typeof ClientCapabilitiesSchema>;
-export type InitializeRequestParams = Infer<typeof InitializeRequestParamsSchema>;
-export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
 export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
-export type InitializeResult = Infer<typeof InitializeResultSchema>;
-export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
 
-/* Ping */
-export type PingRequest = Infer<typeof PingRequestSchema>;
+/* Discover (2026-06 negotiation) */
+export type DiscoverRequest = Infer<typeof DiscoverRequestSchema>;
+export type DiscoverResult = Infer<typeof DiscoverResultSchema>;
+export type UnsupportedProtocolVersionErrorData = Infer<typeof UnsupportedProtocolVersionErrorDataSchema>;
+export type MissingRequiredClientCapabilityErrorData = Infer<typeof MissingRequiredClientCapabilityErrorDataSchema>;
+
+/* Result type discriminator */
+export type ResultType = Infer<typeof ResultTypeSchema>;
+
+/* Caching (SEP-2243) */
+export type CacheScope = Infer<typeof CacheScopeSchema>;
+export type CacheableResult = Infer<typeof CacheableResultSchema>;
 
 /* Progress notifications */
 export type Progress = Infer<typeof ProgressSchema>;
@@ -235,12 +269,15 @@ export type ReadResourceRequestParams = Infer<typeof ReadResourceRequestParamsSc
 export type ReadResourceRequest = Infer<typeof ReadResourceRequestSchema>;
 export type ReadResourceResult = Infer<typeof ReadResourceResultSchema>;
 export type ResourceListChangedNotification = Infer<typeof ResourceListChangedNotificationSchema>;
-export type SubscribeRequestParams = Infer<typeof SubscribeRequestParamsSchema>;
-export type SubscribeRequest = Infer<typeof SubscribeRequestSchema>;
-export type UnsubscribeRequestParams = Infer<typeof UnsubscribeRequestParamsSchema>;
-export type UnsubscribeRequest = Infer<typeof UnsubscribeRequestSchema>;
 export type ResourceUpdatedNotificationParams = Infer<typeof ResourceUpdatedNotificationParamsSchema>;
 export type ResourceUpdatedNotification = Infer<typeof ResourceUpdatedNotificationSchema>;
+
+/* Subscriptions (2026-06) */
+export type SubscriptionFilter = Infer<typeof SubscriptionFilterSchema>;
+export type SubscriptionsListenRequestParams = Infer<typeof SubscriptionsListenRequestParamsSchema>;
+export type SubscriptionsListenRequest = Infer<typeof SubscriptionsListenRequestSchema>;
+export type SubscriptionsAcknowledgedNotificationParams = Infer<typeof SubscriptionsAcknowledgedNotificationParamsSchema>;
+export type SubscriptionsAcknowledgedNotification = Infer<typeof SubscriptionsAcknowledgedNotificationSchema>;
 
 /* Prompts */
 export type PromptArgument = Infer<typeof PromptArgumentSchema>;
@@ -263,7 +300,6 @@ export type PromptListChangedNotification = Infer<typeof PromptListChangedNotifi
 
 /* Tools */
 export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
-export type ToolExecution = Infer<typeof ToolExecutionSchema>;
 export type Tool = Infer<typeof ToolSchema>;
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
@@ -275,8 +311,6 @@ export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificati
 
 /* Logging */
 export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
-export type SetLevelRequestParams = Infer<typeof SetLevelRequestParamsSchema>;
-export type SetLevelRequest = Infer<typeof SetLevelRequestSchema>;
 export type LoggingMessageNotificationParams = Infer<typeof LoggingMessageNotificationParamsSchema>;
 export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
 
@@ -324,7 +358,14 @@ export type CompleteResult = Infer<typeof CompleteResultSchema>;
 export type Root = Infer<typeof RootSchema>;
 export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
 export type ListRootsResult = Infer<typeof ListRootsResultSchema>;
-export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
+
+/* MRTR (input_required) */
+export type InputRequest = Infer<typeof InputRequestSchema>;
+export type InputRequests = Infer<typeof InputRequestsSchema>;
+export type InputResponse = Infer<typeof InputResponseSchema>;
+export type InputResponses = Infer<typeof InputResponsesSchema>;
+export type InputRequiredResult = Infer<typeof InputRequiredResultSchema>;
+export type InputResponseRequestParams = Infer<typeof InputResponseRequestParamsSchema>;
 
 /* Client messages */
 export type ClientRequest = Infer<typeof ClientRequestSchema>;
@@ -336,31 +377,47 @@ export type ServerRequest = Infer<typeof ServerRequestSchema>;
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 export type ServerResult = Infer<typeof ServerResultSchema>;
 
-/* Protocol type maps */
+/* Protocol type maps — merge 2026 spec methods with pre-2026 (legacy) methods so
+ * `setRequestHandler('initialize', ...)` etc. continue to typecheck via the
+ * spec-method-keyed overload while LegacyServer/LegacyClient exist.
+ */
 type MethodToTypeMap<U> = {
     [T in U as T extends { method: infer M extends string } ? M : never]: T;
 };
-export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
-export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
-export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
-export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+export type RequestMethod = ClientRequest['method'] | ServerRequest['method'] | legacy.LegacyRequestMethod;
+export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'] | legacy.LegacyNotificationMethod;
+export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest> & {
+    initialize: legacy.InitializeRequest;
+    ping: legacy.PingRequest;
+    'logging/setLevel': legacy.SetLevelRequest;
+    'resources/subscribe': legacy.SubscribeRequest;
+    'resources/unsubscribe': legacy.UnsubscribeRequest;
+};
+export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification> & {
+    'notifications/initialized': legacy.InitializedNotification;
+    'notifications/roots/list_changed': legacy.RootsListChangedNotification;
+};
 export type ResultTypeMap = {
-    ping: EmptyResult;
-    initialize: InitializeResult;
+    'server/discover': DiscoverResult;
     'completion/complete': CompleteResult;
-    'logging/setLevel': EmptyResult;
     'prompts/get': GetPromptResult;
     'prompts/list': ListPromptsResult;
     'resources/list': ListResourcesResult;
     'resources/templates/list': ListResourceTemplatesResult;
     'resources/read': ReadResourceResult;
-    'resources/subscribe': EmptyResult;
-    'resources/unsubscribe': EmptyResult;
     'tools/call': CallToolResult;
     'tools/list': ListToolsResult;
+    // subscriptions/listen opens a long-lived stream and has no result type per spec.
+    'subscriptions/listen': never;
     'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;
     'elicitation/create': ElicitResult;
     'roots/list': ListRootsResult;
+    // Pre-2026 methods (LegacyServer/LegacyClient):
+    initialize: legacy.InitializeResult;
+    ping: EmptyResult;
+    'logging/setLevel': EmptyResult;
+    'resources/subscribe': EmptyResult;
+    'resources/unsubscribe': EmptyResult;
 };
 
 /**

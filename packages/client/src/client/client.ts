@@ -4,8 +4,6 @@ import type {
     CallToolRequest,
     ClientCapabilities,
     ClientContext,
-    ClientNotification,
-    ClientRequest,
     CompleteRequest,
     GetPromptRequest,
     Implementation,
@@ -498,7 +496,7 @@ export class Client extends Protocol<ClientContext> {
     }
 
     protected assertCapabilityForMethod(method: RequestMethod | string): void {
-        switch (method as ClientRequest['method']) {
+        switch (method as RequestMethod) {
             case 'logging/setLevel': {
                 if (!this._serverCapabilities?.logging) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
@@ -561,7 +559,7 @@ export class Client extends Protocol<ClientContext> {
     }
 
     protected assertNotificationCapability(method: NotificationMethod | string): void {
-        switch (method as ClientNotification['method']) {
+        switch (method as NotificationMethod) {
             case 'notifications/roots/list_changed': {
                 if (!this._capabilities.roots?.listChanged) {
                     throw new SdkError(
