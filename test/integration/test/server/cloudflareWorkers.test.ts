@@ -8,18 +8,37 @@
 import type { ChildProcess } from 'node:child_process';
 import { execSync, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
+import { createServer } from 'node:net';
 import * as os from 'node:os';
 import path from 'node:path';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const PORT = 8787;
-
 interface TestEnv {
     tempDir: string;
     process: ChildProcess;
+    port: number;
+    stdout: string;
+    stderr: string;
     cleanup: () => Promise<void>;
+}
+
+async function getAvailablePort(): Promise<number> {
+    return new Promise((resolve, reject) => {
+        const server = createServer();
+        server.once('error', reject);
+        server.listen(0, '127.0.0.1', () => {
+            const address = server.address();
+            server.close(() => {
+                if (address && typeof address === 'object') {
+                    resolve(address.port);
+                } else {
+                    reject(new Error('Unable to allocate a port for wrangler'));
+                }
+            });
+        });
+    });
 }
 
 describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
@@ -27,6 +46,7 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
 
     beforeAll(async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-worker-test-'));
+        const port = await getAvailablePort();
 
         // Pack server package
         const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
@@ -85,52 +105,16 @@ export default {
         execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
 
         // Start wrangler dev server
-        const proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT)], {
+        const proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(port)], {
             cwd: tempDir,
             shell: true,
             stdio: 'pipe'
         });
 
-        // Wait for server to be ready
-        await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Wrangler startup timeout')), 60_000);
-            let stderrData = '';
-
-            proc.stdout?.on('data', data => {
-                const output = data.toString();
-                if (/Ready on|Listening on/.test(output)) {
-                    clearTimeout(timeout);
-                    // Extra delay for wrangler to fully initialize
-                    setTimeout(resolve, 1000);
-                }
-            });
-
-            proc.stderr?.on('data', data => {
-                stderrData += data.toString();
-                // Check for fatal errors like missing node: modules
-                if (/No such module "node:/.test(stderrData)) {
-                    clearTimeout(timeout);
-                    reject(new Error(`Wrangler fatal error: ${stderrData}`));
-                }
-            });
-
-            proc.on('error', err => {
-                clearTimeout(timeout);
-                reject(err);
-            });
-
-            proc.on('close', code => {
-                if (code !== 0 && code !== null) {
-                    clearTimeout(timeout);
-                    reject(new Error(`Wrangler exited with code ${code}. stderr: ${stderrData}`));
-                }
-            });
-        });
-
         const cleanup = async () => {
             proc.kill('SIGTERM');
             await new Promise<void>(resolve => {
-                proc.on('close', () => resolve());
+                proc.once('close', () => resolve());
                 setTimeout(resolve, 5000);
             });
             try {
@@ -140,7 +124,69 @@ export default {
             }
         };
 
-        env = { tempDir, process: proc, cleanup };
+        env = { tempDir, process: proc, port, stdout: '', stderr: '', cleanup };
+
+        // Wait for server to be ready
+        try {
+            await new Promise<void>((resolve, reject) => {
+                let settled = false;
+                const timeout = setTimeout(() => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    reject(new Error(`Wrangler startup timeout. stdout: ${env?.stdout}\nstderr: ${env?.stderr}`));
+                }, 60_000);
+                const settle = (callback: () => void) => {
+                    if (settled) {
+                        return;
+                    }
+                    settled = true;
+                    clearTimeout(timeout);
+                    callback();
+                };
+
+                proc.stdout?.on('data', data => {
+                    const output = data.toString();
+                    if (env) {
+                        env.stdout += output;
+                    }
+                    if (/Ready on|Listening on/.test(output)) {
+                        settle(() => {
+                            // Extra delay for wrangler to fully initialize
+                            setTimeout(resolve, 1000);
+                        });
+                    }
+                });
+
+                proc.stderr?.on('data', data => {
+                    const output = data.toString();
+                    if (env) {
+                        env.stderr += output;
+                    }
+                    // Check for fatal errors like missing node: modules
+                    if (/No such module "node:/.test(env?.stderr ?? '')) {
+                        settle(() => reject(new Error(`Wrangler fatal error: ${env?.stderr}`)));
+                    }
+                });
+
+                proc.on('error', err => {
+                    settle(() => reject(err));
+                });
+
+                proc.on('close', code => {
+                    if (code !== 0 && code !== null) {
+                        settle(() =>
+                            reject(new Error(`Wrangler exited with code ${code}. stdout: ${env?.stdout}\nstderr: ${env?.stderr}`))
+                        );
+                    }
+                });
+            });
+        } catch (error) {
+            await cleanup();
+            env = null;
+            throw error;
+        }
     }, 120_000);
 
     afterAll(async () => {
@@ -153,20 +199,23 @@ export default {
         // Retry connection — wrangler may report "Ready" before it can handle requests
         let client!: Client;
         let lastError: unknown;
-        for (let attempt = 0; attempt < 5; attempt++) {
+        for (let attempt = 0; attempt < 10; attempt++) {
             try {
                 client = new Client({ name: 'test-client', version: '1.0.0' });
-                const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${PORT}/`));
+                const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${env!.port}/`));
                 await client.connect(transport);
                 lastError = undefined;
                 break;
             } catch (error) {
                 lastError = error;
+                await client?.close().catch(() => {});
                 await new Promise(resolve => setTimeout(resolve, 1000));
             }
         }
         if (lastError) {
-            throw lastError;
+            throw new Error(`Unable to connect to wrangler MCP worker. stdout: ${env?.stdout}\nstderr: ${env?.stderr}`, {
+                cause: lastError
+            });
         }
 
         const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
