@@ -28,6 +28,8 @@ export type { HostHeaderValidationResult } from './server/middleware/hostHeaderV
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation.js';
 export type { ServerOptions } from './server/server.js';
 export { Server } from './server/server.js';
+export type { SubscriptionBackend, SubscriptionEvent } from './server/subscriptions.js';
+export { InMemorySubscriptions } from './server/subscriptions.js';
 // StdioServerTransport is exported from the './stdio' subpath — server stdio has only type-level Node
 // imports (erased at compile time), but matching the client's `./stdio` subpath gives consumers a
 // consistent shape across packages.
