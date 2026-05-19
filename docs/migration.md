@@ -485,7 +485,7 @@ const result = await client.callTool({ name: 'my-tool', arguments: {} }, Compati
 const result = await client.callTool({ name: 'my-tool', arguments: {} });
 ```
 
-The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult | CreateTaskResult>`.
+The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult>`.
 
 For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
@@ -591,9 +591,7 @@ The `RequestHandlerExtra` type has been replaced with a structured context type 
 | `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
 | `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
 | `extra.sessionId`                        | `ctx.sessionId`                                                        |
-| `extra.taskStore`                        | `ctx.task?.store`                                                      |
-| `extra.taskId`                           | `ctx.task?.id`                                                         |
-| `extra.taskRequestedTtl`                 | `ctx.task?.requestedTtl`                                               |
+| `extra.taskStore` / `taskId` / `taskRequestedTtl` | _removed — see "Experimental tasks interception removed" below_ |
 
 **Before (v1):**
 
@@ -611,17 +609,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
     const headers = ctx.http?.req?.headers; // standard Web Request object
-    const taskStore = ctx.task?.store;
     await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
     return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
-Context fields are organized into 4 groups:
+Context fields are organized into 3 groups:
 
 - **`mcpReq`** — request-level concerns: `id`, `method`, `_meta`, `signal`, `send()`, `notify()`, plus server-only `log()`, `elicitInput()`, and `requestSampling()`
 - **`http?`** — HTTP transport concerns (undefined for stdio): `authInfo`, plus server-only `req`, `closeSSE`, `closeStandaloneSSE`
-- **`task?`** — task lifecycle: `id`, `store`, `requestedTtl`
+- **`sessionId?`** — transport session identifier (top-level)
 
 `BaseContext` is the common base type shared by both `ServerContext` and `ClientContext`. `ServerContext` extends each group with server-specific additions via type intersection.
 
@@ -853,46 +850,24 @@ try {
 }
 ```
 
-### Experimental: `TaskCreationParams.ttl` no longer accepts `null`
+### Experimental tasks interception removed
 
-The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let
-the server decide the lifetime.
+The 2025-11 experimental tasks side-channel woven through `Protocol` has been removed in preparation for the SEP-2663 Tasks Extension. The following are gone with no in-place replacement:
 
-This also narrows the type of `requestedTtl` in `TaskContext`, `CreateTaskServerContext`, and `TaskServerContext` from `number | null | undefined` to `number | undefined`.
+- `ProtocolOptions.tasks` (the `{ taskStore, taskMessageQueue }` constructor option)
+- `protocol.taskManager` getter, `Protocol#_bindTaskManager`
+- `RequestOptions.task` / `RequestOptions.relatedTask`, `NotificationOptions.relatedTask`
+- `BaseContext.task` (`ctx.task?.store` / `ctx.task?.id` / `ctx.task?.requestedTtl`)
+- abstract `assertTaskCapability` / `assertTaskHandlerCapability`
+- `client.experimental.tasks.*` / `server.experimental.tasks.*` / `mcpServer.experimental.tasks.*` accessors and the `Experimental{Client,Server,McpServer}Tasks` classes
+- streaming methods (`requestStream`, `callToolStream`, `createMessageStream`, `elicitInputStream`) and the `ResponseMessage` types they yielded
+- `mcpServer.experimental.tasks.registerToolTask(...)`, `ToolTaskHandler`, `TaskRequestHandler`, `CreateTaskRequestHandler`
+- `TaskMessageQueue`, `InMemoryTaskMessageQueue`, `Queued*` message types, `CreateTaskServerContext`, `TaskServerContext`, `TaskToolExecution`
+- `examples/{client,server}/src/simpleTaskInteractive*.ts`
 
-**Before (v1):**
+**Also removed:** the storage layer (`TaskStore`, `InMemoryTaskStore`, `CreateTaskOptions`, `isTerminal`) and `TaskCreationParams`. They will return as part of the SEP-2663 server-directed plugin in a follow-up.
 
-```typescript
-// Requesting unlimited lifetime by passing null
-const result = await client.callTool({
-    name: 'long-task',
-    arguments: {},
-    task: { ttl: null }
-});
-
-// Handler context had number | null | undefined
-server.setRequestHandler('tools/call', async (request, ctx) => {
-    const ttl: number | null | undefined = ctx.task?.requestedTtl;
-});
-```
-
-**After (v2):**
-
-```typescript
-// Omit ttl to let the server decide (server may return null for unlimited)
-const result = await client.callTool({
-    name: 'long-task',
-    arguments: {},
-    task: {}
-});
-
-// Handler context is now number | undefined
-server.setRequestHandler('tools/call', async (request, ctx) => {
-    const ttl: number | undefined = ctx.task?.requestedTtl;
-});
-```
-
-> **Note:** These task APIs are marked `@experimental` and may change without notice.
+There is no migration path for the removed surface; it was always `@experimental`. Under SEP-2663, tasks reattach via a `DispatchMiddleware` (`mcp.use(tasksPlugin({ store }))`) and handlers read task context from `ctx.ext.task` instead of `ctx.task`.
 
 ## Enhancements
 
