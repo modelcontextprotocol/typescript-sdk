@@ -926,30 +926,30 @@ export class McpServer {
         return this.server.sendLoggingMessage(params, sessionId);
     }
     /**
-     * Sends a resource list changed event to the client, if connected.
+     * Sends a resource list changed event. Delivered to a connected pre-2026
+     * client (if any) and fanned out to `subscriptions/listen` listeners via
+     * `Server._fanoutNotify`, so this works in pure-stateless deployments too.
      */
     sendResourceListChanged() {
-        if (this.isConnected()) {
-            this.server.sendResourceListChanged();
-        }
+        void this.server.sendResourceListChanged();
     }
 
     /**
-     * Sends a tool list changed event to the client, if connected.
+     * Sends a tool list changed event. Delivered to a connected pre-2026
+     * client (if any) and fanned out to `subscriptions/listen` listeners via
+     * `Server._fanoutNotify`, so this works in pure-stateless deployments too.
      */
     sendToolListChanged() {
-        if (this.isConnected()) {
-            this.server.sendToolListChanged();
-        }
+        void this.server.sendToolListChanged();
     }
 
     /**
-     * Sends a prompt list changed event to the client, if connected.
+     * Sends a prompt list changed event. Delivered to a connected pre-2026
+     * client (if any) and fanned out to `subscriptions/listen` listeners via
+     * `Server._fanoutNotify`, so this works in pure-stateless deployments too.
      */
     sendPromptListChanged() {
-        if (this.isConnected()) {
-            this.server.sendPromptListChanged();
-        }
+        void this.server.sendPromptListChanged();
     }
 }
 

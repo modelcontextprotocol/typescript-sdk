@@ -4,6 +4,8 @@ import type {
     CancelledNotification,
     ClientCapabilities,
     CreateMessageRequest,
+    CreateMessageRequestParamsBase,
+    CreateMessageRequestParamsWithTools,
     CreateMessageResult,
     CreateMessageResultWithTools,
     ElicitRequestFormParams,
@@ -14,6 +16,8 @@ import type {
     JSONRPCRequest,
     JSONRPCResponse,
     JSONRPCResultResponse,
+    ListRootsRequest,
+    ListRootsResult,
     LoggingLevel,
     MessageExtraInfo,
     Notification,
@@ -208,6 +212,13 @@ export type BaseContext = {
  * Context provided to server-side request handlers, extending {@linkcode BaseContext} with server-specific fields.
  */
 export type ServerContext = BaseContext & {
+    /**
+     * The client's declared capabilities for this request.
+     * Under the pre-2026 connection model these come from the `initialize`
+     * handshake; under 2026-06 they are per-request from `_meta`.
+     */
+    clientCapabilities?: ClientCapabilities;
+
     mcpReq: {
         /**
          * Send a log message notification to the client.
@@ -223,10 +234,16 @@ export type ServerContext = BaseContext & {
         /**
          * Request LLM sampling from the client.
          */
-        requestSampling: (
-            params: CreateMessageRequest['params'],
-            options?: RequestOptions
-        ) => Promise<CreateMessageResult | CreateMessageResultWithTools>;
+        requestSampling: {
+            (params: CreateMessageRequestParamsBase, options?: RequestOptions): Promise<CreateMessageResult>;
+            (params: CreateMessageRequestParamsWithTools, options?: RequestOptions): Promise<CreateMessageResultWithTools>;
+            (params: CreateMessageRequest['params'], options?: RequestOptions): Promise<CreateMessageResult | CreateMessageResultWithTools>;
+        };
+
+        /**
+         * Request the client's filesystem roots.
+         */
+        listRoots: (params?: ListRootsRequest['params'], options?: RequestOptions) => Promise<ListRootsResult>;
     };
 
     http?: {
