@@ -112,4 +112,15 @@ export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages
 // provide runtime-aware wrappers that default to the appropriate validator via _shims.
+export type { ClientMeta, DispatchContext, ListenContext, ListenStream, StatelessHandlers } from '../../shared/stateless.js';
+export {
+    InputRequiredError,
+    isInputRequiredError,
+    isStatelessProtocolVersion,
+    isStatelessRequest,
+    META_KEYS,
+    parseClientMeta,
+    STATEFUL_PROTOCOL_VERSIONS,
+    STATELESS_REMOVED_METHODS
+} from '../../shared/stateless.js';
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types.js';

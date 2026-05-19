@@ -1,4 +1,5 @@
-import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
+import type { JSONRPCMessage, JSONRPCRequest, MessageExtraInfo, RequestId } from '../types/index.js';
+import type { StatelessHandlers } from './stateless.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -131,4 +132,26 @@ export interface Transport {
      * This allows the server to pass its supported versions to the transport.
      */
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
+
+    /**
+     * Server-side. Installs the 2026-06 stateless dispatch and listen handlers
+     * on this transport. Called by `Server.connect()`. Transports that
+     * implement this route stateless requests via {@linkcode StatelessHandlers}
+     * instead of `onmessage`.
+     */
+    setStatelessHandlers?(handlers: StatelessHandlers): void;
+
+    /**
+     * Client-side. Sends one stateless request and returns an async-iterable of
+     * the messages the server emits for it (notifications then a response, or a
+     * stream for `subscriptions/listen`). When implemented, `Client` short-
+     * circuits `Protocol.request()` for stateless calls.
+     */
+    sendAndReceive?(request: Omit<JSONRPCRequest, 'jsonrpc' | 'id'>, opts?: SendAndReceiveOptions): AsyncIterable<JSONRPCMessage>;
+}
+
+/** Options for {@linkcode Transport.sendAndReceive}. */
+export interface SendAndReceiveOptions {
+    /** Aborts the in-flight request and ends the returned iterable. */
+    signal?: AbortSignal;
 }
