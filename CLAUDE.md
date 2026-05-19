@@ -201,9 +201,9 @@ The `ctx` parameter in handlers provides a structured context:
 - `http?`: HTTP transport info (undefined for stdio)
   - `authInfo?`: Validated auth token info
 
-**`ServerContext`** extends `BaseContext.mcpReq` and `BaseContext.http?` via type intersection:
+**`ServerContext`** extends `BaseContext.mcpReq` and `BaseContext.http?` via type intersection, and adds a top-level `clientCapabilities?` field:
 
-- `mcpReq` adds: `log(level, data, logger?)`, `elicitInput(params, options?)`, `requestSampling(params, options?)`
+- `mcpReq` adds: `log(level, data, logger?)`, `elicitInput(params, options?)`, `requestSampling(params, options?)`, `listRoots(options?)`
 - `http?` adds: `req?` (HTTP request info), `closeSSE?`, `closeStandaloneSSE?`
 
 **`ClientContext`** is currently identical to `BaseContext`.

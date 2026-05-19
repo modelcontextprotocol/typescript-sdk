@@ -577,6 +577,11 @@ const mcpPostHandler = async (req: Request, res: Response) => {
                     // This avoids race conditions where requests might come in before the session is stored
                     console.log(`Session initialized with ID: ${sessionId}`);
                     transports[sessionId] = transport;
+                    // Out-of-band webhook callbacks have no request context, so this
+                    // calls server.elicitInput directly. This pattern requires a
+                    // connected pre-2026 client; under the 2026 stateless model
+                    // there is no session to send to. Prefer ctx.mcpReq.elicitInput
+                    // inside a tool/prompt handler when possible.
                     sessionsNeedingElicitation[sessionId] = {
                         elicitationSender: params => server.server.elicitInput(params),
                         createCompletionNotifier: elicitationId => server.server.createElicitationCompletionNotifier(elicitationId)

@@ -18,9 +18,13 @@ mcpServer.registerTool(
             text: z.string().describe('Text to summarize')
         })
     },
-    async ({ text }) => {
-        // Call the LLM through MCP sampling
-        const response = await mcpServer.server.createMessage({
+    async ({ text }, ctx) => {
+        // Call the LLM through MCP sampling.
+        // ctx.mcpReq.requestSampling works under both the pre-2026 connection model
+        // (sends sampling/createMessage to the connected client) and the 2026
+        // stateless model (returns an input_required result; the client retries
+        // with the response embedded). See SEP-2322.
+        const response = await ctx.mcpReq.requestSampling({
             messages: [
                 {
                     role: 'user',
@@ -33,14 +37,10 @@ mcpServer.registerTool(
             maxTokens: 500
         });
 
-        // Since we're not passing tools param to createMessage, response.content is single content
+        const content = response.content;
+        const summary = content.type === 'text' ? content.text : 'Unable to generate summary';
         return {
-            content: [
-                {
-                    type: 'text',
-                    text: response.content.type === 'text' ? response.content.text : 'Unable to generate summary'
-                }
-            ]
+            content: [{ type: 'text', text: summary }]
         };
     }
 );

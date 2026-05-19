@@ -94,21 +94,24 @@ const getServer = () => {
     return server;
 };
 
+// One shared server + one connected transport for 2026-06 clients. The
+// transport's per-message router (SEP-2567) dispatches 2026-06 requests via
+// the stateless path. NOTE: a single shared instance is NOT safe for
+// concurrent pre-2026 clients (the legacy `initialize` handshake writes
+// per-connection state on the instance). For pre-2026 clients, use
+// per-instance isolation: a per-session transport as in
+// `simpleStreamableHttp.ts`, or a fresh server per request.
+const server = getServer();
+const transport: NodeStreamableHTTPServerTransport = new NodeStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined
+});
+await server.connect(transport);
+
 const app = createMcpExpressApp();
 
 app.post('/mcp', async (req: Request, res: Response) => {
-    const server = getServer();
     try {
-        const transport: NodeStreamableHTTPServerTransport = new NodeStreamableHTTPServerTransport({
-            sessionIdGenerator: undefined
-        });
-        await server.connect(transport);
         await transport.handleRequest(req, res, req.body);
-        res.on('close', () => {
-            console.log('Request closed');
-            transport.close();
-            server.close();
-        });
     } catch (error) {
         console.error('Error handling MCP request:', error);
         if (!res.headersSent) {

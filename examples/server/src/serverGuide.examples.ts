@@ -410,8 +410,8 @@ function registerTool_roots(server: McpServer) {
             description: 'List files across all workspace roots',
             inputSchema: z.object({})
         },
-        async (_args, _ctx): Promise<CallToolResult> => {
-            const { roots } = await server.server.listRoots();
+        async (_args, ctx): Promise<CallToolResult> => {
+            const { roots } = await ctx.mcpReq.listRoots();
             const summary = roots.map(r => `${r.name ?? r.uri}: ${r.uri}`).join('\n');
             return { content: [{ type: 'text', text: summary }] };
         }

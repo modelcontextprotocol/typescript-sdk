@@ -1,20 +1,27 @@
 /**
- * Example MCP server using Hono with WebStandardStreamableHTTPServerTransport
+ * Example MCP server using Hono with the 2026-06 stateless entry point.
  *
- * This example demonstrates using the Web Standard transport directly with Hono,
- * which works on any runtime: Node.js, Cloudflare Workers, Deno, Bun, etc.
+ * This is the headline 2026-06 (SEP-2575) example: one shared McpServer
+ * instance, no Transport object, no connect(). handleHttp() returns a
+ * Fetch-API (Request) => Response handler that any web-standard runtime
+ * can mount: Node.js, Cloudflare Workers, Deno, Bun, etc.
+ *
+ * Pre-2026 clients are not served by this entry. For a dual-mode setup
+ * (one endpoint serving both protocols), see "Dual-mode endpoint" in the
+ * 2026-06 section of `docs/migration.md`.
  *
  * Run with: pnpm tsx src/honoWebStandardStreamableHttp.ts
  */
 
 import { serve } from '@hono/node-server';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { handleHttp, McpServer } from '@modelcontextprotocol/server';
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import * as z from 'zod/v4';
 
-// Create the MCP server
+// Create one shared MCP server instance. Under the 2026-06 stateless model
+// there is no per-session state, so a single instance handles all requests.
 const server = new McpServer({
     name: 'hono-webstandard-mcp-server',
     version: '1.0.0'
@@ -30,13 +37,16 @@ server.registerTool(
     },
     async ({ name }): Promise<CallToolResult> => {
         return {
-            content: [{ type: 'text', text: `Hello, ${name}! (from Hono + WebStandard transport)` }]
+            content: [{ type: 'text', text: `Hello, ${name}! (from Hono + handleHttp)` }]
         };
     }
 );
 
-// Create a stateless transport (no options = no session management)
-const transport = new WebStandardStreamableHTTPServerTransport();
+// handleHttp(server, opts) returns a (Request) => Promise<Response> handler.
+// No Transport, no connect(); each HTTP request is dispatched independently.
+const mcpHandler = handleHttp(server.server, {
+    allowedHosts: ['localhost', '127.0.0.1']
+});
 
 // Create the Hono app
 const app = new Hono();
@@ -56,12 +66,10 @@ app.use(
 app.get('/health', c => c.json({ status: 'ok' }));
 
 // MCP endpoint
-app.all('/mcp', c => transport.handleRequest(c.req.raw));
+app.all('/mcp', c => mcpHandler(c.req.raw));
 
 // Start the server
 const PORT = process.env.MCP_PORT ? Number.parseInt(process.env.MCP_PORT, 10) : 3000;
-
-await server.connect(transport);
 
 console.log(`Starting Hono MCP server on port ${PORT}`);
 console.log(`Health check: http://localhost:${PORT}/health`);

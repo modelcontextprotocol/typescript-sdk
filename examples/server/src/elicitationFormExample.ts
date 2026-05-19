@@ -36,10 +36,12 @@ const getServer = () => {
         {
             description: 'Register a new user account by collecting their information'
         },
-        async () => {
+        async ctx => {
             try {
-                // Request user information through form elicitation
-                const result = await mcpServer.server.elicitInput({
+                // Request user information through form elicitation.
+                // ctx.mcpReq.elicitInput works under both the pre-2026 connection
+                // model and the 2026 stateless model (MRTR). See SEP-2322.
+                const result = await ctx.mcpReq.elicitInput({
                     mode: 'form',
                     message: 'Please provide your registration information:',
                     requestedSchema: {
@@ -134,10 +136,10 @@ const getServer = () => {
         {
             description: 'Create a calendar event by collecting event details'
         },
-        async () => {
+        async ctx => {
             try {
                 // Step 1: Collect basic event information
-                const basicInfo = await mcpServer.server.elicitInput({
+                const basicInfo = await ctx.mcpReq.elicitInput({
                     mode: 'form',
                     message: 'Step 1: Enter basic event information',
                     requestedSchema: {
@@ -166,7 +168,7 @@ const getServer = () => {
                 }
 
                 // Step 2: Collect date and time
-                const dateTime = await mcpServer.server.elicitInput({
+                const dateTime = await ctx.mcpReq.elicitInput({
                     mode: 'form',
                     message: 'Step 2: Enter date and time',
                     requestedSchema: {
@@ -238,9 +240,9 @@ const getServer = () => {
         {
             description: 'Update shipping address with validation'
         },
-        async () => {
+        async ctx => {
             try {
-                const result = await mcpServer.server.elicitInput({
+                const result = await ctx.mcpReq.elicitInput({
                     mode: 'form',
                     message: 'Please provide your shipping address:',
                     requestedSchema: {
