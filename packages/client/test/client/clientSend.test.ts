@@ -172,3 +172,86 @@ describe('Client.subscribe', () => {
         expect(seen).toEqual(['notifications/subscriptions/acknowledged', 'notifications/tools/list_changed']);
     });
 });
+
+describe('Client.connect auto-probe (SEP-2575)', () => {
+    function discoverable(handler: (req: JSONRPCRequest) => AsyncIterable<JSONRPCMessage>): Transport {
+        const t = mockTransport(handler);
+        // Route legacy `initialize` (sent via Protocol.request → transport.send)
+        // back through onmessage so the fallback path can complete in-process.
+        t.send = async m => {
+            if ('method' in m && m.method === 'initialize') {
+                queueMicrotask(() =>
+                    t.onmessage?.({
+                        jsonrpc: JSONRPC_VERSION,
+                        id: (m as JSONRPCRequest).id,
+                        result: { protocolVersion: '2025-11-25', capabilities: {}, serverInfo: { name: 's', version: '1' } }
+                    })
+                );
+            } else if ('method' in m && m.method === 'notifications/initialized') {
+                // ignore
+            }
+        };
+        return t;
+    }
+
+    it('discover success → stateless mode, skips initialize', async () => {
+        const seen: string[] = [];
+        const t = discoverable(req => {
+            seen.push(req.method);
+            return once({
+                jsonrpc: JSONRPC_VERSION,
+                id: req.id,
+                result: {
+                    supportedVersions: [DRAFT_PROTOCOL_VERSION],
+                    capabilities: { tools: {} },
+                    serverInfo: { name: 's', version: '2' }
+                }
+            });
+        });
+        const c = new Client({ name: 'c', version: '1' });
+        await c.connect(t);
+        expect(seen).toEqual(['server/discover']);
+        expect((c as unknown as { _isStateless: boolean })._isStateless).toBe(true);
+        expect(c.getServerCapabilities()).toEqual({ tools: {} });
+        expect(c.getServerVersion()).toEqual({ name: 's', version: '2' });
+    });
+
+    it('discover MethodNotFound → falls back to legacy initialize', async () => {
+        const seen: string[] = [];
+        const t = discoverable(req => {
+            seen.push(req.method);
+            return once({ jsonrpc: JSONRPC_VERSION, id: req.id, error: { code: -32_601, message: 'unknown method' } });
+        });
+        const c = new Client({ name: 'c', version: '1' });
+        await c.connect(t);
+        expect(seen).toEqual(['server/discover']);
+        expect((c as unknown as { _isStateless: boolean })._isStateless).toBe(false);
+        expect(c.getServerVersion()).toEqual({ name: 's', version: '1' });
+    });
+
+    it('no sendAndReceive → goes straight to legacy initialize', async () => {
+        const t: Transport = {
+            start: async () => {},
+            close: async () => {},
+            send: async m => {
+                if ('method' in m && m.method === 'initialize') {
+                    queueMicrotask(() =>
+                        t.onmessage?.({
+                            jsonrpc: JSONRPC_VERSION,
+                            id: (m as JSONRPCRequest).id,
+                            result: {
+                                protocolVersion: '2025-11-25',
+                                capabilities: {},
+                                serverInfo: { name: 's', version: '1' }
+                            }
+                        })
+                    );
+                }
+            }
+        };
+        const c = new Client({ name: 'c', version: '1' });
+        await c.connect(t);
+        expect((c as unknown as { _isStateless: boolean })._isStateless).toBe(false);
+        expect(c.getServerVersion()?.name).toBe('s');
+    });
+});

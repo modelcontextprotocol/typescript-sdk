@@ -195,32 +195,66 @@ export class StreamableHTTPClientTransport implements Transport {
      * `subscriptions/listen` the indefinite stream). Backed directly by
      * `fetch`; does not go through `Protocol.request()`/`_responseHandlers`.
      *
-     * Used by `Client` for 2026-06 stateless calls. Auth handling matches
-     * {@linkcode send} (token attached via `_commonHeaders`); 401/403 retry
-     * is left to the caller (`Client` falls back to legacy `request()` on
-     * auth failure).
+     * Used by `Client` for 2026-06 stateless calls. Auth handling mirrors
+     * {@linkcode send}: token attached via `_commonHeaders`, one 401 retry via
+     * `authProvider.onUnauthorized`, and one 403 `insufficient_scope` upscoping
+     * retry for OAuth providers. The ladder is duplicated here (not shared with
+     * `send()`) so `send()` stays byte-identical to the pre-2026 code path.
      */
     async *sendAndReceive(
         request: Omit<JSONRPCRequest, 'jsonrpc' | 'id'>,
         opts?: { signal?: AbortSignal }
     ): AsyncGenerator<JSONRPCMessage, void, void> {
-        const headers = await this._commonHeaders();
-        headers.set('content-type', 'application/json');
-        headers.set('accept', 'application/json, text/event-stream');
         const body = JSON.stringify({ jsonrpc: '2.0', id: 0, ...request });
         const signal =
             opts?.signal && this._abortController
                 ? AbortSignal.any([opts.signal, this._abortController.signal])
                 : (opts?.signal ?? this._abortController?.signal);
-        const response = await (this._fetch ?? fetch)(this._url, {
-            ...this._requestInit,
-            method: 'POST',
-            headers,
-            body,
-            signal
-        });
+        const post = async (): Promise<Response> => {
+            const headers = await this._commonHeaders();
+            headers.set('content-type', 'application/json');
+            headers.set('accept', 'application/json, text/event-stream');
+            return (this._fetch ?? fetch)(this._url, { ...this._requestInit, method: 'POST', headers, body, signal });
+        };
+        let response = await post();
+        if (response.status === 401 && this._authProvider) {
+            if (response.headers.has('www-authenticate')) {
+                const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+                this._resourceMetadataUrl = resourceMetadataUrl;
+                this._scope = scope;
+            }
+            if (this._authProvider.onUnauthorized) {
+                await this._authProvider.onUnauthorized({ response, serverUrl: this._url, fetchFn: this._fetchWithInit });
+                await response.text?.().catch(() => {});
+                response = await post();
+            }
+        }
+        if (response.status === 403 && this._oauthProvider) {
+            const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
+            if (error === 'insufficient_scope') {
+                const wwwAuthHeader = response.headers.get('WWW-Authenticate');
+                if (this._lastUpscopingHeader !== wwwAuthHeader) {
+                    if (scope) this._scope = scope;
+                    if (resourceMetadataUrl) this._resourceMetadataUrl = resourceMetadataUrl;
+                    this._lastUpscopingHeader = wwwAuthHeader ?? undefined;
+                    const result = await auth(this._oauthProvider, {
+                        serverUrl: this._url,
+                        resourceMetadataUrl: this._resourceMetadataUrl,
+                        scope: this._scope,
+                        fetchFn: this._fetchWithInit
+                    });
+                    if (result === 'AUTHORIZED') {
+                        await response.text?.().catch(() => {});
+                        response = await post();
+                    }
+                }
+            }
+        }
         if (!response.ok) {
             const text = await response.text().catch(() => '');
+            if (response.status === 401) {
+                throw new SdkError(SdkErrorCode.ClientHttpAuthentication, text || 'Unauthorized', { status: 401 });
+            }
             throw new SdkError(SdkErrorCode.SendFailed, `HTTP ${response.status}: ${text || response.statusText}`, {
                 status: response.status
             });

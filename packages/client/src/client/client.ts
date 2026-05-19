@@ -92,7 +92,10 @@ type ListChangedKinds = Record<
 
 /**
  * Returns true for `server/discover` failures that should fall through to the
- * legacy `initialize` handshake (server doesn't speak 2026-06).
+ * legacy `initialize` handshake (server doesn't speak 2026-06). Auth failures
+ * (401/403) are NOT fallbackable: a server that requires auth for `discover`
+ * will require it for `initialize` too, so falling back would only mask the
+ * real error and skip the transport's re-auth path.
  */
 function isFallbackable(e: unknown): boolean {
     if (e instanceof ProtocolError) {
@@ -100,7 +103,13 @@ function isFallbackable(e: unknown): boolean {
     }
     if (e instanceof SdkError) {
         const status = (e.data as { status?: number } | undefined)?.status;
-        return e.code === SdkErrorCode.InvalidResult || (typeof status === 'number' && status >= 400 && status < 500);
+        // Any 4xx except 401/403 (auth) means the server doesn't speak 2026-06.
+        // 400 in particular is what a pre-2026 StreamableHTTP server returns for
+        // a non-initialize POST without an mcp-session-id.
+        return (
+            e.code === SdkErrorCode.InvalidResult ||
+            (typeof status === 'number' && status >= 400 && status < 500 && status !== 401 && status !== 403)
+        );
     }
     return false;
 }
@@ -480,33 +489,49 @@ export class Client extends Protocol<ClientContext> {
      * Probes `server/discover` via `transport.sendAndReceive`. On success,
      * marks this client stateless and populates server identity/capabilities
      * from the result. On {@linkcode isFallbackable} failure, leaves state
-     * untouched (the legacy `initialize` already populated it via `connect()`).
-     *
-     * Called from {@linkcode connect} (in C13).
+     * untouched so {@linkcode connect} falls through to the legacy
+     * `initialize` handshake.
      */
-    private async _negotiate(transport: Transport): Promise<void> {
+    private async _negotiate(transport: Transport, options?: RequestOptions): Promise<void> {
         const sar = transport.sendAndReceive?.bind(transport);
         const preferred = this._supportedProtocolVersions.find(v => isStatelessProtocolVersion(v));
         if (!sar || !preferred) return;
 
         transport.setProtocolVersion?.(preferred);
+        const timeoutSignal = AbortSignal.timeout(options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC);
+        const signal = options?.signal ? AbortSignal.any([options.signal, timeoutSignal]) : timeoutSignal;
         try {
-            const raw = await this._collect(sar({ method: 'server/discover', params: { _meta: this._buildMeta(preferred) } }));
-            const dr = DiscoverResultSchema.parse(raw);
-            const negotiated = dr.supportedVersions.find(v => this._supportedProtocolVersions.includes(v));
-            if (negotiated && isStatelessProtocolVersion(negotiated)) {
-                this._serverCapabilities = dr.capabilities;
-                this._serverVersion = dr.serverInfo;
-                this._instructions = dr.instructions;
-                this._negotiatedProtocolVersion = negotiated;
-                this._isStateless = true;
-                transport.setProtocolVersion?.(negotiated);
-                return;
+            const raw = await this._collect(sar({ method: 'server/discover', params: { _meta: this._buildMeta(preferred) } }, { signal }), {
+                signal
+            });
+            const drParsed = DiscoverResultSchema.safeParse(raw);
+            if (drParsed.success) {
+                const dr = drParsed.data;
+                // The probe only counts as success when there is a mutual
+                // *stateless* version; otherwise fall through to legacy initialize.
+                const negotiated = dr.supportedVersions.find(
+                    v => isStatelessProtocolVersion(v) && this._supportedProtocolVersions.includes(v)
+                );
+                if (negotiated) {
+                    this._serverCapabilities = dr.capabilities;
+                    this._serverVersion = dr.serverInfo;
+                    this._instructions = dr.instructions;
+                    this._negotiatedProtocolVersion = negotiated;
+                    this._isStateless = true;
+                    transport.setProtocolVersion?.(negotiated);
+                    return;
+                }
             }
         } catch (error) {
-            if (!isFallbackable(error)) throw error;
+            if (!isFallbackable(error)) {
+                // Reset the version we set before re-throwing so the
+                // transport is not left advertising a stateless version.
+                transport.setProtocolVersion?.(this._negotiatedProtocolVersion ?? '');
+                throw error;
+            }
         }
-        // Reset header to whatever legacy initialize set.
+        // Fallback path: reset the version header so the subsequent legacy
+        // `_initialize()` (run by `connect()`) can set it.
         transport.setProtocolVersion?.(this._negotiatedProtocolVersion ?? '');
     }
 
@@ -615,10 +640,11 @@ export class Client extends Protocol<ClientContext> {
     // ═══════════════════════════════════════════════════════════════════════
     // session-dependent (existing — bodies unchanged unless noted dual-mode above)
     //
-    // `connect()` performs the legacy `initialize` handshake. The 2026-06
-    // discover auto-probe is wired in C13. `ping`, `subscribeResource`,
-    // `unsubscribeResource`, and `_setupListChangedHandler*` use the
-    // persistent connection; `_listChangedLoop` (above) is the 2026 path.
+    // `_initialize()` (extracted verbatim from the previous inline `connect()`
+    // body) performs the legacy `initialize` handshake. `ping`,
+    // `subscribeResource`, `unsubscribeResource`, and
+    // `_setupListChangedHandler*` use the persistent connection;
+    // `_listChangedLoop` (above) is the 2026 path.
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
@@ -793,46 +819,13 @@ export class Client extends Protocol<ClientContext> {
             return;
         }
         try {
-            const result = await this._requestWithSchema(
-                {
-                    method: 'initialize',
-                    params: {
-                        protocolVersion: this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION,
-                        capabilities: this._capabilities,
-                        clientInfo: this._clientInfo
-                    }
-                },
-                InitializeResultSchema,
-                options
-            );
-
-            if (result === undefined) {
-                throw new Error(`Server sent invalid initialize result: ${result}`);
+            // Probe `server/discover` (SEP-2575). If it succeeds, this client is
+            // stateless and the legacy `initialize` is skipped.
+            await this._negotiate(transport, options);
+            if (!this._isStateless) {
+                await this._initialize(transport, options);
             }
-
-            if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
-                throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
-            }
-
-            this._serverCapabilities = result.capabilities;
-            this._serverVersion = result.serverInfo;
-            this._negotiatedProtocolVersion = result.protocolVersion;
-            // HTTP transports must set the protocol version in each header after initialization.
-            if (transport.setProtocolVersion) {
-                transport.setProtocolVersion(result.protocolVersion);
-            }
-
-            this._instructions = result.instructions;
-
-            await this.notification({
-                method: 'notifications/initialized'
-            });
-
-            // Set up list changed handlers now that we know server capabilities
-            if (this._pendingListChangedConfig) {
-                this._setupListChangedHandlers(this._pendingListChangedConfig);
-                this._pendingListChangedConfig = undefined;
-            }
+            this._setupListChanged();
         } catch (error) {
             // Disconnect if initialization fails.
             void this.close();
