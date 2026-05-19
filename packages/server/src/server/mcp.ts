@@ -26,6 +26,7 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    isInputRequiredError,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
@@ -153,6 +154,11 @@ export class McpServer {
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
+                }
+                if (isInputRequiredError(error)) {
+                    // MRTR: re-throw so inputRequiredMiddleware translates to InputRequiredResult
+                    // (rather than swallowing into an isError:true CallToolResult).
+                    throw error;
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
