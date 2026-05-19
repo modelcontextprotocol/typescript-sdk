@@ -118,6 +118,35 @@ export {
     parseJSONRPCMessage
 } from '../../types/guards.js';
 
+// Experimental Server Card types, constants, and validation helpers (SEP-2127).
+// The Zod schemas themselves stay internal — only the type surface is public.
+export type {
+    Argument,
+    Input,
+    InputWithVariables,
+    KeyValueInput,
+    NamedArgument,
+    Package,
+    PackageTransport,
+    PositionalArgument,
+    Remote,
+    Repository,
+    ServerCard,
+    ServerJson,
+    SsePackageTransport,
+    StdioTransport,
+    StreamableHttpPackageTransport
+} from '../../experimental/serverCard.js';
+export {
+    parseServerCard,
+    parseServerJson,
+    safeParseServerCard,
+    safeParseServerJson,
+    SERVER_CARD_SCHEMA_URL,
+    SERVER_CARD_WELL_KNOWN_PATH,
+    SERVER_JSON_SCHEMA_URL
+} from '../../experimental/serverCard.js';
+
 // Experimental task types and classes
 export { assertClientRequestTaskCapability, assertToolsCallTaskCapability } from '../../experimental/tasks/helpers.js';
 export type {

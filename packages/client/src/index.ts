@@ -72,6 +72,8 @@ export type {
 export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
 
 // experimental exports
+export type { FetchServerCardOptions } from './experimental/serverCard.js';
+export { fetchServerCard, ServerCardFetchError } from './experimental/serverCard.js';
 export { ExperimentalClientTasks } from './experimental/tasks/client.js';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)

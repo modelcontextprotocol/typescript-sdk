@@ -7,3 +7,7 @@ export { requireBearerAuth } from './auth/bearerAuth.js';
 export type { AuthMetadataOptions } from './auth/metadataRouter.js';
 export { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from './auth/metadataRouter.js';
 export type { OAuthTokenVerifier } from './auth/types.js';
+
+// Server Card (SEP-2127) discovery-document router.
+export type { ServerCardRouterOptions } from './serverCard.js';
+export { mcpServerCardRouter } from './serverCard.js';

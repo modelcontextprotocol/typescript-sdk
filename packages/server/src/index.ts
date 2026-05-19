@@ -41,6 +41,8 @@ export type {
 export { WebStandardStreamableHTTPServerTransport } from './server/streamableHttp.js';
 
 // experimental exports
+export type { ServerCardHandlerOptions } from './experimental/serverCard.js';
+export { createServerCardHandler } from './experimental/serverCard.js';
 export type { CreateTaskRequestHandler, TaskRequestHandler, ToolTaskHandler } from './experimental/tasks/interfaces.js';
 export { ExperimentalMcpServerTasks } from './experimental/tasks/mcpServer.js';
 export { ExperimentalServerTasks } from './experimental/tasks/server.js';
