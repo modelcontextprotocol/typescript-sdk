@@ -5,6 +5,7 @@
         "rootDir": "./src",
         "declaration": false,
         "declarationMap": false,
+        "types": ["node"],
         "paths": {
             "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
             "@modelcontextprotocol/client/stdio": ["./node_modules/@modelcontextprotocol/client/src/stdio.ts"],
