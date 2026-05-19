@@ -4,10 +4,8 @@
 '@modelcontextprotocol/server': patch
 ---
 
-Make validator backends symmetrical in core and bundle automatic defaults in client/server runtime shims.
+Bundle automatic JSON Schema validator defaults in `@modelcontextprotocol/client` and `@modelcontextprotocol/server` runtime shims.
 
-Core no longer re-exports concrete validator providers as runtime values from the root/public barrels. AJV/AJV formats and `@cfworker/json-schema` are optional peer backends behind explicit core validator provider subpaths, used internally by client/server shims.
+Client/server select defaults automatically based on the runtime: Node shims use AJV, while browser/workerd shims use `@cfworker/json-schema`. Those backends are bundled into the shim chunks that select them, so consumers do not need to install validator packages or import explicit validators for default behavior. Advanced users can still pass their own `jsonSchemaValidator` interface implementation.
 
-Client/server continue to select defaults automatically: Node shims use AJV, while browser/workerd shims use `@cfworker/json-schema`. Those backends are bundled into the shim chunks that select them, so users do not need to install validator packages or import explicit validators for default behavior. Advanced users can still pass their own `jsonSchemaValidator` implementation.
-
-`AjvJsonSchemaValidator` and `CfWorkerJsonSchemaValidator` are now `@internal` and no longer surface from `@modelcontextprotocol/core/public` (not even as types). The `jsonSchemaValidator` interface remains the public extension point for custom validators. Example JSDoc snippets no longer demonstrate direct validator instantiation.
+The `@modelcontextprotocol/{client,server}/validators/cf-worker` subpath export has been removed — there is no longer any public entry point for the SDK's built-in validator classes. `AjvJsonSchemaValidator` and `CfWorkerJsonSchemaValidator` are now `@internal` and no longer exported from `@modelcontextprotocol/client` or `@modelcontextprotocol/server` (not even as types). The `jsonSchemaValidator` interface remains the public extension point for custom validators, and example JSDoc snippets no longer demonstrate direct validator instantiation.

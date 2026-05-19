@@ -83,7 +83,7 @@ export type ServerOptions = ProtocolOptions & {
      * The validator is used to validate user input returned from elicitation
      * requests against the requested schema.
      *
-     * @default Runtime-selected validator (`AjvJsonSchemaValidator` on Node.js, `CfWorkerJsonSchemaValidator` on browser/workerd runtimes)
+     * @default Runtime-selected validator (AJV-backed on Node.js, `@cfworker/json-schema`-backed on browser/workerd runtimes)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 };

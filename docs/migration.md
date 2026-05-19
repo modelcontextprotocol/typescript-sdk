@@ -947,6 +947,8 @@ const server = new McpServer(
 );
 ```
 
+The SDK's built-in validator classes (`AjvJsonSchemaValidator`, `CfWorkerJsonSchemaValidator`) are not part of the public surface — `@modelcontextprotocol/{client,server}` no longer export them as runtime values or types, and the `@modelcontextprotocol/{client,server}/validators/cf-worker` subpath that briefly existed in v2 pre-releases has been removed. To customise validation, implement the `jsonSchemaValidator` interface yourself and pass your implementation through the option above.
+
 ## Unchanged APIs
 
 The following APIs are unchanged between v1 and v2 (only the import paths changed):

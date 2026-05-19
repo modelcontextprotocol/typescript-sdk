@@ -531,7 +531,8 @@ Validator behavior:
 
 - Do not add validator imports for normal migrations.
 - Do not install `ajv`, `ajv-formats`, or `@cfworker/json-schema`; client/server bundle the runtime-selected defaults.
-- Advanced users may pass `jsonSchemaValidator: myCustomValidator` with their own validator implementation.
+- The SDK's built-in validator classes (`AjvJsonSchemaValidator`, `CfWorkerJsonSchemaValidator`) are not exported from `@modelcontextprotocol/{client,server}` (not even as types). The `@modelcontextprotocol/{client,server}/validators/cf-worker` subpath that existed in v2 pre-releases has been removed.
+- Advanced users may pass `jsonSchemaValidator: myCustomValidator` with their own implementation of the `jsonSchemaValidator` interface.
 
 ## 15. Migration Steps (apply in this order)
 
