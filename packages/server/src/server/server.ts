@@ -94,6 +94,7 @@ export class Server extends Protocol<ServerContext> {
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private _receivedInitialize = false;
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
@@ -201,8 +202,19 @@ export class Server extends Protocol<ServerContext> {
         method: string,
         handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
     ): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
+        const lifecycleHandler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> = async (request, ctx) => {
+            if (!ctx.http && ctx.sessionId === undefined && !this._receivedInitialize && method !== 'initialize' && method !== 'ping') {
+                throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Server not initialized');
+            }
+            const result = await handler(request, ctx);
+            if (method === 'initialize') {
+                this._receivedInitialize = true;
+            }
+            return result;
+        };
+
         if (method !== 'tools/call') {
-            return handler;
+            return lifecycleHandler;
         }
         return async (request, ctx) => {
             const validatedRequest = parseSchema(CallToolRequestSchema, request);
@@ -212,7 +224,7 @@ export class Server extends Protocol<ServerContext> {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
             }
 
-            const result = await handler(request, ctx);
+            const result = await lifecycleHandler(request, ctx);
 
             const validationResult = parseSchema(CallToolResultSchema, result);
             if (!validationResult.success) {
