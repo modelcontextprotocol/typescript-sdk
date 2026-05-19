@@ -220,7 +220,7 @@ describe('StreamableHTTPClientTransport', () => {
         await expect(transport.terminateSession()).resolves.not.toThrow();
     });
 
-    it('should handle 404 response when session expires', async () => {
+    describe('session expiry (HTTP 404)', () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -228,24 +228,72 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        (globalThis.fetch as Mock).mockResolvedValueOnce({
-            ok: false,
-            status: 404,
-            statusText: 'Not Found',
-            text: () => Promise.resolve('Session not found'),
-            headers: new Headers()
+        // Per the MCP spec (Streamable HTTP, Session Management): a 404 in response
+        // to a request that carried an `Mcp-Session-Id` means the session expired and
+        // a new one must be started. Detection is by status code alone — non-reference
+        // servers report it with varying bodies, so we must not require a body shape.
+        it.each([
+            ['plain text', 'Session not found'],
+            ['JSON-RPC -32002 (Figma Desktop)', '{"jsonrpc":"2.0","error":{"code":-32002,"message":"Session not found"},"id":null}'],
+            ['JSON-RPC -32001 (reference server)', '{"jsonrpc":"2.0","error":{"code":-32001,"message":"Session not found"},"id":null}'],
+            ['arbitrary HTML', '<html><body>404 page not found</body></html>'],
+            ['empty body', '']
+        ])('treats 404 with a session ID as session expiry regardless of body (%s)', async (_label, body) => {
+            const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                sessionId: 'existing-session-id'
+            });
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+                text: () => Promise.resolve(body),
+                headers: new Headers()
+            });
+
+            const errorSpy = vi.fn();
+            sessionTransport.onerror = errorSpy;
+
+            const error = await sessionTransport.send(message).then(
+                () => null,
+                e => e
+            );
+
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpSessionExpired);
+            expect((error as SdkError).data).toEqual({ status: 404, text: body });
+            expect(errorSpy).toHaveBeenCalled();
+            // The dead session ID is cleared so a subsequent reconnect issues a fresh `initialize`.
+            expect(sessionTransport.sessionId).toBeUndefined();
+
+            await sessionTransport.close().catch(() => {});
         });
 
-        const errorSpy = vi.fn();
-        transport.onerror = errorSpy;
-
-        await expect(transport.send(message)).rejects.toThrow(
-            new SdkError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: Session not found', {
+        it('treats a 404 without a session ID as a generic HTTP error, not session expiry', async () => {
+            // No session ID was ever established (e.g. a 404 on the initial connect, or a
+            // wrong URL). The spec rule only applies to requests carrying an Mcp-Session-Id,
+            // so this must remain a generic error rather than triggering a session reset.
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
                 status: 404,
-                text: 'Session not found'
-            })
-        );
-        expect(errorSpy).toHaveBeenCalled();
+                statusText: 'Not Found',
+                text: () => Promise.resolve('Not Found'),
+                headers: new Headers()
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const error = await transport.send(message).then(
+                () => null,
+                e => e
+            );
+
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpNotImplemented);
+            expect(errorSpy).toHaveBeenCalled();
+            expect(transport.sessionId).toBeUndefined();
+        });
     });
 
     it('should handle non-streaming JSON response', async () => {

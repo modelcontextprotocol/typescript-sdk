@@ -288,6 +288,17 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
+                // A 404 on the standalone GET stream while a session ID is set means the
+                // session expired server-side (same spec rule as the POST path in `_send`).
+                // Clear the dead session ID and surface the session-expired error code.
+                if (response.status === 404 && this._sessionId !== undefined) {
+                    this._sessionId = undefined;
+                    throw new SdkError(SdkErrorCode.ClientHttpSessionExpired, 'Failed to open SSE stream: session expired (HTTP 404)', {
+                        status: 404,
+                        statusText: response.statusText
+                    });
+                }
+
                 throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
                     status: response.status,
                     statusText: response.statusText
@@ -627,6 +638,22 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         return this._send(message, options, isAuthRetry);
                     }
+                }
+
+                // Per the MCP spec (Streamable HTTP, Session Management): a 404 in
+                // response to a request that carried an `Mcp-Session-Id` means the
+                // session has expired or been terminated server-side, and the client
+                // must start a new session. Detect this by the status code alone —
+                // not the response body — since non-reference servers report it with
+                // varying bodies (different JSON-RPC error codes, plain text, HTML).
+                // Clear the dead session ID so a subsequent reconnect issues a fresh
+                // `initialize`, and surface a distinct, body-agnostic error code.
+                if (response.status === 404 && this._sessionId !== undefined) {
+                    this._sessionId = undefined;
+                    throw new SdkError(SdkErrorCode.ClientHttpSessionExpired, `Session expired (HTTP 404): ${text}`, {
+                        status: 404,
+                        text
+                    });
                 }
 
                 throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
