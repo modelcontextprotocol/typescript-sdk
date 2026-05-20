@@ -1,4 +1,6 @@
 import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
+import { routeServerStateless } from '../shared/serverStatelessRouter.js';
+import type { StatelessHandlers } from '../shared/stateless.js';
 import { StreamDriver } from '../shared/streamDriver.js';
 import type { Transport } from '../shared/transport.js';
 import type { AuthInfo, JSONRPCMessage, JSONRPCRequest, RequestId } from '../types/index.js';
@@ -19,6 +21,9 @@ export class InMemoryTransport implements Transport {
     private _messageQueue: QueuedMessage[] = [];
     private _closed = false;
 
+    private _statelessHandlers?: StatelessHandlers;
+    private readonly _inflight = new Map<RequestId, AbortController>();
+
     /* eslint-disable-next-line unicorn/consistent-function-scoping */
     private readonly _driver = new StreamDriver(m => this.send(m));
 
@@ -28,8 +33,13 @@ export class InMemoryTransport implements Transport {
     sessionId?: string;
 
     /** Client-side: backed by `StreamDriver`. */
-    sendAndReceive(request: Omit<JSONRPCRequest, 'jsonrpc' | 'id'>): AsyncIterable<JSONRPCMessage> {
-        return this._driver.sendAndReceive(request);
+    sendAndReceive(request: Omit<JSONRPCRequest, 'jsonrpc' | 'id'>, opts?: { signal?: AbortSignal }): AsyncIterable<JSONRPCMessage> {
+        return this._driver.sendAndReceive(request, opts);
+    }
+
+    /** Server-side: installed by `Server.connect()`. */
+    setStatelessHandlers(h: StatelessHandlers): void {
+        this._statelessHandlers = h;
     }
 
     /**
@@ -51,8 +61,28 @@ export class InMemoryTransport implements Transport {
         }
     }
 
-    /** Receive path: route to the StreamDriver first; fall through to `onmessage` for unclaimed. */
+    /**
+     * Receive path. Per-message router (mirrors stdio): server-side stateless
+     * requests go to {@linkcode StatelessHandlers}; client-side
+     * {@linkcode StreamDriver} claims responses for pending iterators; unclaimed
+     * messages fall through to legacy `onmessage`.
+     */
     private _receive(message: JSONRPCMessage, extra?: { authInfo?: AuthInfo }): void {
+        if (
+            this._statelessHandlers &&
+            routeServerStateless(
+                message,
+                this._statelessHandlers,
+                this._inflight,
+                m => {
+                    this.send(m).catch(error => this.onerror?.(error as Error));
+                },
+                { authInfo: extra?.authInfo },
+                e => this.onerror?.(e)
+            )
+        ) {
+            return;
+        }
         if (this._driver.onMessage(message)) return;
         this.onmessage?.(message, extra);
     }
@@ -60,6 +90,8 @@ export class InMemoryTransport implements Transport {
     async close(): Promise<void> {
         if (this._closed) return;
         this._closed = true;
+        for (const ac of this._inflight.values()) ac.abort();
+        this._inflight.clear();
         this._driver.close();
 
         const other = this._otherTransport;

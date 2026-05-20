@@ -1,7 +1,7 @@
 import type { Readable, Writable } from 'node:stream';
 
-import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, RequestId, StatelessHandlers, Transport } from '@modelcontextprotocol/core';
+import { ReadBuffer, routeServerStateless, serializeMessage } from '@modelcontextprotocol/core';
 import { process } from '@modelcontextprotocol/server/_shims';
 
 /**
@@ -21,6 +21,9 @@ export class StdioServerTransport implements Transport {
     private _started = false;
     private _closed = false;
 
+    private _statelessHandlers?: StatelessHandlers;
+    private readonly _inflight = new Map<RequestId, AbortController>();
+
     constructor(
         private _stdin: Readable = process.stdin,
         private _stdout: Writable = process.stdout
@@ -29,6 +32,15 @@ export class StdioServerTransport implements Transport {
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
+
+    /**
+     * Installed by `Server.connect()`. When present, `processReadBuffer`
+     * routes 2026-06 requests via {@linkcode StatelessHandlers}; everything else
+     * falls through to legacy `onmessage`.
+     */
+    setStatelessHandlers(h: StatelessHandlers): void {
+        this._statelessHandlers = h;
+    }
 
     // Arrow functions to bind `this` properly, while maintaining function identity.
     _ondata = (chunk: Buffer) => {
@@ -69,6 +81,25 @@ export class StdioServerTransport implements Transport {
                     break;
                 }
 
+                // Per-message router. Stateless requests (carrying _meta.protocolVersion
+                // for a 2026-06 version) go to the dispatch/listen handlers; everything
+                // else flows to the legacy onmessage path (Protocol._onrequest).
+                if (
+                    this._statelessHandlers &&
+                    routeServerStateless(
+                        message,
+                        this._statelessHandlers,
+                        this._inflight,
+                        m => {
+                            this.send(m).catch(error => this.onerror?.(error as Error));
+                        },
+                        {},
+                        e => this.onerror?.(e)
+                    )
+                ) {
+                    continue;
+                }
+
                 this.onmessage?.(message);
             } catch (error) {
                 this.onerror?.(error as Error);
@@ -81,6 +112,8 @@ export class StdioServerTransport implements Transport {
             return;
         }
         this._closed = true;
+        for (const ac of this._inflight.values()) ac.abort();
+        this._inflight.clear();
 
         // Remove our event listeners first
         this._stdin.off('data', this._ondata);

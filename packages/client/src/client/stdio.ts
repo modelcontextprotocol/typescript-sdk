@@ -107,8 +107,8 @@ export class StdioClientTransport implements Transport {
      * Sends one request and returns the server's messages for it. Backed by
      * `StreamDriver`; bypasses `Protocol.request()`.
      */
-    sendAndReceive(request: Omit<JSONRPCRequest, 'jsonrpc' | 'id'>): AsyncIterable<JSONRPCMessage> {
-        return this._driver.sendAndReceive(request);
+    sendAndReceive(request: Omit<JSONRPCRequest, 'jsonrpc' | 'id'>, opts?: { signal?: AbortSignal }): AsyncIterable<JSONRPCMessage> {
+        return this._driver.sendAndReceive(request, opts);
     }
 
     setProtocolVersion(version: string): void {

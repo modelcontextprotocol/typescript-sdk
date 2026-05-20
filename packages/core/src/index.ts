@@ -5,6 +5,7 @@ export * from './shared/authUtils.js';
 export * from './shared/dispatcher.js';
 export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
+export * from './shared/serverStatelessRouter.js';
 export * from './shared/stateless.js';
 export * from './shared/stdio.js';
 export * from './shared/streamDriver.js';
