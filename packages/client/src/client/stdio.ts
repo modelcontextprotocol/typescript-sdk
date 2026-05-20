@@ -3,8 +3,8 @@ import process from 'node:process';
 import type { Stream } from 'node:stream';
 import { PassThrough } from 'node:stream';
 
-import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { ReadBuffer, SdkError, SdkErrorCode, serializeMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, Transport } from '@modelcontextprotocol/core';
+import { isStatelessProtocolVersion, ReadBuffer, SdkError, SdkErrorCode, serializeMessage, StreamDriver } from '@modelcontextprotocol/core';
 import spawn from 'cross-spawn';
 
 export type StdioServerParameters = {
@@ -95,10 +95,25 @@ export class StdioClientTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _serverParams: StdioServerParameters;
     private _stderrStream: PassThrough | null = null;
+    private _protocolVersion?: string;
+    /* eslint-disable-next-line unicorn/consistent-function-scoping */
+    private readonly _driver = new StreamDriver(m => this.send(m));
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
+
+    /**
+     * Sends one request and returns the server's messages for it. Backed by
+     * `StreamDriver`; bypasses `Protocol.request()`.
+     */
+    sendAndReceive(request: Omit<JSONRPCRequest, 'jsonrpc' | 'id'>): AsyncIterable<JSONRPCMessage> {
+        return this._driver.sendAndReceive(request);
+    }
+
+    setProtocolVersion(version: string): void {
+        this._protocolVersion = version;
+    }
 
     constructor(server: StdioServerParameters) {
         this._serverParams = server;
@@ -195,6 +210,16 @@ export class StdioClientTransport implements Transport {
                     break;
                 }
 
+                // Default to StreamDriver until setProtocolVersion is called with
+                // a pre-2026 version. The discover/initialize probe goes via
+                // sendAndReceive, so the driver claims those.
+                if (
+                    (this._protocolVersion === undefined || isStatelessProtocolVersion(this._protocolVersion)) &&
+                    this._driver.onMessage(message)
+                ) {
+                    continue;
+                }
+
                 this.onmessage?.(message);
             } catch (error) {
                 this.onerror?.(error as Error);
@@ -203,6 +228,7 @@ export class StdioClientTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        this._driver.close();
         if (this._process) {
             const processToClose = this._process;
             this._process = undefined;

@@ -7,6 +7,7 @@ export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
 export * from './shared/stateless.js';
 export * from './shared/stdio.js';
+export * from './shared/streamDriver.js';
 export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
