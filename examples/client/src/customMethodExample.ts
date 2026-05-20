@@ -19,7 +19,7 @@ client.setNotificationHandler('acme/searchProgress', { params: SearchProgressPar
 
 await client.connect(new StdioClientTransport({ command: 'node', args: ['../server/dist/customMethodExample.js'] }));
 
-const result = await client.request({ method: 'acme/search', params: { query: 'mcp', limit: 3 } }, SearchResult);
+const result = await client.legacy.request({ method: 'acme/search', params: { query: 'mcp', limit: 3 } }, SearchResult);
 console.log('items:', result.items);
 
 await client.close();

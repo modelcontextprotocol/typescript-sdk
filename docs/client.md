@@ -298,10 +298,10 @@ To discover URI templates for dynamic resources, use {@linkcode @modelcontextpro
 
 ### Subscribing to resource changes
 
-If the server supports resource subscriptions, use {@linkcode @modelcontextprotocol/client!client/client.Client#subscribeResource | subscribeResource()} to receive notifications when a resource changes, then re-read it:
+If the server supports resource subscriptions, use {@linkcode @modelcontextprotocol/client!client/client.Client#subscribe | client.subscribe()} on 2026-06+ connections, or {@linkcode @modelcontextprotocol/client!client/legacyClient.LegacyClient#subscribeResource | client.legacy.subscribeResource()} on pre-2026 connections, to receive notifications when a resource changes, then re-read it:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#subscribeResource_basic"
-await client.subscribeResource({ uri: 'config://app' });
+await client.legacy.subscribeResource({ uri: 'config://app' });
 
 client.setNotificationHandler('notifications/resources/updated', async notification => {
     if (notification.params.uri === 'config://app') {
@@ -311,7 +311,7 @@ client.setNotificationHandler('notifications/resources/updated', async notificat
 });
 
 // Later: stop receiving updates
-await client.unsubscribeResource({ uri: 'config://app' });
+await client.legacy.unsubscribeResource({ uri: 'config://app' });
 ```
 
 ## Prompts
@@ -485,7 +485,7 @@ client.setRequestHandler('roots/list', async () => {
 });
 ```
 
-When the available roots change, notify the server with {@linkcode @modelcontextprotocol/client!client/client.Client#sendRootsListChanged | client.sendRootsListChanged()}.
+When the available roots change, notify the server with {@linkcode @modelcontextprotocol/client!client/legacyClient.LegacyClient#sendRootsListChanged | client.legacy.sendRootsListChanged()}.
 
 ## Error handling
 
@@ -578,7 +578,7 @@ When using SSE-based streaming, the server can assign event IDs. Pass `onresumpt
 ```ts source="../examples/client/src/clientGuide.examples.ts#resumptionToken_basic"
 let lastToken: string | undefined;
 
-const result = await client.request(
+const result = await client.legacy.request(
     {
         method: 'tools/call',
         params: { name: 'long-running-operation', arguments: {} }

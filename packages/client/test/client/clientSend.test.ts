@@ -2,7 +2,7 @@ import type { JSONRPCMessage, JSONRPCRequest, Transport } from '@modelcontextpro
 import { DRAFT_PROTOCOL_VERSION, JSONRPC_VERSION, META_KEYS, SdkError } from '@modelcontextprotocol/core';
 import { describe, expect, it } from 'vitest';
 
-import { LegacyClient as Client } from '../../src/client/legacyClient.js';
+import { Client } from '../../src/client/client.js';
 
 /** Minimal transport with a scriptable sendAndReceive. */
 function mockTransport(handler: (req: JSONRPCRequest) => AsyncIterable<JSONRPCMessage>): Transport {

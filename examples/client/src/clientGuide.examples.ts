@@ -258,7 +258,7 @@ async function readResource_basic(client: Client) {
 /** Example: Subscribe to resource changes. */
 async function subscribeResource_basic(client: Client) {
     //#region subscribeResource_basic
-    await client.subscribeResource({ uri: 'config://app' });
+    await client.legacy.subscribeResource({ uri: 'config://app' });
 
     client.setNotificationHandler('notifications/resources/updated', async notification => {
         if (notification.params.uri === 'config://app') {
@@ -268,7 +268,7 @@ async function subscribeResource_basic(client: Client) {
     });
 
     // Later: stop receiving updates
-    await client.unsubscribeResource({ uri: 'config://app' });
+    await client.legacy.unsubscribeResource({ uri: 'config://app' });
     //#endregion subscribeResource_basic
 }
 
@@ -527,7 +527,7 @@ async function resumptionToken_basic(client: Client) {
     //#region resumptionToken_basic
     let lastToken: string | undefined;
 
-    const result = await client.request(
+    const result = await client.legacy.request(
         {
             method: 'tools/call',
             params: { name: 'long-running-operation', arguments: {} }

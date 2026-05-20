@@ -86,7 +86,7 @@ async function listTools(client: Client): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest);
+        const toolsResult = await client.legacy.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {

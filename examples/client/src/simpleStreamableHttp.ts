@@ -471,7 +471,7 @@ async function connect(url?: string): Promise<void> {
                     console.log('Client disconnected, cannot fetch resources');
                     return;
                 }
-                const resourcesResult = await client.request({
+                const resourcesResult = await client.legacy.request({
                     method: 'resources/list',
                     params: {}
                 });
@@ -559,7 +559,7 @@ async function listTools(): Promise<void> {
             method: 'tools/list',
             params: {}
         };
-        const toolsResult = await client.request(toolsRequest);
+        const toolsResult = await client.legacy.request(toolsRequest);
 
         console.log('Available tools:');
         if (toolsResult.tools.length === 0) {
@@ -704,7 +704,7 @@ async function listPrompts(): Promise<void> {
             method: 'prompts/list',
             params: {}
         };
-        const promptsResult = await client.request(promptsRequest);
+        const promptsResult = await client.legacy.request(promptsRequest);
         console.log('Available prompts:');
         if (promptsResult.prompts.length === 0) {
             console.log('  No prompts available');
@@ -733,7 +733,7 @@ async function getPrompt(name: string, args: Record<string, unknown>): Promise<v
             }
         };
 
-        const promptResult = await client.request(promptRequest);
+        const promptResult = await client.legacy.request(promptRequest);
         console.log('Prompt template:');
         for (const [index, msg] of promptResult.messages.entries()) {
             console.log(`  [${index + 1}] ${msg.role}: ${msg.content.type === 'text' ? msg.content.text : JSON.stringify(msg.content)}`);
@@ -754,7 +754,7 @@ async function listResources(): Promise<void> {
             method: 'resources/list',
             params: {}
         };
-        const resourcesResult = await client.request(resourcesRequest);
+        const resourcesResult = await client.legacy.request(resourcesRequest);
 
         console.log('Available resources:');
         if (resourcesResult.resources.length === 0) {
@@ -782,7 +782,7 @@ async function readResource(uri: string): Promise<void> {
         };
 
         console.log(`Reading resource: ${uri}`);
-        const result = await client.request(request);
+        const result = await client.legacy.request(request);
 
         console.log('Resource contents:');
         for (const content of result.contents) {

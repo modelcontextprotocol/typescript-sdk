@@ -70,7 +70,7 @@ async function main(): Promise<void> {
         console.log('[Client] Server will disconnect mid-operation to demonstrate polling');
         console.log('');
 
-        const result = await client.request(
+        const result = await client.legacy.request(
             {
                 method: 'tools/call',
                 params: {

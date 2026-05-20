@@ -256,7 +256,7 @@ class InteractiveOAuthClient {
                 params: {}
             };
 
-            const result = await this.client.request(request);
+            const result = await this.client.legacy.request(request);
 
             if (result.tools && result.tools.length > 0) {
                 console.log('\n📋 Available tools:');
