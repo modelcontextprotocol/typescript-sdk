@@ -261,7 +261,7 @@ export type ServerOptions = ProtocolOptions & {
  *
  * @deprecated Use {@linkcode server/mcp.McpServer | McpServer} instead for the high-level API. Only use `Server` for advanced use cases.
  */
-export class Server extends Protocol<ServerContext> {
+export class LegacyServer extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
     private _capabilities: ServerCapabilities;
@@ -289,7 +289,7 @@ export class Server extends Protocol<ServerContext> {
         this.subscriptions = options?.subscriptions ?? new InMemorySubscriptions();
 
         this.dispatcher.use(inputRequiredMiddleware);
-        this.dispatcher.use(Server._callToolResultMiddleware);
+        this.dispatcher.use(LegacyServer._callToolResultMiddleware);
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setRequestHandler('server/discover', async (): Promise<DiscoverResult> => this._ondiscover());

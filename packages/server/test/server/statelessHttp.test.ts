@@ -3,7 +3,7 @@ import { DRAFT_PROTOCOL_VERSION, JSONRPC_VERSION, META_KEYS } from '@modelcontex
 import { describe, expect, it } from 'vitest';
 
 import { handleHttp } from '../../src/server/handleHttp.js';
-import { Server } from '../../src/server/server.js';
+import { LegacyServer as Server } from '../../src/server/legacyServer.js';
 import { statelessHttpHandler } from '../../src/server/statelessHttp.js';
 
 const _meta = {

@@ -1,7 +1,7 @@
 import { ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import { validateHostHeader } from './middleware/hostHeaderValidation.js';
-import type { Server } from './server.js';
+import type { LegacyServer as Server } from './legacyServer.js';
 import type { StatelessHttpRequestOptions } from './statelessHttp.js';
 import { jsonError, statelessHttpHandler } from './statelessHttp.js';
 

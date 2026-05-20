@@ -18,7 +18,7 @@ import {
 } from '@modelcontextprotocol/core';
 import { describe, expect, it } from 'vitest';
 
-import { Server } from '../../src/server/server.js';
+import { LegacyServer as Server } from '../../src/server/legacyServer.js';
 
 const STATELESS_VERSION = LATEST_PROTOCOL_VERSION;
 

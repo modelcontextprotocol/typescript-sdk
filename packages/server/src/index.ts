@@ -28,8 +28,8 @@ export type {
 export { McpServer, ResourceTemplate } from './server/mcp.js';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation.js';
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation.js';
-export type { ServerOptions } from './server/server.js';
-export { Server } from './server/server.js';
+export type { ServerOptions } from './server/legacyServer.js';
+export { LegacyServer, LegacyServer as Server } from './server/legacyServer.js';
 export type { StatelessHttpRequestOptions } from './server/statelessHttp.js';
 export { statelessHttpHandler } from './server/statelessHttp.js';
 export type { SubscriptionBackend, SubscriptionEvent } from './server/subscriptions.js';

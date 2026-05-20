@@ -39,8 +39,8 @@ import {
 import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable.js';
-import type { ServerOptions } from './server.js';
-import { Server } from './server.js';
+import type { ServerOptions } from './legacyServer.js';
+import { LegacyServer as Server } from './legacyServer.js';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
