@@ -9,7 +9,7 @@
 
 import type { Prompt, Resource, Tool } from '@modelcontextprotocol/core';
 
-import { Client } from './client.js';
+import { LegacyClient as Client } from './legacyClient.js';
 import { SSEClientTransport } from './sse.js';
 import { StdioClientTransport } from './stdio.js';
 import { StreamableHTTPClientTransport } from './streamableHttp.js';

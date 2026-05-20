@@ -261,7 +261,7 @@ export type ClientOptions = ProtocolOptions & {
  * });
  * ```
  */
-export class Client extends Protocol<ClientContext> {
+export class LegacyClient extends Protocol<ClientContext> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
     private _negotiatedProtocolVersion?: string;

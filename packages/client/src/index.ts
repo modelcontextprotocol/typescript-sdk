@@ -52,9 +52,8 @@ export {
     PrivateKeyJwtProvider,
     StaticPrivateKeyJwtProvider
 } from './client/authExtensions.js';
-export type { ClientOptions } from './client/client.js';
-export { Client } from './client/client.js';
-export { getSupportedElicitationModes } from './client/client.js';
+export type { ClientOptions } from './client/legacyClient.js';
+export { getSupportedElicitationModes, LegacyClient, LegacyClient as Client } from './client/legacyClient.js';
 export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, RequestJwtAuthGrantOptions } from './client/crossAppAccess.js';
 export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess.js';
 export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware.js';
