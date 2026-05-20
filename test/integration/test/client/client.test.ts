@@ -577,7 +577,7 @@ test('should respect client notification capabilities', async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // This should work because the client has the roots.listChanged capability
-    await expect(client.sendRootsListChanged()).resolves.not.toThrow();
+    await expect(client.legacy.sendRootsListChanged()).resolves.not.toThrow();
 
     // Create a new client without the roots.listChanged capability
     const clientWithoutCapability = new LegacyTestClient(
@@ -594,7 +594,7 @@ test('should respect client notification capabilities', async () => {
     await clientWithoutCapability.connect(clientTransport);
 
     // This should throw because the client doesn't have the roots.listChanged capability
-    await expect(clientWithoutCapability.sendRootsListChanged()).rejects.toThrow(/^Client does not support/);
+    await expect(clientWithoutCapability.legacy.sendRootsListChanged()).rejects.toThrow(/^Client does not support/);
 });
 
 /***
@@ -631,7 +631,7 @@ test('should respect server notification capabilities', async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // These should work because the server has the corresponding capabilities
-    await expect(server.sendLoggingMessage({ level: 'info', data: 'Test' })).resolves.not.toThrow();
+    await expect(server.legacy.sendLoggingMessage({ level: 'info', data: 'Test' })).resolves.not.toThrow();
     await expect(server.sendResourceListChanged()).resolves.not.toThrow();
 
     // This should throw because the server doesn't have the tools capability
@@ -756,7 +756,7 @@ test('should accept form-mode elicitation request when client advertises empty e
     // Server should be able to send form-mode elicitation request
     // This works because getSupportedElicitationModes defaults to form mode
     // when neither form nor url are explicitly declared
-    const result = await server.elicitInput({
+    const result = await server.legacy.elicitInput({
         mode: 'form',
         message: 'Please provide your username',
         requestedSchema: {
@@ -906,7 +906,7 @@ test('should reject missing-mode elicitation when client only supports URL mode'
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.request({
+        server.legacy.request({
             method: 'elicitation/create',
             params: {
                 message: 'Please provide data',
@@ -1052,7 +1052,7 @@ test('should apply defaults for form-mode elicitation when applyDefaults is enab
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    const result = await server.elicitInput({
+    const result = await server.legacy.elicitInput({
         mode: 'form',
         message: 'Please confirm your preferences',
         requestedSchema: {
@@ -1542,7 +1542,7 @@ test('should not activate listChanged handler when server does not advertise cap
     expect(client.getServerCapabilities()?.tools?.listChanged).toBeFalsy();
 
     // Send a tool list changed notification manually
-    await server.notification({ method: 'notifications/tools/list_changed' });
+    await server.legacy.notification({ method: 'notifications/tools/list_changed' });
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // Handler should NOT have been activated because server didn't advertise listChanged
@@ -1591,7 +1591,7 @@ test('should activate listChanged handler when server advertises capability', as
     expect(client.getServerCapabilities()?.tools?.listChanged).toBe(true);
 
     // Send a tool list changed notification
-    await server.notification({ method: 'notifications/tools/list_changed' });
+    await server.legacy.notification({ method: 'notifications/tools/list_changed' });
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // Handler SHOULD have been called
@@ -1649,9 +1649,9 @@ test('should not activate any handlers when server has no listChanged capabiliti
     expect(caps?.resources?.listChanged).toBeFalsy();
 
     // Send notifications for all three types
-    await server.notification({ method: 'notifications/tools/list_changed' });
-    await server.notification({ method: 'notifications/prompts/list_changed' });
-    await server.notification({ method: 'notifications/resources/list_changed' });
+    await server.legacy.notification({ method: 'notifications/tools/list_changed' });
+    await server.legacy.notification({ method: 'notifications/prompts/list_changed' });
+    await server.legacy.notification({ method: 'notifications/resources/list_changed' });
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // No handlers should have been activated
@@ -1709,8 +1709,8 @@ test('should handle partial listChanged capability support', async () => {
     expect(client.getServerCapabilities()?.prompts?.listChanged).toBeFalsy();
 
     // Send notifications for both
-    await server.notification({ method: 'notifications/tools/list_changed' });
-    await server.notification({ method: 'notifications/prompts/list_changed' });
+    await server.legacy.notification({ method: 'notifications/tools/list_changed' });
+    await server.legacy.notification({ method: 'notifications/prompts/list_changed' });
     await new Promise(resolve => setTimeout(resolve, 100));
 
     // Tools handler should have been called
@@ -2350,7 +2350,7 @@ describe('Client sampling validation with tools', () => {
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-        const result = await server.createMessage({
+        const result = await server.legacy.createMessage({
             messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
             maxTokens: 100,
             tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
@@ -2376,7 +2376,7 @@ describe('Client sampling validation with tools', () => {
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-        const result = await server.createMessage({
+        const result = await server.legacy.createMessage({
             messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
             maxTokens: 100,
             tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
@@ -2400,7 +2400,7 @@ describe('Client sampling validation with tools', () => {
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-        const result = await server.createMessage({
+        const result = await server.legacy.createMessage({
             messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
             maxTokens: 100
         });
@@ -2424,7 +2424,7 @@ describe('Client sampling validation with tools', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
                 maxTokens: 100
             })
@@ -2447,7 +2447,7 @@ describe('Client sampling validation with tools', () => {
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-        const result = await server.createMessage({
+        const result = await server.legacy.createMessage({
             messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
             maxTokens: 100,
             tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }],

@@ -51,7 +51,7 @@ describe('Server with standard protocol methods', () => {
             return {};
         });
 
-        server.setNotificationHandler('notifications/initialized', () => {
+        server.legacy.setNotificationHandler('notifications/initialized', () => {
             console.log('Client initialized');
         });
     });
@@ -309,18 +309,18 @@ test('should respect client capabilities', async () => {
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    expect(server.getClientCapabilities()).toEqual({ sampling: {} });
+    expect(server.legacy.getClientCapabilities()).toEqual({ sampling: {} });
 
     // This should work because sampling is supported by the client
     await expect(
-        server.createMessage({
+        server.legacy.createMessage({
             messages: [],
             maxTokens: 10
         })
     ).resolves.not.toThrow();
 
     // This should still throw because roots are not supported by the client
-    await expect(server.listRoots()).rejects.toThrow(/Client does not support/);
+    await expect(server.legacy.listRoots()).rejects.toThrow(/Client does not support/);
 });
 
 test('should respect client elicitation capabilities', async () => {
@@ -365,11 +365,11 @@ test('should respect client elicitation capabilities', async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // After schema parsing, empty elicitation object should have form capability injected
-    expect(server.getClientCapabilities()).toEqual({ elicitation: { form: {} } });
+    expect(server.legacy.getClientCapabilities()).toEqual({ elicitation: { form: {} } });
 
     // This should work because elicitation is supported by the client
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             mode: 'form',
             message: 'Please provide your username',
             requestedSchema: {
@@ -400,7 +400,7 @@ test('should respect client elicitation capabilities', async () => {
 
     // This should still throw because sampling is not supported by the client
     await expect(
-        server.createMessage({
+        server.legacy.createMessage({
             messages: [],
             maxTokens: 10
         })
@@ -449,11 +449,11 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // After schema parsing, empty elicitation object should have form capability injected
-    expect(server.getClientCapabilities()).toEqual({ elicitation: { form: {} } });
+    expect(server.legacy.getClientCapabilities()).toEqual({ elicitation: { form: {} } });
 
     // This should work because elicitation is supported by the client
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             message: 'Please provide your username',
             requestedSchema: {
                 type: 'object',
@@ -483,7 +483,7 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
 
     // This should still throw because sampling is not supported by the client
     await expect(
-        server.createMessage({
+        server.legacy.createMessage({
             messages: [],
             maxTokens: 10
         })
@@ -524,7 +524,7 @@ test('should throw when elicitInput is called without client form capability', a
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             mode: 'form',
             message: 'Please provide your username',
             requestedSchema: {
@@ -573,7 +573,7 @@ test('should throw when elicitInput is called without client URL capability', as
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             mode: 'url',
             message: 'Open the authorization URL',
             elicitationId: 'elicitation-001',
@@ -623,7 +623,7 @@ test('should include form mode when sending elicitation form requests', async ()
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             message: 'Confirm action',
             requestedSchema: {
                 type: 'object',
@@ -687,7 +687,7 @@ test('should include url mode when sending elicitation URL requests', async () =
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             mode: 'url',
             message: 'Complete verification',
             elicitationId: 'elicitation-xyz',
@@ -738,7 +738,7 @@ test('should reject elicitInput when client response violates requested schema',
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             message: 'Please provide your username',
             requestedSchema: {
                 type: 'object',
@@ -797,7 +797,7 @@ test('should wrap unexpected validator errors during elicitInput', async () => {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             mode: 'form',
             message: 'Provide any data',
             requestedSchema: {
@@ -840,9 +840,9 @@ test('should forward notification options when using elicitation completion noti
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    const notificationSpy = vi.spyOn(server, 'notification');
+    const notificationSpy = vi.spyOn(server.legacy, 'notification');
 
-    const notifier = server.createElicitationCompletionNotifier('elicitation-789', { relatedRequestId: 42 });
+    const notifier = server.legacy.createElicitationCompletionNotifier('elicitation-789', { relatedRequestId: 42 });
     await notifier();
 
     expect(notificationSpy).toHaveBeenCalledWith(
@@ -890,7 +890,7 @@ test('should create notifier that emits elicitation completion notification', as
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    const notifier = server.createElicitationCompletionNotifier('elicitation-123');
+    const notifier = server.legacy.createElicitationCompletionNotifier('elicitation-123');
     await notifier();
 
     await new Promise(resolve => setTimeout(resolve, 0));
@@ -927,7 +927,7 @@ test('should throw when creating notifier if client lacks URL elicitation suppor
 
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-    expect(() => server.createElicitationCompletionNotifier('elicitation-123')).toThrow(
+    expect(() => server.legacy.createElicitationCompletionNotifier('elicitation-123')).toThrow(
         'Client does not support URL elicitation (required for notifications/elicitation/complete)'
     );
 });
@@ -965,7 +965,7 @@ test('should apply back-compat form capability injection when client sends empty
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // Verify that the schema preprocessing injected form capability
-    const clientCapabilities = server.getClientCapabilities();
+    const clientCapabilities = server.legacy.getClientCapabilities();
     expect(clientCapabilities).toBeDefined();
     expect(clientCapabilities?.elicitation).toBeDefined();
     expect(clientCapabilities?.elicitation?.form).toBeDefined();
@@ -1010,7 +1010,7 @@ test('should preserve form capability configuration when client enables applyDef
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     // Verify that the schema preprocessing preserved the form capability configuration
-    const clientCapabilities = server.getClientCapabilities();
+    const clientCapabilities = server.legacy.getClientCapabilities();
     expect(clientCapabilities).toBeDefined();
     expect(clientCapabilities?.elicitation).toBeDefined();
     expect(clientCapabilities?.elicitation?.form).toBeDefined();
@@ -1063,7 +1063,7 @@ test('should validate elicitation response against requested schema', async () =
 
     // Test with valid response
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             mode: 'form',
             message: 'Please provide your information',
             requestedSchema: {
@@ -1140,7 +1140,7 @@ test('should reject elicitation response with invalid data', async () => {
 
     // Test with invalid response
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             mode: 'form',
             message: 'Please provide your information',
             requestedSchema: {
@@ -1215,7 +1215,7 @@ test('should allow elicitation reject and cancel without validation', async () =
 
     // Test reject - should not validate
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             mode: 'form',
             message: 'Please provide your name',
             requestedSchema: schema
@@ -1226,7 +1226,7 @@ test('should allow elicitation reject and cancel without validation', async () =
 
     // Test cancel - should not validate
     await expect(
-        server.elicitInput({
+        server.legacy.elicitInput({
             mode: 'form',
             message: 'Please provide your name',
             requestedSchema: schema
@@ -1256,7 +1256,7 @@ test('should respect server notification capabilities', async () => {
 
     // This should work because logging is supported by the server
     await expect(
-        server.sendLoggingMessage({
+        server.legacy.sendLoggingMessage({
             level: 'info',
             data: 'Test log message'
         })
@@ -1345,7 +1345,7 @@ test('should handle server cancelling a request', async () => {
     const controller = new AbortController();
 
     // Issue request but cancel it immediately
-    const createMessagePromise = server.createMessage(
+    const createMessagePromise = server.legacy.createMessage(
         {
             messages: [],
             maxTokens: 10
@@ -1409,7 +1409,7 @@ test('should handle request timeout', async () => {
 
     // Request with 0 msec timeout should fail immediately
     await expect(
-        server.createMessage(
+        server.legacy.createMessage(
             {
                 messages: [],
                 maxTokens: 10
@@ -1479,11 +1479,11 @@ test('should respect log level for transport without sessionId', async () => {
     });
 
     // This one will not make it through
-    await server.sendLoggingMessage(debugParams);
+    await server.legacy.sendLoggingMessage(debugParams);
     expect(clientTransport.onmessage).not.toHaveBeenCalled();
 
     // This one will, triggering the above test in clientTransport.onmessage
-    await server.sendLoggingMessage(warningParams);
+    await server.legacy.sendLoggingMessage(warningParams);
     expect(clientTransport.onmessage).toHaveBeenCalled();
 });
 
@@ -1506,7 +1506,7 @@ describe('createMessage validation', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
                 maxTokens: 100,
                 tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
@@ -1532,7 +1532,7 @@ describe('createMessage validation', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
                 maxTokens: 100,
                 toolChoice: { mode: 'auto' }
@@ -1555,7 +1555,7 @@ describe('createMessage validation', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [
                     { role: 'user', content: { type: 'text', text: 'hello' } },
                     { role: 'assistant', content: { type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} } },
@@ -1589,7 +1589,7 @@ describe('createMessage validation', () => {
 
         // tool_result without previous tool_use
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [
                     { role: 'user', content: { type: 'text', text: 'hello' } },
                     { role: 'user', content: { type: 'tool_result', toolUseId: 'call_1', content: [] } }
@@ -1615,7 +1615,7 @@ describe('createMessage validation', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [
                     { role: 'user', content: { type: 'text', text: 'hello' } },
                     { role: 'assistant', content: { type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} } },
@@ -1642,7 +1642,7 @@ describe('createMessage validation', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
                 maxTokens: 100,
                 tools: [{ name: 'test_tool', inputSchema: { type: 'object' } }]
@@ -1665,7 +1665,7 @@ describe('createMessage validation', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [
                     { role: 'user', content: { type: 'text', text: 'hello' } },
                     { role: 'assistant', content: { type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} } },
@@ -1693,7 +1693,7 @@ describe('createMessage validation', () => {
 
         // User ignores tool_use and sends text instead
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [
                     { role: 'user', content: { type: 'text', text: 'hello' } },
                     { role: 'assistant', content: { type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} } },
@@ -1721,7 +1721,7 @@ describe('createMessage validation', () => {
 
         // Parallel tool_use but only one tool_result provided
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [
                     { role: 'user', content: { type: 'text', text: 'hello' } },
                     {
@@ -1758,7 +1758,7 @@ describe('createMessage validation', () => {
 
         // Previous request returned tool_use, now sending tool_result without tools param
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [
                     { role: 'user', content: { type: 'text', text: 'hello' } },
                     { role: 'assistant', content: { type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} } },
@@ -1786,7 +1786,7 @@ describe('createMessage validation', () => {
 
         // Previous request returned tool_use, now sending matching tool_result without tools param
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [
                     { role: 'user', content: { type: 'text', text: 'hello' } },
                     { role: 'assistant', content: { type: 'tool_use', id: 'call_1', name: 'test_tool', input: {} } },
@@ -1814,7 +1814,7 @@ describe('createMessage validation', () => {
 
         // Empty messages array should not crash
         await expect(
-            server.createMessage({
+            server.legacy.createMessage({
                 messages: [],
                 maxTokens: 100
             })
@@ -1845,7 +1845,7 @@ describe('createMessage backwards compatibility', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         // Call createMessage WITHOUT tools
-        const result = await server.createMessage({
+        const result = await server.legacy.createMessage({
             messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
             maxTokens: 100
         });
@@ -1876,7 +1876,7 @@ describe('createMessage backwards compatibility', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         // Call createMessage WITH tools - verifies the overload works
-        const result = await server.createMessage({
+        const result = await server.legacy.createMessage({
             messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }],
             maxTokens: 100,
             tools: [{ name: 'get_weather', inputSchema: { type: 'object' } }]
@@ -1950,11 +1950,11 @@ test('should respect log level for transport with sessionId', async () => {
     });
 
     // This one will not make it through
-    await server.sendLoggingMessage(debugParams, SESSION_ID);
+    await server.legacy.sendLoggingMessage(debugParams, SESSION_ID);
     expect(clientTransport.onmessage).not.toHaveBeenCalled();
 
     // This one will, triggering the above test in clientTransport.onmessage
-    await server.sendLoggingMessage(warningParams, SESSION_ID);
+    await server.legacy.sendLoggingMessage(warningParams, SESSION_ID);
     expect(clientTransport.onmessage).toHaveBeenCalled();
 });
 

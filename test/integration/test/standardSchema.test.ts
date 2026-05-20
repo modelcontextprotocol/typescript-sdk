@@ -54,7 +54,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({ method: 'tools/list' });
+                const result = await client.legacy.request({ method: 'tools/list' });
 
                 expect(result.tools).toHaveLength(1);
                 expect(result.tools[0].name).toBe('greet');
@@ -89,7 +89,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({ method: 'tools/list' });
+                const result = await client.legacy.request({ method: 'tools/list' });
 
                 expect(result.tools[0].outputSchema).toMatchObject({
                     $schema: 'https://json-schema.org/draft/2020-12/schema',
@@ -113,7 +113,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
+                const result = await client.legacy.request({
                     method: 'tools/call',
                     params: { name: 'double', arguments: { value: 21 } }
                 });
@@ -130,7 +130,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
+                const result = await client.legacy.request({
                     method: 'tools/call',
                     params: { name: 'double', arguments: { value: 'not a number' } }
                 });
@@ -153,7 +153,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
+                const result = await client.legacy.request({
                     method: 'tools/call',
                     params: { name: 'calculate', arguments: { operation: 'divide' } }
                 });
@@ -173,7 +173,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
+                const result = await client.legacy.request({
                     method: 'tools/call',
                     params: { name: 'greet', arguments: { name: 'Alice' } }
                 });
@@ -209,7 +209,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({ method: 'tools/list' });
+                const result = await client.legacy.request({ method: 'tools/list' });
 
                 expect(result.tools).toHaveLength(1);
                 expect(result.tools[0].name).toBe('greet');
@@ -237,7 +237,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({ method: 'tools/list' });
+                const result = await client.legacy.request({ method: 'tools/list' });
 
                 expect(result.tools[0].inputSchema.properties).toMatchObject({
                     city: { type: 'string', description: 'The city name' },
@@ -256,7 +256,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
+                const result = await client.legacy.request({
                     method: 'tools/call',
                     params: { name: 'double', arguments: { value: 21 } }
                 });
@@ -273,7 +273,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
+                const result = await client.legacy.request({
                     method: 'tools/call',
                     params: { name: 'double', arguments: { value: 'not a number' } }
                 });
@@ -297,7 +297,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
+                const result = await client.legacy.request({
                     method: 'tools/call',
                     params: { name: 'calculate', arguments: { operation: 'divide' } }
                 });
@@ -321,14 +321,14 @@ describe('Standard Schema Support', () => {
                 await connectClientAndServer();
 
                 // Valid value
-                const validResult = await client.request({
+                const validResult = await client.legacy.request({
                     method: 'tools/call',
                     params: { name: 'setPercentage', arguments: { percentage: 50 } }
                 });
                 expect(validResult.isError).toBeFalsy();
 
                 // Invalid value (too high)
-                const invalidResult = await client.request({
+                const invalidResult = await client.legacy.request({
                     method: 'tools/call',
                     params: { name: 'setPercentage', arguments: { percentage: 150 } }
                 });
@@ -360,20 +360,23 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const tools = await client.request({ method: 'tools/list' });
+            const tools = await client.legacy.request({ method: 'tools/list' });
             expect(tools.tools).toHaveLength(3);
 
             // Call each tool
-            const zodResult = await client.request({ method: 'tools/call', params: { name: 'zod-tool', arguments: { value: 'test' } } });
+            const zodResult = await client.legacy.request({
+                method: 'tools/call',
+                params: { name: 'zod-tool', arguments: { value: 'test' } }
+            });
             expect((zodResult.content[0] as TextContent).text).toBe('zod: test');
 
-            const arktypeResult = await client.request({
+            const arktypeResult = await client.legacy.request({
                 method: 'tools/call',
                 params: { name: 'arktype-tool', arguments: { value: 'test' } }
             });
             expect((arktypeResult.content[0] as TextContent).text).toBe('arktype: test');
 
-            const valibotResult = await client.request({
+            const valibotResult = await client.legacy.request({
                 method: 'tools/call',
                 params: { name: 'valibot-tool', arguments: { value: 'test' } }
             });
@@ -396,14 +399,14 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const listed = await client.request({ method: 'tools/list' });
+            const listed = await client.legacy.request({ method: 'tools/list' });
             expect(listed.tools[0].inputSchema).toMatchObject({
                 type: 'object',
                 properties: { name: { type: 'string' } },
                 required: ['name']
             });
 
-            const result = await client.request({ method: 'tools/call', params: { name: 'greet', arguments: { name: 'World' } } });
+            const result = await client.legacy.request({ method: 'tools/call', params: { name: 'greet', arguments: { name: 'World' } } });
             expect((result.content[0] as TextContent).text).toBe('Hello, World!');
         });
 
@@ -420,7 +423,10 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({ method: 'tools/call', params: { name: 'double', arguments: { count: 'not a number' } } });
+            const result = await client.legacy.request({
+                method: 'tools/call',
+                params: { name: 'double', arguments: { count: 'not a number' } }
+            });
 
             expect(result.isError).toBe(true);
             const errorText = (result.content[0] as TextContent).text;
@@ -442,7 +448,10 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({ method: 'tools/call', params: { name: 'greet-default', arguments: { name: 'World' } } });
+            const result = await client.legacy.request({
+                method: 'tools/call',
+                params: { name: 'greet-default', arguments: { name: 'World' } }
+            });
             expect((result.content[0] as TextContent).text).toBe('Hello, World!');
         });
 
@@ -456,7 +465,7 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: { name: 'double-default', arguments: { count: 'not a number' } }
             });
@@ -488,7 +497,7 @@ describe('Standard Schema Support', () => {
             await connectClientAndServer();
 
             // Test completion
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: { type: 'ref/prompt', name: 'greeting' },
@@ -514,7 +523,7 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: { type: 'ref/prompt', name: 'greeting' },
@@ -543,7 +552,7 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: { type: 'ref/prompt', name: 'greeting' },
@@ -569,7 +578,7 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: { type: 'ref/prompt', name: 'greeting' },
@@ -595,7 +604,7 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test',
@@ -631,7 +640,7 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test',
@@ -665,7 +674,7 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test',
@@ -707,7 +716,7 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'typed-tool',
@@ -740,7 +749,7 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'typed-tool',

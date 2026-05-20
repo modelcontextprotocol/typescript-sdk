@@ -47,7 +47,7 @@ describe('Issue #1277: Zod v4', () => {
 
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-        const result = await client.request({
+        const result = await client.legacy.request({
             method: 'prompts/list'
         });
 

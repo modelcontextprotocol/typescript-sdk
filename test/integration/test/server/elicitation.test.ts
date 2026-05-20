@@ -70,7 +70,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             content: { name: 'John Doe' }
         }));
 
-        const result = await server.elicitInput({
+        const result = await server.legacy.elicitInput({
             mode: 'form',
             message: 'What is your name?',
             requestedSchema: {
@@ -94,7 +94,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             content: { age: 42 }
         }));
 
-        const result = await server.elicitInput({
+        const result = await server.legacy.elicitInput({
             mode: 'form',
             message: 'What is your age?',
             requestedSchema: {
@@ -118,7 +118,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             content: { agree: true }
         }));
 
-        const result = await server.elicitInput({
+        const result = await server.legacy.elicitInput({
             mode: 'form',
             message: 'Do you agree?',
             requestedSchema: {
@@ -172,7 +172,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
                 required: ['name', 'email', 'age', 'street', 'city', 'zipCode']
             }
         };
-        const result = await server.elicitInput(formRequestParams);
+        const result = await server.legacy.elicitInput(formRequestParams);
 
         expect(result).toEqual({
             action: 'accept',
@@ -190,7 +190,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         }));
 
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'Please provide your information',
                 requestedSchema: {
@@ -215,7 +215,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         }));
 
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'Please provide your information',
                 requestedSchema: {
@@ -237,7 +237,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         }));
 
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 message: 'What is your name?',
                 requestedSchema: {
                     type: 'object',
@@ -257,7 +257,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         }));
 
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'What is your age?',
                 requestedSchema: {
@@ -290,7 +290,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         };
 
-        await expect(server.elicitInput(formRequestParams)).rejects.toThrow(/does not match requested schema/);
+        await expect(server.legacy.elicitInput(formRequestParams)).rejects.toThrow(/does not match requested schema/);
     });
 
     test(`${validatorName}: should allow decline action without validation`, async () => {
@@ -298,7 +298,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             action: 'decline'
         }));
 
-        const result = await server.elicitInput({
+        const result = await server.legacy.elicitInput({
             mode: 'form',
             message: 'Please provide your information',
             requestedSchema: {
@@ -320,7 +320,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             action: 'cancel'
         }));
 
-        const result = await server.elicitInput({
+        const result = await server.legacy.elicitInput({
             mode: 'form',
             message: 'Please provide your information',
             requestedSchema: {
@@ -351,7 +351,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             return { action: 'decline' };
         });
 
-        const nameResult = await server.elicitInput({
+        const nameResult = await server.legacy.elicitInput({
             mode: 'form',
             message: 'What is your name?',
             requestedSchema: {
@@ -361,7 +361,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         });
 
-        const ageResult = await server.elicitInput({
+        const ageResult = await server.legacy.elicitInput({
             message: 'What is your age?',
             requestedSchema: {
                 type: 'object',
@@ -370,7 +370,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         });
 
-        const cityResult = await server.elicitInput({
+        const cityResult = await server.legacy.elicitInput({
             message: 'What is your city?',
             requestedSchema: {
                 type: 'object',
@@ -397,7 +397,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             content: { name: 'John', nickname: 'Johnny' }
         }));
 
-        const result = await server.elicitInput({
+        const result = await server.legacy.elicitInput({
             mode: 'form',
             message: 'Enter your name',
             requestedSchema: {
@@ -422,7 +422,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             content: { name: 'John' }
         }));
 
-        const result = await server.elicitInput({
+        const result = await server.legacy.elicitInput({
             mode: 'form',
             message: 'Enter your name',
             requestedSchema: {
@@ -447,7 +447,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             content: { email: 'user@example.com' }
         }));
 
-        const result = await server.elicitInput({
+        const result = await server.legacy.elicitInput({
             mode: 'form',
             message: 'Enter your email',
             requestedSchema: {
@@ -571,7 +571,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
-        const result = await server.elicitInput({
+        const result = await server.legacy.elicitInput({
             mode: 'form',
             message: 'Provide your preferences',
             requestedSchema: testSchemaProperties
@@ -601,7 +601,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
         }));
 
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'Enter your email',
                 requestedSchema: {
@@ -628,7 +628,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Test with valid response
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'Please provide your information',
                 requestedSchema: {
@@ -664,7 +664,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Test with valid response
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'Please provide your information',
                 requestedSchema: {
@@ -704,7 +704,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Test with valid response
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 message: 'Please provide your information',
                 requestedSchema: {
                     type: 'object',
@@ -742,7 +742,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Test with valid response
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'Please provide your information',
                 requestedSchema: {
@@ -782,7 +782,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Test with valid response
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'Please provide your information',
                 requestedSchema: {
@@ -827,7 +827,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Test with valid response
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'Please provide your information',
                 requestedSchema: {
@@ -858,7 +858,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Test with valid response
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 message: 'Please provide your information',
                 requestedSchema: {
                     type: 'object',
@@ -892,7 +892,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Test with valid response
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 message: 'Please provide your information',
                 requestedSchema: {
                     type: 'object',
@@ -925,7 +925,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Test with valid response
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'Please provide your information',
                 requestedSchema: {
@@ -960,7 +960,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
 
         // Test with valid response
         await expect(
-            server.elicitInput({
+            server.legacy.elicitInput({
                 mode: 'form',
                 message: 'Please provide your information',
                 requestedSchema: {

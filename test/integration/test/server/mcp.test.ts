@@ -48,7 +48,7 @@ describe('Zod v4', () => {
 
             // This should work because we're using the underlying server
             await expect(
-                mcpServer.server.sendLoggingMessage({
+                mcpServer.server.legacy.sendLoggingMessage({
                     level: 'info',
                     data: 'Test log message'
                 })
@@ -281,7 +281,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Call the tool with progress tracking
-            await client.request(
+            await client.legacy.request(
                 {
                     method: 'tools/call',
                     params: {
@@ -367,7 +367,7 @@ describe('Zod v4', () => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const capabilities = mcpServer.server.getClientCapabilities();
+            const capabilities = mcpServer.server.legacy.getClientCapabilities();
             expect(capabilities?.extensions).toBeDefined();
             expect(capabilities?.extensions?.['io.modelcontextprotocol/test-extension']).toEqual({ streaming: true });
         });
@@ -457,7 +457,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/list'
             });
 
@@ -535,7 +535,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the tool and verify we get the updated response
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test'
@@ -609,7 +609,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify the schema was updated
-            const listResult = await client.request({
+            const listResult = await client.legacy.request({
                 method: 'tools/list'
             });
 
@@ -621,7 +621,7 @@ describe('Zod v4', () => {
             });
 
             // Call the tool with the new schema
-            const callResult = await client.request({
+            const callResult = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test',
@@ -696,7 +696,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify the outputSchema was updated
-            const listResult = await client.request({
+            const listResult = await client.legacy.request({
                 method: 'tools/list'
             });
 
@@ -709,7 +709,7 @@ describe('Zod v4', () => {
             });
 
             // Call the tool to verify it works with the updated outputSchema
-            const callResult = await client.request({
+            const callResult = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test',
@@ -905,7 +905,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/list'
             });
 
@@ -962,7 +962,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/list'
             });
 
@@ -1005,7 +1005,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/list'
             });
 
@@ -1045,7 +1045,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' });
+            const result = await client.legacy.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -1092,7 +1092,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' });
+            const result = await client.legacy.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -1140,7 +1140,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' });
+            const result = await client.legacy.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test');
@@ -1191,7 +1191,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test',
@@ -1311,7 +1311,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Verify the tool registration includes outputSchema
-            const listResult = await client.request({
+            const listResult = await client.legacy.request({
                 method: 'tools/list'
             });
 
@@ -1327,7 +1327,7 @@ describe('Zod v4', () => {
             });
 
             // Call the tool and verify it returns valid structuredContent
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test',
@@ -1581,7 +1581,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            await client.request({
+            await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test-tool'
@@ -1622,7 +1622,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'request-id-test'
@@ -1682,7 +1682,7 @@ describe('Zod v4', () => {
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
-            await client.request({
+            await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test-tool'
@@ -1727,7 +1727,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'test',
@@ -1767,7 +1767,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'tools/call',
                 params: {
                     name: 'error-test'
@@ -1811,7 +1811,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request({
+                client.legacy.request({
                     method: 'tools/call',
                     params: {
                         name: 'nonexistent-tool'
@@ -1853,7 +1853,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request({
+                client.legacy.request({
                     method: 'tools/call',
                     params: {
                         name: 'test-tool'
@@ -1955,7 +1955,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' });
+            const result = await client.legacy.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test-with-meta');
@@ -1991,7 +1991,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' });
+            const result = await client.legacy.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(1);
             expect(result.tools[0]!.name).toBe('test-without-meta');
@@ -2076,7 +2076,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/list'
             });
 
@@ -2129,7 +2129,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Read the resource and verify we get the updated content
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/read',
                 params: {
                     uri: 'test://resource'
@@ -2199,7 +2199,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Read the resource and verify we get the updated content
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/read',
                 params: {
                     uri: 'test://resource/123'
@@ -2302,7 +2302,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify both resources are registered
-            let result = await client.request({ method: 'resources/list' });
+            let result = await client.legacy.request({ method: 'resources/list' });
 
             expect(result.resources).toHaveLength(2);
 
@@ -2318,7 +2318,7 @@ describe('Zod v4', () => {
             expect(notifications).toMatchObject([{ method: 'notifications/resources/list_changed' }]);
 
             // Verify the resource was removed
-            result = await client.request({ method: 'resources/list' });
+            result = await client.legacy.request({ method: 'resources/list' });
 
             expect(result.resources).toHaveLength(1);
             expect(result.resources[0]!.uri).toBe('test://resource2');
@@ -2361,7 +2361,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify template is registered
-            const result = await client.request({ method: 'resources/templates/list' });
+            const result = await client.legacy.request({ method: 'resources/templates/list' });
 
             expect(result.resourceTemplates).toHaveLength(1);
             expect(notifications).toHaveLength(0);
@@ -2376,7 +2376,7 @@ describe('Zod v4', () => {
             expect(notifications).toMatchObject([{ method: 'notifications/resources/list_changed' }]);
 
             // Verify the template was removed
-            const result2 = await client.request({ method: 'resources/templates/list' });
+            const result2 = await client.legacy.request({ method: 'resources/templates/list' });
 
             expect(result2.resourceTemplates).toHaveLength(0);
         });
@@ -2421,7 +2421,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/list'
             });
 
@@ -2461,7 +2461,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/templates/list'
             });
 
@@ -2514,7 +2514,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/list'
             });
 
@@ -2558,7 +2558,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/read',
                 params: {
                     uri: 'test://resource/books/123'
@@ -2687,7 +2687,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request({
+                client.legacy.request({
                     method: 'resources/read',
                     params: {
                         uri: 'test://error'
@@ -2723,7 +2723,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request({
+                client.legacy.request({
                     method: 'resources/read',
                     params: {
                         uri: 'test://nonexistent'
@@ -2764,7 +2764,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request({
+                client.legacy.request({
                     method: 'resources/read',
                     params: {
                         uri: 'test://resource'
@@ -2888,7 +2888,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -2943,7 +2943,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -2992,7 +2992,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/read',
                 params: {
                     uri: 'test://resource'
@@ -3042,7 +3042,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'prompts/list'
             });
 
@@ -3100,7 +3100,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Call the prompt and verify we get the updated response
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'prompts/get',
                 params: {
                     name: 'test'
@@ -3186,7 +3186,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify the schema was updated
-            const listResult = await client.request({
+            const listResult = await client.legacy.request({
                 method: 'prompts/list'
             });
 
@@ -3194,7 +3194,7 @@ describe('Zod v4', () => {
             expect(listResult.prompts[0]!.arguments!.map(a => a.name).toSorted()).toEqual(['name', 'value']);
 
             // Call the prompt with the new schema
-            const getResult = await client.request({
+            const getResult = await client.legacy.request({
                 method: 'prompts/get',
                 params: {
                     name: 'test',
@@ -3326,7 +3326,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
             // Verify both prompts are registered
-            let result = await client.request({ method: 'prompts/list' });
+            let result = await client.legacy.request({ method: 'prompts/list' });
 
             expect(result.prompts).toHaveLength(2);
             expect(result.prompts.map(p => p.name).toSorted()).toEqual(['prompt1', 'prompt2']);
@@ -3343,7 +3343,7 @@ describe('Zod v4', () => {
             expect(notifications).toMatchObject([{ method: 'notifications/prompts/list_changed' }]);
 
             // Verify the prompt was removed
-            result = await client.request({ method: 'prompts/list' });
+            result = await client.legacy.request({ method: 'prompts/list' });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('prompt2');
@@ -3387,7 +3387,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'prompts/list'
             });
 
@@ -3428,7 +3428,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'prompts/list'
             });
 
@@ -3477,7 +3477,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request({
+                client.legacy.request({
                     method: 'prompts/get',
                     params: {
                         name: 'test',
@@ -3663,7 +3663,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             await expect(
-                client.request({
+                client.legacy.request({
                     method: 'prompts/get',
                     params: {
                         name: 'nonexistent-prompt'
@@ -3795,7 +3795,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -3851,7 +3851,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -3903,7 +3903,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'prompts/get',
                 params: {
                     name: 'request-id-test'
@@ -3975,7 +3975,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/list'
             });
 
@@ -4039,7 +4039,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/list'
             });
 
@@ -4078,7 +4078,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'prompts/list'
             });
 
@@ -4136,7 +4136,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'prompts/list' });
+            const result = await client.legacy.request({ method: 'prompts/list' });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test-with-meta');
@@ -4179,7 +4179,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'prompts/list' });
+            const result = await client.legacy.request({ method: 'prompts/list' });
 
             expect(result.prompts).toHaveLength(1);
             expect(result.prompts[0]!.name).toBe('test-without-meta');
@@ -4247,7 +4247,7 @@ describe('Zod v4', () => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' });
+            const result = await client.legacy.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(4);
 
@@ -4369,7 +4369,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with microsoft owner
-            const result1 = await client.request({
+            const result1 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -4392,7 +4392,7 @@ describe('Zod v4', () => {
             expect(result1.completion.total).toBe(3);
 
             // Test with facebook owner
-            const result2 = await client.request({
+            const result2 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -4415,7 +4415,7 @@ describe('Zod v4', () => {
             expect(result2.completion.total).toBe(3);
 
             // Test with no resolved context
-            const result3 = await client.request({
+            const result3 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -4489,7 +4489,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with engineering department
-            const result1 = await client.request({
+            const result1 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -4511,7 +4511,7 @@ describe('Zod v4', () => {
             expect(result1.completion.values).toEqual(['Alice']);
 
             // Test with sales department
-            const result2 = await client.request({
+            const result2 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -4533,7 +4533,7 @@ describe('Zod v4', () => {
             expect(result2.completion.values).toEqual(['David']);
 
             // Test with marketing department
-            const result3 = await client.request({
+            const result3 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -4555,7 +4555,7 @@ describe('Zod v4', () => {
             expect(result3.completion.values).toEqual(['Grace']);
 
             // Test with no resolved context
-            const result4 = await client.request({
+            const result4 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -4606,7 +4606,7 @@ describe('Zod v4', () => {
 
                     if (!available) {
                         // Ask user if they want to try alternative dates
-                        const result = await mcpServer.server.elicitInput({
+                        const result = await mcpServer.server.legacy.elicitInput({
                             message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
                             requestedSchema: {
                                 type: 'object',
@@ -5230,7 +5230,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/list'
             });
 
@@ -5285,7 +5285,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/read',
                 params: {
                     uri: 'test://resource'
@@ -5367,7 +5367,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/list'
             });
 
@@ -5431,7 +5431,7 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
+            const result = await client.legacy.request({
                 method: 'resources/list'
             });
 
@@ -5504,7 +5504,7 @@ describe('Zod v4', () => {
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
 
-            const result = await client.request({ method: 'tools/list' });
+            const result = await client.legacy.request({ method: 'tools/list' });
 
             expect(result.tools).toHaveLength(4);
 
@@ -5626,7 +5626,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with microsoft owner
-            const result1 = await client.request({
+            const result1 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -5649,7 +5649,7 @@ describe('Zod v4', () => {
             expect(result1.completion.total).toBe(3);
 
             // Test with facebook owner
-            const result2 = await client.request({
+            const result2 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -5672,7 +5672,7 @@ describe('Zod v4', () => {
             expect(result2.completion.total).toBe(3);
 
             // Test with no resolved context
-            const result3 = await client.request({
+            const result3 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -5746,7 +5746,7 @@ describe('Zod v4', () => {
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
             // Test with engineering department
-            const result1 = await client.request({
+            const result1 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -5768,7 +5768,7 @@ describe('Zod v4', () => {
             expect(result1.completion.values).toEqual(['Alice']);
 
             // Test with sales department
-            const result2 = await client.request({
+            const result2 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -5790,7 +5790,7 @@ describe('Zod v4', () => {
             expect(result2.completion.values).toEqual(['David']);
 
             // Test with marketing department
-            const result3 = await client.request({
+            const result3 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -5812,7 +5812,7 @@ describe('Zod v4', () => {
             expect(result3.completion.values).toEqual(['Grace']);
 
             // Test with no resolved context
-            const result4 = await client.request({
+            const result4 = await client.legacy.request({
                 method: 'completion/complete',
                 params: {
                     ref: {
@@ -5863,7 +5863,7 @@ describe('Zod v4', () => {
 
                     if (!available) {
                         // Ask user if they want to try alternative dates
-                        const result = await mcpServer.server.elicitInput({
+                        const result = await mcpServer.server.legacy.elicitInput({
                             mode: 'form',
                             message: `No tables available at ${restaurant} on ${date}. Would you like to check alternative dates?`,
                             requestedSchema: {

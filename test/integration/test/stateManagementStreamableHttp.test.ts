@@ -118,7 +118,7 @@ describe('Zod v4', () => {
                 expect(transport1.sessionId).toBeUndefined();
 
                 // List available tools
-                await client1.request({
+                await client1.legacy.request({
                     method: 'tools/list',
                     params: {}
                 });
@@ -135,7 +135,7 @@ describe('Zod v4', () => {
                 expect(transport2.sessionId).toBeUndefined();
 
                 // List available tools
-                await client2.request({
+                await client2.legacy.request({
                     method: 'tools/list',
                     params: {}
                 });
@@ -154,7 +154,7 @@ describe('Zod v4', () => {
                 expect(transport.sessionId).toBeUndefined();
 
                 // List available tools
-                const toolsResult = await client.request({
+                const toolsResult = await client.legacy.request({
                     method: 'tools/list',
                     params: {}
                 });
@@ -167,7 +167,7 @@ describe('Zod v4', () => {
                 );
 
                 // List available resources
-                const resourcesResult = await client.request({
+                const resourcesResult = await client.legacy.request({
                     method: 'resources/list',
                     params: {}
                 });
@@ -176,7 +176,7 @@ describe('Zod v4', () => {
                 expect(resourcesResult).toHaveProperty('resources');
 
                 // List available prompts
-                const promptsResult = await client.request({
+                const promptsResult = await client.legacy.request({
                     method: 'prompts/list',
                     params: {}
                 });
@@ -190,7 +190,7 @@ describe('Zod v4', () => {
                 );
 
                 // Call the greeting tool
-                const greetingResult = await client.request({
+                const greetingResult = await client.legacy.request({
                     method: 'tools/call',
                     params: {
                         name: 'greet',
@@ -265,7 +265,7 @@ describe('Zod v4', () => {
                 expect(typeof transport.sessionId).toBe('string');
 
                 // List available tools
-                const toolsResult = await client.request({
+                const toolsResult = await client.legacy.request({
                     method: 'tools/list',
                     params: {}
                 });
@@ -278,7 +278,7 @@ describe('Zod v4', () => {
                 );
 
                 // List available resources
-                const resourcesResult = await client.request({
+                const resourcesResult = await client.legacy.request({
                     method: 'resources/list',
                     params: {}
                 });
@@ -287,7 +287,7 @@ describe('Zod v4', () => {
                 expect(resourcesResult).toHaveProperty('resources');
 
                 // List available prompts
-                const promptsResult = await client.request({
+                const promptsResult = await client.legacy.request({
                     method: 'prompts/list',
                     params: {}
                 });
@@ -301,7 +301,7 @@ describe('Zod v4', () => {
                 );
 
                 // Call the greeting tool
-                const greetingResult = await client.request({
+                const greetingResult = await client.legacy.request({
                     method: 'tools/call',
                     params: {
                         name: 'greet',

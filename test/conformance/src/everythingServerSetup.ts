@@ -96,7 +96,7 @@ export function createMcpServer(opts: SetupOptions): McpServer {
         message: string,
         _data?: unknown
     ) {
-        mcpServer.server
+        mcpServer.server.legacy
             .notification({ method: 'notifications/message', params: { level, logger: 'conformance-test-server', data: _data || message } })
             .catch(() => {
                 // Ignore error if no client is connected.

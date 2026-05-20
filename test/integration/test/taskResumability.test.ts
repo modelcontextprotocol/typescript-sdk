@@ -211,7 +211,7 @@ describe('Zod v4', () => {
             });
             expect(lastEventId).toBeUndefined();
             // Start the notification tool with event tracking using request
-            const toolPromise = client1.request(
+            const toolPromise = client1.legacy.request(
                 {
                     method: 'tools/call',
                     params: {

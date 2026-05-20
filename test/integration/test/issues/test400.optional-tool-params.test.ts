@@ -45,7 +45,7 @@ describe('Issue #400: Zod v4', () => {
         await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
         // Call tool without arguments (arguments is undefined)
-        const result = await client.request({
+        const result = await client.legacy.request({
             method: 'tools/call',
             params: {
                 name: 'optional-params-tool'

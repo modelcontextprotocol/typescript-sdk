@@ -338,9 +338,9 @@ describe('Audit invariants', () => {
         const server = new Server({ name: 's', version: '1' }, { capabilities: {} });
         server.fallbackRequestHandler = async () => ({});
         const d = server.statelessHandlers().dispatch;
-        const before = server.getClientCapabilities();
+        const before = server.legacy.getClientCapabilities();
         await Promise.all([1, 2, 3, 4, 5].map(i => d(jreq(i, 'x'), { notify: () => {} })));
-        expect(server.getClientCapabilities()).toBe(before);
-        expect(server.getClientVersion()).toBeUndefined();
+        expect(server.legacy.getClientCapabilities()).toBe(before);
+        expect(server.legacy.getClientVersion()).toBeUndefined();
     });
 });

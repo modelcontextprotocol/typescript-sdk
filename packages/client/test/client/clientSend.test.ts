@@ -17,8 +17,8 @@ function mockTransport(handler: (req: JSONRPCRequest) => AsyncIterable<JSONRPCMe
 /** Forces the client into stateless mode without going through connect(). */
 function statelessClient(transport: Transport): Client {
     const c = new Client({ name: 'c', version: '1' }, { capabilities: { elicitation: {} } });
-    Object.assign(c as object, {
-        _isStateless: true,
+    Object.assign(c as object, { _isStateless: true });
+    Object.assign(c.legacy as object, {
         _negotiatedProtocolVersion: DRAFT_PROTOCOL_VERSION,
         _serverCapabilities: { tools: {}, prompts: {} },
         _transport: transport
