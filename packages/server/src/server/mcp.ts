@@ -39,8 +39,8 @@ import {
 import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable.js';
-import type { ServerOptions } from './legacyServer.js';
-import { LegacyServer as Server } from './legacyServer.js';
+import type { ServerOptions } from './server.js';
+import { Server } from './server.js';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -929,7 +929,7 @@ export class McpServer {
      * ```
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
-        return this.server.sendLoggingMessage(params, sessionId);
+        return this.server.legacy.sendLoggingMessage(params, sessionId);
     }
     /**
      * Sends a resource list changed event. Delivered to a connected pre-2026

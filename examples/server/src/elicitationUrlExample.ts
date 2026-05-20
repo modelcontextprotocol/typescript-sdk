@@ -53,7 +53,7 @@ const getServer = () => {
 
             // Create and track the elicitation
             const elicitationId = generateTrackedElicitation(sessionId, elicitationId =>
-                mcpServer.server.createElicitationCompletionNotifier(elicitationId)
+                mcpServer.server.legacy.createElicitationCompletionNotifier(elicitationId)
             );
             throw new UrlElicitationRequiredError([
                 {
@@ -89,7 +89,7 @@ const getServer = () => {
 
             // Create and track the elicitation
             const elicitationId = generateTrackedElicitation(sessionId, elicitationId =>
-                mcpServer.server.createElicitationCompletionNotifier(elicitationId)
+                mcpServer.server.legacy.createElicitationCompletionNotifier(elicitationId)
             );
 
             // Simulate OAuth callback and token exchange after 5 seconds
@@ -583,8 +583,8 @@ const mcpPostHandler = async (req: Request, res: Response) => {
                     // there is no session to send to. Prefer ctx.mcpReq.elicitInput
                     // inside a tool/prompt handler when possible.
                     sessionsNeedingElicitation[sessionId] = {
-                        elicitationSender: params => server.server.elicitInput(params),
-                        createCompletionNotifier: elicitationId => server.server.createElicitationCompletionNotifier(elicitationId)
+                        elicitationSender: params => server.server.legacy.elicitInput(params),
+                        createCompletionNotifier: elicitationId => server.server.legacy.createElicitationCompletionNotifier(elicitationId)
                     };
                 }
             });

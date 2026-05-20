@@ -1,7 +1,7 @@
 import { ProtocolErrorCode } from '@modelcontextprotocol/core';
 
 import { validateHostHeader } from './middleware/hostHeaderValidation.js';
-import type { LegacyServer as Server } from './legacyServer.js';
+import type { Server } from './server.js';
 import type { StatelessHttpRequestOptions } from './statelessHttp.js';
 import { jsonError, statelessHttpHandler } from './statelessHttp.js';
 
@@ -24,8 +24,8 @@ export interface HandleHttpOptions {
 
 /**
  * 2026-06 Fetch-API HTTP entry. Returns a `(Request) → Promise<Response>`
- * handler that dispatches via the server's {@linkcode Server.dispatcher} and
- * {@linkcode Server.subscriptions}. No `Transport` instance, no `connect()`,
+ * handler that dispatches via the server's {@linkcode Server.statelessHandlers}
+ * and {@linkcode Server.subscriptions}. No `Transport` instance, no `connect()`,
  * no per-connection state; one server instance can be shared across requests.
  *
  * Pre-2026 clients are NOT served by this entry (use the

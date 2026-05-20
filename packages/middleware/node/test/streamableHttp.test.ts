@@ -1478,7 +1478,7 @@ describe('Zod v4', () => {
             expect(sseResponse.status).toBe(200);
 
             // Send a server notification through the MCP server
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
+            await mcpServer.server.legacy.sendLoggingMessage({ level: 'info', data: 'First notification from MCP server' });
 
             // Read the notification from the SSE stream
             const reader = sseResponse.body?.getReader();
@@ -1495,7 +1495,7 @@ describe('Zod v4', () => {
             const firstEventId = idMatch![1]!;
 
             // Send a second notification
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Second notification from MCP server' });
+            await mcpServer.server.legacy.sendLoggingMessage({ level: 'info', data: 'Second notification from MCP server' });
 
             // Close the first SSE stream to simulate a disconnect
             await reader!.cancel();
@@ -1538,7 +1538,7 @@ describe('Zod v4', () => {
             const reader = sseResponse.body?.getReader();
 
             // Send a notification to get an event ID
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Initial notification' });
+            await mcpServer.server.legacy.sendLoggingMessage({ level: 'info', data: 'Initial notification' });
 
             // Read the notification from the SSE stream
             const { value } = await reader!.read();
@@ -1553,9 +1553,9 @@ describe('Zod v4', () => {
             await reader!.cancel();
 
             // Send MULTIPLE notifications while the client is disconnected
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed notification 1' });
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed notification 2' });
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed notification 3' });
+            await mcpServer.server.legacy.sendLoggingMessage({ level: 'info', data: 'Missed notification 1' });
+            await mcpServer.server.legacy.sendLoggingMessage({ level: 'info', data: 'Missed notification 2' });
+            await mcpServer.server.legacy.sendLoggingMessage({ level: 'info', data: 'Missed notification 3' });
 
             // Reconnect with the Last-Event-ID to get all missed messages
             const reconnectResponse = await fetch(baseUrl, {
@@ -2223,7 +2223,7 @@ describe('Zod v4', () => {
             const getReader = sseResponse.body?.getReader();
 
             // Send a notification to confirm GET stream is established
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Stream established' });
+            await mcpServer.server.legacy.sendLoggingMessage({ level: 'info', data: 'Stream established' });
 
             // Read the notification to confirm stream is working
             const { value } = await getReader!.read();
@@ -2304,7 +2304,7 @@ describe('Zod v4', () => {
             const getReader = sseResponse.body?.getReader();
 
             // Send a notification to get an event ID
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Initial message' });
+            await mcpServer.server.legacy.sendLoggingMessage({ level: 'info', data: 'Initial message' });
 
             // Read the notification to get the event ID
             const { value } = await getReader!.read();
@@ -2354,7 +2354,7 @@ describe('Zod v4', () => {
             await new Promise(resolve => setTimeout(resolve, 5));
 
             // Send a notification while client is disconnected
-            await mcpServer.server.sendLoggingMessage({ level: 'info', data: 'Missed while disconnected' });
+            await mcpServer.server.legacy.sendLoggingMessage({ level: 'info', data: 'Missed while disconnected' });
 
             // Client reconnects with Last-Event-ID
             const reconnectResponse = await fetch(baseUrl, {

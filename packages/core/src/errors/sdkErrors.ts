@@ -10,6 +10,8 @@ export enum SdkErrorCode {
     // State errors
     /** Transport is not connected */
     NotConnected = 'NOT_CONNECTED',
+    /** A pre-2026 session-dependent method was called without a connected session-based transport */
+    SessionRequired = 'SESSION_REQUIRED',
     /** Transport is already connected */
     AlreadyConnected = 'ALREADY_CONNECTED',
     /** Protocol is not initialized */

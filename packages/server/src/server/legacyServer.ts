@@ -1,45 +1,36 @@
 import type {
     BaseContext,
     ClientCapabilities,
-    ClientMeta,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
     CreateMessageRequestParamsWithTools,
     CreateMessageResult,
     CreateMessageResultWithTools,
-    DiscoverResult,
-    DispatchContext,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
     Implementation,
     InitializeRequest,
     InitializeResult,
-    InputRequest,
     JSONRPCErrorResponse,
     JSONRPCRequest,
     JSONRPCResponse,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
-    ListRootsResult,
     LoggingLevel,
     LoggingMessageNotification,
     MessageExtraInfo,
     Middleware,
-    Notification,
     NotificationMethod,
     NotificationOptions,
     ProtocolOptions,
     RequestMethod,
     RequestOptions,
-    ResourceUpdatedNotification,
     ServerCapabilities,
     ServerContext,
-    StatelessHandlers,
     ToolResultContent,
-    ToolUseContent,
-    Transport
+    ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
     CallToolRequestSchema,
@@ -48,38 +39,30 @@ import {
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    errorResponse,
-    InputRequiredError,
     isInputRequiredError,
     isStatelessProtocolVersion,
-    JSONRPC_VERSION,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
-    META_KEYS,
-    parseClientMeta,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode,
-    STATELESS_REMOVED_METHODS,
-    SubscriptionsListenRequestSchema
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 import type { SubscriptionBackend } from './subscriptions.js';
-import { InMemorySubscriptions } from './subscriptions.js';
 
 const LOG_LEVEL_SEVERITY = new Map(LoggingLevelSchema.options.map((level, index) => [level, index]));
 
 /**
  * Returns true when `level` is at least as severe as `threshold`.
- * Lower index in {@linkcode LoggingLevelSchema}.options is more verbose.
+ * Lower index in `LoggingLevelSchema.options` is more verbose.
  */
-function severityAtLeast(level: LoggingLevel, threshold: LoggingLevel): boolean {
+export function severityAtLeast(level: LoggingLevel, threshold: LoggingLevel): boolean {
     return (LOG_LEVEL_SEVERITY.get(level) ?? 0) >= (LOG_LEVEL_SEVERITY.get(threshold) ?? 0);
 }
 
@@ -89,7 +72,7 @@ function severityAtLeast(level: LoggingLevel, threshold: LoggingLevel): boolean 
  * stateless `ctx.mcpReq.requestSampling` path so the handler-facing call has
  * the same semantics under both protocols.
  */
-function assertSamplingCapability(params: CreateMessageRequest['params'], clientCapabilities: ClientCapabilities | undefined): void {
+export function assertSamplingCapability(params: CreateMessageRequest['params'], clientCapabilities: ClientCapabilities | undefined): void {
     if ((params.tools || params.toolChoice) && !clientCapabilities?.sampling?.tools) {
         throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
     }
@@ -100,7 +83,7 @@ function assertSamplingCapability(params: CreateMessageRequest['params'], client
  * appear even without `tools`/`toolChoice` in the current request when a prior
  * sampling request returned `tool_use` and this is a follow-up with results.
  */
-function assertSamplingMessagePairing(params: CreateMessageRequest['params']): void {
+export function assertSamplingMessagePairing(params: CreateMessageRequest['params']): void {
     if (params.messages.length === 0) return;
     const lastMessage = params.messages.at(-1)!;
     const lastContent = Array.isArray(lastMessage.content) ? lastMessage.content : [lastMessage.content];
@@ -145,7 +128,7 @@ function assertSamplingMessagePairing(params: CreateMessageRequest['params']): v
  * client did not declare. Shared by the legacy `elicitInput` path and the
  * stateless `ctx.mcpReq.elicitInput` path.
  */
-function assertElicitCapability(
+export function assertElicitCapability(
     params: ElicitRequestFormParams | ElicitRequestURLParams,
     clientCapabilities: ClientCapabilities | undefined
 ): void {
@@ -162,7 +145,7 @@ function assertElicitCapability(
  * Validates a form-mode elicitation result's `content` against the request's
  * `requestedSchema`. Throws on schema or validation failure.
  */
-function validateElicitFormContent(
+export function validateElicitFormContent(
     validator: jsonSchemaValidator,
     params: ElicitRequestFormParams | ElicitRequestURLParams,
     result: ElicitResult
@@ -190,7 +173,7 @@ function validateElicitFormContent(
 }
 
 /**
- * Dispatcher middleware that catches {@linkcode InputRequiredError}, gates
+ * Dispatcher middleware that catches `InputRequiredError`, gates
  * against `ctx.clientCapabilities`, and translates to an `InputRequiredResult`.
  *
  * Runs on both dispatch paths but only the stateless ctx-builder installs the
@@ -198,11 +181,11 @@ function validateElicitFormContent(
  * legacy `ctx.mcpReq.elicitInput`/`requestSampling` send real requests, so the
  * catch never fires on the legacy path.
  *
- * MRTR via {@linkcode InputRequiredError} works for handlers registered via
+ * MRTR via `InputRequiredError` works for handlers registered via
  * `setRequestHandler`; `fallbackRequestHandler` is not wrapped by middleware
  * (matches pre-existing behavior).
  */
-const inputRequiredMiddleware: Middleware<ServerContext> = async (_request, ctx, next) => {
+export const inputRequiredMiddleware: Middleware<ServerContext> = async (_request, ctx, next) => {
     try {
         return await next();
     } catch (error) {
@@ -248,7 +231,7 @@ export type ServerOptions = ProtocolOptions & {
     jsonSchemaValidator?: jsonSchemaValidator;
 
     /**
-     * Backend for `subscriptions/listen`. Defaults to {@linkcode InMemorySubscriptions}.
+     * Backend for `subscriptions/listen`. Defaults to `InMemorySubscriptions`.
      * Supply a distributed implementation for horizontally-scaled deployments.
      */
     subscriptions?: SubscriptionBackend;
@@ -286,13 +269,11 @@ export class LegacyServer extends Protocol<ServerContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
-        this.subscriptions = options?.subscriptions ?? new InMemorySubscriptions();
 
         this.dispatcher.use(inputRequiredMiddleware);
         this.dispatcher.use(LegacyServer._callToolResultMiddleware);
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
-        this.setRequestHandler('server/discover', async (): Promise<DiscoverResult> => this._ondiscover());
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
@@ -301,223 +282,41 @@ export class LegacyServer extends Protocol<ServerContext> {
     }
 
     // ═══════════════════════════════════════════════════════════════════════
-    // 2026 stateless (SEP-2575/2322)
+    // internal — exposed for the composing Server (server.ts)
     // ═══════════════════════════════════════════════════════════════════════
 
     /**
-     * Backend for `subscriptions/listen`. Default in-memory; pass via
-     * `ServerOptions.subscriptions` for distributed deployments.
+     * @internal Routes a request through this instance's `Dispatcher`.
+     * Called by `Server._dispatchStateless` so both the legacy `_onrequest`
+     * path and the 2026 stateless path share one registry + middleware chain.
      */
-    readonly subscriptions: SubscriptionBackend;
+    _dispatch(request: JSONRPCRequest, ctx: ServerContext): Promise<JSONRPCResponse | JSONRPCErrorResponse> {
+        return this.dispatcher.dispatch(request, ctx);
+    }
 
-    /**
-     * Builds the {@linkcode StatelessHandlers} pair this server provides to
-     * transports (via `setStatelessHandlers`) and to `handleHttp`.
-     */
-    statelessHandlers(): StatelessHandlers {
-        return {
-            dispatch: (req, ctx) => this._dispatchStateless(req, ctx),
-            listen: (req, ctx) =>
-                this.subscriptions.handle({ ...SubscriptionsListenRequestSchema.parse(req), id: req.id }, ctx, this._capabilities)
-        };
+    /** @internal Exposed so the composing `Server` can `dispatcher.use(...)`. */
+    _useMiddleware(mw: Middleware<ServerContext>): void {
+        this.dispatcher.use(mw);
+    }
+
+    /** @internal */
+    get _validator(): jsonSchemaValidator {
+        return this._jsonSchemaValidator;
     }
 
     /**
-     * server/discover handler. Returns this server's identity, capabilities,
-     * and supported protocol versions.
+     * Throws when no session-based transport is connected. Guards the
+     * pre-2026 server-to-client methods so callers get a directed migration
+     * error instead of `NotConnected`.
      */
-    private _ondiscover(): DiscoverResult {
-        return {
-            supportedVersions: [...this._supportedProtocolVersions],
-            capabilities: this._capabilities,
-            serverInfo: this._serverInfo,
-            ...(this._instructions === undefined ? {} : { instructions: this._instructions })
-        };
-    }
-
-    /**
-     * Dispatches one stateless JSON-RPC request and returns its response.
-     *
-     * Builds a per-request `ServerContext` from {@linkcode DispatchContext} +
-     * the request's `_meta` (notify/log via `dctx.notify`; `send` throws;
-     * `elicitInput`/`requestSampling` are MRTR throw-then-cache), then routes
-     * through the shared {@linkcode Dispatcher} so the same registry and
-     * middleware chain as `_onrequest` apply. Pre-2026-only methods are
-     * rejected before the dispatcher.
-     */
-    private async _dispatchStateless(request: JSONRPCRequest, dctx: DispatchContext): Promise<JSONRPCResponse | JSONRPCErrorResponse> {
-        const id = request.id;
-        const meta = dctx.meta ?? parseClientMeta(request.params);
-
-        if (meta.protocolVersion !== undefined && !this._supportedProtocolVersions.includes(meta.protocolVersion)) {
-            return errorResponse(id, ProtocolErrorCode.InvalidParams, 'Unsupported protocol version', {
-                supported: [...this._supportedProtocolVersions],
-                requested: meta.protocolVersion
-            });
-        }
-
-        if (STATELESS_REMOVED_METHODS.has(request.method)) {
-            return errorResponse(id, ProtocolErrorCode.MethodNotFound, `Method not found: '${request.method}'`);
-        }
-
-        const ctx = this._buildDispatchServerContext(request, dctx, meta);
-
-        const response = await this.dispatcher.dispatch(request, ctx);
-        // Default resultType:'complete' on success, but never on server/discover
-        // (DiscoverResult has no resultType field).
-        if (
-            request.method !== 'server/discover' &&
-            'result' in response &&
-            (response.result as { resultType?: unknown }).resultType === undefined
-        ) {
-            return { ...response, result: { ...response.result, resultType: 'complete' } };
-        }
-        return response;
-    }
-
-    /**
-     * Builds the `ServerContext` handlers receive under the stateless dispatch
-     * path. `notify`/`log` go out via `dctx.notify`; `send` throws (no push
-     * channel under stateless); `elicitInput`/`requestSampling`/`listRoots`
-     * are MRTR throw-then-cache against `params.inputResponses`.
-     */
-    private _buildDispatchServerContext(request: JSONRPCRequest, dctx: DispatchContext, per: ClientMeta): ServerContext {
-        let mrtrSeq = 0;
-        const mrtrOrThrow = <R>(method: string, params: unknown, schema: { parse(v: unknown): R }, after?: (r: R) => void): Promise<R> => {
-            const key = `${method}#${mrtrSeq++}`;
-            const cached = per.inputResponses?.[key];
-            if (cached !== undefined) {
-                // Validate the cached value: do not return raw client input.
-                let parsed: R;
-                try {
-                    parsed = schema.parse(cached);
-                } catch (error) {
-                    throw new ProtocolError(
-                        ProtocolErrorCode.InvalidParams,
-                        `inputResponses['${key}'] does not match expected schema: ${error instanceof Error ? error.message : String(error)}`
-                    );
-                }
-                after?.(parsed);
-                return Promise.resolve(parsed);
-            }
-            throw new InputRequiredError({ [key]: { method, params } as InputRequest });
-        };
-
-        const notify = (n: Notification): Promise<void> => {
-            // Stamp `_meta.subscriptionId` (= the JSON-RPC request id, per
-            // SEP-2575) so notifications correlate to this request on
-            // pipe-shaped client transports that demultiplex a single inbound
-            // stream. Handler-supplied `_meta` first, server-stamped key last,
-            // so a handler cannot override the framing key.
-            const _meta = { ...n.params?._meta, [META_KEYS.subscriptionId]: String(request.id) };
-            const params = { ...n.params, _meta };
-            dctx.notify({ jsonrpc: JSONRPC_VERSION, method: n.method, params });
-            return Promise.resolve();
-        };
-
-        const sendThrows = (() => {
+    private _assertSession(via: string): void {
+        if (!this.transport) {
             throw new SdkError(
-                SdkErrorCode.CapabilityNotSupported,
-                'Server-to-client requests are not available under the stateless dispatch path; use ctx.mcpReq.elicitInput/requestSampling (MRTR).'
+                SdkErrorCode.SessionRequired,
+                `${this.constructor.name}.${via} requires a connected pre-2026 session; use ${via} inside a handler instead. ` +
+                    'See https://modelcontextprotocol.io/docs/migration#2026-06'
             );
-        }) as ServerContext['mcpReq']['send'];
-
-        return {
-            sessionId: undefined,
-            clientCapabilities: per.clientCapabilities,
-            mcpReq: {
-                id: request.id,
-                method: request.method,
-                _meta: request.params?._meta,
-                signal: dctx.signal ?? new AbortController().signal,
-                send: sendThrows,
-                notify,
-                log: async (level, data, logger) => {
-                    // Spec: server MUST NOT emit notifications/message for
-                    // requests that did not include _meta.logLevel.
-                    if (per.logLevel === undefined || !severityAtLeast(level, per.logLevel)) return;
-                    await notify({ method: 'notifications/message', params: { level, data, ...(logger === undefined ? {} : { logger }) } });
-                },
-                listRoots: params => mrtrOrThrow<ListRootsResult>('roots/list', params ?? {}, ListRootsResultSchema),
-                elicitInput: params => {
-                    // Sub-capability (form/url) check only when the top-level
-                    // `elicitation` capability is declared. Absent top-level is
-                    // handled by `inputRequiredMiddleware` (-32003) so the wire
-                    // error code matches SEP-2322.
-                    if (per.clientCapabilities?.elicitation) assertElicitCapability(params, per.clientCapabilities);
-                    return mrtrOrThrow<ElicitResult>('elicitation/create', params, ElicitResultSchema, result =>
-                        validateElicitFormContent(this._jsonSchemaValidator, params, result)
-                    );
-                },
-                // Cast: arrow has the implementation signature (union return);
-                // narrowing is provided by the overload set on the field type.
-                requestSampling: ((params: CreateMessageRequest['params']) => {
-                    if (per.clientCapabilities?.sampling) assertSamplingCapability(params, per.clientCapabilities);
-                    assertSamplingMessagePairing(params);
-                    return mrtrOrThrow<CreateMessageResult | CreateMessageResultWithTools>(
-                        'sampling/createMessage',
-                        params,
-                        params.tools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema
-                    );
-                }) as ServerContext['mcpReq']['requestSampling']
-            },
-            http:
-                dctx.authInfo !== undefined || dctx.httpRequest !== undefined
-                    ? { authInfo: dctx.authInfo, req: dctx.httpRequest }
-                    : undefined
-        };
-    }
-
-    // ═══════════════════════════════════════════════════════════════════════
-    // dual-mode (SEP-2575/2567)
-    // ═══════════════════════════════════════════════════════════════════════
-
-    /**
-     * Connects this server to a transport. Installs the stateless
-     * {@linkcode statelessHandlers | dispatch/listen} pair on transports that
-     * support per-message routing (`setStatelessHandlers` is optional on the
-     * `Transport` interface), then starts the legacy `Protocol` connect path
-     * so pre-2026 clients also work over the same transport.
-     */
-    override async connect(transport: Transport): Promise<void> {
-        // Install stateless handlers before starting the transport so the
-        // first message cannot arrive before the router is wired.
-        transport.setStatelessHandlers?.(this.statelessHandlers());
-        await super.connect(transport);
-    }
-
-    /**
-     * Runs `subscriptions.notify` and the legacy `notification()` concurrently.
-     * A subscription-backend rejection does not block legacy delivery (and is
-     * surfaced via `onerror`); a legacy rejection (cap-missing, send fail) is
-     * rethrown so existing callers see the same errors as before.
-     */
-    private async _fanoutNotify(event: Parameters<SubscriptionBackend['notify']>[0], legacy: () => Promise<void>): Promise<void> {
-        const [sub, leg] = await Promise.allSettled([this.subscriptions.notify(event), this.transport ? legacy() : Promise.resolve()]);
-        if (sub.status === 'rejected') {
-            this.onerror?.(sub.reason instanceof Error ? sub.reason : new Error(String(sub.reason)));
         }
-        if (leg.status === 'rejected') throw leg.reason;
-    }
-
-    async sendResourceUpdated(params: ResourceUpdatedNotification['params']) {
-        await this._fanoutNotify({ type: 'resourceUpdated', uri: params.uri }, () =>
-            this.notification({ method: 'notifications/resources/updated', params })
-        );
-    }
-
-    async sendResourceListChanged() {
-        await this._fanoutNotify({ type: 'resourcesListChanged' }, () =>
-            this.notification({ method: 'notifications/resources/list_changed' })
-        );
-    }
-
-    async sendToolListChanged() {
-        await this._fanoutNotify({ type: 'toolsListChanged' }, () => this.notification({ method: 'notifications/tools/list_changed' }));
-    }
-
-    async sendPromptListChanged() {
-        await this._fanoutNotify({ type: 'promptsListChanged' }, () => this.notification({ method: 'notifications/prompts/list_changed' }));
     }
 
     // ═══════════════════════════════════════════════════════════════════════
@@ -526,9 +325,9 @@ export class LegacyServer extends Protocol<ServerContext> {
     // These top-level methods need a connected pre-2026 client (initialize
     // handshake). The same capability is available per-request via
     // ctx.mcpReq.* / ctx.clientCapabilities under both protocols.
-    // See _buildDispatchServerContext for the 2026 ctx shape.
+    // See Server._buildDispatchServerContext for the 2026 ctx shape.
     //
-    //   _oninitialize           — 2026 equiv: _ondiscover
+    //   _oninitialize           — 2026 equiv: Server._ondiscover
     //   createMessage           — 2026 equiv: ctx.mcpReq.requestSampling (MRTR)
     //   elicitInput             — 2026 equiv: ctx.mcpReq.elicitInput (MRTR)
     //   listRoots               — 2026 equiv: ctx.mcpReq.listRoots (MRTR)
@@ -536,7 +335,7 @@ export class LegacyServer extends Protocol<ServerContext> {
     //   getClientCapabilities   — 2026 equiv: ctx.clientCapabilities (per-request from _meta)
     //   getClientVersion        — 2026 equiv: ctx.mcpReq._meta clientInfo
     //   ping                    — removed by 2026 spec (STATELESS_REMOVED_METHODS)
-    //   buildContext            — legacy ctx builder; _buildDispatchServerContext is 2026's
+    //   buildContext            — legacy ctx builder; Server._buildDispatchServerContext is 2026's
     // ═══════════════════════════════════════════════════════════════════════
 
     private _registerLoggingHandler(): void {
@@ -820,6 +619,7 @@ export class LegacyServer extends Protocol<ServerContext> {
      * @deprecated `ping` is removed in the 2026-06 protocol. This top-level form requires a pre-2026 connection.
      */
     async ping() {
+        this._assertSession('ping');
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema);
     }
 
@@ -855,6 +655,7 @@ export class LegacyServer extends Protocol<ServerContext> {
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
+        this._assertSession('createMessage (use ctx.mcpReq.requestSampling)');
         assertSamplingCapability(params, this._clientCapabilities);
         assertSamplingMessagePairing(params);
 
@@ -874,6 +675,7 @@ export class LegacyServer extends Protocol<ServerContext> {
      * @deprecated Use `ctx.mcpReq.elicitInput(params)` inside a handler. Works under both protocols. This top-level form requires a pre-2026 connection.
      */
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
+        this._assertSession('elicitInput (use ctx.mcpReq.elicitInput)');
         assertElicitCapability(params, this._clientCapabilities);
         const mode = (params.mode ?? 'form') as 'form' | 'url';
 
@@ -930,6 +732,7 @@ export class LegacyServer extends Protocol<ServerContext> {
      * @deprecated Use `ctx.mcpReq.listRoots()` inside a handler. Works under both protocols. This top-level form requires a pre-2026 connection.
      */
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
+        this._assertSession('listRoots (use ctx.mcpReq.listRoots)');
         return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
 
@@ -942,6 +745,7 @@ export class LegacyServer extends Protocol<ServerContext> {
      * @deprecated Use `ctx.mcpReq.log(level, data, logger?)` inside a handler. Works under both protocols. This top-level form requires a pre-2026 connection.
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
+        this._assertSession('sendLoggingMessage (use ctx.mcpReq.log)');
         if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {
             return this.notification({ method: 'notifications/message', params });
         }
