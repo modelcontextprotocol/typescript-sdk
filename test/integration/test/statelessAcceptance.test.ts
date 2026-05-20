@@ -1,8 +1,11 @@
+import { Client } from '@modelcontextprotocol/client';
 import type { JSONRPCNotification } from '@modelcontextprotocol/core';
-import { META_KEYS, ProtocolErrorCode } from '@modelcontextprotocol/core';
+import { InMemoryTransport, isStatelessProtocolVersion, META_KEYS, ProtocolErrorCode } from '@modelcontextprotocol/core';
 import type { StatelessHandlers } from '@modelcontextprotocol/server';
 import { handleHttp, InMemorySubscriptions, McpServer, Server } from '@modelcontextprotocol/server';
 import { describe, expect, test } from 'vitest';
+
+import { LegacyTestClient } from './__fixtures__/testClient.js';
 
 const STATELESS_META = {
     [META_KEYS.protocolVersion]: 'DRAFT-2026-v1',
@@ -225,6 +228,68 @@ describe('handleHttp', () => {
             })
         );
         expect(res.status).toBe(400);
+    });
+});
+
+describe('Client over InMemory (stateless end-to-end)', () => {
+    test('connect auto-probes discover, negotiates stateless, callTool via sendAndReceive', async () => {
+        const [c, s] = InMemoryTransport.createLinkedPair();
+        const server = makeServer();
+        await server.connect(s);
+        const client = new Client({ name: 'c', version: '1' });
+        await client.connect(c);
+        expect(isStatelessProtocolVersion(client.getNegotiatedProtocolVersion()!)).toBe(true);
+        const r = await client.callTool({ name: 'echo', arguments: {} });
+        expect((r.content as { text: string }[])[0]?.text).toBe('ok');
+        await client.close();
+    });
+
+    test('LegacyTestClient negotiates legacy; server-to-client elicitation works', async () => {
+        const [c, s] = InMemoryTransport.createLinkedPair();
+        const server = makeServer();
+        await server.connect(s);
+        const client = new LegacyTestClient({ name: 'c', version: '1' }, { capabilities: { elicitation: {} } });
+        client.setRequestHandler('elicitation/create', async () => ({ action: 'accept', content: {} }));
+        await client.connect(c);
+        expect(isStatelessProtocolVersion(client.getNegotiatedProtocolVersion()!)).toBe(false);
+        const r = await client.callTool({ name: 'elicit', arguments: {} });
+        expect((r.content as { text: string }[])[0]?.text).toBe('accept');
+        await client.close();
+    });
+
+    test('R-2575: subscribe() over InMemory delivers ack and list_changed (stdio-shaped demux)', async () => {
+        const [c, s] = InMemoryTransport.createLinkedPair();
+        const server = makeServer();
+        await server.connect(s);
+        const client = new Client({ name: 'c', version: '1' });
+        await client.connect(c);
+
+        const seen: string[] = [];
+        const sub = client.subscribe({ toolsListChanged: true });
+        const it = sub[Symbol.asyncIterator]();
+        const ack = await it.next();
+        expect((ack.value as JSONRPCNotification).method).toBe('notifications/subscriptions/acknowledged');
+
+        await server.sendToolListChanged();
+        const evt = await it.next();
+        expect((evt.value as JSONRPCNotification).method).toBe('notifications/tools/list_changed');
+        seen.push((evt.value as JSONRPCNotification).method);
+
+        await it.return?.();
+        await client.close();
+        expect(seen).toEqual(['notifications/tools/list_changed']);
+    });
+
+    test('R-2322: MRTR auto-resume — stateless callTool that elicits', async () => {
+        const [c, s] = InMemoryTransport.createLinkedPair();
+        const server = makeServer();
+        await server.connect(s);
+        const client = new Client({ name: 'c', version: '1' }, { capabilities: { elicitation: { form: {} } } });
+        client.setRequestHandler('elicitation/create', async () => ({ action: 'accept', content: {} }));
+        await client.connect(c);
+        const r = await client.callTool({ name: 'elicit', arguments: {} });
+        expect((r.content as { text: string }[])[0]?.text).toBe('accept');
+        await client.close();
     });
 });
 

@@ -1,4 +1,4 @@
-import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/client';
+import { getSupportedElicitationModes } from '@modelcontextprotocol/client';
 import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core';
 import {
     InMemoryTransport,
@@ -9,6 +9,8 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { McpServer, Server } from '@modelcontextprotocol/server';
+
+import { LegacyTestClient } from '../__fixtures__/testClient.js';
 
 /***
  * Test: Initialize with Matching Protocol Version
@@ -37,7 +39,7 @@ test('should initialize with matching protocol version', async () => {
         })
     };
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -95,7 +97,7 @@ test('should initialize with supported older protocol version', async () => {
         })
     };
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -144,7 +146,7 @@ test('should restore negotiated protocol version on transport when reconnecting 
         })
     };
 
-    const client = new Client({ name: 'test client', version: '1.0' });
+    const client = new LegacyTestClient({ name: 'test client', version: '1.0' });
     await client.connect(initialTransport);
 
     // Initial handshake should have set the protocol version on the transport
@@ -197,7 +199,7 @@ test('should reject unsupported protocol version', async () => {
         })
     };
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -254,7 +256,7 @@ test('should connect new client to old, supported server version', async () => {
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'new client',
             version: '1.0'
@@ -314,7 +316,7 @@ test('should negotiate version when client is old, and newer server supports its
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'old client',
             version: '1.0'
@@ -375,7 +377,7 @@ test("should throw when client is old, and server doesn't support its version", 
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'old client',
             version: '1.0'
@@ -433,7 +435,7 @@ test('should respect server capabilities', async () => {
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -507,7 +509,7 @@ test('should return empty lists for missing capabilities by default', async () =
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
     // Client with default settings (enforceStrictCapabilities not set)
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -556,7 +558,7 @@ test('should respect client notification capabilities', async () => {
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -578,7 +580,7 @@ test('should respect client notification capabilities', async () => {
     await expect(client.sendRootsListChanged()).resolves.not.toThrow();
 
     // Create a new client without the roots.listChanged capability
-    const clientWithoutCapability = new Client(
+    const clientWithoutCapability = new LegacyTestClient(
         {
             name: 'test client without capability',
             version: '1.0'
@@ -614,7 +616,7 @@ test('should respect server notification capabilities', async () => {
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -640,7 +642,7 @@ test('should respect server notification capabilities', async () => {
  * Test: Only Allow setRequestHandler for Declared Capabilities
  */
 test('should only allow setRequestHandler for declared capabilities', () => {
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -671,7 +673,7 @@ test('should only allow setRequestHandler for declared capabilities', () => {
 });
 
 test('should allow setRequestHandler for declared elicitation capability', () => {
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test-client',
             version: '1.0.0'
@@ -723,7 +725,7 @@ test('should accept form-mode elicitation request when client advertises empty e
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -784,7 +786,7 @@ test('should accept form-mode elicitation request when client advertises empty e
 });
 
 test('should reject form-mode elicitation when client only supports URL mode', async () => {
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test-client',
             version: '1.0.0'
@@ -881,7 +883,7 @@ test('should reject missing-mode elicitation when client only supports URL mode'
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -926,7 +928,7 @@ test('should reject missing-mode elicitation when client only supports URL mode'
 });
 
 test('should reject URL-mode elicitation when client only supports form mode', async () => {
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test-client',
             version: '1.0.0'
@@ -1022,7 +1024,7 @@ test('should apply defaults for form-mode elicitation when applyDefaults is enab
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -1098,7 +1100,7 @@ test('should handle client cancelling a request', async () => {
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -1154,7 +1156,7 @@ test('should handle request timeout', async () => {
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -1194,7 +1196,7 @@ test('should handle tool list changed notification with auto refresh', async () 
     );
 
     // Configure listChanged handler in constructor
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test-client',
             version: '1.0.0'
@@ -1252,7 +1254,7 @@ test('should handle tool list changed notification with manual refresh', async (
     server.registerTool('initial-tool', {}, async () => ({ content: [] }));
 
     // Configure listChanged handler with manual refresh (autoRefresh: false)
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test-client',
             version: '1.0.0'
@@ -1318,7 +1320,7 @@ test('should handle prompt list changed notification with auto refresh', async (
     );
 
     // Configure listChanged handler in constructor
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test-client',
             version: '1.0.0'
@@ -1373,7 +1375,7 @@ test('should handle resource list changed notification with auto refresh', async
     }));
 
     // Configure listChanged handler in constructor
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test-client',
             version: '1.0.0'
@@ -1442,7 +1444,7 @@ test('should handle multiple list changed handlers configured together', async (
     );
 
     // Configure multiple listChanged handlers in constructor
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test-client',
             version: '1.0.0'
@@ -1518,7 +1520,7 @@ test('should not activate listChanged handler when server does not advertise cap
     }));
 
     // Configure listChanged handler that should NOT be activated
-    const client = new Client(
+    const client = new LegacyTestClient(
         { name: 'test-client', version: '1.0.0' },
         {
             listChanged: {
@@ -1567,7 +1569,7 @@ test('should activate listChanged handler when server advertises capability', as
     }));
 
     // Configure listChanged handler that SHOULD be activated
-    const client = new Client(
+    const client = new LegacyTestClient(
         { name: 'test-client', version: '1.0.0' },
         {
             listChanged: {
@@ -1616,7 +1618,7 @@ test('should not activate any handlers when server has no listChanged capabiliti
     }));
 
     // Configure listChanged handlers for all three types
-    const client = new Client(
+    const client = new LegacyTestClient(
         { name: 'test-client', version: '1.0.0' },
         {
             listChanged: {
@@ -1682,7 +1684,7 @@ test('should handle partial listChanged capability support', async () => {
         prompts: [{ name: 'prompt-1' }]
     }));
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         { name: 'test-client', version: '1.0.0' },
         {
             listChanged: {
@@ -1775,7 +1777,7 @@ describe('outputSchema validation', () => {
             throw new Error('Unknown tool');
         });
 
-        const client = new Client(
+        const client = new LegacyTestClient(
             {
                 name: 'test-client',
                 version: '1.0.0'
@@ -1868,7 +1870,7 @@ describe('outputSchema validation', () => {
             throw new Error('Unknown tool');
         });
 
-        const client = new Client(
+        const client = new LegacyTestClient(
             {
                 name: 'test-client',
                 version: '1.0.0'
@@ -1958,7 +1960,7 @@ describe('outputSchema validation', () => {
             throw new Error('Unknown tool');
         });
 
-        const client = new Client(
+        const client = new LegacyTestClient(
             {
                 name: 'test-client',
                 version: '1.0.0'
@@ -2044,7 +2046,7 @@ describe('outputSchema validation', () => {
             throw new Error('Unknown tool');
         });
 
-        const client = new Client(
+        const client = new LegacyTestClient(
             {
                 name: 'test-client',
                 version: '1.0.0'
@@ -2157,7 +2159,7 @@ describe('outputSchema validation', () => {
             throw new Error('Unknown tool');
         });
 
-        const client = new Client(
+        const client = new LegacyTestClient(
             {
                 name: 'test-client',
                 version: '1.0.0'
@@ -2255,7 +2257,7 @@ describe('outputSchema validation', () => {
             throw new Error('Unknown tool');
         });
 
-        const client = new Client(
+        const client = new LegacyTestClient(
             {
                 name: 'test-client',
                 version: '1.0.0'
@@ -2335,7 +2337,7 @@ describe('Client sampling validation with tools', () => {
     test('should validate array content with tool_use when request includes tools', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         // Handler returns array content with tool_use - should validate with CreateMessageResultWithToolsSchema
         client.setRequestHandler('sampling/createMessage', async () => ({
@@ -2362,7 +2364,7 @@ describe('Client sampling validation with tools', () => {
     test('should validate single content when request includes tools', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         // Handler returns single content (text) - should still validate with CreateMessageResultWithToolsSchema
         client.setRequestHandler('sampling/createMessage', async () => ({
@@ -2386,7 +2388,7 @@ describe('Client sampling validation with tools', () => {
     test('should validate single content when request has no tools', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
         // Handler returns single content - should validate with CreateMessageResultSchema
         client.setRequestHandler('sampling/createMessage', async () => ({
@@ -2409,7 +2411,7 @@ describe('Client sampling validation with tools', () => {
     test('should reject array content when request has no tools', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
         // Handler returns array content - should fail validation with CreateMessageResultSchema
         client.setRequestHandler('sampling/createMessage', async () => ({
@@ -2432,7 +2434,7 @@ describe('Client sampling validation with tools', () => {
     test('should validate array content when request includes toolChoice', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         // Handler returns array content with tool_use
         client.setRequestHandler('sampling/createMessage', async () => ({

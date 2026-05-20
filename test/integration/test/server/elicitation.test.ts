@@ -7,11 +7,13 @@
  * Per the MCP spec, elicitation only supports object schemas, not primitives.
  */
 
-import { Client } from '@modelcontextprotocol/client';
+import type { Client } from '@modelcontextprotocol/client';
 import type { ElicitRequestFormParams } from '@modelcontextprotocol/core';
 import { AjvJsonSchemaValidator, InMemoryTransport } from '@modelcontextprotocol/core';
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
 import { Server } from '@modelcontextprotocol/server';
+
+import { LegacyTestClient } from '../__fixtures__/testClient.js';
 
 const ajvProvider = new AjvJsonSchemaValidator();
 const cfWorkerProvider = new CfWorkerJsonSchemaValidator();
@@ -30,7 +32,7 @@ describe('Elicitation Flow', () => {
                 }
             );
 
-            client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
+            client = new LegacyTestClient({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -50,7 +52,7 @@ describe('Elicitation Flow', () => {
                 }
             );
 
-            client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
+            client = new LegacyTestClient({ name: 'test-client', version: '1.0.0' }, { capabilities: { elicitation: {} } });
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
@@ -472,7 +474,7 @@ function testElicitationFlow(validatorProvider: typeof ajvProvider | typeof cfWo
             }
         );
 
-        const client = new Client(
+        const client = new LegacyTestClient(
             { name: 'test-client', version: '1.0.0' },
             {
                 capabilities: {

@@ -23,6 +23,8 @@ import type { Request, Response } from 'express';
 import supertest from 'supertest';
 import * as z from 'zod/v4';
 
+import { LegacyTestClient } from './__fixtures__/testClient.js';
+
 describe('Server with standard protocol methods', () => {
     /*
     Test that Server class works with standard protocol method handlers.
@@ -278,7 +280,7 @@ test('should respect client capabilities', async () => {
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -338,7 +340,7 @@ test('should respect client elicitation capabilities', async () => {
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -422,7 +424,7 @@ test('should use elicitInput with mode: "form" by default for backwards compatib
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -499,7 +501,7 @@ test('should throw when elicitInput is called without client form capability', a
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -548,7 +550,7 @@ test('should throw when elicitInput is called without client URL capability', as
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -591,7 +593,7 @@ test('should include form mode when sending elicitation form requests', async ()
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -654,7 +656,7 @@ test('should include url mode when sending elicitation URL requests', async () =
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -710,7 +712,7 @@ test('should reject elicitInput when client response violates requested schema',
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -769,7 +771,7 @@ test('should wrap unexpected validator errors during elicitInput', async () => {
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -818,7 +820,7 @@ test('should forward notification options when using elicitation completion noti
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -865,7 +867,7 @@ test('should create notifier that emits elicitation completion notification', as
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -907,7 +909,7 @@ test('should throw when creating notifier if client lacks URL elicitation suppor
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -946,7 +948,7 @@ test('should apply back-compat form capability injection when client sends empty
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -987,7 +989,7 @@ test('should preserve form capability configuration when client enables applyDef
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -1033,7 +1035,7 @@ test('should validate elicitation response against requested schema', async () =
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -1111,7 +1113,7 @@ test('should reject elicitation response with invalid data', async () => {
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -1181,7 +1183,7 @@ test('should allow elicitation reject and cancel without validation', async () =
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -1310,7 +1312,7 @@ test('should handle server cancelling a request', async () => {
         }
     );
 
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -1370,7 +1372,7 @@ test('should handle request timeout', async () => {
     );
 
     // Set up client that delays responses
-    const client = new Client(
+    const client = new LegacyTestClient(
         {
             name: 'test client',
             version: '1.0'
@@ -1439,7 +1441,7 @@ test('should respect log level for transport without sessionId', async () => {
         }
     );
 
-    const client = new Client({
+    const client = new LegacyTestClient({
         name: 'test client',
         version: '1.0'
     });
@@ -1489,7 +1491,7 @@ describe('createMessage validation', () => {
     test('should throw when tools are provided without sampling.tools capability', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client(
+        const client = new LegacyTestClient(
             { name: 'test client', version: '1.0' },
             { capabilities: { sampling: {} } } // No tools capability
         );
@@ -1515,7 +1517,7 @@ describe('createMessage validation', () => {
     test('should throw when toolChoice is provided without sampling.tools capability', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client(
+        const client = new LegacyTestClient(
             { name: 'test client', version: '1.0' },
             { capabilities: { sampling: {} } } // No tools capability
         );
@@ -1541,7 +1543,7 @@ describe('createMessage validation', () => {
     test('should throw when tool_result is mixed with other content', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
@@ -1574,7 +1576,7 @@ describe('createMessage validation', () => {
     test('should throw when tool_result has no matching tool_use in previous message', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
@@ -1601,7 +1603,7 @@ describe('createMessage validation', () => {
     test('should throw when tool_result IDs do not match tool_use IDs', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
@@ -1628,7 +1630,7 @@ describe('createMessage validation', () => {
     test('should allow text-only messages with tools (no tool_results)', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
@@ -1651,7 +1653,7 @@ describe('createMessage validation', () => {
     test('should allow valid matching tool_result/tool_use IDs', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
@@ -1678,7 +1680,7 @@ describe('createMessage validation', () => {
     test('should throw when user sends text instead of tool_result after tool_use', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
@@ -1706,7 +1708,7 @@ describe('createMessage validation', () => {
     test('should throw when only some tool_results are provided for parallel tool_use', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
@@ -1743,7 +1745,7 @@ describe('createMessage validation', () => {
     test('should validate tool_use/tool_result even without tools in current request', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
@@ -1771,7 +1773,7 @@ describe('createMessage validation', () => {
     test('should allow valid tool_use/tool_result without tools in current request', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
@@ -1799,7 +1801,7 @@ describe('createMessage validation', () => {
     test('should handle empty messages array', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
         client.setRequestHandler('sampling/createMessage', async () => ({
             model: 'test-model',
@@ -1830,7 +1832,7 @@ describe('createMessage backwards compatibility', () => {
     test('createMessage without tools returns single content (backwards compat)', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: {} } });
 
         // Mock client returns single text content
         client.setRequestHandler('sampling/createMessage', async () => ({
@@ -1860,7 +1862,7 @@ describe('createMessage backwards compatibility', () => {
     test('createMessage with tools accepts request and returns result', async () => {
         const server = new Server({ name: 'test server', version: '1.0' }, { capabilities: {} });
 
-        const client = new Client({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
+        const client = new LegacyTestClient({ name: 'test client', version: '1.0' }, { capabilities: { sampling: { tools: {} } } });
 
         // Mock client returns text content (tool_use schema validation is tested in types.test.ts)
         client.setRequestHandler('sampling/createMessage', async () => ({
@@ -1904,7 +1906,7 @@ test('should respect log level for transport with sessionId', async () => {
         }
     );
 
-    const client = new Client({
+    const client = new LegacyTestClient({
         name: 'test client',
         version: '1.0'
     });
@@ -2137,7 +2139,7 @@ describe('Server registerCapabilities with logging', () => {
         const server = new Server({ name: 'test-server', version: '1.0.0' });
         server.registerCapabilities({ logging: {} });
 
-        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const client = new LegacyTestClient({ name: 'test-client', version: '1.0.0' });
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
         await server.connect(serverTransport);
@@ -2153,7 +2155,7 @@ describe('Server registerCapabilities with logging', () => {
     test('logging in constructor capabilities should register logging/setLevel handler', async () => {
         const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
-        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const client = new LegacyTestClient({ name: 'test-client', version: '1.0.0' });
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 
         await server.connect(serverTransport);
