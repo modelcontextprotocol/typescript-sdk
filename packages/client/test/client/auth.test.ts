@@ -924,6 +924,31 @@ describe('OAuth Authorization', () => {
             expect(metadata).toEqual(validOpenIdMetadata);
         });
 
+        it('continues when a successful metadata response is not JSON', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => {
+                    throw new SyntaxError('Unexpected token <');
+                }
+            });
+
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validOpenIdMetadata
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
+
+            expect(metadata).toEqual(validOpenIdMetadata);
+
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(2);
+            expect(calls[0]![0].toString()).toBe('https://auth.example.com/.well-known/oauth-authorization-server/tenant1');
+            expect(calls[1]![0].toString()).toBe('https://auth.example.com/.well-known/openid-configuration/tenant1');
+        });
+
         it('continues on 502 and tries next URL', async () => {
             // First URL (OAuth) returns 502 (reverse proxy with no route)
             mockFetch.mockResolvedValueOnce({
