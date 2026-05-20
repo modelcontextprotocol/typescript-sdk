@@ -7,16 +7,28 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+import type {
+    AuthInfo,
+    JSONRPCMessage,
+    ListenContext,
+    MessageExtraInfo,
+    RequestId,
+    StatelessHandlers,
+    Transport
+} from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
+    isStatelessProtocolVersion,
     JSONRPCMessageSchema,
+    parseClientMeta,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
+
+import { statelessHttpHandler } from './statelessHttp.js';
 
 export type StreamId = string;
 export type EventId = string;
@@ -168,6 +180,15 @@ export interface HandleRequestOptions {
      * Authentication info from middleware. If provided, will be passed to message handlers.
      */
     authInfo?: AuthInfo;
+
+    /**
+     * Per-URI authorization for `resourceSubscriptions` on the 2026-06
+     * `subscriptions/listen` path. See {@linkcode ListenContext.onAuthorizeResourceSubscription}.
+     */
+    onAuthorizeResourceSubscription?: ListenContext['onAuthorizeResourceSubscription'];
+
+    /** Maximum POST body size for the 2026-06 stateless path. Default 4 MiB. */
+    maxBodyBytes?: number;
 }
 
 /**
@@ -241,10 +262,21 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
 
+    private _statelessHandlers?: StatelessHandlers;
+
     sessionId?: string;
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
+
+    /**
+     * Installed by `Server.connect()`. When present, {@linkcode handleRequest}
+     * routes 2026-06 requests to {@linkcode statelessHttpHandler}; when absent,
+     * all requests fall through to the legacy stateful path.
+     */
+    setStatelessHandlers(h: StatelessHandlers): void {
+        this._statelessHandlers = h;
+    }
 
     constructor(options: WebStandardStreamableHTTPServerTransportOptions = {}) {
         this.sessionIdGenerator = options.sessionIdGenerator;
@@ -341,16 +373,42 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * Handles an incoming HTTP request, whether `GET`, `POST`, or `DELETE`
-     * Returns a `Response` object (Web Standard)
+     * Top-level request entry. Validates DNS-rebinding headers (both protocol
+     * eras), then routes by `MCP-Protocol-Version` header (spec: header is
+     * mandatory for 2026-06 POSTs; absent or pre-2026 implies legacy stateful path).
      */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
-        // Validate request headers for DNS rebinding protection
         const validationError = this.validateRequestHeaders(req);
         if (validationError) {
             return validationError;
         }
 
+        // Route by header first (spec: header is MUST for 2026-06 POSTs). If
+        // header is absent, fall back to the body's first request _meta. The
+        // conformance harness (and any client that omits the header) still
+        // routes correctly. parsedBody is set by Node/Express adapters.
+        const headerPv = req.headers.get('mcp-protocol-version');
+        const pv = headerPv ?? versionFromParsedBody(options?.parsedBody);
+        if (pv && this._supportedProtocolVersions.includes(pv) && isStatelessProtocolVersion(pv) && this._statelessHandlers) {
+            // Stateless requests have no session by definition. Authorization
+            // MUST be enforced at the transport/framework layer (bearer token
+            // surfaced as `options.authInfo`, threaded to dispatch/listen ctx),
+            // not via session state. `validateSession()` is session-id
+            // correlation, not authorization, so it does not apply here.
+            return statelessHttpHandler(this._statelessHandlers, req, options);
+        }
+        // Unsupported / pre-2026 / no stateless handlers route to legacy path
+        // (existing unsupported-version handling lives in handlePostRequest, byte-identical).
+        return this.handleStatefulRequest(req, options);
+    }
+
+    /**
+     * Pre-2026 stateful request handling. Body moved wholesale from
+     * `handleRequest`; behavior is byte-identical. The GHSA-345p
+     * `_hasHandledRequest` guard correctly stays inside this path (the
+     * stateless dispatch path is reuse-safe by construction).
+     */
+    private async handleStatefulRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
         switch (req.method) {
             case 'POST': {
                 return this.handlePostRequest(req, options);
@@ -1035,4 +1093,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
         }
     }
+}
+
+function versionFromParsedBody(body: unknown): string | undefined {
+    const first = Array.isArray(body) ? body.find(m => isJSONRPCRequest(m)) : body;
+    if (!isJSONRPCRequest(first)) return undefined;
+    return parseClientMeta(first.params).protocolVersion;
 }

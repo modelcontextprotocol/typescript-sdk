@@ -200,17 +200,24 @@ export class StreamableHTTPClientTransport implements Transport {
      * is left to the caller (`Client` falls back to legacy `request()` on
      * auth failure).
      */
-    async *sendAndReceive(request: Omit<JSONRPCRequest, 'jsonrpc' | 'id'>): AsyncGenerator<JSONRPCMessage, void, void> {
+    async *sendAndReceive(
+        request: Omit<JSONRPCRequest, 'jsonrpc' | 'id'>,
+        opts?: { signal?: AbortSignal }
+    ): AsyncGenerator<JSONRPCMessage, void, void> {
         const headers = await this._commonHeaders();
         headers.set('content-type', 'application/json');
         headers.set('accept', 'application/json, text/event-stream');
         const body = JSON.stringify({ jsonrpc: '2.0', id: 0, ...request });
+        const signal =
+            opts?.signal && this._abortController
+                ? AbortSignal.any([opts.signal, this._abortController.signal])
+                : (opts?.signal ?? this._abortController?.signal);
         const response = await (this._fetch ?? fetch)(this._url, {
             ...this._requestInit,
             method: 'POST',
             headers,
             body,
-            signal: this._abortController?.signal
+            signal
         });
         if (!response.ok) {
             const text = await response.text().catch(() => '');

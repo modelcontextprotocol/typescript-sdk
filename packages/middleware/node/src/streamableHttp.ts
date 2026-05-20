@@ -10,7 +10,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, StatelessHandlers, Transport } from '@modelcontextprotocol/core';
 import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
@@ -128,6 +128,14 @@ export class NodeStreamableHTTPServerTransport implements Transport {
 
     get onmessage(): ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined {
         return this._webStandardTransport.onmessage;
+    }
+
+    /**
+     * Installed by `Server.connect()`. Forwards to the wrapped web-standard
+     * transport so its `handleRequest` router can dispatch 2026-06 requests.
+     */
+    setStatelessHandlers(h: StatelessHandlers): void {
+        this._webStandardTransport.setStatelessHandlers(h);
     }
 
     /**
