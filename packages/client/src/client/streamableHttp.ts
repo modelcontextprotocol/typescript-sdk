@@ -1,6 +1,6 @@
 import type { ReadableWritablePair } from 'node:stream/web';
 
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import type { FetchLike, JSONRPCMessage, JSONRPCRequest, Transport } from '@modelcontextprotocol/core';
 import {
     createFetchWithInit,
     isInitializedNotification,
@@ -188,6 +188,59 @@ export class StreamableHTTPClientTransport implements Transport {
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
+
+    /**
+     * Sends one stateless request and yields the messages the server emits for
+     * it (zero or more notifications then one response, or for
+     * `subscriptions/listen` the indefinite stream). Backed directly by
+     * `fetch`; does not go through `Protocol.request()`/`_responseHandlers`.
+     *
+     * Used by `Client` for 2026-06 stateless calls. Auth handling matches
+     * {@linkcode send} (token attached via `_commonHeaders`); 401/403 retry
+     * is left to the caller (`Client` falls back to legacy `request()` on
+     * auth failure).
+     */
+    async *sendAndReceive(request: Omit<JSONRPCRequest, 'jsonrpc' | 'id'>): AsyncGenerator<JSONRPCMessage, void, void> {
+        const headers = await this._commonHeaders();
+        headers.set('content-type', 'application/json');
+        headers.set('accept', 'application/json, text/event-stream');
+        const body = JSON.stringify({ jsonrpc: '2.0', id: 0, ...request });
+        const response = await (this._fetch ?? fetch)(this._url, {
+            ...this._requestInit,
+            method: 'POST',
+            headers,
+            body,
+            signal: this._abortController?.signal
+        });
+        if (!response.ok) {
+            const text = await response.text().catch(() => '');
+            throw new SdkError(SdkErrorCode.SendFailed, `HTTP ${response.status}: ${text || response.statusText}`, {
+                status: response.status
+            });
+        }
+        const ct = response.headers.get('content-type') ?? '';
+        if (ct.includes('text/event-stream') && response.body) {
+            const reader = response.body
+                .pipeThrough(new TextDecoderStream() as ReadableWritablePair<string, Uint8Array>)
+                .pipeThrough(new EventSourceParserStream())
+                .getReader();
+            try {
+                for (;;) {
+                    const { value: event, done } = await reader.read();
+                    if (done) break;
+                    if (!event.data) continue;
+                    yield JSONRPCMessageSchema.parse(JSON.parse(event.data));
+                }
+            } finally {
+                await reader.cancel().catch(() => {});
+            }
+        } else {
+            const json = (await response.json()) as unknown;
+            for (const m of Array.isArray(json) ? json : [json]) {
+                yield JSONRPCMessageSchema.parse(m);
+            }
+        }
+    }
 
     constructor(url: URL, opts?: StreamableHTTPClientTransportOptions) {
         this._url = url;
