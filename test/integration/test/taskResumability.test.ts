@@ -2,12 +2,14 @@ import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import * as z from 'zod/v4';
+
+import { LegacyTestClient } from './__fixtures__/testClient.js';
 
 /**
  * Simple in-memory EventStore for testing resumability.
@@ -143,7 +145,7 @@ describe('Zod v4', () => {
 
         it('should store session ID when client connects', async () => {
             // Create and connect a client
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client',
                 version: '1.0.0'
             });
@@ -160,7 +162,7 @@ describe('Zod v4', () => {
 
         it('should have session ID functionality', async () => {
             // The ability to store a session ID when connecting
-            const client = new Client({
+            const client = new LegacyTestClient({
                 name: 'test-client-reconnection',
                 version: '1.0.0'
             });
@@ -184,7 +186,7 @@ describe('Zod v4', () => {
             let lastEventId: string | undefined;
 
             // Create first client
-            const client1 = new Client({
+            const client1 = new LegacyTestClient({
                 title: clientTitle,
                 name: 'test-client',
                 version: '1.0.0'
@@ -261,7 +263,7 @@ describe('Zod v4', () => {
             await catchPromise;
 
             // Create second client with same client ID
-            const client2 = new Client({
+            const client2 = new LegacyTestClient({
                 title: clientTitle,
                 name: 'test-client',
                 version: '1.0.0'

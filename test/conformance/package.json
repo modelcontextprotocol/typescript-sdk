@@ -34,6 +34,8 @@
         "test:conformance:server": "scripts/run-server-conformance.sh --expected-failures ./expected-failures.yaml",
         "test:conformance:server:all": "scripts/run-server-conformance.sh --suite all --expected-failures ./expected-failures.yaml",
         "test:conformance:server:run": "npx tsx ./src/everythingServer.ts",
+        "test:conformance:server:dispatchv2": "PORT=3036 SERVER_ENTRY=./src/everythingServerDispatchV2.ts scripts/run-server-conformance.sh --expected-failures ./expected-failures.yaml",
+        "test:conformance:server:dispatchv2:run": "PORT=3036 npx tsx ./src/everythingServerDispatchV2.ts",
         "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"
     },
     "devDependencies": {
