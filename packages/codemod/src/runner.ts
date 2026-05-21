@@ -111,7 +111,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         }
     }
 
-    const hasImportsTransform = enabledTransforms.some(t => t.id === 'imports' || t.id === 'mock-paths');
+    const hasImportsTransform = enabledTransforms.some(t => t.id === 'imports');
     const packageJsonChanges = hasImportsTransform
         ? updatePackageJson(options.targetDir, allUsedPackages, options.dryRun ?? false)
         : undefined;

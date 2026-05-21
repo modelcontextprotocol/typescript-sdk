@@ -11,10 +11,6 @@ const HANDLER_METHODS = new Set(['setRequestHandler', 'setNotificationHandler'])
 const REGISTER_METHODS = new Set(['registerTool', 'registerPrompt', 'registerResource', 'registerToolTask', 'tool', 'prompt', 'resource']);
 
 /**
- * Rewrite context property accesses and typeof type queries within a callback body.
- * Returns the number of changes made.
- */
-/**
  * Attempt to rename the second parameter of a callback from 'extra' to 'ctx'
  * and rewrite context property accesses in its body.
  * Returns the number of changes made, or -1 if skipped.

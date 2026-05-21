@@ -50,6 +50,34 @@ describe('mcp-server-api transform', () => {
         expect(result).toContain('inputSchema: z.object({ name: z.string() })');
     });
 
+    it('converts .tool(name, schema, annotations, callback) when args[1] is not a string', () => {
+        const input = [
+            `server.tool('greet', { name: z.string() }, { readOnlyHint: true }, async ({ name }) => {`,
+            `    return { content: [{ type: 'text', text: name }] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('registerTool');
+        expect(result).toContain('inputSchema: z.object({ name: z.string() })');
+        expect(result).toContain('annotations: { readOnlyHint: true }');
+        expect(result).not.toContain('description');
+    });
+
+    it('converts .tool(name, description, schema, annotations, callback) with 5 args', () => {
+        const input = [
+            `server.tool('greet', 'Greet user', { name: z.string() }, { readOnlyHint: true }, async ({ name }) => {`,
+            `    return { content: [{ type: 'text', text: name }] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('registerTool');
+        expect(result).toContain("description: 'Greet user'");
+        expect(result).toContain('inputSchema: z.object({ name: z.string() })');
+        expect(result).toContain('annotations: { readOnlyHint: true }');
+    });
+
     it('converts .prompt(name, schema, callback)', () => {
         const input = [
             `server.prompt('summarize', { text: z.string() }, async ({ text }) => {`,
@@ -223,7 +251,7 @@ describe('mcp-server-api transform', () => {
         expect(result).not.toContain('z.object(z.object(');
     });
 
-    it('leaves variable reference in .registerPrompt() config unchanged', () => {
+    it('emits diagnostic for variable-valued schema in config', () => {
         const input = [
             `const promptArgsSchema = { city: z.string() };`,
             `server.registerPrompt("args-prompt", { argsSchema: promptArgsSchema }, (args) => {`,
@@ -231,10 +259,28 @@ describe('mcp-server-api transform', () => {
             `});`,
             ''
         ].join('\n');
-        const result = applyTransform(input);
-        // Variable references are not object literals, so should be left unchanged
-        expect(result).toContain('argsSchema: promptArgsSchema');
-        expect(result).not.toContain('z.object(promptArgsSchema)');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toContain('argsSchema: promptArgsSchema');
+        expect(text).not.toContain('z.object(promptArgsSchema)');
+        expect(result.diagnostics.some(d => d.message.includes('not an object literal'))).toBe(true);
+    });
+
+    it('emits diagnostic for shorthand schema property in config', () => {
+        const input = [
+            `server.registerTool("echo", { inputSchema }, async ({ msg }) => {`,
+            `    return { content: [{ type: 'text', text: msg }] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toContain('{ inputSchema }');
+        expect(result.diagnostics.some(d => d.message.includes('Shorthand'))).toBe(true);
     });
 
     it('leaves .registerTool() without inputSchema unchanged', () => {

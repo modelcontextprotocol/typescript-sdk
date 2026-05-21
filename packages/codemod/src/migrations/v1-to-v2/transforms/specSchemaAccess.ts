@@ -303,7 +303,13 @@ function rewriteCapturedSafeParse(
                     } else if (subProp === 'message') {
                         replacements.push({ node: errorParent, newText: `${varName}.issues?.map(i => i.message).join(', ')` });
                     } else {
-                        replacements.push({ node: errorParent, newText: `${varName}.issues` });
+                        diagnostics.push(
+                            warning(
+                                sourceFile.getFilePath(),
+                                errorParent.getStartLineNumber(),
+                                `${varName}.error.${subProp} has no StandardSchema equivalent. Manual migration required.`
+                            )
+                        );
                     }
                 } else {
                     replacements.push({ node, newText: `${varName}.issues` });

@@ -151,6 +151,19 @@ describe('spec-schema-access transform', () => {
             expect(text).toContain("parsed.issues?.map(i => i.message).join(', ')");
         });
 
+        it('emits diagnostic for .error.format() instead of silently rewriting', () => {
+            const input = [
+                `import { CallToolResultSchema } from '@modelcontextprotocol/server';`,
+                `const parsed = CallToolResultSchema.safeParse(data);`,
+                `if (!parsed.success) { console.log(parsed.error.format()); }`,
+                ''
+            ].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('parsed.error.format()');
+            expect(text).not.toContain('parsed.issues()');
+            expect(result.diagnostics.some(d => d.message.includes('no StandardSchema equivalent'))).toBe(true);
+        });
+
         it('rewrites bare .error to .issues (unchanged behavior)', () => {
             const input = [
                 `import { ToolSchema } from '@modelcontextprotocol/server';`,

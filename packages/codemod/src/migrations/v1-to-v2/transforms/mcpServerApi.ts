@@ -175,7 +175,20 @@ function wrapSchemaInConfig(call: CallExpression, schemaPropertyName: string, so
     if (!configArg || !Node.isObjectLiteralExpression(configArg)) return false;
 
     const schemaProp = configArg.getProperty(schemaPropertyName);
-    if (!schemaProp || !Node.isPropertyAssignment(schemaProp)) return false;
+    if (!schemaProp) return false;
+
+    if (Node.isShorthandPropertyAssignment(schemaProp)) {
+        diagnostics.push(
+            warning(
+                sourceFile.getFilePath(),
+                call.getStartLineNumber(),
+                `Shorthand \`{ ${schemaPropertyName} }\` in config: verify the value is a z.object() schema, not a raw object. V2 requires a Zod schema.`
+            )
+        );
+        return false;
+    }
+
+    if (!Node.isPropertyAssignment(schemaProp)) return false;
 
     const initializer = schemaProp.getInitializer();
     if (!initializer) return false;
@@ -193,6 +206,13 @@ function wrapSchemaInConfig(call: CallExpression, schemaPropertyName: string, so
         return true;
     }
 
+    diagnostics.push(
+        warning(
+            sourceFile.getFilePath(),
+            call.getStartLineNumber(),
+            `\`${schemaPropertyName}\` value is not an object literal — verify it is a z.object() schema. V2 requires a Zod schema, not a raw object.`
+        )
+    );
     return false;
 }
 
@@ -209,6 +229,7 @@ function migrateToolCall(call: CallExpression, sourceFile: SourceFile, diagnosti
 
     let description: string | undefined;
     let schema: string | undefined;
+    let annotations: string | undefined;
     let callbackText: string | undefined;
 
     switch (args.length) {
@@ -234,11 +255,29 @@ function migrateToolCall(call: CallExpression, sourceFile: SourceFile, diagnosti
             break;
         }
         case 4: {
-            // server.tool(name, description, schema, callback)
+            const arg1 = args[1]!;
+            if (isStringArg(arg1)) {
+                // server.tool(name, description, schema, callback)
+                description = arg1.getText();
+                emitWrapDiagnostic(args[2]!, sourceFile, call, diagnostics);
+                schema = maybeWrapSchema(args[2]!);
+            } else {
+                // server.tool(name, schema, annotations, callback)
+                emitWrapDiagnostic(arg1, sourceFile, call, diagnostics);
+                schema = maybeWrapSchema(arg1);
+                annotations = args[2]!.getText();
+            }
+            callbackText = args[3]!.getText();
+
+            break;
+        }
+        case 5: {
+            // server.tool(name, description, schema, annotations, callback)
             description = args[1]!.getText();
             emitWrapDiagnostic(args[2]!, sourceFile, call, diagnostics);
             schema = maybeWrapSchema(args[2]!);
-            callbackText = args[3]!.getText();
+            annotations = args[3]!.getText();
+            callbackText = args[4]!.getText();
 
             break;
         }
@@ -250,6 +289,7 @@ function migrateToolCall(call: CallExpression, sourceFile: SourceFile, diagnosti
     const configParts: string[] = [];
     if (description) configParts.push(`description: ${description}`);
     if (schema) configParts.push(`inputSchema: ${schema}`);
+    if (annotations) configParts.push(`annotations: ${annotations}`);
     const configObj = configParts.length > 0 ? `{ ${configParts.join(', ')} }` : '{}';
 
     expr.getNameNode().replaceWithText('registerTool');
