@@ -98,9 +98,11 @@ function processCallback(
         body.forEachDescendant(node => {
             if (!Node.isIdentifier(node) || node.getText() !== EXTRA_PARAM_NAME) return;
             const parent = node.getParent();
-            // Skip property-name positions (e.g., meta.extra, { extra: value })
+            // Skip property-name positions (e.g., meta.extra, { extra: value }, { extra }, { extra: x } = obj)
             if (parent && Node.isPropertyAccessExpression(parent) && parent.getNameNode() === node) return;
             if (parent && Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return;
+            if (parent && Node.isShorthandPropertyAssignment(parent)) return;
+            if (parent && Node.isBindingElement(parent) && parent.getPropertyNameNode() === node) return;
             identifiers.push(node);
         });
 

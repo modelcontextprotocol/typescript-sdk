@@ -384,6 +384,35 @@ describe('context-types transform', () => {
         expect(result).not.toContain('meta.ctx');
     });
 
+    it('does not rename "extra" in shorthand property assignment', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (request, extra) => {`,
+            `    helper({ request, extra });`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('{ request, extra }');
+        expect(result).not.toContain('{ request, ctx }');
+        expect(result).toContain('(request, ctx)');
+    });
+
+    it('does not rename "extra" as binding element property name', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (request, extra) => {`,
+            `    const { extra: val } = unrelatedObj;`,
+            `    const s = extra.signal;`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('{ extra: val }');
+        expect(result).not.toContain('{ ctx: val }');
+        expect(result).toContain('ctx.mcpReq.signal');
+    });
+
     it('rewrites typeof ctx.sendRequest in type positions', () => {
         const input = [
             `server.setRequestHandler('tools/call', async (request, extra) => {`,

@@ -459,18 +459,27 @@ function migrateConstructorTaskOptions(sourceFile: SourceFile, diagnostics: Diag
         // Single text replacement: remove top-level props and insert into tasks object.
         // Use AST nodes (already located via getProperty) to get brace-balanced text and
         // exact positions, avoiding regex truncation on values containing commas/braces.
+        // Collect all properties first, then process in reverse position order so each
+        // removal doesn't invalidate the positions of subsequent removals.
         let optionsText = optionsArg.getText();
-        const propTexts: string[] = [];
+        const argStart = optionsArg.getStart();
+        const propsWithPositions: { text: string; start: number; end: number }[] = [];
         for (const propName of propsToMove) {
             const prop = optionsArg.getProperty(propName);
             if (!prop) continue;
-            const argStart = optionsArg.getStart();
-            const propStart = prop.getStart() - argStart;
-            const propEnd = prop.getEnd() - argStart;
-            propTexts.push(prop.getText());
-            // Remove the property text plus any trailing comma and surrounding whitespace
-            let remStart = propStart;
-            let remEnd = propEnd;
+            propsWithPositions.push({
+                text: prop.getText(),
+                start: prop.getStart() - argStart,
+                end: prop.getEnd() - argStart
+            });
+        }
+        const propTexts = propsWithPositions.map(p => p.text);
+
+        // Remove in reverse position order so earlier positions remain valid
+        const sortedProps = propsWithPositions.toSorted((a, b) => b.start - a.start);
+        for (const { start, end } of sortedProps) {
+            let remStart = start;
+            let remEnd = end;
             // Consume trailing comma and whitespace
             const afterProp = optionsText.slice(remEnd);
             const trailingMatch = afterProp.match(/^\s*,?\s*/);

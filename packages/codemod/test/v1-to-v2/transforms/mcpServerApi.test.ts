@@ -327,6 +327,17 @@ describe('mcp-server-api transform', () => {
         expect(text).toMatch(/tasks:\s*\{[\s\S]*taskMessageQueue/);
     });
 
+    it('moves both task props with complex values without corrupting output', () => {
+        const input = `const server = new McpServer({ name: "test", version: "1.0" }, { taskStore: createStore(a, b), taskMessageQueue: new Queue({ size: 10 }), capabilities: { tasks: {} } });\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toMatch(/tasks:\s*\{[\s\S]*taskStore:\s*createStore\(a, b\)/);
+        expect(text).toMatch(/tasks:\s*\{[\s\S]*taskMessageQueue:\s*new Queue\(\{\s*size:\s*10\s*\}\)/);
+        expect(text).toContain('capabilities');
+    });
+
     it('emits warning when capabilities.tasks object is missing', () => {
         const input = `const server = new McpServer({ name: "test", version: "1.0" }, { taskStore, capabilities: {} });\n`;
         const project = new Project({ useInMemoryFileSystem: true });
