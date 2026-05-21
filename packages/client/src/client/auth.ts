@@ -1262,10 +1262,15 @@ export async function discoverAuthorizationServerMetadata(
             );
         }
 
-        // Parse and validate based on type
-        return type === 'oauth'
-            ? OAuthMetadataSchema.parse(await response.json())
-            : OpenIdProviderDiscoveryMetadataSchema.parse(await response.json());
+        let json: unknown;
+        try {
+            json = await response.json();
+        } catch {
+            await response.body?.cancel().catch(() => {});
+            continue;
+        }
+
+        return type === 'oauth' ? OAuthMetadataSchema.parse(json) : OpenIdProviderDiscoveryMetadataSchema.parse(json);
     }
 
     return undefined;
