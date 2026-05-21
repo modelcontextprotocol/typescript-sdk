@@ -299,4 +299,15 @@ describe('mcp-server-api transform', () => {
         const taskWarnings = result.diagnostics.filter(d => d.message.includes('taskStore') || d.message.includes('taskMessageQueue'));
         expect(taskWarnings.length).toBe(0);
     });
+
+    it('moves taskStore with complex value expression (nested braces/commas)', () => {
+        const input = `const server = new McpServer({ name: "test", version: "1.0" }, { taskStore: new InMemoryTaskStore({ ttl: 5000 }), capabilities: { tasks: { list: {} } } });\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).toMatch(/tasks:\s*\{[\s\S]*taskStore:\s*new InMemoryTaskStore\(\{\s*ttl:\s*5000\s*\}\)/);
+        expect(text).not.toMatch(/,\s*taskStore.*capabilities/);
+        expect(result.changesCount).toBeGreaterThan(0);
+    });
 });

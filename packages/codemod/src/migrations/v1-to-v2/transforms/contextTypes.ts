@@ -88,30 +88,58 @@ function processCallback(
         }
     }
 
-    // Rename param declaration and all body references in one text-based pass.
-    // We avoid extraParam.rename() because it invalidates descendant node references,
-    // causing "node was removed or forgotten" errors in subsequent AST traversals.
-    const bodyText = body ? body.getText() : '';
+    // Rename param declaration and rewrite body references using AST traversal.
+    // We walk Identifier nodes to avoid corrupting string literals, comments, and
+    // unrelated property names (e.g., meta.extra) that regex-based replacement would hit.
     const paramDecl = extraParam.getNameNode();
     paramDecl.replaceWithText(CTX_PARAM_NAME);
 
     if (body) {
-        let newBodyText = bodyText.replaceAll(new RegExp(String.raw`\b${EXTRA_PARAM_NAME}\b`, 'g'), CTX_PARAM_NAME);
-        // Sort mappings longest-first so longer property names match before shorter prefixes
         const sortedMappings = [...CONTEXT_PROPERTY_MAP].filter(m => m.from !== m.to).toSorted((a, b) => b.from.length - a.from.length);
-        for (const mapping of sortedMappings) {
-            const escaped = (CTX_PARAM_NAME + mapping.from).replaceAll(/[$()*+.?[\\\]^{|}]/g, String.raw`\$&`);
-            const re = new RegExp(escaped + String.raw`(?![a-zA-Z0-9_$])`, 'g');
-            newBodyText = newBodyText.replaceAll(re, CTX_PARAM_NAME + mapping.to);
+
+        // Collect identifiers that are actual references to the `extra` parameter
+        const identifiers: import('ts-morph').Node[] = [];
+        body.forEachDescendant(node => {
+            if (!Node.isIdentifier(node) || node.getText() !== EXTRA_PARAM_NAME) return;
+            const parent = node.getParent();
+            // Skip property-name positions (e.g., meta.extra, { extra: value })
+            if (parent && Node.isPropertyAccessExpression(parent) && parent.getNameNode() === node) return;
+            if (parent && Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return;
+            identifiers.push(node);
+        });
+
+        // Build replacements: apply property mappings for PropertyAccess/QualifiedName, plain rename otherwise
+        const replacements: { node: import('ts-morph').Node; newText: string }[] = [];
+        for (const id of identifiers) {
+            const parent = id.getParent();
+            // Value-position property access: extra.signal → ctx.mcpReq.signal
+            if (parent && Node.isPropertyAccessExpression(parent) && parent.getExpression() === id) {
+                const propName = '.' + parent.getName();
+                const mapping = sortedMappings.find(m => m.from === propName);
+                if (mapping) {
+                    replacements.push({ node: parent, newText: CTX_PARAM_NAME + mapping.to });
+                    continue;
+                }
+            }
+            // Type-position qualified name: typeof extra.signal → typeof ctx.mcpReq.signal
+            if (parent && parent.getKind() === SyntaxKind.QualifiedName && parent.getChildAtIndex(0) === id) {
+                const right = parent.getChildAtIndex(2);
+                if (right) {
+                    const propName = '.' + right.getText();
+                    const mapping = sortedMappings.find(m => m.from === propName);
+                    if (mapping) {
+                        replacements.push({ node: parent, newText: CTX_PARAM_NAME + mapping.to });
+                        continue;
+                    }
+                }
+            }
+            replacements.push({ node: id, newText: CTX_PARAM_NAME });
         }
-        // Also handle optional chaining variants (e.g., ctx?.signal → ctx.mcpReq.signal)
-        for (const mapping of sortedMappings) {
-            const escaped = (CTX_PARAM_NAME + '?' + mapping.from).replaceAll(/[$()*+.?[\\\]^{|}]/g, String.raw`\$&`);
-            const re = new RegExp(escaped + String.raw`(?![a-zA-Z0-9_$])`, 'g');
-            newBodyText = newBodyText.replaceAll(re, CTX_PARAM_NAME + mapping.to);
-        }
-        if (newBodyText !== bodyText) {
-            body.replaceWithText(newBodyText);
+
+        // Apply in reverse position order to avoid node invalidation
+        const sorted = replacements.toSorted((a, b) => b.node.getStart() - a.node.getStart());
+        for (const { node, newText } of sorted) {
+            node.replaceWithText(newText);
         }
     }
 

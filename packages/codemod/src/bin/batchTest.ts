@@ -3,6 +3,7 @@
 import { execSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { getMigration } from '../migrations/index.js';
 import { run } from '../runner.js';
@@ -78,7 +79,7 @@ interface Summary {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const SCRIPT_DIR = path.dirname(new URL(import.meta.url).pathname);
+const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SDK_ROOT = path.resolve(SCRIPT_DIR, '../../../..');
 const BATCH_DIR = path.resolve(SDK_ROOT, 'packages/codemod/batch-test');
 

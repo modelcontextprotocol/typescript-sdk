@@ -351,6 +351,39 @@ describe('context-types transform', () => {
         expect(result).toContain('ctx.mcpReq.signal');
     });
 
+    it('does not rename "extra" inside string literals', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (request, extra) => {`,
+            `    const msg = 'this is extra info';`,
+            `    const s = extra.signal;`,
+            `    return { content: [{ type: 'text', text: msg }] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("'this is extra info'");
+        expect(result).toContain('ctx.mcpReq.signal');
+        expect(result).toContain('(request, ctx)');
+    });
+
+    it('does not rename "extra" as property name on unrelated object', () => {
+        const input = [
+            `server.setRequestHandler('tools/call', async (request, extra) => {`,
+            `    const meta = request.params._meta;`,
+            `    if (meta?.extra) { console.log(meta.extra); }`,
+            `    const s = extra.signal;`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('meta?.extra');
+        expect(result).toContain('meta.extra');
+        expect(result).toContain('ctx.mcpReq.signal');
+        expect(result).not.toContain('meta?.ctx');
+        expect(result).not.toContain('meta.ctx');
+    });
+
     it('rewrites typeof ctx.sendRequest in type positions', () => {
         const input = [
             `server.setRequestHandler('tools/call', async (request, extra) => {`,

@@ -364,6 +364,7 @@ function migrateConstructorTaskOptions(sourceFile: SourceFile, diagnostics: Diag
     let changes = 0;
 
     for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
+        if (node.wasForgotten()) continue;
         const expr = node.getExpression();
         if (!Node.isIdentifier(expr) || expr.getText() !== localName) continue;
 
@@ -415,22 +416,39 @@ function migrateConstructorTaskOptions(sourceFile: SourceFile, diagnostics: Diag
             continue;
         }
 
-        // Single text replacement: remove top-level props and insert into tasks object
+        // Single text replacement: remove top-level props and insert into tasks object.
+        // Use AST nodes (already located via getProperty) to get brace-balanced text and
+        // exact positions, avoiding regex truncation on values containing commas/braces.
         let optionsText = optionsArg.getText();
         const propTexts: string[] = [];
         for (const propName of propsToMove) {
-            const propRegex = new RegExp(String.raw`\n?\s*${propName}\s*(?::\s*[^,}\n]+)?,?`);
-            const match = propRegex.exec(optionsText);
-            if (match) {
-                const cleanProp = match[0].trim().replace(/,$/, '').trim();
-                propTexts.push(cleanProp);
-                optionsText = optionsText.slice(0, match.index) + optionsText.slice(match.index + match[0].length);
-                // Adjust tasks position if removal was before it
-                if (match.index < tasksObjStart) {
-                    const shift = match[0].length;
-                    tasksObjStart -= shift;
-                    tasksObjEnd -= shift;
-                }
+            const prop = optionsArg.getProperty(propName);
+            if (!prop) continue;
+            const argStart = optionsArg.getStart();
+            const propStart = prop.getStart() - argStart;
+            const propEnd = prop.getEnd() - argStart;
+            propTexts.push(prop.getText());
+            // Remove the property text plus any trailing comma and surrounding whitespace
+            let remStart = propStart;
+            let remEnd = propEnd;
+            // Consume trailing comma and whitespace
+            const afterProp = optionsText.slice(remEnd);
+            const trailingMatch = afterProp.match(/^\s*,?\s*/);
+            if (trailingMatch) {
+                remEnd += trailingMatch[0].length;
+            }
+            // Consume leading whitespace/newline
+            const beforeProp = optionsText.slice(0, remStart);
+            const leadingMatch = beforeProp.match(/[\n\r]?\s*$/);
+            if (leadingMatch) {
+                remStart -= leadingMatch[0].length;
+            }
+            optionsText = optionsText.slice(0, remStart) + optionsText.slice(remEnd);
+            // Adjust tasks position if removal was before it
+            if (remStart < tasksObjStart) {
+                const shift = remEnd - remStart;
+                tasksObjStart -= shift;
+                tasksObjEnd -= shift;
             }
         }
 

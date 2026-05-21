@@ -263,9 +263,10 @@ function rewriteCapturedSafeParse(
     safeParseCall.replaceWithText(`specTypeSchemas.${typeName}['~standard'].validate(${argText})`);
     ensureImport(sourceFile, 'specTypeSchemas');
 
-    // Find and rewrite all property accesses on the result variable
+    // Find and rewrite all property accesses on the result variable (scoped to declaring block)
     const replacements: { node: import('ts-morph').Node; newText: string }[] = [];
-    sourceFile.forEachDescendant(node => {
+    const scope = varDecl.getFirstAncestorByKind(SyntaxKind.Block) ?? sourceFile;
+    scope.forEachDescendant(node => {
         if (!Node.isPropertyAccessExpression(node)) return;
         const expr = node.getExpression();
         if (!Node.isIdentifier(expr) || expr.getText() !== varName) return;

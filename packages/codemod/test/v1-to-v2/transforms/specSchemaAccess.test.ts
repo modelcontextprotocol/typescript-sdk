@@ -163,6 +163,25 @@ describe('spec-schema-access transform', () => {
             expect(text).not.toContain('result.error');
         });
 
+        it('does not rewrite same-named variable in sibling function', () => {
+            const input = [
+                `import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+                `function validate(d: unknown) {`,
+                `    const result = CallToolRequestSchema.safeParse(d);`,
+                `    return result.success;`,
+                `}`,
+                `async function callApi(client: any) {`,
+                `    const result = await client.get('/api');`,
+                `    return result.data;`,
+                `}`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).toContain('result.issues === undefined');
+            expect(text).toContain('return result.data');
+            expect(text).not.toContain('return result.value');
+        });
+
         it('falls back to diagnostic for non-captured safeParse (bare expression)', () => {
             const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `ToolSchema.safeParse(data);`, ''].join('\n');
             const { result } = applyTransform(input);
