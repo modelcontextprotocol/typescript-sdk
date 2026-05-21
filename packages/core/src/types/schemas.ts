@@ -1417,7 +1417,11 @@ export const CallToolRequestParamsSchema = TaskAugmentedRequestParamsSchema.exte
     /**
      * Arguments to pass to the tool.
      */
-    arguments: z.record(z.string(), z.unknown()).optional()
+    arguments: z
+        .record(z.string(), z.unknown())
+        .nullable()
+        .transform(args => args ?? undefined)
+        .optional()
 });
 
 /**

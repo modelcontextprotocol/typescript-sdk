@@ -1,4 +1,5 @@
 import {
+    CallToolRequestSchema,
     CallToolResultSchema,
     ClientCapabilitiesSchema,
     CompleteRequestSchema,
@@ -31,6 +32,25 @@ describe('Types', () => {
         expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2025-03-26');
         expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2024-11-05');
         expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2024-10-07');
+    });
+
+    describe('CallToolRequest', () => {
+        test('should treat null arguments as omitted', () => {
+            const request = {
+                method: 'tools/call',
+                params: {
+                    name: 'echo',
+                    arguments: null
+                }
+            };
+
+            const result = CallToolRequestSchema.safeParse(request);
+
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.params.arguments).toBeUndefined();
+            }
+        });
     });
 
     describe('ResourceLink', () => {
