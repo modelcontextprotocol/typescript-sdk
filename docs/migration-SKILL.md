@@ -373,8 +373,8 @@ To send a custom-method request, pass a result schema as the second argument to 
 ```typescript
 // v1
 await client.request({ method: 'acme/search', params }, ResultSchema);
-// v2 (unchanged; now any Standard Schema, not Zod-only)
-await client.request({ method: 'acme/search', params }, ResultSchema);
+// v2 (now any Standard Schema, not Zod-only; raw request() lives on .legacy)
+await client.legacy.request({ method: 'acme/search', params }, ResultSchema);
 ```
 
 Schema to method string mapping:
@@ -445,15 +445,15 @@ const elicit = await ctx.mcpReq.send({ method: 'elicitation/create', params: { .
 const tool = await client.callTool({ name: 'my-tool', arguments: {} }, CompatibilityCallToolResultSchema);
 
 // v2: no schema argument
-const result = await client.request({ method: 'tools/call', params: { ... } });
+const result = await client.legacy.request({ method: 'tools/call', params: { ... } });
 const elicit = await ctx.mcpReq.send({ method: 'elicitation/create', params: { ... } });
 const tool = await client.callTool({ name: 'my-tool', arguments: {} });
 ```
 
 | v1 call                                                      | v2 call                            |
 | ------------------------------------------------------------ | ---------------------------------- |
-| `client.request(req, ResultSchema)`                          | `client.request(req)`              |
-| `client.request(req, ResultSchema, options)`                 | `client.request(req, options)`     |
+| `client.legacy.request(req, ResultSchema)`                          | `client.legacy.request(req)`              |
+| `client.legacy.request(req, ResultSchema, options)`                 | `client.legacy.request(req, options)`     |
 | `ctx.mcpReq.send(req, ResultSchema)`                         | `ctx.mcpReq.send(req)`             |
 | `ctx.mcpReq.send(req, ResultSchema, options)`                | `ctx.mcpReq.send(req, options)`    |
 | `client.callTool(params, CompatibilityCallToolResultSchema)` | `client.callTool(params)`          |
@@ -543,7 +543,9 @@ All five rows are the **both-protocols** path, not 2026-only: `ctx.mcpReq.listRo
 
 Add `ctx` to the handler signature if not already present. For tools with an `inputSchema`: `async (args) =>` → `async (args, ctx) =>`. For tools WITHOUT an `inputSchema`: `async () =>` → `async ctx =>` (single parameter).
 
-The top-level `server.createMessage()` etc. still work with a connected pre-2026 client; this migration is recommended but not required.
+The top-level methods have moved to `server.legacy.*` (e.g. `server.legacy.createMessage(...)`) and only work with a connected pre-2026 client; otherwise they throw `SdkErrorCode.SessionRequired`. Migrating to `ctx.mcpReq.*` is now required to compile against the new `Server`.
+
+`Server`/`Client` no longer extend `Protocol`. `request(...)`/`notification(...)` and the session-dependent methods (`createMessage`, `elicitInput`, `listRoots`, `sendLoggingMessage`, `ping` on the server; `ping`, `subscribeResource`, `unsubscribeResource`, `sendRootsListChanged` on the client) live on `server.legacy` / `client.legacy`.
 
 `ctx.mcpReq.requestSampling` keeps the same overload narrowing as `server.createMessage`: when `params.tools` is statically present the result type is `CreateMessageResultWithTools`; when statically absent it is `CreateMessageResult`. If `tools` is conditional at the call site, the result is the union; add a runtime `Array.isArray(result.content)` check before indexing.
 

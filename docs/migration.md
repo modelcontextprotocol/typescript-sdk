@@ -403,7 +403,7 @@ For `setNotificationHandler`, the 3-arg handler is `(params, notification) => vo
 `request()` and `ctx.mcpReq.send()` accept a result schema as the second argument; for custom methods this is required:
 
 ```typescript
-const result = await client.request({ method: 'acme/search', params: { query: 'mcp', limit: 3 } }, SearchResult);
+const result = await client.legacy.request({ method: 'acme/search', params: { query: 'mcp', limit: 3 } }, SearchResult);
 result.items; // string[]
 ```
 
@@ -443,8 +443,10 @@ const result = await client.request({ method: 'tools/call', params: { name: 'my-
 **After (v2):**
 
 ```typescript
-const result = await client.request({ method: 'tools/call', params: { name: 'my-tool', arguments: {} } });
+const result = await client.legacy.request({ method: 'tools/call', params: { name: 'my-tool', arguments: {} } });
 ```
+
+Raw `request()`/`notification()` now live on `client.legacy` (see [`.legacy` extraction](#serverclient-no-longer-extend-protocol-session-dependent-methods-moved-to-legacy) below).
 
 **`ctx.mcpReq.send()` — Before (v1):**
 
@@ -485,7 +487,7 @@ const result = await client.callTool({ name: 'my-tool', arguments: {} }, Compati
 const result = await client.callTool({ name: 'my-tool', arguments: {} });
 ```
 
-The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult>`.
+The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.legacy.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult>`.
 
 For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
@@ -895,7 +897,17 @@ Inside a tool/prompt/resource handler, use `ctx.mcpReq.{elicitInput, requestSamp
 
 `ctx.mcpReq.listRoots()` and `ctx.clientCapabilities` work under **both** protocols, not just 2026-06.
 
-The top-level methods still exist and work when a pre-2026 client is connected. They are not removed.
+The top-level methods have moved to `server.legacy.*` (e.g. `server.legacy.createMessage(...)`). They still work when a pre-2026 client is connected; with a 2026-06 connection or no connected transport they throw `SdkErrorCode.SessionRequired` pointing at this section.
+
+### `Server`/`Client` no longer extend `Protocol`; session-dependent methods moved to `.legacy`
+
+`Server` and `Client` no longer inherit from `Protocol`. The pre-2026 connection-model surface now lives on a composed `LegacyServer`/`LegacyClient` instance reachable via the `.legacy` getter. Inside handlers, use `ctx.mcpReq.*` instead.
+
+| Removed from `Server`/`Client` | Moved to |
+| --- | --- |
+| `server.createMessage(...)` / `elicitInput` / `listRoots` / `sendLoggingMessage` / `ping` | `server.legacy.*` |
+| `client.ping()` / `subscribeResource` / `unsubscribeResource` / `sendRootsListChanged` | `client.legacy.*` |
+| `request(...)` / `notification(...)` (raw `Protocol` methods) | `server.legacy.*` / `client.legacy.*` |
 
 MRTR via `InputRequiredError` works for handlers registered via `setRequestHandler`; `fallbackRequestHandler` is not wrapped by middleware (matches pre-existing behavior).
 
