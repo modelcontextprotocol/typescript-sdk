@@ -13,7 +13,8 @@
 export { OAuthError, OAuthErrorCode } from '../../auth/errors.js';
 
 // SDK error types (local errors that never cross the wire)
-export { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
+export type { SdkHttpErrorData } from '../../errors/sdkErrors.js';
+export { SdkError, SdkErrorCode, SdkHttpError } from '../../errors/sdkErrors.js';
 
 // Auth TypeScript types (NOT Zod schemas like OAuthMetadataSchema)
 export type {
@@ -140,7 +141,7 @@ export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/
 // Validator types and classes
 export type { SpecTypeName, SpecTypes } from '../../types/specTypeSchema.js';
 export { isSpecType, specTypeSchemas } from '../../types/specTypeSchema.js';
-export type { StandardSchemaV1, StandardSchemaWithJSON } from '../../util/standardSchema.js';
+export type { StandardSchemaV1, StandardSchemaV1Sync, StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages
