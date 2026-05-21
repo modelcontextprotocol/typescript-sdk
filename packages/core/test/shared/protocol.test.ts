@@ -768,6 +768,22 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 'req-2' });
         });
 
+        it('should NOT debounce a notification that has relatedRequestId 0 (regression for #2117)', async () => {
+            // ARRANGE: id=0 is a valid JSON-RPC RequestId (and the first id a Protocol uses).
+            // The truthy guard `!options?.relatedRequestId` treated 0 as absent and
+            // incorrectly debounced these related notifications. Pin the fixed behaviour.
+            protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced_with_options'] });
+            await protocol.connect(transport);
+
+            // ACT
+            await protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+            await protocol.notification({ method: 'test/debounced_with_options' }, { relatedRequestId: 0 });
+
+            // ASSERT: both calls must reach the transport (no coalescing).
+            expect(sendSpy).toHaveBeenCalledTimes(2);
+            expect(sendSpy).toHaveBeenCalledWith(expect.any(Object), { relatedRequestId: 0 });
+        });
+
         it('should clear pending debounced notifications on connection close', async () => {
             // ARRANGE
             protocol = new TestProtocolImpl({ debouncedNotificationMethods: ['test/debounced'] });

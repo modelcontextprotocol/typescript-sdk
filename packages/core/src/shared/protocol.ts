@@ -1010,7 +1010,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // A notification can only be debounced if it's in the list AND it's "simple"
         // (i.e., has no parameters and no related request ID or related task that could be lost).
         const canDebounce =
-            debouncedMethods.includes(notification.method) && !notification.params && !options?.relatedRequestId && !options?.relatedTask;
+            debouncedMethods.includes(notification.method) &&
+            !notification.params &&
+            options?.relatedRequestId == null &&
+            !options?.relatedTask;
 
         if (canDebounce) {
             // If a notification of this type is already scheduled, do nothing.
