@@ -412,6 +412,20 @@ describe('spec-schema-access transform', () => {
             expect(text).toContain('ToolSchema: local');
             expect(result.changesCount).toBe(0);
         });
+
+        it('skips PropertyAccessExpression name-node (obj.ToolSchema)', () => {
+            const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `const x = registry.ToolSchema;`, ''].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('registry.ToolSchema');
+            expect(text).not.toContain('specTypeSchemas');
+            expect(result.changesCount).toBe(0);
+        });
+
+        it('does not emit z.infer diagnostic for runtime typeof (TypeOfExpression)', () => {
+            const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `const kind = typeof ToolSchema;`, ''].join('\n');
+            const { result } = applyTransform(input);
+            expect(result.diagnostics.every(d => !d.message.includes('z.infer'))).toBe(true);
+        });
     });
 
     describe('aliased imports', () => {

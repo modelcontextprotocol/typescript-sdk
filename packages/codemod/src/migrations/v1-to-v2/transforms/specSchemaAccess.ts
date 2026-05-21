@@ -173,6 +173,10 @@ function handleReference(
         return false;
     }
 
+    if (parent && Node.isPropertyAccessExpression(parent) && parent.getNameNode() === ref) {
+        return false;
+    }
+
     // Value position: replace identifier with specTypeSchemas.X
     const line = ref.getStartLineNumber();
     ref.replaceWithText(`specTypeSchemas.${typeName}`);
@@ -217,10 +221,7 @@ function isParsePattern(ref: import('ts-morph').Node): boolean {
 function isTypeofInTypePosition(ref: import('ts-morph').Node): boolean {
     const parent = ref.getParent();
     if (!parent) return false;
-    if (Node.isTypeQuery(parent)) return true;
-    // typeof inside a type argument like z.infer<typeof X>
-    if (parent.getKind() === SyntaxKind.TypeOfExpression) return true;
-    return false;
+    return Node.isTypeQuery(parent);
 }
 
 /**
