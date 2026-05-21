@@ -13,7 +13,7 @@ import {
     OpenIdProviderDiscoveryMetadataSchema,
     OpenIdProviderMetadataSchema
 } from '../shared/auth.js';
-import type { StandardSchemaV1 } from '../util/standardSchema.js';
+import type { StandardSchemaV1, StandardSchemaV1Sync } from '../util/standardSchema.js';
 import * as schemas from './schemas.js';
 
 /**
@@ -237,7 +237,7 @@ type SpecTypeInputs = {
     [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.input<SchemaFor<K>> : never;
 };
 
-type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1<SpecTypeInputs[K], SpecTypes[K]> };
+type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1Sync<SpecTypeInputs[K], SpecTypes[K]> };
 type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypeInputs[K] };
 
 const _specTypeSchemas: Record<string, StandardSchemaV1> = {};
@@ -267,7 +267,7 @@ for (const [key, schema] of Object.entries(authSchemas)) {
  *
  * @example
  * ```ts source="./specTypeSchema.examples.ts#specTypeSchemas_basicUsage"
- * const result = await specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
+ * const result = specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
  * if (result.issues === undefined) {
  *     // result.value is CallToolResult
  * }
