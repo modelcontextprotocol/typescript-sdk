@@ -33,7 +33,7 @@ function createDefaultAjvInstance(): Ajv {
  * const validator = new AjvJsonSchemaValidator(ajv);
  * ```
  *
- * @see {@linkcode CfWorkerJsonSchemaValidator} for an edge-runtime-compatible alternative
+ * @see `CfWorkerJsonSchemaValidator` for an edge-runtime-compatible alternative (import from `@modelcontextprotocol/server/validators/cf-worker` or `@modelcontextprotocol/client/validators/cf-worker`)
  */
 export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     private _ajv: Ajv;

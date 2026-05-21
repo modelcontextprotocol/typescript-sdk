@@ -1502,6 +1502,50 @@ describe('Task Lifecycle Integration Tests', () => {
         });
     });
 
+    describe('callToolStream with failed task', () => {
+        it('should yield stored result (isError: true) when task fails, not a generic ProtocolError', async () => {
+            const client = new Client(
+                {
+                    name: 'test-client',
+                    version: '1.0.0'
+                },
+                {
+                    capabilities: { tasks: {} }
+                }
+            );
+
+            const transport = new StreamableHTTPClientTransport(baseUrl);
+            await client.connect(transport);
+
+            // Use callToolStream with shouldFail: true so the tool stores a failed result
+            const stream = client.experimental.tasks.callToolStream(
+                { name: 'long-task', arguments: { duration: 100, shouldFail: true } },
+                { task: { ttl: 60_000 } }
+            );
+
+            // Collect all stream messages
+            const messages: Array<{ type: string; task?: unknown; result?: unknown; error?: unknown }> = [];
+            for await (const message of stream) {
+                messages.push(message);
+            }
+
+            // First message should be taskCreated
+            expect(messages[0]!.type).toBe('taskCreated');
+
+            // Last message must be 'result' (carrying the stored isError content),
+            // NOT 'error' (which would mean the generic hardcoded ProtocolError was returned)
+            const lastMessage = messages.at(-1)!;
+            expect(lastMessage.type).toBe('result');
+
+            // The stored result should contain isError: true and the real failure content
+            const result = lastMessage.result as { content: Array<{ type: string; text: string }>; isError: boolean };
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([{ type: 'text', text: 'Task failed as requested' }]);
+
+            await transport.close();
+        }, 15_000);
+    });
+
     describe('callToolStream with elicitation', () => {
         it('should deliver elicitation via callToolStream and complete task', async () => {
             const client = new Client(

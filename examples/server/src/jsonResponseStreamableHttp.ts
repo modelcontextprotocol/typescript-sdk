@@ -110,14 +110,17 @@ app.post('/mcp', async (req: Request, res: Response) => {
             await server.connect(transport);
             await transport.handleRequest(req, res, req.body);
             return; // Already handled
+        } else if (sessionId) {
+            res.status(404).json({
+                jsonrpc: '2.0',
+                error: { code: -32_001, message: 'Session not found' },
+                id: null
+            });
+            return;
         } else {
-            // Invalid request - no session ID or not initialization request
             res.status(400).json({
                 jsonrpc: '2.0',
-                error: {
-                    code: -32_000,
-                    message: 'Bad Request: No valid session ID provided'
-                },
+                error: { code: -32_000, message: 'Bad Request: Session ID required' },
                 id: null
             });
             return;

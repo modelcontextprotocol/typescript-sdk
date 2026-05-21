@@ -42,8 +42,8 @@ interface TestServerConfig {
     enableJsonResponse?: boolean;
     customRequestHandler?: (req: IncomingMessage, res: ServerResponse, parsedBody?: unknown) => Promise<void>;
     eventStore?: EventStore;
-    onsessioninitialized?: (sessionId: string) => void | Promise<void>;
-    onsessionclosed?: (sessionId: string) => void | Promise<void>;
+    onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
+    onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
     retryInterval?: number;
 }
 
@@ -396,7 +396,7 @@ describe('Zod v4', () => {
         /***
          * Test: Tool With Request Info
          */
-        it('should pass request info to tool callback', async () => {
+        it('should expose the full Request object to tool handlers', async () => {
             sessionId = await initializeServer();
 
             mcpServer.registerTool(
@@ -406,10 +406,11 @@ describe('Zod v4', () => {
                     inputSchema: z.object({ name: z.string().describe('Name to greet') })
                 },
                 async ({ name }, ctx): Promise<CallToolResult> => {
-                    // Convert Headers object to plain object for JSON serialization
-                    // Headers is a Web API class that doesn't serialize with JSON.stringify
+                    const req = ctx.http?.req;
                     const serializedRequestInfo = {
-                        headers: Object.fromEntries(ctx.http?.req?.headers ?? new Headers())
+                        headers: Object.fromEntries(req?.headers ?? new Headers()),
+                        url: req?.url,
+                        method: req?.method
                     };
                     return {
                         content: [
@@ -464,8 +465,56 @@ describe('Zod v4', () => {
                     'user-agent': expect.any(String),
                     'accept-encoding': expect.any(String),
                     'content-length': expect.any(String)
-                }
+                },
+                url: expect.stringContaining(baseUrl.pathname),
+                method: 'POST'
             });
+        });
+
+        it('should expose query parameters via the Request object', async () => {
+            sessionId = await initializeServer();
+
+            mcpServer.registerTool(
+                'test-query-params',
+                {
+                    description: 'A tool that reads query params',
+                    inputSchema: z.object({})
+                },
+                async (_args, ctx): Promise<CallToolResult> => {
+                    const req = ctx.http?.req;
+                    const url = new URL(req!.url);
+                    const params = Object.fromEntries(url.searchParams);
+                    return {
+                        content: [{ type: 'text', text: JSON.stringify(params) }]
+                    };
+                }
+            );
+
+            const toolCallMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: {
+                    name: 'test-query-params',
+                    arguments: {}
+                },
+                id: 'call-2'
+            };
+
+            // Send to a URL with query parameters
+            const urlWithParams = new URL(baseUrl.toString());
+            urlWithParams.searchParams.set('foo', 'bar');
+            urlWithParams.searchParams.set('debug', 'true');
+
+            const response = await sendPostRequest(urlWithParams, toolCallMessage, sessionId);
+            expect(response.status).toBe(200);
+
+            const text = await readSSEEvent(response);
+            const dataLine = text.split('\n').find(line => line.startsWith('data:'));
+            expect(dataLine).toBeDefined();
+
+            const eventData = JSON.parse(dataLine!.slice(5));
+            const queryParams = JSON.parse(eventData.result.content[0].text);
+            expect(queryParams).toEqual({ foo: 'bar', debug: 'true' });
         });
 
         it('should reject requests without a valid session ID', async () => {

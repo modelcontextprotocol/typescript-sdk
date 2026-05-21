@@ -6,6 +6,7 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    ElicitRequestFormParamsSchema,
     LATEST_PROTOCOL_VERSION,
     PromptMessageSchema,
     ResourceLinkSchema,
@@ -980,6 +981,33 @@ describe('Types', () => {
             if (result.success) {
                 expect(result.data.sampling?.context).toBeDefined();
                 expect(result.data.sampling?.tools).toBeDefined();
+            }
+        });
+    });
+
+    describe('ElicitRequestFormParamsSchema', () => {
+        test('accepts requestedSchema with extra JSON Schema metadata keys', () => {
+            // Mirrors what z.toJSONSchema() emits — includes $schema, additionalProperties, etc.
+            // See https://github.com/modelcontextprotocol/typescript-sdk/issues/1362
+            const params = {
+                message: 'Please provide your name',
+                requestedSchema: {
+                    $schema: 'https://json-schema.org/draft/2020-12/schema',
+                    type: 'object',
+                    properties: {
+                        name: { type: 'string' }
+                    },
+                    required: ['name'],
+                    additionalProperties: false
+                }
+            };
+
+            const result = ElicitRequestFormParamsSchema.safeParse(params);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data.requestedSchema.type).toBe('object');
+                expect(result.data.requestedSchema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
+                expect(result.data.requestedSchema.additionalProperties).toBe(false);
             }
         });
     });

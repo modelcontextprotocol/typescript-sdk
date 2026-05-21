@@ -127,7 +127,8 @@ Now let's dive into building your server.
 Add these to the top of your `src/index.ts`:
 
 ```ts source="../examples/server-quickstart/src/index.ts#prelude"
-import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 
 const NWS_API_BASE = 'https://api.weather.gov';

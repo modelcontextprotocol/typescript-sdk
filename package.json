@@ -29,6 +29,7 @@
         "docs:check": "typedoc",
         "typecheck:all": "pnpm -r typecheck",
         "build:all": "pnpm -r build",
+        "ci:publish": "pnpm run build:all && pnpm changeset publish",
         "prepack:all": "pnpm -r prepack",
         "lint:all": "pnpm sync:snippets --check && pnpm -r lint",
         "lint:fix:all": "pnpm sync:snippets && pnpm -r lint:fix",
@@ -60,7 +61,6 @@
         "@types/express-serve-static-core": "catalog:devTools",
         "@types/node": "^24.10.1",
         "@types/supertest": "catalog:devTools",
-        "@types/ws": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
@@ -75,7 +75,6 @@
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools",
-        "ws": "catalog:devTools",
         "zod": "catalog:runtimeShared"
     },
     "resolutions": {

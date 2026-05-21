@@ -67,11 +67,11 @@ For production use, you can either:
 
 ### Where can I find runnable server examples?
 
-The SDK ships several runnable server examples under `examples/server/src`. Start from the server examples index in [`examples/server/README.md`](../examples/server/README.md) and the entry-point quick start in the root [`README.md`](../README.md).
+The [server quickstart](./server-quickstart.md) walks you through building a weather server from scratch. Its complete source lives in [`examples/server-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server-quickstart/). For more advanced examples (OAuth, streaming, sessions, etc.), see the server examples index in [`examples/server/README.md`](../examples/server/README.md).
 
-### Why did we remove `server` auth exports?
+### Where are the server auth helpers?
 
-Server authentication & authorization is outside of the scope of the SDK, and the recommendation is to use packages that focus on this area specifically (or a full-fledged Authorization Server for those who use such). Example packages provide an example with `better-auth`.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. The Authorization Server helpers (`mcpAuthRouter`, `ProxyOAuthServerProvider`, etc.) have been removed from the core SDK; new code should use a dedicated IdP/OAuth library. Example packages provide a demo with `better-auth`.
 
 ### Why did we remove `server` SSE transport?
 

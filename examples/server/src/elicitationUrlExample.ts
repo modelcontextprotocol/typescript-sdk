@@ -9,13 +9,8 @@
 
 import { randomUUID } from 'node:crypto';
 
-import {
-    createProtectedResourceMetadataRouter,
-    getOAuthProtectedResourceMetadataUrl,
-    requireBearerAuth,
-    setupAuthServer
-} from '@modelcontextprotocol/examples-shared';
-import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { createProtectedResourceMetadataRouter, demoTokenVerifier, setupAuthServer } from '@modelcontextprotocol/examples-shared';
+import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ElicitRequestURLParams, ElicitResult } from '@modelcontextprotocol/server';
 import { isInitializeRequest, McpServer, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
@@ -235,7 +230,7 @@ let authMiddleware = null;
 const mcpServerUrl = new URL(`http://localhost:${MCP_PORT}/mcp`);
 const authServerUrl = new URL(`http://localhost:${AUTH_PORT}`);
 
-setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true, demoMode: true });
+setupAuthServer({ authServerUrl, mcpServerUrl, demoMode: true });
 
 // Add protected resource metadata route to the MCP server
 // This allows clients to discover the auth server
@@ -243,10 +238,9 @@ setupAuthServer({ authServerUrl, mcpServerUrl, strictResource: true, demoMode: t
 app.use(createProtectedResourceMetadataRouter('/mcp'));
 
 authMiddleware = requireBearerAuth({
+    verifier: demoTokenVerifier,
     requiredScopes: [],
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl),
-    strictResource: true,
-    expectedResource: mcpServerUrl
+    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
 });
 
 /**
@@ -606,14 +600,17 @@ const mcpPostHandler = async (req: Request, res: Response) => {
 
             await transport.handleRequest(req, res, req.body);
             return; // Already handled
+        } else if (sessionId) {
+            res.status(404).json({
+                jsonrpc: '2.0',
+                error: { code: -32_001, message: 'Session not found' },
+                id: null
+            });
+            return;
         } else {
-            // Invalid request - no session ID or not initialization request
             res.status(400).json({
                 jsonrpc: '2.0',
-                error: {
-                    code: -32_000,
-                    message: 'Bad Request: No valid session ID provided'
-                },
+                error: { code: -32_000, message: 'Bad Request: Session ID required' },
                 id: null
             });
             return;
@@ -643,8 +640,12 @@ app.post('/mcp', authMiddleware, mcpPostHandler);
 // Handle GET requests for SSE streams (using built-in support from StreamableHTTP)
 const mcpGetHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        res.status(400).send('Missing session ID');
+        return;
+    }
+    if (!transports[sessionId]) {
+        res.status(404).send('Session not found');
         return;
     }
 
@@ -682,8 +683,12 @@ app.get('/mcp', authMiddleware, mcpGetHandler);
 // Handle DELETE requests for session termination (according to MCP spec)
 const mcpDeleteHandler = async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId || !transports[sessionId]) {
-        res.status(400).send('Invalid or missing session ID');
+    if (!sessionId) {
+        res.status(400).send('Missing session ID');
+        return;
+    }
+    if (!transports[sessionId]) {
+        res.status(404).send('Session not found');
         return;
     }
 

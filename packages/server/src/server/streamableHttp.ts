@@ -7,7 +7,7 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, RequestInfo, Transport } from '@modelcontextprotocol/core';
+import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -225,6 +225,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
     private _started: boolean = false;
+    private _closed: boolean = false;
     private _streamMapping: Map<string, StreamMapping> = new Map();
     private _requestToStreamMapping: Map<RequestId, string> = new Map();
     private _requestResponseMap: Map<RequestId, JSONRPCMessage> = new Map();
@@ -634,10 +635,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 return this.createJsonErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
             }
 
-            // Build request info from headers
-            const requestInfo: RequestInfo = {
-                headers: req.headers
-            };
+            const request = req;
 
             let rawMessage;
             if (options?.parsedBody === undefined) {
@@ -707,7 +705,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             if (!hasRequests) {
                 // if it only contains notifications or responses, return 202
                 for (const message of messages) {
-                    this.onmessage?.(message, { ...(options?.authInfo === undefined ? {} : { authInfo: options.authInfo }), requestInfo });
+                    this.onmessage?.(message, { ...(options?.authInfo === undefined ? {} : { authInfo: options.authInfo }), request });
                 }
                 return new Response(null, { status: 202 });
             }
@@ -743,7 +741,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     for (const message of messages) {
                         this.onmessage?.(message, {
                             ...(options?.authInfo === undefined ? {} : { authInfo: options.authInfo }),
-                            requestInfo
+                            request
                         });
                     }
                 });
@@ -816,7 +814,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
                 this.onmessage?.(message, {
                     ...(options?.authInfo === undefined ? {} : { authInfo: options.authInfo }),
-                    requestInfo,
+                    request,
                     ...(closeSSEStream === undefined ? {} : { closeSSEStream }),
                     ...(closeStandaloneSSEStream === undefined ? {} : { closeStandaloneSSEStream })
                 });
@@ -908,6 +906,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     async close(): Promise<void> {
+        if (this._closed) {
+            return;
+        }
+        this._closed = true;
+
         // Close all SSE connections
         for (const { cleanup } of this._streamMapping.values()) {
             cleanup();

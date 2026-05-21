@@ -2,10 +2,6 @@
 export type { CreateDemoAuthOptions, DemoAuth } from './auth.js';
 export { createDemoAuth } from './auth.js';
 
-// Auth middleware
-export type { RequireBearerAuthOptions } from './authMiddleware.js';
-export { getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from './authMiddleware.js';
-
-// Auth server setup
+// Auth server setup + demo token verifier (pass to `requireBearerAuth` from @modelcontextprotocol/express)
 export type { SetupAuthServerOptions } from './authServer.js';
-export { createProtectedResourceMetadataRouter, getAuth, setupAuthServer, verifyAccessToken } from './authServer.js';
+export { createProtectedResourceMetadataRouter, demoTokenVerifier, getAuth, setupAuthServer } from './authServer.js';

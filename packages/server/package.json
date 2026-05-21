@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/server",
-    "version": "2.0.0-alpha.0",
+    "version": "2.0.0-alpha.2",
     "description": "Model Context Protocol implementation for TypeScript - Server package",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -24,6 +24,14 @@
             "types": "./dist/index.d.mts",
             "import": "./dist/index.mjs"
         },
+        "./stdio": {
+            "types": "./dist/stdio.d.mts",
+            "import": "./dist/stdio.mjs"
+        },
+        "./validators/cf-worker": {
+            "types": "./dist/validators/cfWorker.d.mts",
+            "import": "./dist/validators/cfWorker.mjs"
+        },
         "./_shims": {
             "workerd": {
                 "types": "./dist/shimsWorkerd.d.mts",
@@ -41,6 +49,20 @@
                 "types": "./dist/shimsNode.d.mts",
                 "import": "./dist/shimsNode.mjs"
             }
+        }
+    },
+    "types": "./dist/index.d.mts",
+    "typesVersions": {
+        "*": {
+            "validators/cf-worker": [
+                "dist/validators/cfWorker.d.mts"
+            ],
+            "zod-schemas": [
+                "dist/zodSchemas.d.mts"
+            ],
+            "stdio": [
+                "dist/stdio.d.mts"
+            ]
         }
     },
     "files": [
@@ -62,18 +84,6 @@
     "dependencies": {
         "zod": "catalog:runtimeShared"
     },
-    "peerDependencies": {
-        "@cfworker/json-schema": "catalog:runtimeShared",
-        "zod": "catalog:runtimeShared"
-    },
-    "peerDependenciesMeta": {
-        "@cfworker/json-schema": {
-            "optional": true
-        },
-        "zod": {
-            "optional": false
-        }
-    },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
@@ -82,7 +92,6 @@
         "@modelcontextprotocol/test-helpers": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@types/cross-spawn": "catalog:devTools",
         "@types/eventsource": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",

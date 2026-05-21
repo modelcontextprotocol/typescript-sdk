@@ -3,7 +3,7 @@
  *
  * This file is selected via package.json export conditions when running in workerd.
  */
-export { CfWorkerJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core';
+export { CfWorkerJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
 
 /**
  * Stub process object for non-Node.js environments.

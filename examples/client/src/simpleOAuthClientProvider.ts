@@ -1,4 +1,5 @@
 import type { OAuthClientInformationMixed, OAuthClientMetadata, OAuthClientProvider, OAuthTokens } from '@modelcontextprotocol/client';
+import { validateClientMetadataUrl } from '@modelcontextprotocol/client';
 
 /**
  * In-memory OAuth client provider for demonstration purposes
@@ -15,6 +16,9 @@ export class InMemoryOAuthClientProvider implements OAuthClientProvider {
         onRedirect?: (url: URL) => void,
         public readonly clientMetadataUrl?: string
     ) {
+        // Validate clientMetadataUrl at construction time (fail-fast)
+        validateClientMetadataUrl(clientMetadataUrl);
+
         this._onRedirect =
             onRedirect ||
             (url => {

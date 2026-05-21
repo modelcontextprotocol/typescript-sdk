@@ -15,11 +15,16 @@ export * from './types/index.js';
 export * from './util/inMemory.js';
 export * from './util/schema.js';
 export * from './util/standardSchema.js';
+export * from './util/zodCompat.js';
 
 // experimental exports
 export * from './experimental/index.js';
 export * from './validators/ajvProvider.js';
-export * from './validators/cfWorkerProvider.js';
+// cfWorkerProvider is intentionally NOT re-exported here: it statically imports
+// `@cfworker/json-schema` (an optional peer), and bundling it into the main barrel
+// would force that import on all Node consumers. Import via `@modelcontextprotocol/core/validators/cfWorker`
+// (used by the workerd/browser `_shims` and the public `/validators/cf-worker` subpaths).
+export type { CfWorkerSchemaDraft } from './validators/cfWorkerProvider.js';
 export * from './validators/fromJsonSchema.js';
 /**
  * JSON Schema validation
@@ -28,12 +33,11 @@ export * from './validators/fromJsonSchema.js';
  * Choose a validator based on your runtime environment:
  *
  * - {@linkcode AjvJsonSchemaValidator}: Best for Node.js (default, fastest)
- *   Import from: @modelcontextprotocol/sdk/validators/ajv
- *   Requires peer dependencies: ajv, ajv-formats
+ *   Bundled — no additional dependencies required.
  *
- * - {@linkcode CfWorkerJsonSchemaValidator}: Best for edge runtimes
- *   Import from: @modelcontextprotocol/sdk/validators/cfworker
- *   Requires peer dependency: @cfworker/json-schema
+ * - `CfWorkerJsonSchemaValidator`: Best for edge runtimes
+ *   Import from: `@modelcontextprotocol/server/validators/cf-worker` or `@modelcontextprotocol/client/validators/cf-worker`
+ *   Bundled — no additional dependencies required.
  *
  * @example For Node.js with AJV
  * ```ts source="./index.examples.ts#validation_ajv"

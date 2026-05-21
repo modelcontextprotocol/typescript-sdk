@@ -233,6 +233,16 @@ export interface PrivateKeyJwtProviderOptions {
      * Space-separated scopes values requested by the client.
      */
     scope?: string;
+
+    /**
+     * Optional custom claims to include in the JWT assertion.
+     * These are merged with the standard claims (`iss`, `sub`, `aud`, `exp`, `iat`, `jti`),
+     * with custom claims taking precedence for any overlapping keys.
+     *
+     * Useful for including additional claims that help scope the access token
+     * with finer granularity than what scopes alone allow.
+     */
+    claims?: Record<string, unknown>;
 }
 
 /**
@@ -277,7 +287,8 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
             subject: options.clientId,
             privateKey: options.privateKey,
             alg: options.algorithm,
-            lifetimeSeconds: options.jwtLifetimeSeconds
+            lifetimeSeconds: options.jwtLifetimeSeconds,
+            claims: options.claims
         });
     }
 

@@ -12,6 +12,7 @@ import type {
     Implementation,
     InitializeRequest,
     InitializeResult,
+    JSONRPCRequest,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
@@ -23,12 +24,10 @@ import type {
     ProtocolOptions,
     RequestMethod,
     RequestOptions,
-    RequestTypeMap,
     ResourceUpdatedNotification,
-    ResultTypeMap,
+    Result,
     ServerCapabilities,
     ServerContext,
-    ServerResult,
     TaskManagerOptions,
     ToolResultContent,
     ToolUseContent
@@ -84,7 +83,7 @@ export type ServerOptions = ProtocolOptions & {
      * The validator is used to validate user input returned from elicitation
      * requests against the requested schema.
      *
-     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, {@linkcode index.CfWorkerJsonSchemaValidator | CfWorkerJsonSchemaValidator} on Cloudflare Workers)
+     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, `CfWorkerJsonSchemaValidator` on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 };
@@ -156,8 +155,7 @@ export class Server extends Protocol<ServerContext> {
 
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
         // Only create http when there's actual HTTP transport info or auth info
-        const hasHttpInfo =
-            ctx.http || transportInfo?.requestInfo || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
+        const hasHttpInfo = ctx.http || transportInfo?.request || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
         return {
             ...ctx,
             mcpReq: {
@@ -169,7 +167,7 @@ export class Server extends Protocol<ServerContext> {
             http: hasHttpInfo
                 ? {
                       ...ctx.http,
-                      req: transportInfo?.requestInfo,
+                      req: transportInfo?.request,
                       closeSSE: transportInfo?.closeSSEStream,
                       closeStandaloneSSE: transportInfo?.closeStandaloneSSEStream
                   }
@@ -222,58 +220,54 @@ export class Server extends Protocol<ServerContext> {
     }
 
     /**
-     * Override request handler registration to enforce server-side validation for `tools/call`.
+     * Enforces server-side validation for `tools/call` results regardless of how the
+     * handler was registered.
      */
-    public override setRequestHandler<M extends RequestMethod>(
-        method: M,
-        handler: (request: RequestTypeMap[M], ctx: ServerContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
-    ): void {
-        if (method === 'tools/call') {
-            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ServerContext): Promise<ServerResult> => {
-                const validatedRequest = parseSchema(CallToolRequestSchema, request);
-                if (!validatedRequest.success) {
-                    const errorMessage =
-                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
-                }
-
-                const { params } = validatedRequest.data;
-
-                const result = await Promise.resolve(handler(request, ctx));
-
-                // When task creation is requested, validate and return CreateTaskResult
-                if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                    if (!taskValidationResult.success) {
-                        const errorMessage =
-                            taskValidationResult.error instanceof Error
-                                ? taskValidationResult.error.message
-                                : String(taskValidationResult.error);
-                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                    }
-                    return taskValidationResult.data;
-                }
-
-                // For non-task requests, validate against CallToolResultSchema
-                const validationResult = parseSchema(CallToolResultSchema, result);
-                if (!validationResult.success) {
-                    const errorMessage =
-                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
-                }
-
-                return validationResult.data;
-            };
-
-            // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler);
+    protected override _wrapHandler(
+        method: string,
+        handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
+    ): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
+        if (method !== 'tools/call') {
+            return handler;
         }
+        return async (request, ctx) => {
+            const validatedRequest = parseSchema(CallToolRequestSchema, request);
+            if (!validatedRequest.success) {
+                const errorMessage =
+                    validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
+            }
 
-        // Other handlers use default behavior
-        return super.setRequestHandler(method, handler);
+            const { params } = validatedRequest.data;
+
+            const result = await handler(request, ctx);
+
+            // When task creation is requested, validate and return CreateTaskResult
+            if (params.task) {
+                const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
+                if (!taskValidationResult.success) {
+                    const errorMessage =
+                        taskValidationResult.error instanceof Error
+                            ? taskValidationResult.error.message
+                            : String(taskValidationResult.error);
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
+                }
+                return taskValidationResult.data;
+            }
+
+            // For non-task requests, validate against CallToolResultSchema
+            const validationResult = parseSchema(CallToolResultSchema, result);
+            if (!validationResult.success) {
+                const errorMessage =
+                    validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
+            }
+
+            return validationResult.data;
+        };
     }
 
-    protected assertCapabilityForMethod(method: RequestMethod): void {
+    protected assertCapabilityForMethod(method: RequestMethod | string): void {
         switch (method) {
             case 'sampling/createMessage': {
                 if (!this._clientCapabilities?.sampling) {
@@ -306,7 +300,7 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    protected assertNotificationCapability(method: NotificationMethod): void {
+    protected assertNotificationCapability(method: NotificationMethod | string): void {
         switch (method) {
             case 'notifications/message': {
                 if (!this._capabilities.logging) {
@@ -442,6 +436,8 @@ export class Server extends Protocol<ServerContext> {
         const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
             ? requestedVersion
             : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
+
+        this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
             protocolVersion,

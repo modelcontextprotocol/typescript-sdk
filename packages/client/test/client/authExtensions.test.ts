@@ -424,6 +424,49 @@ describe('createPrivateKeyJwtAuth', () => {
             /Key for the RS256 algorithm must be one of type CryptoKey, KeyObject, or JSON Web Key/
         );
     });
+
+    it('includes custom claims in the signed JWT assertion', async () => {
+        const addClientAuth = createPrivateKeyJwtAuth({
+            issuer: 'client-id',
+            subject: 'client-id',
+            privateKey: 'a-string-secret-at-least-256-bits-long',
+            alg: 'HS256',
+            claims: { tenant_id: 'org-123', role: 'admin' }
+        });
+
+        const params = new URLSearchParams();
+        await addClientAuth(new Headers(), params, 'https://auth.example.com/token', undefined);
+
+        const assertion = params.get('client_assertion');
+        expect(assertion).toBeTruthy();
+
+        const jose = await import('jose');
+        const decoded = jose.decodeJwt(assertion!);
+        expect(decoded.tenant_id).toBe('org-123');
+        expect(decoded.role).toBe('admin');
+        expect(decoded.iss).toBe('client-id');
+        expect(decoded.sub).toBe('client-id');
+    });
+
+    it('passes custom claims through PrivateKeyJwtProvider', async () => {
+        const provider = new PrivateKeyJwtProvider({
+            clientId: 'client-id',
+            privateKey: 'a-string-secret-at-least-256-bits-long',
+            algorithm: 'HS256',
+            claims: { tenant_id: 'org-456' }
+        });
+
+        const params = new URLSearchParams();
+        await provider.addClientAuthentication(new Headers(), params, 'https://auth.example.com/token', undefined);
+
+        const assertion = params.get('client_assertion');
+        expect(assertion).toBeTruthy();
+
+        const jose = await import('jose');
+        const decoded = jose.decodeJwt(assertion!);
+        expect(decoded.tenant_id).toBe('org-456');
+        expect(decoded.iss).toBe('client-id');
+    });
 });
 
 describe('CrossAppAccessProvider', () => {

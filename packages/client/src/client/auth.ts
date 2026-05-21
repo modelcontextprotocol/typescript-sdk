@@ -805,6 +805,28 @@ async function authInternal(
 }
 
 /**
+ * Validates that the given `clientMetadataUrl` is a valid HTTPS URL with a non-root pathname.
+ *
+ * No-op when `url` is `undefined` or empty (providers that do not use URL-based client IDs
+ * are unaffected). When the value is defined but invalid, throws an {@linkcode OAuthError}
+ * with code {@linkcode OAuthErrorCode.InvalidClientMetadata}.
+ *
+ * {@linkcode OAuthClientProvider} implementations that accept a `clientMetadataUrl` should
+ * call this in their constructors for early validation.
+ *
+ * @param url - The `clientMetadataUrl` value to validate (from `OAuthClientProvider.clientMetadataUrl`)
+ * @throws {OAuthError} When `url` is defined but is not a valid HTTPS URL with a non-root pathname
+ */
+export function validateClientMetadataUrl(url: string | undefined): void {
+    if (url && !isHttpsUrl(url)) {
+        throw new OAuthError(
+            OAuthErrorCode.InvalidClientMetadata,
+            `clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: ${url}`
+        );
+    }
+}
+
+/**
  * SEP-991: URL-based Client IDs
  * Validate that the `client_id` is a valid URL with `https` scheme
  */
@@ -1039,7 +1061,9 @@ async function tryMetadataDiscovery(url: URL, protocolVersion: string, fetchFn: 
  * Determines if fallback to root discovery should be attempted
  */
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
-    return !response || (response.status >= 400 && response.status < 500 && pathname !== '/');
+    if (!response) return true; // CORS error — always try fallback
+    if (pathname === '/') return false; // Already at root
+    return (response.status >= 400 && response.status < 500) || response.status === 502;
 }
 
 /**
@@ -1066,7 +1090,7 @@ async function discoverMetadataWithFallback(
 
     let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
 
-    // If path-aware discovery fails with 404 and we're not already at root, try fallback to root discovery
+    // If path-aware discovery fails (4xx or 502 Bad Gateway) and we're not already at root, try fallback to root discovery
     if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
         const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
         response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
@@ -1234,9 +1258,8 @@ export async function discoverAuthorizationServerMetadata(
 
         if (!response.ok) {
             await response.text?.().catch(() => {});
-            // Continue looking for any 4xx response code.
-            if (response.status >= 400 && response.status < 500) {
-                continue; // Try next URL
+            if ((response.status >= 400 && response.status < 500) || response.status === 502) {
+                continue; // Try next URL for 4xx or 502 (Bad Gateway)
             }
             throw new Error(
                 `HTTP ${response.status} trying to load ${type === 'oauth' ? 'OAuth' : 'OpenID provider'} metadata from ${endpointUrl}`

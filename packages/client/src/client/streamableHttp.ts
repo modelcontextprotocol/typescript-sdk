@@ -4,12 +4,14 @@ import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol
 import {
     createFetchWithInit,
     isInitializedNotification,
+    isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
     normalizeHeaders,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    SdkHttpError
 } from '@modelcontextprotocol/core';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
@@ -236,7 +238,9 @@ export class StreamableHTTPClientTransport implements Transport {
             // Try to open an initial SSE stream with GET to listen for server messages
             // This is optional according to the spec - server may not support it
             const headers = await this._commonHeaders();
-            headers.set('Accept', 'text/event-stream');
+            const userAccept = headers.get('accept');
+            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'text/event-stream'];
+            headers.set('accept', [...new Set(types)].join(', '));
 
             // Include Last-Event-ID header for resumable streams if provided
             if (resumptionToken) {
@@ -270,8 +274,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
+                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                            status: 401,
+                            statusText: response.statusText
                         });
                     }
                     throw new UnauthorizedError();
@@ -285,7 +290,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
                     status: response.status,
                     statusText: response.statusText
                 });
@@ -412,7 +417,8 @@ export class StreamableHTTPClientTransport implements Transport {
                     if (!event.event || event.event === 'message') {
                         try {
                             const message = JSONRPCMessageSchema.parse(JSON.parse(event.data));
-                            if (isJSONRPCResultResponse(message)) {
+                            // Handle both success AND error responses for completion detection and ID remapping
+                            if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
                                 // Mark that we received a response - no need to reconnect for this request
                                 receivedResponse = true;
                                 if (replayMessageId !== undefined) {
@@ -536,7 +542,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const headers = await this._commonHeaders();
             headers.set('content-type', 'application/json');
-            headers.set('accept', 'application/json, text/event-stream');
+            const userAccept = headers.get('accept');
+            const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
+            headers.set('accept', [...new Set(types)].join(', '));
 
             const init = {
                 ...this._requestInit,
@@ -575,8 +583,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
+                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                            status: 401,
+                            statusText: response.statusText
                         });
                     }
                     throw new UnauthorizedError();
@@ -592,8 +601,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         // Check if we've already tried upscoping with this header to prevent infinite loops.
                         if (this._lastUpscopingHeader === wwwAuthHeader) {
-                            throw new SdkError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
+                            throw new SdkHttpError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
                                 status: 403,
+                                statusText: response.statusText,
                                 text
                             });
                         }
@@ -623,8 +633,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
+                throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
                     status: response.status,
+                    statusText: response.statusText,
                     text
                 });
             }
@@ -719,10 +730,14 @@ export class StreamableHTTPClientTransport implements Transport {
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
             if (!response.ok && response.status !== 405) {
-                throw new SdkError(SdkErrorCode.ClientHttpFailedToTerminateSession, `Failed to terminate session: ${response.statusText}`, {
-                    status: response.status,
-                    statusText: response.statusText
-                });
+                throw new SdkHttpError(
+                    SdkErrorCode.ClientHttpFailedToTerminateSession,
+                    `Failed to terminate session: ${response.statusText}`,
+                    {
+                        status: response.status,
+                        statusText: response.statusText
+                    }
+                );
             }
 
             this._sessionId = undefined;

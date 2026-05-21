@@ -1,9 +1,10 @@
 import { defineConfig } from 'tsdown';
 
 export default defineConfig({
+    failOnWarn: 'ci-only',
     // 1. Entry Points
     //    Directly matches package.json include/exclude globs
-    entry: ['src/index.ts', 'src/shimsNode.ts', 'src/shimsWorkerd.ts'],
+    entry: ['src/index.ts', 'src/stdio.ts', 'src/shimsNode.ts', 'src/shimsWorkerd.ts', 'src/validators/cfWorker.ts'],
 
     // 2. Output Configuration
     format: ['esm'],
@@ -24,7 +25,9 @@ export default defineConfig({
         compilerOptions: {
             baseUrl: '.',
             paths: {
-                '@modelcontextprotocol/core': ['../core/src/index.ts']
+                '@modelcontextprotocol/core': ['../core/src/index.ts'],
+                '@modelcontextprotocol/core/public': ['../core/src/exports/public/index.ts'],
+                '@modelcontextprotocol/core/validators/cfWorker': ['../core/src/validators/cfWorkerProvider.ts']
             }
         }
     },

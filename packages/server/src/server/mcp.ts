@@ -30,6 +30,7 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
@@ -38,6 +39,7 @@ import {
     validateAndWarnToolName,
     validateStandardSchema
 } from '@modelcontextprotocol/core';
+import type * as z from 'zod/v4';
 
 import type { ToolTaskHandler } from '../experimental/tasks/interfaces.js';
 import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
@@ -530,7 +532,8 @@ export class McpServer {
                             name,
                             title: prompt.title,
                             description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined
+                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
+                            _meta: prompt._meta
                         };
                     })
             })
@@ -699,7 +702,8 @@ export class McpServer {
         title: string | undefined,
         description: string | undefined,
         argsSchema: StandardSchemaWithJSON | undefined,
-        callback: PromptCallback<StandardSchemaWithJSON | undefined>
+        callback: PromptCallback<StandardSchemaWithJSON | undefined>,
+        _meta: Record<string, unknown> | undefined
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
         let currentArgsSchema = argsSchema;
@@ -709,6 +713,7 @@ export class McpServer {
             title,
             description,
             argsSchema,
+            _meta,
             handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
             disable: () => registeredPrompt.update({ enabled: false }),
@@ -721,6 +726,7 @@ export class McpServer {
                 }
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
+                if (updates._meta !== undefined) registeredPrompt._meta = updates._meta;
 
                 // Track if we need to regenerate the handler
                 let needsHandlerRegen = false;
@@ -869,6 +875,31 @@ export class McpServer {
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
+    ): RegisteredTool;
+    /** @deprecated Wrap with `z.object({...})` instead. Raw-shape form: `inputSchema`/`outputSchema` may be a plain `{ field: z.string() }` record; it is auto-wrapped with `z.object()`. */
+    registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape | StandardSchemaWithJSON | undefined = undefined>(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            inputSchema?: InputArgs;
+            outputSchema?: OutputArgs;
+            annotations?: ToolAnnotations;
+            _meta?: Record<string, unknown>;
+        },
+        cb: LegacyToolCallback<InputArgs>
+    ): RegisteredTool;
+    registerTool(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            inputSchema?: StandardSchemaWithJSON | ZodRawShape;
+            outputSchema?: StandardSchemaWithJSON | ZodRawShape;
+            annotations?: ToolAnnotations;
+            _meta?: Record<string, unknown>;
+        },
+        cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
     ): RegisteredTool {
         if (this._registeredTools[name]) {
             throw new Error(`Tool ${name} is already registered`);
@@ -880,8 +911,8 @@ export class McpServer {
             name,
             title,
             description,
-            inputSchema,
-            outputSchema,
+            normalizeRawShapeSchema(inputSchema),
+            normalizeRawShapeSchema(outputSchema),
             annotations,
             { taskSupport: 'forbidden' },
             _meta,
@@ -921,21 +952,44 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<Args>
+    ): RegisteredPrompt;
+    /** @deprecated Wrap with `z.object({...})` instead. Raw-shape form: `argsSchema` may be a plain `{ field: z.string() }` record; it is auto-wrapped with `z.object()`. */
+    registerPrompt<Args extends ZodRawShape>(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            argsSchema?: Args;
+            _meta?: Record<string, unknown>;
+        },
+        cb: LegacyPromptCallback<Args>
+    ): RegisteredPrompt;
+    registerPrompt(
+        name: string,
+        config: {
+            title?: string;
+            description?: string;
+            argsSchema?: StandardSchemaWithJSON | ZodRawShape;
+            _meta?: Record<string, unknown>;
+        },
+        cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
     ): RegisteredPrompt {
         if (this._registeredPrompts[name]) {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema } = config;
+        const { title, description, argsSchema, _meta } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
             title,
             description,
-            argsSchema,
-            cb as PromptCallback<StandardSchemaWithJSON | undefined>
+            normalizeRawShapeSchema(argsSchema),
+            cb as PromptCallback<StandardSchemaWithJSON | undefined>,
+            _meta
         );
 
         this.setPromptRequestHandlers();
@@ -1055,6 +1109,26 @@ export class ResourceTemplate {
         return this._callbacks.complete?.[variable];
     }
 }
+
+/**
+ * A plain record of Zod field schemas, e.g. `{ name: z.string() }`. Accepted by
+ * `registerTool`/`registerPrompt` as a shorthand; auto-wrapped with `z.object()`.
+ * Zod schemas only — `z.object()` cannot wrap other Standard Schema libraries.
+ */
+export type ZodRawShape = Record<string, z.ZodType>;
+
+/** Infers the parsed-output type of a {@linkcode ZodRawShape}. */
+export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
+
+/** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
+export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
+    ? (args: InferRawShape<Args>, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>
+    : (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+
+/** {@linkcode PromptCallback} variant used when `argsSchema` is a {@linkcode ZodRawShape}. */
+export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
+    ? (args: InferRawShape<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
+    : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
 
 export type BaseToolCallback<
     SendResultT extends Result,
@@ -1237,6 +1311,7 @@ export type RegisteredPrompt = {
     title?: string | undefined;
     description?: string | undefined;
     argsSchema?: StandardSchemaWithJSON | undefined;
+    _meta?: Record<string, unknown> | undefined;
     /** @hidden */
     handler: PromptHandler;
     enabled: boolean;
@@ -1247,6 +1322,7 @@ export type RegisteredPrompt = {
         title?: string;
         description?: string;
         argsSchema?: Args;
+        _meta?: Record<string, unknown>;
         callback?: PromptCallback<Args>;
         enabled?: boolean;
     }): void;

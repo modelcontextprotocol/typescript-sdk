@@ -6,10 +6,10 @@ import type {
     ClientContext,
     ClientNotification,
     ClientRequest,
-    ClientResult,
     CompleteRequest,
     GetPromptRequest,
     Implementation,
+    JSONRPCRequest,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
@@ -26,8 +26,7 @@ import type {
     ReadResourceRequest,
     RequestMethod,
     RequestOptions,
-    RequestTypeMap,
-    ResultTypeMap,
+    Result,
     ServerCapabilities,
     SubscribeRequest,
     TaskManagerOptions,
@@ -162,7 +161,7 @@ export type ClientOptions = ProtocolOptions & {
      * The validator is used to validate structured content returned by tools
      * against their declared output schemas.
      *
-     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, {@linkcode index.CfWorkerJsonSchemaValidator | CfWorkerJsonSchemaValidator} on Cloudflare Workers)
+     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, `CfWorkerJsonSchemaValidator` on Cloudflare Workers)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 
@@ -200,6 +199,28 @@ export type ClientOptions = ProtocolOptions & {
  *
  * The client will automatically begin the initialization flow with the server when {@linkcode connect} is called.
  *
+ * To handle server-initiated requests (sampling, elicitation, roots), call {@linkcode setRequestHandler}.
+ * The client must declare the corresponding capability for the handler to be accepted. For
+ * `sampling/createMessage` and `elicitation/create`, the handler is automatically wrapped with
+ * schema validation for both the incoming request and the returned result.
+ *
+ * @example Handling a sampling request
+ * ```ts source="./client.examples.ts#Client_setRequestHandler_sampling"
+ * client.setRequestHandler('sampling/createMessage', async request => {
+ *     const lastMessage = request.params.messages.at(-1);
+ *     console.log('Sampling request:', lastMessage);
+ *
+ *     // In production, send messages to your LLM here
+ *     return {
+ *         model: 'my-model',
+ *         role: 'assistant' as const,
+ *         content: {
+ *             type: 'text' as const,
+ *             text: 'Response from the model'
+ *         }
+ *     };
+ * });
+ * ```
  */
 export class Client extends Protocol<ClientContext> {
     private _serverCapabilities?: ServerCapabilities;
@@ -308,37 +329,15 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Registers a handler for server-initiated requests (sampling, elicitation, roots).
-     * The client must declare the corresponding capability for the handler to be accepted.
-     * Replaces any previously registered handler for the same method.
-     *
-     * For `sampling/createMessage` and `elicitation/create`, the handler is automatically
-     * wrapped with schema validation for both the incoming request and the returned result.
-     *
-     * @example Handling a sampling request
-     * ```ts source="./client.examples.ts#Client_setRequestHandler_sampling"
-     * client.setRequestHandler('sampling/createMessage', async request => {
-     *     const lastMessage = request.params.messages.at(-1);
-     *     console.log('Sampling request:', lastMessage);
-     *
-     *     // In production, send messages to your LLM here
-     *     return {
-     *         model: 'my-model',
-     *         role: 'assistant' as const,
-     *         content: {
-     *             type: 'text' as const,
-     *             text: 'Response from the model'
-     *         }
-     *     };
-     * });
-     * ```
+     * Enforces client-side validation for `elicitation/create` and `sampling/createMessage`
+     * regardless of how the handler was registered.
      */
-    public override setRequestHandler<M extends RequestMethod>(
-        method: M,
-        handler: (request: RequestTypeMap[M], ctx: ClientContext) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
-    ): void {
+    protected override _wrapHandler(
+        method: string,
+        handler: (request: JSONRPCRequest, ctx: ClientContext) => Promise<Result>
+    ): (request: JSONRPCRequest, ctx: ClientContext) => Promise<Result> {
         if (method === 'elicitation/create') {
-            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {
+            return async (request, ctx) => {
                 const validatedRequest = parseSchema(ElicitRequestSchema, request);
                 if (!validatedRequest.success) {
                     // Type guard: if success is false, error is guaranteed to exist
@@ -359,7 +358,7 @@ export class Client extends Protocol<ClientContext> {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Client does not support URL-mode elicitation requests');
                 }
 
-                const result = await Promise.resolve(handler(request, ctx));
+                const result = await handler(request, ctx);
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -402,13 +401,10 @@ export class Client extends Protocol<ClientContext> {
 
                 return validatedResult;
             };
-
-            // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler);
         }
 
         if (method === 'sampling/createMessage') {
-            const wrappedHandler = async (request: RequestTypeMap[M], ctx: ClientContext): Promise<ClientResult> => {
+            return async (request, ctx) => {
                 const validatedRequest = parseSchema(CreateMessageRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
@@ -418,7 +414,7 @@ export class Client extends Protocol<ClientContext> {
 
                 const { params } = validatedRequest.data;
 
-                const result = await Promise.resolve(handler(request, ctx));
+                const result = await handler(request, ctx);
 
                 // When task creation is requested, validate and return CreateTaskResult
                 if (params.task) {
@@ -445,13 +441,9 @@ export class Client extends Protocol<ClientContext> {
 
                 return validationResult.data;
             };
-
-            // Install the wrapped handler
-            return super.setRequestHandler(method, wrappedHandler);
         }
 
-        // Other handlers use default behavior
-        return super.setRequestHandler(method, handler);
+        return handler;
     }
 
     protected assertCapability(capability: keyof ServerCapabilities, method: string): void {
@@ -578,7 +570,7 @@ export class Client extends Protocol<ClientContext> {
         return this._instructions;
     }
 
-    protected assertCapabilityForMethod(method: RequestMethod): void {
+    protected assertCapabilityForMethod(method: RequestMethod | string): void {
         switch (method as ClientRequest['method']) {
             case 'logging/setLevel': {
                 if (!this._serverCapabilities?.logging) {
@@ -641,7 +633,7 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
-    protected assertNotificationCapability(method: NotificationMethod): void {
+    protected assertNotificationCapability(method: NotificationMethod | string): void {
         switch (method as ClientNotification['method']) {
             case 'notifications/roots/list_changed': {
                 if (!this._capabilities.roots?.listChanged) {

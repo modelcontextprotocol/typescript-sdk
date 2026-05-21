@@ -13,7 +13,8 @@
 export { OAuthError, OAuthErrorCode } from '../../auth/errors.js';
 
 // SDK error types (local errors that never cross the wire)
-export { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
+export type { SdkHttpErrorData } from '../../errors/sdkErrors.js';
+export { SdkError, SdkErrorCode, SdkHttpError } from '../../errors/sdkErrors.js';
 
 // Auth TypeScript types (NOT Zod schemas like OAuthMetadataSchema)
 export type {
@@ -45,6 +46,7 @@ export type {
     NotificationOptions,
     ProgressCallback,
     ProtocolOptions,
+    RequestHandlerSchemas,
     RequestOptions,
     ServerContext
 } from '../../shared/protocol.js';
@@ -70,6 +72,7 @@ export { deserializeMessage, ReadBuffer, serializeMessage } from '../../shared/s
 // Transport types (NOT normalizeHeaders)
 export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
 export { createFetchWithInit } from '../../shared/transport.js';
+export { InMemoryTransport } from '../../util/inMemory.js';
 
 // URI Template
 export type { Variables } from '../../shared/uriTemplate.js';
@@ -104,11 +107,13 @@ export { ProtocolError, UrlElicitationRequiredError } from '../../types/errors.j
 export {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    isCallToolResult,
     isInitializedNotification,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
+    isJSONRPCResponse,
     isJSONRPCResultResponse,
     isTaskAugmentedRequestParams,
     parseJSONRPCMessage
@@ -134,9 +139,11 @@ export { isTerminal } from '../../experimental/tasks/interfaces.js';
 export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
 
 // Validator types and classes
-export type { StandardSchemaWithJSON } from '../../util/standardSchema.js';
+export type { SpecTypeName, SpecTypes } from '../../types/specTypeSchema.js';
+export { isSpecType, specTypeSchemas } from '../../types/specTypeSchema.js';
+export type { StandardSchemaV1, StandardSchemaV1Sync, StandardSchemaWithJSON } from '../../util/standardSchema.js';
 export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
 export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
-export { CfWorkerJsonSchemaValidator } from '../../validators/cfWorkerProvider.js';
-export { fromJsonSchema } from '../../validators/fromJsonSchema.js';
+// fromJsonSchema is intentionally NOT exported here — the server and client packages
+// provide runtime-aware wrappers that default to the appropriate validator via _shims.
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types.js';
