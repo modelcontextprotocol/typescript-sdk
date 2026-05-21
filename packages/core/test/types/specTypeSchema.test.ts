@@ -16,14 +16,14 @@ import type {
 } from '../../src/types/types.js';
 
 describe('specTypeSchemas', () => {
-    it('returns a StandardSchemaV1 validator that accepts valid values', () => {
+    it('returns a StandardSchemaV1Sync validator that accepts valid values', () => {
         const result = specTypeSchemas.Implementation['~standard'].validate({ name: 'x', version: '1.0.0' });
-        expect((result as { issues?: unknown }).issues).toBeUndefined();
+        expect(result.issues).toBeUndefined();
     });
 
     it('returns a validator that rejects invalid values with issues', () => {
         const result = specTypeSchemas.Implementation['~standard'].validate({ name: 'x' });
-        expect((result as { issues?: readonly unknown[] }).issues?.length).toBeGreaterThan(0);
+        expect(result.issues?.length).toBeGreaterThan(0);
     });
 
     it('rejects unknown names at compile time and is undefined at runtime', () => {
@@ -33,14 +33,14 @@ describe('specTypeSchemas', () => {
 
     it('covers JSON-RPC envelope types', () => {
         const ok = specTypeSchemas.JSONRPCRequest['~standard'].validate({ jsonrpc: '2.0', id: 1, method: 'ping' });
-        expect((ok as { issues?: unknown }).issues).toBeUndefined();
+        expect(ok.issues).toBeUndefined();
     });
 
     it('covers OAuth types from shared/auth.ts', () => {
         const ok = specTypeSchemas.OAuthTokens['~standard'].validate({ access_token: 'x', token_type: 'Bearer' });
-        expect((ok as { issues?: unknown }).issues).toBeUndefined();
+        expect(ok.issues).toBeUndefined();
         const bad = specTypeSchemas.OAuthTokens['~standard'].validate({ token_type: 'Bearer' });
-        expect((bad as { issues?: readonly unknown[] }).issues?.length).toBeGreaterThan(0);
+        expect(bad.issues?.length).toBeGreaterThan(0);
     });
 });
 
