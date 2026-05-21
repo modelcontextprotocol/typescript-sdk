@@ -90,6 +90,21 @@ describe('spec-schema-access transform', () => {
             expect(result.changesCount).toBeGreaterThan(0);
         });
 
+        it('rewrites result properties assigned to variables (const isValid = parsed.success)', () => {
+            const input = [
+                `import { CallToolResultSchema } from '@modelcontextprotocol/server';`,
+                `const parsed = CallToolResultSchema.safeParse(data);`,
+                `const isValid = parsed.success;`,
+                `const result = parsed.data;`,
+                ''
+            ].join('\n');
+            const { text } = applyTransform(input);
+            expect(text).toContain('parsed.issues === undefined');
+            expect(text).toContain('parsed.value');
+            expect(text).not.toContain('parsed.success');
+            expect(text).not.toContain('parsed.data');
+        });
+
         it('rewrites .error to .issues', () => {
             const input = [
                 `import { ToolSchema } from '@modelcontextprotocol/server';`,
@@ -457,6 +472,20 @@ describe('spec-schema-access transform', () => {
             const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `const kind = typeof ToolSchema;`, ''].join('\n');
             const { result } = applyTransform(input);
             expect(result.diagnostics.every(d => !d.message.includes('z.infer'))).toBe(true);
+        });
+    });
+
+    describe('namespace imports', () => {
+        it('does not crash when file has namespace import from same package', () => {
+            const input = [
+                `import * as types from '@modelcontextprotocol/server';`,
+                `import { ToolSchema } from '@modelcontextprotocol/server';`,
+                `const s = ToolSchema;`,
+                ''
+            ].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('specTypeSchemas.Tool');
+            expect(result.changesCount).toBeGreaterThan(0);
         });
     });
 

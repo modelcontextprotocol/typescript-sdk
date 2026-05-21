@@ -270,9 +270,6 @@ function rewriteCapturedSafeParse(
         if (!Node.isPropertyAccessExpression(node)) return;
         const expr = node.getExpression();
         if (!Node.isIdentifier(expr) || expr.getText() !== varName) return;
-        // Don't match the declaration initializer itself
-        const parent = node.getParent();
-        if (parent && Node.isVariableDeclaration(parent)) return;
 
         const propName = node.getName();
         switch (propName) {

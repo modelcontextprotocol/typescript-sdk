@@ -42,6 +42,7 @@ export function addOrMergeImport(
     if (namedImports.length === 0) return;
 
     const existing = sourceFile.getImportDeclarations().find(imp => {
+        if (imp.getNamespaceImport()) return false;
         return imp.getModuleSpecifierValue() === moduleSpecifier && imp.isTypeOnly() === isTypeOnly;
     });
 

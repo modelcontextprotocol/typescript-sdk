@@ -86,15 +86,9 @@ function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: Diagnostic[])
 
     if (changesCount > 0) {
         const errorCodeImportDecl = errorCodeImport.getImportDeclaration();
-        errorCodeImport.remove();
-        if (
-            errorCodeImportDecl.getNamedImports().length === 0 &&
-            !errorCodeImportDecl.getDefaultImport() &&
-            !errorCodeImportDecl.getNamespaceImport()
-        ) {
-            errorCodeImportDecl.remove();
-        }
-
+        // Capture target module before removing the import, so we don't lose the original
+        // module specifier when ErrorCode was the only named import in the declaration.
+        const origModule = errorCodeImportDecl.getModuleSpecifierValue();
         const imp =
             sourceFile.getImportDeclarations().find(i => {
                 const spec = i.getModuleSpecifierValue();
@@ -104,7 +98,16 @@ function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: Diagnostic[])
                 const spec = i.getModuleSpecifierValue();
                 return spec === '@modelcontextprotocol/client' || spec === '@modelcontextprotocol/server';
             });
-        const targetModule = imp?.getModuleSpecifierValue() ?? '@modelcontextprotocol/server';
+        const targetModule = imp?.getModuleSpecifierValue() ?? origModule ?? '@modelcontextprotocol/server';
+
+        errorCodeImport.remove();
+        if (
+            errorCodeImportDecl.getNamedImports().length === 0 &&
+            !errorCodeImportDecl.getDefaultImport() &&
+            !errorCodeImportDecl.getNamespaceImport()
+        ) {
+            errorCodeImportDecl.remove();
+        }
 
         const newImports: string[] = [];
         if (needsProtocolErrorCode) newImports.push('ProtocolErrorCode');

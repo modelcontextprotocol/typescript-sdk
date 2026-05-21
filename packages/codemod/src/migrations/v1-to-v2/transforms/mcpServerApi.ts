@@ -128,7 +128,7 @@ export const mcpServerApiTransform: Transform = {
 };
 
 function isStringArg(node: Node): boolean {
-    return Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node);
+    return Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node) || Node.isTemplateExpression(node);
 }
 
 function wrapWithZObject(schemaText: string): string {

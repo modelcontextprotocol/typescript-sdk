@@ -78,6 +78,19 @@ describe('mcp-server-api transform', () => {
         expect(result).toContain('annotations: { readOnlyHint: true }');
     });
 
+    it('handles template expression description in .tool()', () => {
+        const input = [
+            "server.tool('greet', `Hello ${world}`, { name: z.string() }, async ({ name }) => {",
+            `    return { content: [{ type: 'text', text: name }] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('registerTool');
+        expect(result).toContain('description: `Hello ${world}`');
+        expect(result).toContain('inputSchema: z.object({ name: z.string() })');
+    });
+
     it('converts .prompt(name, schema, callback)', () => {
         const input = [
             `server.prompt('summarize', { text: z.string() }, async ({ text }) => {`,
