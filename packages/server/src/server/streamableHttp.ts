@@ -617,10 +617,21 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      */
     private async handlePostRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
         try {
-            // Validate the Accept header
+            // Validate the Accept header.
+            //
+            // When the transport is in pure request/response mode (`enableJsonResponse: true`)
+            // we never open an SSE stream, so we only require `application/json`. In streaming
+            // mode the spec requires the client to accept both content types so the server can
+            // upgrade to SSE.
             const acceptHeader = req.headers.get('accept');
-            // The client MUST include an Accept header, listing both application/json and text/event-stream as supported content types.
-            if (!acceptHeader?.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
+            const acceptsJson = acceptHeader?.includes('application/json') ?? false;
+            const acceptsEventStream = acceptHeader?.includes('text/event-stream') ?? false;
+            if (this._enableJsonResponse) {
+                if (!acceptsJson) {
+                    this.onerror?.(new Error('Not Acceptable: Client must accept application/json'));
+                    return this.createJsonErrorResponse(406, -32_000, 'Not Acceptable: Client must accept application/json');
+                }
+            } else if (!acceptsJson || !acceptsEventStream) {
                 this.onerror?.(new Error('Not Acceptable: Client must accept both application/json and text/event-stream'));
                 return this.createJsonErrorResponse(
                     406,
