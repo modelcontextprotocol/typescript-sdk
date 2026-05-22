@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { mockPathsTransform } from '../../../src/migrations/v1-to-v2/transforms/mockPaths.js';
-import type { TransformContext } from '../../../src/types.js';
+import { mockPathsTransform } from '../../../src/migrations/v1-to-v2/transforms/mockPaths';
+import type { TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 

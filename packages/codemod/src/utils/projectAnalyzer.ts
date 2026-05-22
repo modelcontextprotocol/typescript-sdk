@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import type { Diagnostic, TransformContext } from '../types.js';
-import { warning } from './diagnostics.js';
+import type { Diagnostic, TransformContext } from '../types';
+import { warning } from './diagnostics';
 
 const PROJECT_ROOT_MARKERS = ['.git', 'node_modules'];
 
