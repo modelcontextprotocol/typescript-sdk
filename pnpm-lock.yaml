@@ -492,6 +492,9 @@ importers:
 
   packages/client:
     dependencies:
+      '@cfworker/json-schema':
+        specifier: ^4.0.3
+        version: 4.1.1
       cross-spawn:
         specifier: catalog:runtimeClientOnly
         version: 7.0.6
@@ -511,9 +514,6 @@ importers:
         specifier: catalog:runtimeShared
         version: 4.3.6
     devDependencies:
-      '@cfworker/json-schema':
-        specifier: catalog:runtimeShared
-        version: 4.1.1
       '@eslint/js':
         specifier: catalog:devTools
         version: 9.39.4
