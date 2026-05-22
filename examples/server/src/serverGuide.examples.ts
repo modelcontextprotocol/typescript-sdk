@@ -148,6 +148,22 @@ function registerTool_annotations(server: McpServer) {
     //#endregion registerTool_annotations
 }
 
+/** Example: Notifying clients when the tool list changes at runtime. */
+function sendToolListChanged_basic(server: McpServer) {
+    //#region sendToolListChanged_basic
+    // Automatic: registerTool, tool.remove(), tool.enable(), and tool.disable()
+    // all send the notification — no manual call required.
+    const tool = server.registerTool('new-tool', { description: 'A dynamically added tool' }, async () => ({
+        content: [{ type: 'text', text: 'done' }]
+    }));
+    tool.remove(); // notification sent automatically
+
+    // Manual: notify clients when tool availability changes through external
+    // means the SDK cannot observe (e.g. a feature flag or config reload).
+    server.sendToolListChanged();
+    //#endregion sendToolListChanged_basic
+}
+
 /** Example: Registering a static resource at a fixed URI. */
 function registerResource_static(server: McpServer) {
     //#region registerResource_static
@@ -541,6 +557,7 @@ void registerTool_basic;
 void registerTool_resourceLink;
 void registerTool_errorHandling;
 void registerTool_annotations;
+void sendToolListChanged_basic;
 void registerTool_logging;
 void registerTool_progress;
 void registerTool_sampling;
