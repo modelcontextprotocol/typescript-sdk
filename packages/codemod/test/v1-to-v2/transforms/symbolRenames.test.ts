@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { symbolRenamesTransform } from '../../../src/migrations/v1-to-v2/transforms/symbolRenames.js';
-import type { TransformContext } from '../../../src/types.js';
+import { symbolRenamesTransform } from '../../../src/migrations/v1-to-v2/transforms/symbolRenames';
+import type { TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 

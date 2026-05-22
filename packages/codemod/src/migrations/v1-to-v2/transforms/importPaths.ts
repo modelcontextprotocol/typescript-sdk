@@ -1,12 +1,12 @@
 import type { SourceFile } from 'ts-morph';
 
-import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { renameAllReferences } from '../../../utils/astUtils.js';
-import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
-import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
-import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
-import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
+import { renameAllReferences } from '../../../utils/astUtils';
+import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics';
+import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils';
+import { resolveTypesPackage } from '../../../utils/projectAnalyzer';
+import { IMPORT_MAP, isAuthImport } from '../mappings/importMap';
+import { SIMPLE_RENAMES } from '../mappings/symbolMap';
 
 const REEXPORT_WARNINGS: Record<string, string> = {
     ErrorCode: 'Re-exported ErrorCode was split into ProtocolErrorCode and SdkErrorCode in v2. Update this re-export manually.',
