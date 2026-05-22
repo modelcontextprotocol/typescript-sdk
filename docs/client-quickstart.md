@@ -88,8 +88,8 @@ Create a `tsconfig.json` in the root of your project:
 ```json
 {
   "compilerOptions": {
-    "target": "ES2023",
-    "lib": ["ES2023"],
+    "target": "ESNext",
+    "lib": ["ESNext"],
     "module": "ESNext",
     "moduleResolution": "bundler",
     "outDir": "./build",
