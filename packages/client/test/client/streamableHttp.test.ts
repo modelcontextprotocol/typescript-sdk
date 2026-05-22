@@ -294,6 +294,60 @@ describe('StreamableHTTPClientTransport', () => {
             expect(errorSpy).toHaveBeenCalled();
             expect(transport.sessionId).toBeUndefined();
         });
+
+        it('treats a 404 on the standalone GET stream as session expiry', async () => {
+            const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                sessionId: 'existing-session-id'
+            });
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+                text: () => Promise.resolve('Session not found'),
+                headers: new Headers()
+            });
+
+            const errorSpy = vi.fn();
+            sessionTransport.onerror = errorSpy;
+
+            await sessionTransport.start();
+            // Trigger the GET stream directly using the internal method for a clean test.
+            const error = await sessionTransport['_startOrAuthSse']({}).then(
+                () => null,
+                e => e
+            );
+
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpSessionExpired);
+            // The GET path carries `statusText` in its error data rather than the body `text`.
+            expect((error as SdkError).data).toEqual({ status: 404, statusText: 'Not Found' });
+            expect(errorSpy).toHaveBeenCalled();
+            expect(sessionTransport.sessionId).toBeUndefined();
+
+            await sessionTransport.close().catch(() => {});
+        });
+
+        it('treats a 404 from terminateSession as already-terminated (clears session, no throw)', async () => {
+            const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                sessionId: 'existing-session-id'
+            });
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+                text: () => Promise.resolve('Session not found'),
+                headers: new Headers()
+            });
+
+            // The session is already gone server-side — terminating it is exactly the
+            // caller's intent, so this must resolve rather than throw, and clear the ID.
+            await expect(sessionTransport.terminateSession()).resolves.toBeUndefined();
+            expect(sessionTransport.sessionId).toBeUndefined();
+
+            await sessionTransport.close().catch(() => {});
+        });
     });
 
     it('should handle non-streaming JSON response', async () => {

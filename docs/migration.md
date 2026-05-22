@@ -793,6 +793,11 @@ and throws `SdkError` with `SdkErrorCode.ClientHttpSessionExpired`.
 A `404` for a request that did **not** carry a session ID (for example a wrong URL on
 the initial connection) is unchanged: it still surfaces as `SdkErrorCode.ClientHttpNotImplemented`.
 
+`terminateSession()` follows the same rule: a `404` to the `DELETE` means the session is
+already gone server-side — which is what the caller asked for — so it now resolves and clears
+the session ID instead of throwing `ClientHttpFailedToTerminateSession` (mirroring the existing
+`405 Method Not Allowed` handling).
+
 #### Why this change?
 
 Previously, `ErrorCode.RequestTimeout` (-32001) and `ErrorCode.ConnectionClosed` (-32000) were used for local timeout/connection errors. However, these errors never cross the wire as JSON-RPC responses - they are rejected locally. Using protocol error codes for local errors was
