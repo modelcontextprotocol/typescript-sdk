@@ -33,6 +33,8 @@
     },
     "dependencies": {
         "@modelcontextprotocol/client": "workspace:^",
+        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/server": "workspace:^",
         "ajv": "catalog:runtimeShared",
         "open": "^11.0.0",
         "zod": "catalog:runtimeShared"
