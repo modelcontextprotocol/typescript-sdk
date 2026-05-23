@@ -76,7 +76,10 @@ async function main(): Promise<void> {
     await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
     const { tools: initialTools } = await client.listTools();
-    console.log('[client] connected. initial tools:', initialTools.map(t => t.name));
+    console.log(
+        '[client] connected. initial tools:',
+        initialTools.map(t => t.name)
+    );
 
     // --- Dynamic tool registration --------------------------------------
     // Registering a tool AFTER connect fires sendToolListChanged() inside
@@ -103,7 +106,10 @@ async function main(): Promise<void> {
     await client.close();
 }
 
-main().catch(err => {
-    console.error(err);
-    process.exitCode = 1;
-});
+try {
+    await main();
+} catch (error) {
+    console.error('Error running tool list changed example:', error);
+    // eslint-disable-next-line unicorn/no-process-exit
+    process.exit(1);
+}
