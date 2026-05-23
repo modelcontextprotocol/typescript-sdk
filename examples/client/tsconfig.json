@@ -16,7 +16,10 @@
             ],
             "@modelcontextprotocol/eslint-config": ["./node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
             "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"],
-            "@modelcontextprotocol/examples-shared": ["./node_modules/@modelcontextprotocol/examples-shared/src/index.ts"]
+            "@modelcontextprotocol/examples-shared": ["./node_modules/@modelcontextprotocol/examples-shared/src/index.ts"],
+            "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
+            "@modelcontextprotocol/server/stdio": ["./node_modules/@modelcontextprotocol/server/src/stdio.ts"],
+            "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"]
         }
     }
 }
