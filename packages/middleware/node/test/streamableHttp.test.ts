@@ -1954,6 +1954,90 @@ describe('Zod v4', () => {
             toolResolve!();
         });
 
+        it('should replay the terminal POST SSE response after ctx.http?.closeSSE closes the request stream', async () => {
+            const result = await createTestServer({
+                sessionIdGenerator: () => randomUUID(),
+                eventStore: createEventStore(),
+                retryInterval: 1000
+            });
+            server = result.server;
+            transport = result.transport;
+            baseUrl = result.baseUrl;
+            mcpServer = result.mcpServer;
+
+            mcpServer.registerTool('close-and-complete', { description: 'Closes request stream and completes later' }, async ctx => {
+                ctx.http?.closeSSE?.();
+                return {
+                    content: [{ type: 'text', text: 'Done after reconnect' }]
+                };
+            });
+
+            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            sessionId = initResponse.headers.get('mcp-session-id') as string;
+            expect(sessionId).toBeDefined();
+
+            const toolCallRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: 101,
+                method: 'tools/call',
+                params: { name: 'close-and-complete', arguments: {} }
+            };
+
+            const postResponse = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'text/event-stream, application/json',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                },
+                body: JSON.stringify(toolCallRequest)
+            });
+
+            expect(postResponse.status).toBe(200);
+
+            const reader = postResponse.body?.getReader();
+            const { value } = await reader!.read();
+            const text = new TextDecoder().decode(value);
+            const idMatch = text.match(/id: ([^\n]+)/);
+            expect(idMatch).toBeTruthy();
+            const lastEventId = idMatch![1]!;
+
+            const closedRead = reader!.read();
+            const closedTimeout = new Promise<{ done: boolean; value: undefined }>((_, reject) =>
+                setTimeout(() => reject(new Error('POST SSE stream did not close in time')), 1000)
+            );
+            const { done } = await Promise.race([closedRead, closedTimeout]);
+            expect(done).toBe(true);
+
+            const reconnectResponse = await fetch(baseUrl, {
+                method: 'GET',
+                headers: {
+                    Accept: 'text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25',
+                    'last-event-id': lastEventId
+                }
+            });
+            expect(reconnectResponse.status).toBe(200);
+
+            const reconnectReader = reconnectResponse.body?.getReader();
+            let replayedText = '';
+            const replayTimeout = setTimeout(() => reconnectReader!.cancel(), 5000);
+            try {
+                while (!replayedText.includes('Done after reconnect')) {
+                    const { value, done } = await reconnectReader!.read();
+                    if (done) break;
+                    replayedText += new TextDecoder().decode(value);
+                }
+            } finally {
+                clearTimeout(replayTimeout);
+            }
+
+            expect(replayedText).toContain('Done after reconnect');
+            expect(replayedText).toContain('"id":101');
+        });
+
         it('should provide closeSSEStream callback in ctx when eventStore is configured', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
