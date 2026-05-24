@@ -1711,18 +1711,23 @@ describe('Zod v4', () => {
                 ): Promise<StreamId> {
                     const event = storedEvents.get(lastEventId);
                     const streamId = event?.streamId || lastEventId.split('::')[0]!;
-                    const eventsToReplay: Array<[string, { message: JSONRPCMessage }]> = [];
+                    let foundLast = false;
+
                     for (const [eventId, data] of storedEvents.entries()) {
-                        if (data.streamId === streamId && eventId > lastEventId) {
-                            eventsToReplay.push([eventId, data]);
+                        if (eventId === lastEventId) {
+                            foundLast = true;
+                            continue;
+                        }
+
+                        if (!foundLast || data.streamId !== streamId) {
+                            continue;
+                        }
+
+                        if (Object.keys(data.message).length > 0) {
+                            await send(eventId, data.message);
                         }
                     }
-                    eventsToReplay.sort(([a], [b]) => a.localeCompare(b));
-                    for (const [eventId, { message }] of eventsToReplay) {
-                        if (Object.keys(message).length > 0) {
-                            await send(eventId, message);
-                        }
-                    }
+
                     return streamId;
                 }
             };
