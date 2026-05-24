@@ -1,9 +1,10 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
+import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
+import { Client } from '../../src/client/client.js';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
 
@@ -247,6 +248,96 @@ describe('StreamableHTTPClientTransport', () => {
             })
         );
         expect(errorSpy).toHaveBeenCalled();
+    });
+
+    it('reinitializes and retries once when a persisted session expires', async () => {
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const httpTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+        let initializeCount = 0;
+        let firstPing = true;
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, init) => {
+            if (init.method === 'GET') {
+                return {
+                    ok: false,
+                    status: 405,
+                    statusText: 'Method Not Allowed',
+                    headers: new Headers(),
+                    text: async () => ''
+                };
+            }
+
+            const body = JSON.parse(init.body as string) as JSONRPCRequest;
+
+            if (body.method === 'initialize') {
+                const sessionId = initializeCount++ === 0 ? 'old-session-id' : 'new-session-id';
+
+                return {
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({
+                        'content-type': 'application/json',
+                        'mcp-session-id': sessionId
+                    }),
+                    json: async () => ({
+                        jsonrpc: '2.0',
+                        id: body.id,
+                        result: {
+                            protocolVersion: LATEST_PROTOCOL_VERSION,
+                            capabilities: {},
+                            serverInfo: { name: 'test-server', version: '1.0.0' }
+                        }
+                    })
+                };
+            }
+
+            if (body.method === 'notifications/initialized') {
+                return {
+                    ok: true,
+                    status: 202,
+                    headers: new Headers(),
+                    text: async () => ''
+                };
+            }
+
+            if (body.method === 'ping' && firstPing) {
+                firstPing = false;
+
+                return {
+                    ok: false,
+                    status: 404,
+                    statusText: 'Not Found',
+                    headers: new Headers(),
+                    text: async () => 'Session not found'
+                };
+            }
+
+            return {
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'application/json' }),
+                json: async () => ({
+                    jsonrpc: '2.0',
+                    id: body.id,
+                    result: {}
+                })
+            };
+        });
+
+        try {
+            await client.connect(httpTransport);
+            await expect(client.ping()).resolves.toEqual({});
+
+            const calls = (globalThis.fetch as Mock).mock.calls;
+            const postCalls = calls.filter(([, init]) => init.method === 'POST');
+            expect(postCalls).toHaveLength(6);
+            expect(postCalls[2]![1].headers.get('mcp-session-id')).toBe('old-session-id');
+            expect(postCalls[3]![1].headers.get('mcp-session-id')).toBeNull();
+            expect(postCalls[5]![1].headers.get('mcp-session-id')).toBe('new-session-id');
+            expect(httpTransport.sessionId).toBe('new-session-id');
+        } finally {
+            await client.close().catch(() => {});
+        }
     });
 
     it('should handle non-streaming JSON response', async () => {
