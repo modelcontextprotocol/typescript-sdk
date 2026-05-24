@@ -179,6 +179,10 @@ export type ClientOptions = ProtocolOptions & {
     listChanged?: ListChangedHandlers;
 };
 
+type SessionExpiringTransport = Transport & {
+    onsessionexpired?: () => void | Promise<void>;
+};
+
 /**
  * An MCP client on top of a pluggable transport.
  *
@@ -410,6 +414,13 @@ export class Client extends Protocol<ClientContext> {
      */
     override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
         await super.connect(transport);
+        (transport as SessionExpiringTransport).onsessionexpired = async () => {
+            this._serverCapabilities = undefined;
+            this._serverVersion = undefined;
+            this._negotiatedProtocolVersion = undefined;
+            await this._initialize(transport, options);
+        };
+
         // When transport sessionId is already set this means we are trying to reconnect.
         // Restore the protocol version negotiated during the original initialize handshake
         // so HTTP transports include the required mcp-protocol-version header, but skip re-init.
@@ -420,50 +431,54 @@ export class Client extends Protocol<ClientContext> {
             return;
         }
         try {
-            const result = await this._requestWithSchema(
-                {
-                    method: 'initialize',
-                    params: {
-                        protocolVersion: this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION,
-                        capabilities: this._capabilities,
-                        clientInfo: this._clientInfo
-                    }
-                },
-                InitializeResultSchema,
-                options
-            );
-
-            if (result === undefined) {
-                throw new Error(`Server sent invalid initialize result: ${result}`);
-            }
-
-            if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
-                throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
-            }
-
-            this._serverCapabilities = result.capabilities;
-            this._serverVersion = result.serverInfo;
-            this._negotiatedProtocolVersion = result.protocolVersion;
-            // HTTP transports must set the protocol version in each header after initialization.
-            if (transport.setProtocolVersion) {
-                transport.setProtocolVersion(result.protocolVersion);
-            }
-
-            this._instructions = result.instructions;
-
-            await this.notification({
-                method: 'notifications/initialized'
-            });
-
-            // Set up list changed handlers now that we know server capabilities
-            if (this._pendingListChangedConfig) {
-                this._setupListChangedHandlers(this._pendingListChangedConfig);
-                this._pendingListChangedConfig = undefined;
-            }
+            await this._initialize(transport, options);
         } catch (error) {
             // Disconnect if initialization fails.
             void this.close();
             throw error;
+        }
+    }
+
+    private async _initialize(transport: Transport, options?: RequestOptions): Promise<void> {
+        const result = await this._requestWithSchema(
+            {
+                method: 'initialize',
+                params: {
+                    protocolVersion: this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION,
+                    capabilities: this._capabilities,
+                    clientInfo: this._clientInfo
+                }
+            },
+            InitializeResultSchema,
+            options
+        );
+
+        if (result === undefined) {
+            throw new Error(`Server sent invalid initialize result: ${result}`);
+        }
+
+        if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
+            throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
+        }
+
+        this._serverCapabilities = result.capabilities;
+        this._serverVersion = result.serverInfo;
+        this._negotiatedProtocolVersion = result.protocolVersion;
+        // HTTP transports must set the protocol version in each header after initialization.
+        if (transport.setProtocolVersion) {
+            transport.setProtocolVersion(result.protocolVersion);
+        }
+
+        this._instructions = result.instructions;
+
+        await this.notification({
+            method: 'notifications/initialized'
+        });
+
+        // Set up list changed handlers now that we know server capabilities
+        if (this._pendingListChangedConfig) {
+            this._setupListChangedHandlers(this._pendingListChangedConfig);
+            this._pendingListChangedConfig = undefined;
         }
     }
 
