@@ -985,15 +985,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         const stream = this._streamMapping.get(streamId);
 
-        if (!this._enableJsonResponse && stream?.controller && stream?.encoder) {
-            // For SSE responses, generate event ID if event store is provided
+        if (!this._enableJsonResponse) {
+            // For SSE responses, generate event ID if event store is provided.
+            // Store the event even if the stream is currently disconnected (e.g. after
+            // closeSSEStream) so it can be replayed when the client reconnects, mirroring
+            // the standalone SSE stream above.
             let eventId: string | undefined;
 
             if (this._eventStore) {
                 eventId = await this._eventStore.storeEvent(streamId, message);
             }
-            // Write the event to the response stream
-            this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
+            // Write the event to the response stream only if a controller is attached.
+            if (stream?.controller && stream?.encoder) {
+                this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
+            }
         }
 
         if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
@@ -1005,6 +1010,18 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (allResponsesReady) {
                 if (!stream) {
+                    // The stream was disconnected (e.g. via closeSSEStream) before the final
+                    // response was produced. When an event store is configured, the response
+                    // has already been persisted above and will be replayed on reconnect, so
+                    // just clean up the request mappings. Without an event store there is no
+                    // way to deliver the response, so surface the error as before.
+                    if (this._eventStore && !this._enableJsonResponse) {
+                        for (const id of relatedIds) {
+                            this._requestResponseMap.delete(id);
+                            this._requestToStreamMapping.delete(id);
+                        }
+                        return;
+                    }
                     throw new Error(`No connection established for request ID: ${String(requestId)}`);
                 }
                 if (this._enableJsonResponse && stream.resolveJson) {

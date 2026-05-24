@@ -1954,6 +1954,92 @@ describe('Zod v4', () => {
             toolResolve!();
         });
 
+        it('should replay the terminal response after closeSSE and reconnect', async () => {
+            const result = await createTestServer({
+                sessionIdGenerator: () => randomUUID(),
+                eventStore: createEventStore(),
+                retryInterval: 1000
+            });
+            server = result.server;
+            transport = result.transport;
+            baseUrl = result.baseUrl;
+            mcpServer = result.mcpServer;
+
+            // Tool closes its own SSE stream, then produces its final result while the
+            // client is disconnected. The result must be replayable on reconnect.
+            let toolResolve: () => void;
+            const toolCompletePromise = new Promise<void>(resolve => {
+                toolResolve = resolve;
+            });
+
+            mcpServer.registerTool('close-then-finish-tool', { description: 'Closes its stream, then returns a result' }, async ctx => {
+                ctx.http?.closeSSE?.();
+                await toolCompletePromise;
+                return { content: [{ type: 'text', text: 'replayed-result' }] };
+            });
+
+            const initResponse = await sendPostRequest(baseUrl, TEST_MESSAGES.initialize);
+            sessionId = initResponse.headers.get('mcp-session-id') as string;
+            expect(sessionId).toBeDefined();
+
+            const toolCallRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: 100,
+                method: 'tools/call',
+                params: { name: 'close-then-finish-tool', arguments: {} }
+            };
+
+            const postResponse = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'text/event-stream, application/json',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25'
+                },
+                body: JSON.stringify(toolCallRequest)
+            });
+            expect(postResponse.status).toBe(200);
+
+            // Read the priming event and capture its event ID for reconnection.
+            const reader = postResponse.body?.getReader();
+            const primingData = await reader!.read();
+            const primingText = new TextDecoder().decode(primingData.value);
+            const idMatch = primingText.match(/id: ([^\n]+)/);
+            expect(idMatch).toBeTruthy();
+            const primingEventId = idMatch![1]!;
+
+            // The POST SSE stream closes once the tool calls closeSSE.
+            const { done } = await reader!.read();
+            expect(done).toBe(true);
+
+            // Let the tool produce its final result while the client is disconnected.
+            toolResolve!();
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Reconnect with the priming event ID; the terminal response must be replayed.
+            const reconnectResponse = await fetch(baseUrl, {
+                method: 'GET',
+                headers: {
+                    Accept: 'text/event-stream',
+                    'mcp-session-id': sessionId,
+                    'mcp-protocol-version': '2025-11-25',
+                    'last-event-id': primingEventId
+                }
+            });
+            expect(reconnectResponse.status).toBe(200);
+
+            const reconnectReader = reconnectResponse.body?.getReader();
+            const reconnectData = await reconnectReader!.read();
+            const reconnectText = new TextDecoder().decode(reconnectData.value);
+
+            expect(reconnectText).toContain('replayed-result');
+            expect(reconnectText).toContain('"id":100');
+            expect(reconnectText).toContain('id: ');
+
+            await reconnectReader!.cancel();
+        });
+
         it('should provide closeSSEStream callback in ctx when eventStore is configured', async () => {
             const result = await createTestServer({
                 sessionIdGenerator: () => randomUUID(),
