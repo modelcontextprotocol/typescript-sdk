@@ -10,7 +10,8 @@ import {
     JSONRPCMessageSchema,
     normalizeHeaders,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    SdkHttpError
 } from '@modelcontextprotocol/core';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
@@ -273,8 +274,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
+                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                            status: 401,
+                            statusText: response.statusText
                         });
                     }
                     throw new UnauthorizedError();
@@ -288,7 +290,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                throw new SdkError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
+                throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
                     status: response.status,
                     statusText: response.statusText
                 });
@@ -581,8 +583,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
+                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                            status: 401,
+                            statusText: response.statusText
                         });
                     }
                     throw new UnauthorizedError();
@@ -598,8 +601,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         // Check if we've already tried upscoping with this header to prevent infinite loops.
                         if (this._lastUpscopingHeader === wwwAuthHeader) {
-                            throw new SdkError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
+                            throw new SdkHttpError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
                                 status: 403,
+                                statusText: response.statusText,
                                 text
                             });
                         }
@@ -629,8 +633,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     }
                 }
 
-                throw new SdkError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
+                throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
                     status: response.status,
+                    statusText: response.statusText,
                     text
                 });
             }
@@ -725,10 +730,14 @@ export class StreamableHTTPClientTransport implements Transport {
             // We specifically handle 405 as a valid response according to the spec,
             // meaning the server does not support explicit session termination
             if (!response.ok && response.status !== 405) {
-                throw new SdkError(SdkErrorCode.ClientHttpFailedToTerminateSession, `Failed to terminate session: ${response.statusText}`, {
-                    status: response.status,
-                    statusText: response.statusText
-                });
+                throw new SdkHttpError(
+                    SdkErrorCode.ClientHttpFailedToTerminateSession,
+                    `Failed to terminate session: ${response.statusText}`,
+                    {
+                        status: response.status,
+                        statusText: response.statusText
+                    }
+                );
             }
 
             this._sessionId = undefined;

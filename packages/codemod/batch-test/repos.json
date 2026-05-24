@@ -1,0 +1,44 @@
+[
+    {
+        "repo": "KKonstantinov/mcp-servers-fork",
+        "ref": "feature/upgrade-zod-v4",
+        "packages": [
+            {
+                "dir": "src/everything",
+                "sourceDir": ".",
+                "checks": {
+                    "typecheck": "npx tsc --noEmit",
+                    "build": "npm run build",
+                    "test": "npm run test",
+                    "lint": "npm run prettier:check"
+                }
+            }
+        ]
+    },
+    {
+        "repo": "modelcontextprotocol/inspector",
+        "ref": "main",
+        "packages": [
+            {
+                "dir": "client",
+                "sourceDir": "src",
+                "checks": {
+                    "typecheck": "npx tsc --noEmit",
+                    "build": "npm run build",
+                    "test": "npm run test",
+                    "lint": "npm run lint"
+                }
+            },
+            {
+                "dir": "server",
+                "sourceDir": "src",
+                "checks": {
+                    "typecheck": "npx tsc --noEmit",
+                    "build": "npm run build",
+                    "test": null,
+                    "lint": null
+                }
+            }
+        ]
+    }
+]
