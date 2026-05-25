@@ -1,9 +1,56 @@
 import { Project } from 'ts-morph';
 
 import type { Diagnostic, FileResult, Migration, RunnerOptions, RunnerResult } from './types.js';
-import { error } from './utils/diagnostics.js';
+import { CODEMOD_ERROR_PREFIX, error } from './utils/diagnostics.js';
 import { updatePackageJson } from './utils/packageJsonUpdater.js';
 import { analyzeProject } from './utils/projectAnalyzer.js';
+
+function insertDiagnosticComments(project: Project, fileResults: FileResult[]): number {
+    let insertedCount = 0;
+
+    for (const fr of fileResults) {
+        const commentDiags = fr.diagnostics.filter(d => d.insertComment).toSorted((a, b) => b.line - a.line);
+
+        if (commentDiags.length === 0) continue;
+
+        const merged: { line: number; message: string }[] = [];
+        for (const diag of commentDiags) {
+            const prev = merged.at(-1);
+            if (prev && prev.line === diag.line) {
+                prev.message += ' | ' + diag.message;
+            } else {
+                merged.push({ line: diag.line, message: diag.message });
+            }
+        }
+
+        const sf = project.getSourceFile(fr.filePath);
+        if (!sf) continue;
+
+        // `sourceText` and `lines` are computed once from the pre-insertion text.
+        // Insertions below mutate sf, but we process in descending line order, so
+        // each insertText only shifts positions above the next insertion point —
+        // prior byte offsets stay valid.
+        const sourceText = sf.getFullText().replaceAll('\r\n', '\n');
+        const lines = sourceText.split('\n');
+
+        for (const diag of merged) {
+            const lineIndex = diag.line - 1;
+            if (lineIndex < 0 || lineIndex >= lines.length) continue;
+
+            if (lineIndex > 0 && lines[lineIndex - 1]!.includes(CODEMOD_ERROR_PREFIX)) continue;
+
+            const indent = lines[lineIndex]!.match(/^(\s*)/)?.[1] ?? '';
+            const safeMessage = diag.message.replaceAll('*/', '* /');
+            const comment = `${indent}/* ${CODEMOD_ERROR_PREFIX} ${safeMessage} */`;
+
+            const lineStart = lines.slice(0, lineIndex).reduce((sum, l) => sum + l.length + 1, 0);
+            sf.insertText(lineStart, comment + '\n');
+            insertedCount++;
+        }
+    }
+
+    return insertedCount;
+}
 
 function escapeGlobPath(p: string): string {
     return p.replaceAll(/[[\]{}()*?!@#]/g, String.raw`\$&`);
@@ -97,6 +144,17 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
             fileUsedPackages.clear();
         }
 
+        for (const d of fileDiagnostics) {
+            if (d.resolveCurrentLine) {
+                try {
+                    d.line = d.resolveCurrentLine();
+                } catch {
+                    // Node was removed by a later transform; keep snapshot line
+                }
+                delete d.resolveCurrentLine;
+            }
+        }
+
         if (fileChanges > 0 || fileDiagnostics.length > 0) {
             if (fileChanges > 0) {
                 filesChanged++;
@@ -118,7 +176,9 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
 
     // Per-file mutations are atomic: if any transform fails, the file is rolled back to its
     // original state and an error diagnostic is emitted.
+    let commentCount = 0;
     if (!options.dryRun) {
+        commentCount = insertDiagnosticComments(project, fileResults);
         project.saveSync();
     }
 
@@ -127,6 +187,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         totalChanges,
         diagnostics: allDiagnostics,
         fileResults,
-        packageJsonChanges
+        packageJsonChanges,
+        commentCount
     };
 }

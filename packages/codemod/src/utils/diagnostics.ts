@@ -1,5 +1,9 @@
+import type { Node } from 'ts-morph';
+
 import type { Diagnostic } from '../types.js';
 import { DiagnosticLevel } from '../types.js';
+
+export const CODEMOD_ERROR_PREFIX = '@mcp-codemod-error';
 
 export function error(file: string, line: number, message: string): Diagnostic {
     return { level: DiagnosticLevel.Error, file, line, message };
@@ -15,6 +19,17 @@ export function info(file: string, line: number, message: string): Diagnostic {
 
 export function v2Gap(file: string, line: number, message: string): Diagnostic {
     return { level: DiagnosticLevel.Warning, file, line, message, category: 'v2-gap' };
+}
+
+export function actionRequired(file: string, node: Node, message: string): Diagnostic {
+    return {
+        level: DiagnosticLevel.Warning,
+        file,
+        line: node.getStartLineNumber(),
+        message,
+        insertComment: true,
+        resolveCurrentLine: () => node.getStartLineNumber()
+    };
 }
 
 const LEVEL_PREFIX: Record<DiagnosticLevel, string> = {

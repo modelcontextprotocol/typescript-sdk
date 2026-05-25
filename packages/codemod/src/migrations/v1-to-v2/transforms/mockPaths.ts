@@ -2,7 +2,7 @@ import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { v2Gap, warning } from '../../../utils/diagnostics.js';
+import { actionRequired, v2Gap, warning } from '../../../utils/diagnostics.js';
 import { isSdkSpecifier } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
@@ -91,9 +91,7 @@ function rewriteMockCall(
         diagnostics
     });
     if (resolved === null) {
-        diagnostics.push(
-            warning(sourceFile.getFilePath(), call.getStartLineNumber(), `Unknown SDK mock path: ${specifier}. Manual migration required.`)
-        );
+        diagnostics.push(actionRequired(sourceFile.getFilePath(), call, `Unknown SDK mock path: ${specifier}. Manual migration required.`));
         return 0;
     }
     if ('removed' in resolved) {
@@ -119,9 +117,9 @@ function rewriteMockCall(
             effectiveTarget = resolved.symbolTargetOverrides[factorySymbols[0]!]!;
         } else if (someOverridden) {
             diagnostics.push(
-                warning(
+                actionRequired(
                     sourceFile.getFilePath(),
-                    call.getStartLineNumber(),
+                    call,
                     `Mock factory from ${specifier} mixes symbols that belong to different v2 packages. ` +
                         `Split the mock manually so each symbol targets the correct package.`
                 )
@@ -235,11 +233,7 @@ function rewriteDynamicImports(
         });
         if (resolved === null) {
             diagnostics.push(
-                warning(
-                    sourceFile.getFilePath(),
-                    node.getStartLineNumber(),
-                    `Unknown SDK dynamic import path: ${specifier}. Manual migration required.`
-                )
+                actionRequired(sourceFile.getFilePath(), node, `Unknown SDK dynamic import path: ${specifier}. Manual migration required.`)
             );
             return;
         }
@@ -310,9 +304,9 @@ function rewriteDynamicImports(
                 const moduleRenames = resolved.renamedSymbols ?? {};
                 if (!Node.isObjectBindingPattern(nameNode) && Object.keys(moduleRenames).length > 0) {
                     diagnostics.push(
-                        warning(
+                        actionRequired(
                             sourceFile.getFilePath(),
-                            node.getStartLineNumber(),
+                            node,
                             `Dynamic import assigned to variable (not destructured). Symbol renames (${Object.keys(moduleRenames).join(', ')}) were not applied. Manual update may be needed.`
                         )
                     );

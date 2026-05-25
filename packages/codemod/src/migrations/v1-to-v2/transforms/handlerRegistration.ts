@@ -2,7 +2,7 @@ import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { warning } from '../../../utils/diagnostics.js';
+import { actionRequired } from '../../../utils/diagnostics.js';
 import { isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils.js';
 import { NOTIFICATION_SCHEMA_TO_METHOD, SCHEMA_TO_METHOD } from '../mappings/schemaToMethodMap.js';
 
@@ -40,9 +40,9 @@ export const handlerRegistrationTransform: Transform = {
             const methodString = ALL_SCHEMA_TO_METHOD[originalName];
             if (!methodString) {
                 diagnostics.push(
-                    warning(
+                    actionRequired(
                         sourceFile.getFilePath(),
-                        call.getStartLineNumber(),
+                        call,
                         `Custom method handler: ${methodName}(${schemaName}, ...). ` +
                             `In v2, use the 3-arg form: ${methodName}('method/name', { params, result? }, handler). ` +
                             `See migration.md for details.`

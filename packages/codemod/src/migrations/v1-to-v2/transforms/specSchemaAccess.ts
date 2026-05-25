@@ -3,7 +3,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import { SPEC_SCHEMA_NAMES, specSchemaToTypeName } from '../../../generated/specSchemaMap.js';
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { warning } from '../../../utils/diagnostics.js';
+import { actionRequired, warning } from '../../../utils/diagnostics.js';
 import { addOrMergeImport, isAnyMcpSpecifier, removeUnusedImport } from '../../../utils/importUtils.js';
 
 export const specSchemaAccessTransform: Transform = {
@@ -70,9 +70,9 @@ function handleReference(
     // Pattern: z.infer<typeof XSchema> — type position
     if (isTypeofInTypePosition(ref)) {
         diagnostics.push(
-            warning(
+            actionRequired(
                 sourceFile.getFilePath(),
-                ref.getStartLineNumber(),
+                ref,
                 `Replace \`z.infer<typeof ${localName}>\` with the \`${typeName}\` type (already exported from the same v2 package).`
             )
         );
@@ -101,9 +101,9 @@ function handleReference(
         }
 
         diagnostics.push(
-            warning(
+            actionRequired(
                 sourceFile.getFilePath(),
-                ref.getStartLineNumber(),
+                ref,
                 `${localName}.safeParse() not available in v2. Use \`isSpecType.${typeName}(value)\` for boolean validation, ` +
                     `or \`specTypeSchemas.${typeName}['~standard'].validate(value)\` for full result.`
             )
@@ -114,9 +114,9 @@ function handleReference(
     // Pattern: XSchema.parse(v) — diagnostic only
     if (isParsePattern(ref)) {
         diagnostics.push(
-            warning(
+            actionRequired(
                 sourceFile.getFilePath(),
-                ref.getStartLineNumber(),
+                ref,
                 `${localName}.parse() not available in v2. Use \`isSpecType.${typeName}(value)\` for validation, ` +
                     `or \`specTypeSchemas.${typeName}['~standard'].validate(value)\` and check for issues.`
             )
@@ -142,9 +142,9 @@ function handleReference(
 
     if (parent && Node.isExportSpecifier(parent)) {
         diagnostics.push(
-            warning(
+            actionRequired(
                 sourceFile.getFilePath(),
-                ref.getStartLineNumber(),
+                ref,
                 `Re-export of ${localName} requires manual update: replace with specTypeSchemas.${typeName} or remove.`
             )
         );
@@ -301,9 +301,9 @@ function rewriteCapturedSafeParse(
                         replacements.push({ node: errorParent, newText: `${varName}.issues?.map(i => i.message).join(', ')` });
                     } else {
                         diagnostics.push(
-                            warning(
+                            actionRequired(
                                 sourceFile.getFilePath(),
-                                errorParent.getStartLineNumber(),
+                                errorParent,
                                 `${varName}.error.${subProp} has no StandardSchema equivalent. Manual migration required.`
                             )
                         );

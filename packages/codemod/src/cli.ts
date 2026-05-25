@@ -9,7 +9,7 @@ import { Command } from 'commander';
 import { listMigrations } from './migrations/index.js';
 import { run } from './runner.js';
 import { DiagnosticLevel } from './types.js';
-import { formatDiagnostic } from './utils/diagnostics.js';
+import { CODEMOD_ERROR_PREFIX, formatDiagnostic } from './utils/diagnostics.js';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json') as { version: string };
@@ -138,6 +138,13 @@ for (const [name, migration] of listMigrations()) {
                         console.log(`  Added:   ${pc.added.join(', ')}`);
                     }
                     console.log('');
+                }
+
+                if (result.commentCount > 0) {
+                    console.log(
+                        `${result.commentCount} location(s) marked with ${CODEMOD_ERROR_PREFIX} comments — search your code to find them:\n` +
+                            `  grep -r '${CODEMOD_ERROR_PREFIX}' ${resolvedDir}\n`
+                    );
                 }
 
                 if (opts['dryRun']) {

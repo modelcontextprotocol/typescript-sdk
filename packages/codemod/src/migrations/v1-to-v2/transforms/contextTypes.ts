@@ -2,7 +2,7 @@ import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { info, warning } from '../../../utils/diagnostics.js';
+import { actionRequired, info } from '../../../utils/diagnostics.js';
 import { hasMcpImports } from '../../../utils/importUtils.js';
 import { CONTEXT_PROPERTY_MAP, CTX_PARAM_NAME, EXTRA_PARAM_NAME } from '../mappings/contextPropertyMap.js';
 
@@ -32,9 +32,9 @@ function processCallback(
     const paramNameNode = extraParam.getNameNode();
     if (Node.isObjectBindingPattern(paramNameNode)) {
         diagnostics.push(
-            warning(
+            actionRequired(
                 sourceFile.getFilePath(),
-                extraParam.getStartLineNumber(),
+                extraParam,
                 `Destructuring of context parameter in signature: "${paramNameNode.getText()}". ` +
                     'Properties have been reorganized in v2 (e.g., signal is now ctx.mcpReq.signal). Manual refactoring required.'
             )
@@ -49,9 +49,9 @@ function processCallback(
     const otherParams = callbackNode.getParameters().filter(p => p !== extraParam);
     if (otherParams.some(p => p.getName() === CTX_PARAM_NAME)) {
         diagnostics.push(
-            warning(
+            actionRequired(
                 sourceFile.getFilePath(),
-                extraParam.getStartLineNumber(),
+                extraParam,
                 `Cannot rename '${EXTRA_PARAM_NAME}' to '${CTX_PARAM_NAME}': another parameter is already named '${CTX_PARAM_NAME}'. Manual migration required.`
             )
         );
@@ -74,9 +74,9 @@ function processCallback(
         });
         if (ctxAlreadyInScope) {
             diagnostics.push(
-                warning(
+                actionRequired(
                     sourceFile.getFilePath(),
-                    extraParam.getStartLineNumber(),
+                    extraParam,
                     `Cannot rename '${EXTRA_PARAM_NAME}' to '${CTX_PARAM_NAME}': '${CTX_PARAM_NAME}' is already referenced in this scope. Manual migration required.`
                 )
             );
@@ -163,9 +163,9 @@ function processCallback(
             const nameNode = node.getNameNode();
             if (!Node.isObjectBindingPattern(nameNode)) return;
             diagnostics.push(
-                warning(
+                actionRequired(
                     sourceFile.getFilePath(),
-                    node.getStartLineNumber(),
+                    node,
                     `Destructuring of context parameter detected: "const ${nameNode.getText()} = ${CTX_PARAM_NAME}". ` +
                         'Properties have been reorganized in v2 (e.g., signal is now ctx.mcpReq.signal). Manual refactoring required.'
                 )
