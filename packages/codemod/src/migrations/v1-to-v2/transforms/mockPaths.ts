@@ -8,7 +8,12 @@ import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
 import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
 
-const MOCK_METHODS = new Set(['mock', 'doMock']);
+const MOCK_METHODS = new Set([
+    'mock', 'doMock',
+    'unmock', 'dontMock', 'deepUnmock',
+    'requireActual', 'importActual',
+    'requireMock', 'createMockFromModule'
+]);
 const MOCK_CALLERS = new Set(['vi', 'jest']);
 
 export const mockPathsTransform: Transform = {

@@ -116,7 +116,7 @@ function handleErrorCodeSplit(sourceFile: SourceFile, diagnostics: Diagnostic[])
         if (newImports.length > 0) {
             const existingImp = sourceFile
                 .getImportDeclarations()
-                .find(i => i.getModuleSpecifierValue() === targetModule && !i.isTypeOnly());
+                .find(i => i.getModuleSpecifierValue() === targetModule && !i.isTypeOnly() && !i.getNamespaceImport());
             if (existingImp) {
                 const existingNames = new Set(existingImp.getNamedImports().map(n => n.getName()));
                 const toAdd = newImports.filter(n => !existingNames.has(n));
@@ -235,14 +235,14 @@ function handleRequestHandlerExtra(sourceFile: SourceFile, context: TransformCon
         if (needsClientContext) newImports.push({ name: 'ClientContext', target: '@modelcontextprotocol/client' });
 
         for (const { name, target } of newImports) {
-            const existingImp = sourceFile.getImportDeclarations().find(i => i.getModuleSpecifierValue() === target && i.isTypeOnly());
+            const existingImp = sourceFile.getImportDeclarations().find(i => i.getModuleSpecifierValue() === target && i.isTypeOnly() && !i.getNamespaceImport());
             if (existingImp) {
                 const existingNames = new Set(existingImp.getNamedImports().map(n => n.getName()));
                 if (!existingNames.has(name)) {
                     existingImp.addNamedImports([name]);
                 }
             } else {
-                const valueImp = sourceFile.getImportDeclarations().find(i => i.getModuleSpecifierValue() === target && !i.isTypeOnly());
+                const valueImp = sourceFile.getImportDeclarations().find(i => i.getModuleSpecifierValue() === target && !i.isTypeOnly() && !i.getNamespaceImport());
                 if (valueImp) {
                     const existingNames = new Set(valueImp.getNamedImports().map(n => n.getName()));
                     if (!existingNames.has(name)) {

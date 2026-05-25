@@ -384,7 +384,7 @@ describe('context-types transform', () => {
         expect(result).not.toContain('meta.ctx');
     });
 
-    it('does not rename "extra" in shorthand property assignment', () => {
+    it('expands shorthand property assignment when renaming extra to ctx', () => {
         const input = [
             `server.setRequestHandler('tools/call', async (request, extra) => {`,
             `    helper({ request, extra });`,
@@ -393,8 +393,8 @@ describe('context-types transform', () => {
             ''
         ].join('\n');
         const result = applyTransform(input);
-        expect(result).toContain('{ request, extra }');
-        expect(result).not.toContain('{ request, ctx }');
+        expect(result).toContain('extra: ctx');
+        expect(result).not.toContain('{ request, extra }');
         expect(result).toContain('(request, ctx)');
     });
 

@@ -2,6 +2,7 @@ import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
+import { isKeyPositionIdentifier } from '../../../utils/astUtils.js';
 import { actionRequired, info } from '../../../utils/diagnostics.js';
 import { hasMcpImports } from '../../../utils/importUtils.js';
 import { CONTEXT_PROPERTY_MAP, CTX_PARAM_NAME, EXTRA_PARAM_NAME } from '../mappings/contextPropertyMap.js';
@@ -98,11 +99,7 @@ function processCallback(
         body.forEachDescendant(node => {
             if (!Node.isIdentifier(node) || node.getText() !== EXTRA_PARAM_NAME) return;
             const parent = node.getParent();
-            // Skip property-name positions (e.g., meta.extra, { extra: value }, { extra }, { extra: x } = obj)
-            if (parent && Node.isPropertyAccessExpression(parent) && parent.getNameNode() === node) return;
-            if (parent && Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return;
-            if (parent && Node.isShorthandPropertyAssignment(parent)) return;
-            if (parent && Node.isBindingElement(parent) && parent.getPropertyNameNode() === node) return;
+            if (parent && isKeyPositionIdentifier(node)) return;
             identifiers.push(node);
         });
 
@@ -130,6 +127,11 @@ function processCallback(
                         continue;
                     }
                 }
+            }
+            // Shorthand property assignment: { extra } → { extra: ctx }
+            if (parent && Node.isShorthandPropertyAssignment(parent)) {
+                replacements.push({ node: parent, newText: `${EXTRA_PARAM_NAME}: ${CTX_PARAM_NAME}` });
+                continue;
             }
             replacements.push({ node: id, newText: CTX_PARAM_NAME });
         }

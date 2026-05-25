@@ -27,14 +27,8 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         status: 'moved'
     },
     '@modelcontextprotocol/sdk/client/stdio.js': {
-        target: '@modelcontextprotocol/client',
-        status: 'moved',
-        symbolTargetOverrides: {
-            StdioClientTransport: '@modelcontextprotocol/client/stdio',
-            DEFAULT_INHERITED_ENV_VARS: '@modelcontextprotocol/client/stdio',
-            getDefaultEnvironment: '@modelcontextprotocol/client/stdio',
-            StdioServerParameters: '@modelcontextprotocol/client/stdio'
-        }
+        target: '@modelcontextprotocol/client/stdio',
+        status: 'moved'
     },
     '@modelcontextprotocol/sdk/client/websocket.js': {
         target: '',

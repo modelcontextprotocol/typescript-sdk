@@ -3,6 +3,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import { SPEC_SCHEMA_NAMES, specSchemaToTypeName } from '../../../generated/specSchemaMap.js';
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
+import { isKeyPositionIdentifier } from '../../../utils/astUtils.js';
 import { actionRequired, warning } from '../../../utils/diagnostics.js';
 import { addOrMergeImport, isAnyMcpSpecifier, removeUnusedImport } from '../../../utils/importUtils.js';
 
@@ -165,15 +166,7 @@ function handleReference(
         return true;
     }
 
-    if (parent && Node.isPropertyAssignment(parent) && parent.getNameNode() === ref) {
-        return false;
-    }
-
-    if (parent && Node.isBindingElement(parent) && parent.getPropertyNameNode() === ref) {
-        return false;
-    }
-
-    if (parent && Node.isPropertyAccessExpression(parent) && parent.getNameNode() === ref) {
+    if (parent && isKeyPositionIdentifier(ref)) {
         return false;
     }
 

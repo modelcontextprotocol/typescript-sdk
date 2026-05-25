@@ -23,7 +23,6 @@ export const mcpServerApiTransform: Transform = {
         const resourceCalls: CallExpression[] = [];
         const registerToolCalls: CallExpression[] = [];
         const registerPromptCalls: CallExpression[] = [];
-        const registerResourceCalls: CallExpression[] = [];
 
         for (const call of calls) {
             const expr = call.getExpression();
@@ -49,10 +48,6 @@ export const mcpServerApiTransform: Transform = {
                 }
                 case 'registerPrompt': {
                     registerPromptCalls.push(call);
-                    break;
-                }
-                case 'registerResource': {
-                    registerResourceCalls.push(call);
                     break;
                 }
             }
@@ -115,12 +110,6 @@ export const mcpServerApiTransform: Transform = {
             }
         }
 
-        for (const call of registerResourceCalls) {
-            if (wrapSchemaInConfig(call, 'uriSchema', sourceFile, diagnostics)) {
-                changesCount++;
-            }
-        }
-
         changesCount += migrateConstructorTaskOptions(sourceFile, diagnostics);
 
         return { changesCount, diagnostics };
@@ -129,6 +118,13 @@ export const mcpServerApiTransform: Transform = {
 
 function isStringArg(node: Node): boolean {
     return Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node) || Node.isTemplateExpression(node);
+}
+
+function isZodObjectCall(node: Node): boolean {
+    if (!Node.isCallExpression(node)) return false;
+    const expr = node.getExpression();
+    if (!Node.isPropertyAccessExpression(expr)) return false;
+    return expr.getName() === 'object' && expr.getExpression().getText() === 'z';
 }
 
 function wrapWithZObject(schemaText: string): string {
@@ -150,6 +146,14 @@ function emitWrapDiagnostic(node: Node, sourceFile: SourceFile, call: CallExpres
                 sourceFile.getFilePath(),
                 call.getStartLineNumber(),
                 'Raw object literal wrapped with z.object(). Verify that zod (z) is imported in this file.'
+            )
+        );
+    } else if (!isZodObjectCall(node)) {
+        diagnostics.push(
+            actionRequired(
+                sourceFile.getFilePath(),
+                call,
+                'Schema argument is not an object literal — verify it is a z.object() schema. V2 requires a Zod schema, not a raw object.'
             )
         );
     }
@@ -206,13 +210,15 @@ function wrapSchemaInConfig(call: CallExpression, schemaPropertyName: string, so
         return true;
     }
 
-    diagnostics.push(
-        actionRequired(
-            sourceFile.getFilePath(),
-            call,
-            `\`${schemaPropertyName}\` value is not an object literal — verify it is a z.object() schema. V2 requires a Zod schema, not a raw object.`
-        )
-    );
+    if (!isZodObjectCall(initializer)) {
+        diagnostics.push(
+            actionRequired(
+                sourceFile.getFilePath(),
+                call,
+                `\`${schemaPropertyName}\` value is not an object literal — verify it is a z.object() schema. V2 requires a Zod schema, not a raw object.`
+            )
+        );
+    }
     return false;
 }
 
