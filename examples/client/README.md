@@ -31,11 +31,25 @@ Most clients expect a server to be running. Start one from [`../server/README.md
 | SSE polling client (legacy)                         | Polls a legacy HTTP+SSE server and demonstrates notification handling.                    | [`src/ssePollingClient.ts`](src/ssePollingClient.ts)                                       |
 | Parallel tool calls                                 | Runs multiple tool calls in parallel.                                                     | [`src/parallelToolCallsClient.ts`](src/parallelToolCallsClient.ts)                         |
 | Multiple clients in parallel                        | Connects multiple clients concurrently to the same server.                                | [`src/multipleClientsParallel.ts`](src/multipleClientsParallel.ts)                         |
+| Multi-server chatbot                                | Connects a chatbot to tools from multiple Streamable HTTP MCP servers.                    | [`src/multiServerChatbot.ts`](src/multiServerChatbot.ts)                                   |
 | OAuth client (interactive)                          | OAuth-enabled client (dynamic registration, auth flow).                                   | [`src/simpleOAuthClient.ts`](src/simpleOAuthClient.ts)                                     |
 | OAuth provider helper                               | Demonstrates reusable OAuth providers.                                                    | [`src/simpleOAuthClientProvider.ts`](src/simpleOAuthClientProvider.ts)                     |
 | Client credentials (M2M)                            | Machine-to-machine OAuth client credentials example.                                      | [`src/simpleClientCredentials.ts`](src/simpleClientCredentials.ts)                         |
 | URL elicitation client                              | Drives URL-mode elicitation flows (sensitive input in a browser).                         | [`src/elicitationUrlExample.ts`](src/elicitationUrlExample.ts)                             |
 | Task interactive client                             | Demonstrates task-based execution + interactive server→client requests.                   | [`src/simpleTaskInteractiveClient.ts`](src/simpleTaskInteractiveClient.ts)                 |
+
+## Multi-server chatbot example
+
+Run one or more Streamable HTTP MCP servers, then pass them as a comma-separated list. Entries can be named with `name=url`; unnamed entries default to `server1`, `server2`, and so on.
+
+```bash
+LLM_API_KEY=<key> \
+LLM_MODEL=gpt-4.1-mini \
+MCP_SERVER_URLS="local=http://localhost:3000/mcp,search=http://localhost:3001/mcp" \
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/multiServerChatbot.ts
+```
+
+By default the example calls the OpenAI-compatible chat completions endpoint at `https://api.openai.com/v1`. Set `LLM_BASE_URL` to use another compatible provider.
 
 ## URL elicitation example (server + client)
 
