@@ -9,6 +9,8 @@
 
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 import {
+    ACCEPT_LANGUAGE_META,
+    CONTENT_LANGUAGE_META,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
     isJSONRPCErrorResponse,
@@ -699,6 +701,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
 
+            // SEP-2792: Validate Accept-Language header vs _meta and copy header → _meta if needed
+            const langError = this.validateAndCopyAcceptLanguage(req, messages);
+            if (langError) {
+                return langError;
+            }
+
             // check if it contains requests
             const hasRequests = messages.some(element => isJSONRPCRequest(element));
 
@@ -897,6 +905,58 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         return undefined;
     }
 
+    /**
+     * SEP-2792: Validates Accept-Language header against _meta fields.
+     * - If header and _meta both present and disagree → HTTP 400
+     * - If header present but _meta absent → copies header value into _meta
+     */
+    private validateAndCopyAcceptLanguage(req: Request, messages: JSONRPCMessage[]): Response | undefined {
+        const headerValue = req.headers.get('accept-language');
+        if (!headerValue) {
+            return undefined;
+        }
+
+        for (const msg of messages) {
+            if (!('params' in msg) || !msg.params || typeof msg.params !== 'object') {
+                continue;
+            }
+            const params = msg.params as { _meta?: Record<string, unknown> };
+            const metaValue = params._meta?.[ACCEPT_LANGUAGE_META];
+
+            if (metaValue !== undefined && typeof metaValue === 'string') {
+                // Both present: check for mismatch
+                if (metaValue !== headerValue) {
+                    const error = `Bad Request: Accept-Language header "${headerValue}" does not match _meta["${ACCEPT_LANGUAGE_META}"] value "${metaValue}"`;
+                    this.onerror?.(new Error(error));
+                    return this.createJsonErrorResponse(400, -32_000, error);
+                }
+            } else {
+                // Header present, _meta absent: copy header → _meta
+                if (!params._meta) {
+                    params._meta = {};
+                }
+                params._meta[ACCEPT_LANGUAGE_META] = headerValue;
+            }
+        }
+        return undefined;
+    }
+
+    /**
+     * SEP-2792: Extracts Content-Language value from response message(s) _meta.
+     * Returns the first contentLanguage value found, or undefined.
+     */
+    private _extractContentLanguage(responses: JSONRPCMessage[]): string | undefined {
+        for (const msg of responses) {
+            if (isJSONRPCResultResponse(msg)) {
+                const meta = msg.result?._meta;
+                if (meta && typeof meta[CONTENT_LANGUAGE_META] === 'string') {
+                    return meta[CONTENT_LANGUAGE_META] as string;
+                }
+            }
+        }
+        return undefined;
+    }
+
     async close(): Promise<void> {
         if (this._closed) {
             return;
@@ -1017,6 +1077,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
 
                     const responses = relatedIds.map(id => this._requestResponseMap.get(id)!);
+
+                    // SEP-2792: Mirror Content-Language from response _meta to HTTP header
+                    const contentLang = this._extractContentLanguage(responses);
+                    if (contentLang) {
+                        headers['content-language'] = contentLang;
+                    }
 
                     if (responses.length === 1) {
                         stream.resolveJson(Response.json(responses[0], { status: 200, headers }));

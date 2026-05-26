@@ -2,6 +2,7 @@ import type { ReadableWritablePair } from 'node:stream/web';
 
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
 import {
+    ACCEPT_LANGUAGE_META,
     createFetchWithInit,
     isInitializedNotification,
     isJSONRPCErrorResponse,
@@ -229,6 +230,28 @@ export class StreamableHTTPClientTransport implements Transport {
             ...headers,
             ...extraHeaders
         });
+    }
+
+    /**
+     * Extracts the acceptLanguage value from message(s) _meta for header mirroring (SEP-2792).
+     * For batched messages with differing values, returns the union of language ranges.
+     */
+    private _extractAcceptLanguage(message: JSONRPCMessage | JSONRPCMessage[]): string | undefined {
+        const messages = Array.isArray(message) ? message : [message];
+        const values: string[] = [];
+        for (const msg of messages) {
+            if ('params' in msg && msg.params && typeof msg.params === 'object') {
+                const meta = (msg.params as { _meta?: Record<string, unknown> })._meta;
+                if (meta && typeof meta[ACCEPT_LANGUAGE_META] === 'string') {
+                    values.push(meta[ACCEPT_LANGUAGE_META] as string);
+                }
+            }
+        }
+        if (values.length === 0) return undefined;
+        // For batched messages with different values, union the language ranges
+        if (values.length === 1) return values[0];
+        const unique = [...new Set(values)];
+        return unique.length === 1 ? unique[0] : unique.join(', ');
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
@@ -545,6 +568,19 @@ export class StreamableHTTPClientTransport implements Transport {
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
+
+            // SEP-2792: Mirror acceptLanguage from _meta to Accept-Language header
+            const metaAcceptLanguage = this._extractAcceptLanguage(message);
+            if (metaAcceptLanguage) {
+                const existingHeader = headers.get('accept-language');
+                if (existingHeader && existingHeader !== metaAcceptLanguage) {
+                    throw new SdkError(
+                        SdkErrorCode.SendFailed,
+                        `Accept-Language header "${existingHeader}" conflicts with _meta["${ACCEPT_LANGUAGE_META}"] value "${metaAcceptLanguage}". They must be identical per SEP-2792.`
+                    );
+                }
+                headers.set('accept-language', metaAcceptLanguage);
+            }
 
             const init = {
                 ...this._requestInit,

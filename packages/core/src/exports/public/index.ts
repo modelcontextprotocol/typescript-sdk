@@ -74,6 +74,17 @@ export type { FetchLike, Transport, TransportSendOptions } from '../../shared/tr
 export { createFetchWithInit } from '../../shared/transport.js';
 export { InMemoryTransport } from '../../util/inMemory.js';
 
+// i18n helpers (SEP-2792)
+export {
+    ACCEPT_LANGUAGE_META,
+    CONTENT_LANGUAGE_META,
+    getAcceptLanguage,
+    getContentLanguage,
+    negotiateLanguage,
+    setAcceptLanguage,
+    setContentLanguage
+} from '../../shared/i18n.js';
+
 // URI Template
 export type { Variables } from '../../shared/uriTemplate.js';
 export { UriTemplate } from '../../shared/uriTemplate.js';
