@@ -4,20 +4,28 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import readline from 'readline/promises';
 
 import {
-    getClientForTool,
-    registerToolsForClient
+    buildQualifiedToolDefinitions,
+    createUniqueServerLabel
 } from './multiServerHelpers.js';
 
 const ANTHROPIC_MODEL = 'claude-sonnet-4-5';
 
 type ConnectedServer = {
     client: Client;
+    label: string;
     scriptPath: string;
+};
+
+type ToolBinding = {
+    client: Client;
+    originalToolName: string;
+    qualifiedToolName: string;
+    serverLabel: string;
 };
 
 class MultiServerMCPClient {
     private readonly servers: ConnectedServer[] = [];
-    private readonly toolToClient = new Map<string, Client>();
+    private readonly toolBindings = new Map<string, ToolBinding>();
     private readonly tools: Anthropic.Tool[] = [];
     private _anthropic: Anthropic | null = null;
 
@@ -26,30 +34,33 @@ class MultiServerMCPClient {
     }
 
     async connectToServers(serverScriptPaths: string[]): Promise<void> {
+        const usedLabels = new Set<string>();
+
         for (const serverScriptPath of serverScriptPaths) {
-            const client = await this.connectSingleServer(serverScriptPath);
-            this.servers.push({ client, scriptPath: serverScriptPath });
+            const label = createUniqueServerLabel(serverScriptPath, usedLabels);
+            const client = await this.connectSingleServer(label, serverScriptPath);
+            this.servers.push({ client, label, scriptPath: serverScriptPath });
 
             const toolsResult = await client.listTools();
-            const registeredTools = registerToolsForClient(
-                client,
-                toolsResult.tools,
-                this.toolToClient
-            );
+            const qualifiedTools = buildQualifiedToolDefinitions(label, toolsResult.tools);
 
-            for (const { tool } of registeredTools) {
-                this.tools.push(tool);
+            for (const tool of qualifiedTools) {
+                this.tools.push(tool.anthropicTool);
+                this.toolBindings.set(tool.qualifiedToolName, {
+                    client,
+                    originalToolName: tool.originalToolName,
+                    qualifiedToolName: tool.qualifiedToolName,
+                    serverLabel: label
+                });
             }
 
             console.log(
-                `Connected ${serverScriptPath} with tools: ${
-                    registeredTools.map(({ tool }) => tool.name).join(', ')
-                }`
+                `Connected ${label} with tools: ${qualifiedTools.map((tool) => tool.qualifiedToolName).join(', ')}`
             );
         }
     }
 
-    private async connectSingleServer(serverScriptPath: string): Promise<Client> {
+    private async connectSingleServer(label: string, serverScriptPath: string): Promise<Client> {
         const isJs = serverScriptPath.endsWith('.js');
         const isPy = serverScriptPath.endsWith('.py');
 
@@ -64,7 +75,7 @@ class MultiServerMCPClient {
             : process.execPath;
 
         const client = new Client({
-            name: 'mcp-client-cli',
+            name: `mcp-client-cli-${label}`,
             version: '1.0.0'
         });
         const transport = new StdioClientTransport({ command, args: [serverScriptPath] });
@@ -100,15 +111,19 @@ class MultiServerMCPClient {
                 continue;
             }
 
-            const client = getClientForTool(content.name, this.toolToClient);
+            const binding = this.toolBindings.get(content.name);
+            if (!binding) {
+                throw new Error(`Unknown qualified tool name: ${content.name}`);
+            }
+
             const toolArgs = content.input as Record<string, unknown> | undefined;
-            const result = await client.callTool({
-                name: content.name,
+            const result = await binding.client.callTool({
+                name: binding.originalToolName,
                 arguments: toolArgs
             });
 
             finalText.push(
-                `[Calling tool ${content.name} with args ${JSON.stringify(toolArgs)}]`
+                `[Calling ${binding.originalToolName} on ${binding.serverLabel} with args ${JSON.stringify(toolArgs)}]`
             );
 
             const toolResultText = result.content

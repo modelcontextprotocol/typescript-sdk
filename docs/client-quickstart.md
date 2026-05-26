@@ -359,7 +359,7 @@ For the multi-server variant, pass more than one server path:
 ANTHROPIC_API_KEY=your-key-here node build/multiServer.js ./server-a/build/index.js ./server-b/build/index.js
 ```
 
-That variant exposes one combined tool list to Claude, then uses a `Map<toolName, Client>` routing table to call the MCP server that owns the selected tool. If two servers expose the same tool name, the example fails fast so you can rename one of the tools before exposing it to Claude.
+That variant qualifies tool names per server (for example `weather__forecast`) so the chatbot can expose one combined tool list to Claude while still routing each tool call back to the correct MCP client.
 
 ## What's happening under the hood
 

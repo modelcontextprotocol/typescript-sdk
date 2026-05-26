@@ -1,37 +1,50 @@
-import type { Client } from '@modelcontextprotocol/client';
 import { describe, expect, it } from 'vitest';
 
 import {
-    getClientForTool,
-    registerToolsForClient
+    buildQualifiedToolDefinitions,
+    buildQualifiedToolName,
+    createUniqueServerLabel,
+    sanitizeServerLabel
 } from '../src/multiServerHelpers.js';
 
 describe('multiServerHelpers', () => {
-    it('registers tool names to their owning client', () => {
-        const client = { name: 'server-a' } as unknown as Client;
-        const toolToClient = new Map<string, Client>();
-        const [registeredTool] = registerToolsForClient(
-            client,
-            [
-                {
-                    name: 'forecast',
-                    description: 'Look up a forecast by city.',
-                    inputSchema: {
-                        type: 'object',
-                        properties: {
-                            city: { type: 'string' }
-                        }
-                    }
-                }
-            ],
-            toolToClient
-        );
+    it('sanitizes server labels into stable lowercase identifiers', () => {
+        expect(sanitizeServerLabel('C:/Projects/Weather Server.ts')).toBe('weather_server');
+        expect(sanitizeServerLabel('/tmp/123 Demo Server.py')).toBe('server_123_demo_server');
+        expect(sanitizeServerLabel('/tmp/---.js')).toBe('server');
+    });
 
-        expect(registeredTool).toEqual({
-            client,
-            tool: {
+    it('deduplicates labels when two server scripts share the same base name', () => {
+        const usedLabels = new Set<string>();
+
+        expect(createUniqueServerLabel('/tmp/weather.ts', usedLabels)).toBe('weather');
+        expect(createUniqueServerLabel('/work/weather.py', usedLabels)).toBe('weather_2');
+        expect(createUniqueServerLabel('/work/weather.ts', usedLabels)).toBe('weather_3');
+    });
+
+    it('builds qualified tool definitions with server context in the tool description', () => {
+        const [qualifiedTool] = buildQualifiedToolDefinitions('weather', [
+            {
                 name: 'forecast',
                 description: 'Look up a forecast by city.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        city: { type: 'string' }
+                    }
+                }
+            }
+        ]);
+
+        expect(buildQualifiedToolName('weather', 'forecast')).toBe('weather__forecast');
+        expect(qualifiedTool).toEqual({
+            originalToolName: 'forecast',
+            qualifiedToolName: 'weather__forecast',
+            serverLabel: 'weather',
+            anthropicTool: {
+                name: 'weather__forecast',
+                description:
+                    '[server:weather] Original MCP tool: forecast. Look up a forecast by city.',
                 input_schema: {
                     type: 'object',
                     properties: {
@@ -40,22 +53,5 @@ describe('multiServerHelpers', () => {
                 }
             }
         });
-        expect(getClientForTool('forecast', toolToClient)).toBe(client);
-    });
-
-    it('rejects duplicate tool names across clients', () => {
-        const toolToClient = new Map<string, Client>();
-        const tools = [
-            {
-                name: 'forecast',
-                inputSchema: { type: 'object' }
-            }
-        ];
-
-        registerToolsForClient({ name: 'server-a' } as unknown as Client, tools, toolToClient);
-
-        expect(() =>
-            registerToolsForClient({ name: 'server-b' } as unknown as Client, tools, toolToClient)
-        ).toThrow('Duplicate tool name "forecast" found across MCP servers.');
     });
 });

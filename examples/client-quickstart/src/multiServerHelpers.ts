@@ -1,5 +1,6 @@
+import path from 'node:path';
+
 import Anthropic from '@anthropic-ai/sdk';
-import type { Client } from '@modelcontextprotocol/client';
 
 type ToolLike = {
     name: string;
@@ -7,42 +8,66 @@ type ToolLike = {
     inputSchema: unknown;
 };
 
-export type RegisteredTool = {
-    client: Client;
-    tool: Anthropic.Tool;
+export type QualifiedToolDefinition = {
+    anthropicTool: Anthropic.Tool;
+    originalToolName: string;
+    qualifiedToolName: string;
+    serverLabel: string;
 };
 
-export function registerToolsForClient(
-    client: Client,
-    tools: ToolLike[],
-    toolToClient: Map<string, Client>
-): RegisteredTool[] {
-    return tools.map((tool) => {
-        if (toolToClient.has(tool.name)) {
-            throw new Error(
-                `Duplicate tool name "${tool.name}" found across MCP servers. `
-                    + 'Use servers with unique tool names, or rename tools before exposing them to Claude.'
-            );
-        }
+export function sanitizeServerLabel(serverScriptPath: string): string {
+    const fileName = path.basename(serverScriptPath, path.extname(serverScriptPath));
+    const normalized = fileName
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
 
-        toolToClient.set(tool.name, client);
+    if (!normalized) {
+        return 'server';
+    }
+
+    return /^[0-9]/.test(normalized) ? `server_${normalized}` : normalized;
+}
+
+export function createUniqueServerLabel(serverScriptPath: string, usedLabels: Set<string>): string {
+    const baseLabel = sanitizeServerLabel(serverScriptPath);
+    let candidate = baseLabel;
+    let suffix = 2;
+
+    while (usedLabels.has(candidate)) {
+        candidate = `${baseLabel}_${suffix}`;
+        suffix += 1;
+    }
+
+    usedLabels.add(candidate);
+    return candidate;
+}
+
+export function buildQualifiedToolName(serverLabel: string, toolName: string): string {
+    return `${serverLabel}__${toolName}`;
+}
+
+export function buildQualifiedToolDefinitions(
+    serverLabel: string,
+    tools: ToolLike[]
+): QualifiedToolDefinition[] {
+    return tools.map((tool) => {
+        const qualifiedToolName = buildQualifiedToolName(serverLabel, tool.name);
+        const descriptionPrefix = `[server:${serverLabel}] Original MCP tool: ${tool.name}.`;
+        const description = tool.description
+            ? `${descriptionPrefix} ${tool.description}`
+            : descriptionPrefix;
 
         return {
-            client,
-            tool: {
-                name: tool.name,
-                description: tool.description ?? '',
+            originalToolName: tool.name,
+            qualifiedToolName,
+            serverLabel,
+            anthropicTool: {
+                name: qualifiedToolName,
+                description,
                 input_schema: tool.inputSchema as Anthropic.Tool.InputSchema
             }
         };
     });
-}
-
-export function getClientForTool(toolName: string, toolToClient: Map<string, Client>): Client {
-    const client = toolToClient.get(toolName);
-    if (!client) {
-        throw new Error(`No MCP client registered for tool: ${toolName}`);
-    }
-
-    return client;
 }
