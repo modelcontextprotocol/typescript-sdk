@@ -26,12 +26,11 @@ class InMemoryEventStore implements EventStore {
         { send }: { send: (eventId: string, message: JSONRPCMessage) => Promise<void> }
     ): Promise<string> {
         if (!lastEventId || !this.events.has(lastEventId)) return '';
-        const streamId = lastEventId.split('_')[0] ?? '';
+        const streamId = this.events.get(lastEventId)?.streamId ?? '';
         if (!streamId) return '';
 
         let found = false;
-        const sorted = [...this.events.entries()].toSorted((a, b) => a[0].localeCompare(b[0]));
-        for (const [eventId, { streamId: sid, message }] of sorted) {
+        for (const [eventId, { streamId: sid, message }] of this.events) {
             if (sid !== streamId) continue;
             if (eventId === lastEventId) {
                 found = true;
@@ -139,6 +138,32 @@ describe('Zod v4', () => {
             await mcpServer.close().catch(() => {});
             await serverTransport.close().catch(() => {});
             server.close();
+        });
+
+        it('replays events for stream IDs that contain underscores', async () => {
+            const firstMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'notifications/message',
+                params: { level: 'info', data: 'first' }
+            };
+            const secondMessage: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'notifications/message',
+                params: { level: 'info', data: 'second' }
+            };
+
+            const firstEventId = await eventStore.storeEvent('_GET_stream', firstMessage);
+            const secondEventId = await eventStore.storeEvent('_GET_stream', secondMessage);
+            const replayed: Array<{ eventId: string; message: JSONRPCMessage }> = [];
+
+            const streamId = await eventStore.replayEventsAfter(firstEventId, {
+                send: async (eventId, message) => {
+                    replayed.push({ eventId, message });
+                }
+            });
+
+            expect(streamId).toBe('_GET_stream');
+            expect(replayed).toEqual([{ eventId: secondEventId, message: secondMessage }]);
         });
 
         it('should store session ID when client connects', async () => {
