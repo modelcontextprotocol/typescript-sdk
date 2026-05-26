@@ -16,14 +16,6 @@ export class InMemoryEventStore implements EventStore {
     }
 
     /**
-     * Extracts the stream ID from an event ID
-     */
-    private getStreamIdFromEventId(eventId: string): string {
-        const parts = eventId.split('_');
-        return parts.length > 0 ? parts[0]! : '';
-    }
-
-    /**
      * Stores an event with a generated event ID
      * Implements EventStore.storeEvent
      */
@@ -45,18 +37,17 @@ export class InMemoryEventStore implements EventStore {
             return '';
         }
 
-        // Extract the stream ID from the event ID
-        const streamId = this.getStreamIdFromEventId(lastEventId);
+        const streamId = this.events.get(lastEventId)?.streamId ?? '';
         if (!streamId) {
             return '';
         }
 
         let foundLastEvent = false;
 
-        // Sort events by eventId for chronological ordering
-        const sortedEvents = [...this.events.entries()].toSorted((a, b) => a[0].localeCompare(b[0]));
-
-        for (const [eventId, { streamId: eventStreamId, message }] of sortedEvents) {
+        // Map preserves insertion order, which is the event creation order. The
+        // generated IDs include a random suffix, so lexicographic sorting can
+        // reorder events created in the same millisecond.
+        for (const [eventId, { streamId: eventStreamId, message }] of this.events) {
             // Only include events from the same stream
             if (eventStreamId !== streamId) {
                 continue;
