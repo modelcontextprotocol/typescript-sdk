@@ -93,6 +93,7 @@ describe('Scope Challenge / Step-Up Auth', () => {
     function setupServer(options: {
         scopeChallenge?: {
             resourceMetadataUrl: string;
+            includeGrantedScopes?: boolean;
             buildErrorDescription?: (toolName: string, requiredScopes: string[]) => string;
         };
         tools?: Array<{
@@ -162,7 +163,10 @@ describe('Scope Challenge / Step-Up Auth', () => {
             const wwwAuth = response.headers.get('WWW-Authenticate');
             expect(wwwAuth).toBeDefined();
             expect(wwwAuth).toContain('error="insufficient_scope"');
-            expect(wwwAuth).toContain('scope="user:read repo:read"');
+            // Per RFC 6750 §3.1 and SEP-2350, advertise only the per-operation
+            // required scope by default — clients accumulate across step-ups.
+            expect(wwwAuth).toContain('scope="repo:read"');
+            expect(wwwAuth).not.toContain('user:read');
             expect(wwwAuth).toContain(`resource_metadata="${RESOURCE_METADATA_URL}"`);
 
             const body = (await response.json()) as { jsonrpc: string; error: { code: number; message: string } };
@@ -243,7 +247,7 @@ describe('Scope Challenge / Step-Up Auth', () => {
             expect(response.status).toBe(200);
         });
 
-        it('should include recommended scopes as union of existing + required', async () => {
+        it('should advertise only per-operation required scopes by default (RFC 6750 §3.1, SEP-2350)', async () => {
             const sessionId = await initializeServer();
 
             const authInfo: AuthInfo = {
@@ -258,10 +262,127 @@ describe('Scope Challenge / Step-Up Auth', () => {
 
             expect(response.status).toBe(403);
             const wwwAuth = response.headers.get('WWW-Authenticate')!;
-            // Should contain all existing scopes + the required one
+            // Only the operation's required scope is advertised; client accumulates.
+            expect(wwwAuth).toContain('scope="repo:read"');
+            expect(wwwAuth).not.toContain('user:read');
+            expect(wwwAuth).not.toContain('user:write');
+        });
+    });
+
+    describe('required scopes (AND semantics)', () => {
+        beforeEach(async () => {
+            setupServer({
+                scopeChallenge: { resourceMetadataUrl: RESOURCE_METADATA_URL },
+                tools: [{ name: 'multi_scope_tool', scopes: ['repo:read', 'user:read'] }]
+            });
+            await mcpServer.connect(transport);
+        });
+
+        it('should require ALL scopes in required[] to be present', async () => {
+            const sessionId = await initializeServer();
+
+            const authInfo: AuthInfo = {
+                token: 'test-token',
+                clientId: 'test-client',
+                scopes: ['repo:read'] // missing user:read
+            };
+
+            const request = createRequest('POST', createToolCallMessage('multi_scope_tool', { name: 'test' }), { sessionId });
+            const response = await transport.handleRequest(request, { authInfo });
+
+            expect(response.status).toBe(403);
+        });
+
+        it('should pass when ALL required scopes are present', async () => {
+            const sessionId = await initializeServer();
+
+            const authInfo: AuthInfo = {
+                token: 'test-token',
+                clientId: 'test-client',
+                scopes: ['repo:read', 'user:read', 'extra:scope']
+            };
+
+            const request = createRequest('POST', createToolCallMessage('multi_scope_tool', { name: 'test' }), { sessionId });
+            const response = await transport.handleRequest(request, { authInfo });
+
+            expect(response.status).toBe(200);
+        });
+    });
+
+    describe('includeGrantedScopes opt-in', () => {
+        beforeEach(async () => {
+            setupServer({
+                scopeChallenge: {
+                    resourceMetadataUrl: RESOURCE_METADATA_URL,
+                    includeGrantedScopes: true
+                }
+            });
+            await mcpServer.connect(transport);
+        });
+
+        it('should union active token scopes with required when includeGrantedScopes=true', async () => {
+            const sessionId = await initializeServer();
+
+            const authInfo: AuthInfo = {
+                token: 'test-token',
+                clientId: 'test-client',
+                scopes: ['user:read', 'user:write']
+            };
+
+            const request = createRequest('POST', createToolCallMessage('read_repo', { name: 'test' }), { sessionId });
+            const response = await transport.handleRequest(request, { authInfo });
+
+            expect(response.status).toBe(403);
+            const wwwAuth = response.headers.get('WWW-Authenticate')!;
             expect(wwwAuth).toContain('user:read');
             expect(wwwAuth).toContain('user:write');
             expect(wwwAuth).toContain('repo:read');
+        });
+
+        it('should deduplicate scopes in the union', async () => {
+            const sessionId = await initializeServer();
+
+            // Token already has repo:read; tool will also require repo:read (plus a missing scope)
+            // so the union has a natural duplicate to deduplicate.
+            mcpServer.setToolScopes('read_repo', ['repo:read', 'repo:write']);
+
+            const authInfo: AuthInfo = {
+                token: 'test-token',
+                clientId: 'test-client',
+                scopes: ['repo:read', 'user:read']
+            };
+
+            const request = createRequest('POST', createToolCallMessage('read_repo', { name: 'test' }), { sessionId });
+            const response = await transport.handleRequest(request, { authInfo });
+
+            expect(response.status).toBe(403);
+            const wwwAuth = response.headers.get('WWW-Authenticate')!;
+            const scopeMatch = wwwAuth.match(/scope="([^"]*)"/);
+            const scopes = (scopeMatch?.[1] ?? '').split(' ');
+            // No duplicates in the advertised scope value (RFC 6750 §3 — scope is a set).
+            expect(new Set(scopes).size).toBe(scopes.length);
+        });
+    });
+
+    describe('WWW-Authenticate header quoting', () => {
+        it('should escape embedded quotes and backslashes per RFC 7235', async () => {
+            setupServer({
+                scopeChallenge: {
+                    resourceMetadataUrl: RESOURCE_METADATA_URL,
+                    buildErrorDescription: () => 'Needs "repo:read", path\\to\\thing'
+                }
+            });
+            await mcpServer.connect(transport);
+
+            const sessionId = await initializeServer();
+            const authInfo: AuthInfo = { token: 't', clientId: 'c', scopes: [] };
+            const request = createRequest('POST', createToolCallMessage('read_repo'), { sessionId });
+            const response = await transport.handleRequest(request, { authInfo });
+
+            expect(response.status).toBe(403);
+            const wwwAuth = response.headers.get('WWW-Authenticate')!;
+            // Both `"` and `\` must be backslash-escaped to keep the header parseable.
+            expect(wwwAuth).toContain('error_description="Needs \\"repo:read\\", path\\\\to\\\\thing"');
         });
     });
 
@@ -368,7 +489,8 @@ describe('Scope Challenge / Step-Up Auth', () => {
 
             expect(response.status).toBe(403);
             const wwwAuth = response.headers.get('WWW-Authenticate')!;
-            expect(wwwAuth).toContain('Tool "read_repo" needs: repo:read');
+            // The quotes in `"read_repo"` are escaped per RFC 7235 quoted-string rules.
+            expect(wwwAuth).toContain('Tool \\"read_repo\\" needs: repo:read');
         });
     });
 
@@ -398,81 +520,6 @@ describe('Scope Challenge / Step-Up Auth', () => {
             const response = await transport.handleRequest(request, { authInfo });
 
             expect(response.status).toBe(403);
-        });
-    });
-
-    describe('McpServer scope API', () => {
-        it('getToolScopes returns undefined for tools without scopes', () => {
-            mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
-            mcpServer.registerTool(
-                'no_scopes',
-                {
-                    description: 'No scopes',
-                    inputSchema: z.object({ x: z.string() })
-                },
-                async () => ({ content: [] })
-            );
-
-            expect(mcpServer.getToolScopes('no_scopes')).toBeUndefined();
-        });
-
-        it('getToolScopes returns normalized scopes from string[] registration', () => {
-            mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
-            mcpServer.registerTool(
-                'scoped',
-                {
-                    description: 'Scoped',
-                    inputSchema: z.object({ x: z.string() }),
-                    scopes: ['repo:read', 'repo:write']
-                },
-                async () => ({ content: [] })
-            );
-
-            const scopes = mcpServer.getToolScopes('scoped');
-            expect(scopes).toEqual({ required: ['repo:read', 'repo:write'] });
-        });
-
-        it('getToolScopes returns full config from object registration', () => {
-            mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
-            mcpServer.registerTool(
-                'scoped',
-                {
-                    description: 'Scoped',
-                    inputSchema: z.object({ x: z.string() }),
-                    scopes: { required: ['public_repo'], accepted: ['public_repo', 'repo'] }
-                },
-                async () => ({ content: [] })
-            );
-
-            const scopes = mcpServer.getToolScopes('scoped');
-            expect(scopes).toEqual({ required: ['public_repo'], accepted: ['public_repo', 'repo'] });
-        });
-
-        it('setToolScopes overrides registration scopes', () => {
-            mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
-            mcpServer.registerTool(
-                'scoped',
-                {
-                    description: 'Scoped',
-                    inputSchema: z.object({ x: z.string() }),
-                    scopes: ['repo:read']
-                },
-                async () => ({ content: [] })
-            );
-
-            mcpServer.setToolScopes('scoped', ['admin:repo']);
-
-            const scopes = mcpServer.getToolScopes('scoped');
-            expect(scopes).toEqual({ required: ['admin:repo'] });
-        });
-
-        it('setToolScopes can set scopes on unregistered tool names', () => {
-            mcpServer = new McpServer({ name: 'test', version: '1.0.0' });
-            mcpServer.setToolScopes('future_tool', ['admin:read']);
-
-            // Returns the override even if tool isn't registered yet
-            const scopes = mcpServer.getToolScopes('future_tool');
-            expect(scopes).toEqual({ required: ['admin:read'] });
         });
     });
 

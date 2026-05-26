@@ -96,6 +96,34 @@ interface StreamMapping {
  * });
  * ```
  */
+/**
+ * Function that resolves scope requirements for a given tool name.
+ * Returns the tool's {@linkcode ToolScopeConfig} or `undefined` if the tool has
+ * no scope requirements (in which case the request is allowed through).
+ */
+export type ScopeResolver = (toolName: string) => ToolScopeConfig | undefined;
+
+/**
+ * Transports that support scope challenge handling implement this interface,
+ * allowing {@linkcode McpServer.connect} to auto-wire a {@linkcode ScopeResolver}
+ * sourced from the registered tools.
+ */
+export interface ScopeAware {
+    setScopeResolver(resolver: ScopeResolver): void;
+}
+
+/**
+ * Type guard for transports that implement {@linkcode ScopeAware}.
+ */
+export function isScopeAware(transport: unknown): transport is ScopeAware {
+    return (
+        typeof transport === 'object' &&
+        transport !== null &&
+        'setScopeResolver' in transport &&
+        typeof (transport as { setScopeResolver: unknown }).setScopeResolver === 'function'
+    );
+}
+
 export interface ScopeChallengeConfig {
     /**
      * The `resource_metadata` URL to include in `WWW-Authenticate` headers.
@@ -105,10 +133,36 @@ export interface ScopeChallengeConfig {
     resourceMetadataUrl: string;
 
     /**
+     * When `true`, the `WWW-Authenticate` `scope` parameter is the union of the
+     * token's currently active scopes and the tool's `required` scopes, rather
+     * than just the per-operation `required` scopes.
+     *
+     * Per RFC 6750 §3.1 and MCP SEP-2350, the recommended posture is to emit
+     * only the scopes required for the current operation and rely on the client
+     * to accumulate scopes across step-up challenges. Enable this option only
+     * if you need to defend against older clients that do not accumulate scopes
+     * client-side (i.e. they replace their requested scope set on each 403).
+     *
+     * @default false
+     */
+    includeGrantedScopes?: boolean;
+
+    /**
      * Optional custom error description generator.
      * If not provided, a default description listing the required scopes is used.
      */
     buildErrorDescription?: (toolName: string, requiredScopes: string[]) => string;
+}
+
+/**
+ * Quotes a value for use inside a `WWW-Authenticate` auth-param `quoted-string`
+ * per RFC 7235. Escapes `\` and `"` so the header parses unambiguously even when
+ * developer-supplied descriptions or scope strings contain quotes or commas.
+ *
+ * Does NOT add the surrounding quotes — call sites embed the result inside `"..."`.
+ */
+function quoteAuthParam(value: string): string {
+    return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 }
 
 /**
@@ -298,7 +352,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
     private _scopeChallenge?: ScopeChallengeConfig;
-    private _scopeResolver?: (toolName: string) => ToolScopeConfig | undefined;
+    private _scopeResolver?: ScopeResolver;
 
     sessionId?: string;
     onclose?: () => void;
@@ -328,7 +382,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * transport.setScopeResolver((toolName) => mcpServer.getToolScopes(toolName));
      * ```
      */
-    setScopeResolver(resolver: (toolName: string) => ToolScopeConfig | undefined): void {
+    setScopeResolver(resolver: ScopeResolver): void {
         this._scopeResolver = resolver;
     }
 
@@ -410,23 +464,36 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 continue;
             }
 
-            const acceptedScopes = toolScopes.accepted ?? toolScopes.required;
+            // Satisfaction check:
+            //   - If `accepted` is provided, ANY of those scopes in the token satisfies
+            //     the requirement (OR / hierarchy escape hatch).
+            //   - Otherwise, ALL `required` scopes must be present in the token (AND).
+            const satisfied = toolScopes.accepted
+                ? toolScopes.accepted.some(s => activeScopes.includes(s))
+                : toolScopes.required.every(s => activeScopes.includes(s));
 
-            // Check if the token has any of the accepted scopes
-            if (acceptedScopes.some(s => activeScopes.includes(s))) {
+            if (satisfied) {
                 continue;
             }
 
-            // Additive scoping: recommend the union of existing + required scopes.
-            // This ensures the client never loses scopes it already has when
-            // re-authorizing, matching the pattern from github/github-mcp-server.
-            const recommendedScopes = [...new Set([...activeScopes, ...toolScopes.required])];
+            // Per RFC 6750 §3.1 and MCP SEP-2350, the `scope` parameter advertises
+            // the scopes needed for the *current operation* — clients are expected
+            // to accumulate scopes across step-up challenges. Opt in via
+            // `includeGrantedScopes` to additionally union the token's active
+            // scopes (defensive against clients that don't accumulate).
+            const recommendedScopes = this._scopeChallenge.includeGrantedScopes
+                ? [...new Set([...activeScopes, ...toolScopes.required])]
+                : toolScopes.required;
 
             const errorDescription = this._scopeChallenge.buildErrorDescription
                 ? this._scopeChallenge.buildErrorDescription(toolName, toolScopes.required)
                 : `Additional scopes required: ${toolScopes.required.join(', ')}`;
 
-            const wwwAuthenticate = `Bearer error="insufficient_scope", scope="${recommendedScopes.join(' ')}", resource_metadata="${this._scopeChallenge.resourceMetadataUrl}", error_description="${errorDescription}"`;
+            const wwwAuthenticate =
+                `Bearer error="insufficient_scope"` +
+                `, scope="${quoteAuthParam(recommendedScopes.join(' '))}"` +
+                `, resource_metadata="${quoteAuthParam(this._scopeChallenge.resourceMetadataUrl)}"` +
+                `, error_description="${quoteAuthParam(errorDescription)}"`;
 
             return this.createJsonErrorResponse(403, -32_600, `Insufficient scope for tool: ${toolName}`, {
                 headers: {

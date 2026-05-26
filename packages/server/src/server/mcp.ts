@@ -46,6 +46,7 @@ import { ExperimentalMcpServerTasks } from '../experimental/tasks/mcpServer.js';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
+import { isScopeAware } from './streamableHttp.js';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -107,9 +108,9 @@ export class McpServer {
      * ```
      */
     async connect(transport: Transport): Promise<void> {
-        // Auto-wire scope resolver if the transport supports scope challenges
-        if ('setScopeResolver' in transport && typeof transport.setScopeResolver === 'function') {
-            transport.setScopeResolver((toolName: string) => this.getToolScopes(toolName));
+        // Auto-wire scope resolver if the transport supports scope challenges.
+        if (isScopeAware(transport)) {
+            transport.setScopeResolver(toolName => this.getToolScopes(toolName));
         }
         return await this.server.connect(transport);
     }
@@ -974,6 +975,7 @@ export class McpServer {
             inputSchema?: StandardSchemaWithJSON | ZodRawShape;
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
+            scopes?: string[] | ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -1280,25 +1282,33 @@ export type RegisteredTool = {
  */
 export interface ToolScopeConfig {
     /**
-     * The scopes recommended in the 403 scope challenge response.
+     * Scopes required for this tool, with **AND** semantics — the token must
+     * contain every scope in this array for the call to proceed (unless
+     * `accepted` is provided, see below). These are the scopes advertised in
+     * the 403 `WWW-Authenticate` challenge's `scope` parameter when the token
+     * is insufficient.
      *
-     * When the token lacks sufficient scopes, these are included in the
-     * `WWW-Authenticate` header's `scope` parameter (unioned with the
-     * token's existing scopes) so the client knows what to request
-     * during re-authorization.
+     * @example Single scope
+     * ```typescript
+     * { required: ['repo:read'] }
+     * ```
+     *
+     * @example Multiple scopes (all must be present)
+     * ```typescript
+     * { required: ['repo:read', 'user:read'] }
+     * ```
      */
     required: string[];
     /**
-     * All scopes that satisfy the requirement — if the token has ANY of
-     * these, the tool call proceeds without challenge.
+     * Optional **OR** escape hatch for the satisfaction check. When provided,
+     * the satisfaction check switches from "token has all `required`" to
+     * "token has ANY of `accepted`". Use this for scope hierarchies where a
+     * broader scope subsumes a narrower one.
      *
-     * Use this for scope hierarchies where a broader scope implies a
-     * narrower one. For example, a tool that requires `repo:read` might
-     * also accept `repo` (which implies read access).
+     * Note: `accepted` only affects whether the request is allowed through —
+     * the scope challenge advertised on a 403 is still based on `required`.
      *
-     * Defaults to `required` if not provided.
-     *
-     * @example
+     * @example Hierarchy: `repo` (broad) satisfies `repo:read` (narrow)
      * ```typescript
      * { required: ['repo:read'], accepted: ['repo:read', 'repo'] }
      * ```

@@ -381,21 +381,40 @@ async connect(transport: Transport): Promise<void> {
 The `_checkScopeChallenge()` method runs after message parsing but before the SSE
 stream opens. It only fires for `tools/call` requests where scope metadata exists.
 
-**Additive scoping:** The `scope` value in the `WWW-Authenticate` challenge header
-is always the **union** of the token's existing scopes plus the tool's `required`
-scopes. This ensures the client never loses scopes it already has when
-re-authorizing — a pattern established by github/github-mcp-server and consistent
-with how OAuth scope accumulation should work. For example, if a token has
-`['user:read', 'user:write']` and the tool requires `['repo:read']`, the challenge
-recommends `scope="user:read user:write repo:read"`.
+**Per-operation scoping (default, post-SEP-2350):** The `scope` value in the
+`WWW-Authenticate` challenge header advertises only the scopes required for the
+current operation, per [RFC 6750 §3.1](https://datatracker.ietf.org/doc/html/rfc6750#section-3.1)
+and [SEP-2350](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2350).
+Clients are responsible for accumulating scopes across step-up challenges (see
+[TS SDK #1657](https://github.com/modelcontextprotocol/typescript-sdk/pull/1657)).
+
+**Opt-in additive scoping:** Servers that need to defend against older / non-accumulating
+clients can set `scopeChallenge.includeGrantedScopes: true`, which restores the
+union behavior (`activeScopes ∪ required`). This is the pattern previously used
+by `github/github-mcp-server`, kept available for compatibility but no longer
+the default.
+
+**Required vs accepted semantics:**
+- `required` uses **AND** — every entry must be present in the token (or `accepted`
+  must satisfy the OR escape hatch).
+- `accepted` (optional) uses **OR** — if any entry is present in the token, the
+  call proceeds. Use for scope hierarchies (e.g. `repo` subsumes `repo:read`).
+
+**Header quoting:** All `WWW-Authenticate` `quoted-string` auth-param values
+(`scope`, `resource_metadata`, `error_description`) are escaped per RFC 7235 so
+that developer-supplied descriptions or scopes containing `"` or `\` do not break
+the header.
 
 ### 7.6 What this does NOT change
 
 - **No changes to the Protocol layer** — scope challenges are purely at the transport level
 - **No changes to JSON-RPC message handling** — errors stay as JSON-RPC errors
 - **No changes to stdio transport** — scope challenges are HTTP-only
-- **No changes to client SDK** — the existing 403 handling already works
-- **No changes to the MCP specification** — this implements existing spec behavior
+- **No changes to client SDK** — the existing 403 handling already works (client-side accumulation lands separately in [#1657](https://github.com/modelcontextprotocol/typescript-sdk/pull/1657))
+- **No changes to the MCP specification** — this implements existing spec behavior (post-SEP-2350)
+- **Tools/call only** — scope challenges for `resources/read`, `prompts/get`, etc. are
+  follow-up work; the SEP language talks about generic "operations" but this
+  initial implementation covers tools only.
 
 ## 8. Comparison with github/github-mcp-server Approach
 
@@ -422,7 +441,21 @@ The key difference: this proposal brings scope challenge support **into the SDK*
 
 5. **Multi-request batches:** When a single HTTP POST contains multiple JSON-RPC requests, and one needs a scope challenge, should the entire batch be rejected with 403, or should only the failing tool call get an error?
 
-6. **Accumulative scoping:** The current client overwrite behavior ([#1582](https://github.com/modelcontextprotocol/typescript-sdk/issues/1582)) means progressive authorization drops previous scopes. [PR #1618](https://github.com/modelcontextprotocol/typescript-sdk/pull/1618) proposes union-based accumulation. This proposal takes the position that **additive scoping is correct**: the server always includes the token's existing scopes in the challenge `scope` parameter, so the client re-authorizes with the full union. The spec should mandate this behavior — dropping scopes on step-up creates a broken loop where gaining one scope loses another.
+6. **Accumulative scoping (resolved by SEP-2350):** The earlier draft of this
+   proposal took the position that the **server** should always include the token's
+   existing scopes in the challenge `scope` parameter (additive scoping). This
+   has since been resolved by [SEP-2350](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2350)
+   (merged), which aligns MCP with [RFC 6750 §3.1](https://datatracker.ietf.org/doc/html/rfc6750#section-3.1):
+   **servers emit per-operation scopes only; clients accumulate scopes across
+   step-up challenges.** Client-side accumulation in the TS SDK lands in
+   [#1657](https://github.com/modelcontextprotocol/typescript-sdk/pull/1657).
+   This implementation defaults to per-operation, with `includeGrantedScopes`
+   as an opt-in for servers that need to defend against non-accumulating clients.
+
+7. **Resources/prompts step-up:** The SEP talks about generic "operations" but this
+   implementation covers `tools/call` only. Extending to `resources/read`,
+   `prompts/get`, and other operations is straightforward (same pre-execution
+   pattern, keyed on method + params) and is deferred to follow-up.
 
 ## 10. What's NOT in Scope (Pun Intended)
 
@@ -437,7 +470,12 @@ The key difference: this proposal brings scope challenge support **into the SDK*
 - [TS SDK Issue #1151 — Server SDK support for scope challenges](https://github.com/modelcontextprotocol/typescript-sdk/issues/1151)
 - [TS SDK Issue #1294 — Server SDK support for signaling token expiry](https://github.com/modelcontextprotocol/typescript-sdk/issues/1294)
 - [TS SDK Issue #1582 — Scope overwrite during progressive auth](https://github.com/modelcontextprotocol/typescript-sdk/issues/1582)
-- [TS SDK PR #1618 — Fix: accumulate scopes across challenges](https://github.com/modelcontextprotocol/typescript-sdk/pull/1618)
+- [TS SDK PR #1618 — Fix: accumulate scopes across challenges (superseded)](https://github.com/modelcontextprotocol/typescript-sdk/pull/1618)
+- [TS SDK PR #1657 — Client-side scope accumulation on 401/403](https://github.com/modelcontextprotocol/typescript-sdk/pull/1657)
+- [SEP-2350 — Clarify client-side scope accumulation in step-up authorization (merged)](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2350)
+- [Python SDK PR #2676 — SEP-2350 implementation](https://github.com/modelcontextprotocol/python-sdk/pull/2676)
+- [RFC 6750 §3.1 — Bearer error responses](https://datatracker.ietf.org/doc/html/rfc6750#section-3.1)
+- [RFC 7235 — HTTP Authentication](https://datatracker.ietf.org/doc/html/rfc7235)
 - [github/github-mcp-server — scope_challenge.go](https://github.com/github/github-mcp-server/blob/main/pkg/http/middleware/scope_challenge.go)
 - [github/github-mcp-server — scopes package](https://github.com/github/github-mcp-server/tree/main/pkg/scopes)
 - [SEP-1488 — securitySchemes in Tool Metadata](https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1488)
