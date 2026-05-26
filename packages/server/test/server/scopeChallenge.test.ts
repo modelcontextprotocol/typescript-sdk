@@ -471,7 +471,8 @@ describe('Scope Challenge / Step-Up Auth', () => {
             setupServer({
                 scopeChallenge: {
                     resourceMetadataUrl: RESOURCE_METADATA_URL,
-                    buildErrorDescription: (toolName, requiredScopes) => `Tool "${toolName}" needs: ${requiredScopes.join(', ')}`
+                    buildErrorDescription: (operationName, requiredScopes) =>
+                        `Operation "${operationName}" needs: ${requiredScopes.join(', ')}`
                 }
             });
             await mcpServer.connect(transport);
@@ -489,8 +490,8 @@ describe('Scope Challenge / Step-Up Auth', () => {
 
             expect(response.status).toBe(403);
             const wwwAuth = response.headers.get('WWW-Authenticate')!;
-            // The quotes in `"read_repo"` are escaped per RFC 7235 quoted-string rules.
-            expect(wwwAuth).toContain('Tool \\"read_repo\\" needs: repo:read');
+            // operationName is `tool:read_repo`; quotes are RFC 7235 escaped.
+            expect(wwwAuth).toContain('Operation \\"tool:read_repo\\" needs: repo:read');
         });
     });
 

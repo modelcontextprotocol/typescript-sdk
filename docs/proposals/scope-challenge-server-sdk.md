@@ -412,9 +412,42 @@ the header.
 - **No changes to stdio transport** — scope challenges are HTTP-only
 - **No changes to client SDK** — the existing 403 handling already works (client-side accumulation lands separately in [#1657](https://github.com/modelcontextprotocol/typescript-sdk/pull/1657))
 - **No changes to the MCP specification** — this implements existing spec behavior (post-SEP-2350)
-- **Tools/call only** — scope challenges for `resources/read`, `prompts/get`, etc. are
-  follow-up work; the SEP language talks about generic "operations" but this
-  initial implementation covers tools only.
+
+### 7.7 Extension to non-tool primitives (stacked follow-up PR)
+
+The same pre-execution check is extended to the remaining MCP operations in a
+stacked follow-up PR. The architecture stays the same; only the resolver
+becomes operation-aware.
+
+The transport's `ScopeResolver` widens from `(toolName) => ToolScopeConfig`
+to `(request: JSONRPCRequest) => ScopeResolution | Promise<ScopeResolution>`,
+where `ScopeResolution` carries both the resolved `ToolScopeConfig` and an
+`operationName` label used in the 403 error description (for example
+`tool:get_repo`, `resource:github://octo/hello`, `prompt:summarise`,
+`completion:prompt:summarise/repository`).
+
+`McpServer.connect()` auto-wires a router that dispatches on JSON-RPC method:
+
+| Method | Lookup |
+|---|---|
+| `tools/call` | tool scopes by `params.name` |
+| `resources/read` | resource scopes by exact `params.uri`, then by template match |
+| `prompts/get` | prompt scopes by `params.name` |
+| `completion/complete` | completion scopes by `(ref, argumentName)` |
+
+**Resources** accept either static scopes or a dynamic resolver function on the
+template, which receives the concrete URI and the matched template variables
+and returns the required scopes at request time. This handles cases like
+"public repos require `public_repo`, private repos require `repo`" without
+forcing the implementer into custom transport-level middleware.
+
+**Completions** have an explicit, separate scope domain with no inheritance
+from the referenced prompt or resource. Listing or searching argument values
+is typically a distinct capability from reading the resource itself (for
+example, `repo:list` is not implied by `repo:read`). Implementers who do want
+the same scopes on both can pass the same scopes array to `registerPrompt` and
+`setCompletionScopes`. A `'*'` argument name applies the same scopes to every
+argument of a given reference.
 
 ## 8. Comparison with github/github-mcp-server Approach
 

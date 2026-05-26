@@ -21,6 +21,8 @@ export type {
     RegisteredResourceTemplate,
     RegisteredTool,
     ResourceMetadata,
+    ResourceScopeConfig,
+    ResourceScopeFn,
     ToolCallback,
     ToolScopeConfig
 } from './server/mcp.js';
@@ -38,6 +40,7 @@ export type {
     HandleRequestOptions,
     ScopeAware,
     ScopeChallengeConfig,
+    ScopeResolution,
     ScopeResolver,
     StreamId,
     WebStandardStreamableHTTPServerTransportOptions
