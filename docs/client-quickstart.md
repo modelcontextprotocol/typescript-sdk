@@ -10,8 +10,6 @@ Before you begin, it helps to have gone through the [server quickstart](./server
 
 [You can find the complete code for this tutorial here.](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/client-quickstart)
 
-If you want one chatbot to aggregate tools from multiple MCP servers, see the multi-server variant at [`examples/client-quickstart/src/multiServer.ts`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/client-quickstart/src/multiServer.ts).
-
 ## Prerequisites
 
 This quickstart assumes you have familiarity with:
@@ -352,14 +350,6 @@ $env:ANTHROPIC_API_KEY="your-key-here"; node build/index.js path\to\server\build
    - Enter queries
    - See tool executions
    - Get responses from Claude
-
-For the multi-server variant, pass more than one server path:
-
-```bash
-ANTHROPIC_API_KEY=your-key-here node build/multiServer.js ./server-a/build/index.js ./server-b/build/index.js
-```
-
-That variant qualifies tool names per server (for example `weather__forecast`) so the chatbot can expose one combined tool list to Claude while still routing each tool call back to the correct MCP client.
 
 ## What's happening under the hood
 

@@ -8,7 +8,6 @@
     },
     "scripts": {
         "build": "tsc",
-        "test": "vitest run",
         "typecheck": "tsc --noEmit"
     },
     "dependencies": {
@@ -17,7 +16,6 @@
     },
     "devDependencies": {
         "@types/node": "^24.10.1",
-        "typescript": "catalog:devTools",
-        "vitest": "catalog:devTools"
+        "typescript": "catalog:devTools"
     }
 }
