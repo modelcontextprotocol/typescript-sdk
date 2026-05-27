@@ -3,7 +3,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { actionRequired } from '../../../utils/diagnostics.js';
-import { isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils.js';
+import { hasMcpImports, isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils.js';
 import { NOTIFICATION_SCHEMA_TO_METHOD, SCHEMA_TO_METHOD } from '../mappings/schemaToMethodMap.js';
 
 const ALL_SCHEMA_TO_METHOD: Record<string, string> = {
@@ -15,6 +15,10 @@ export const handlerRegistrationTransform: Transform = {
     name: 'Handler registration migration',
     id: 'handlers',
     apply(sourceFile: SourceFile, _context: TransformContext): TransformResult {
+        if (!hasMcpImports(sourceFile)) {
+            return { changesCount: 0, diagnostics: [] };
+        }
+
         let changesCount = 0;
         const diagnostics: Diagnostic[] = [];
 

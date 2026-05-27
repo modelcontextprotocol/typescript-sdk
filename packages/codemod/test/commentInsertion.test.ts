@@ -1,12 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Project } from 'ts-morph';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { getMigration } from '../src/migrations/index.js';
 import { run } from '../src/runner.js';
-import type { FileResult } from '../src/types.js';
 import { CODEMOD_ERROR_PREFIX } from '../src/utils/diagnostics.js';
 
 const migration = getMigration('v1-to-v2')!;
@@ -189,33 +187,40 @@ describe('comment insertion', () => {
     });
 
     it('merges same-line diagnostics into a single comment', () => {
-        // Test the merge logic directly with synthetic data via the Project API.
-        // Two diagnostics on the same line should produce one comment with joined messages.
-        const project = new Project({ useInMemoryFileSystem: true });
-        const sf = project.createSourceFile('test.ts', 'const a = 1;\nconst b = 2;\n');
+        const dir = createTempDir();
+        const input = [
+            `import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const a = CallToolRequestSchema.parse(data1); const b = ListToolsRequestSchema.parse(data2);`,
+            ``
+        ].join('\n');
+        writeFileSync(path.join(dir, 'server.ts'), input);
 
-        const fileResults: FileResult[] = [
-            {
-                filePath: sf.getFilePath(),
-                changes: 0,
-                diagnostics: [
-                    { level: 'warning' as never, file: sf.getFilePath(), line: 2, message: 'First issue', insertComment: true },
-                    { level: 'warning' as never, file: sf.getFilePath(), line: 2, message: 'Second issue', insertComment: true }
-                ]
-            }
-        ];
+        const result = run(migration, { targetDir: dir });
 
-        // Import and call insertDiagnosticComments indirectly by checking the runner behavior.
-        // Since insertDiagnosticComments is not exported, we verify via integration:
-        // construct a scenario that produces two diagnostics for the same node.
-        // Instead, we verify the output format by checking the source file directly.
-        // For a true unit test, we'd need to export the function. For now, verify the
-        // merge behavior via the runner with a crafted input.
+        const output = readFileSync(path.join(dir, 'server.ts'), 'utf8');
+        const commentLines = output.split('\n').filter(l => l.includes(CODEMOD_ERROR_PREFIX));
+        expect(commentLines.length).toBe(1);
+        expect(commentLines[0]).toContain(' | ');
+        expect(result.commentCount).toBe(1);
+    });
 
-        // Actually, we can use a file that triggers two actionRequired diagnostics on the same line.
-        // This is hard to construct naturally, so we test the runner output instead.
-        // The key invariant is: if we ever get same-line diagnostics, only one comment appears.
-        // The earlier tests already cover the single-comment case. This test documents the intent.
-        expect(fileResults[0]!.diagnostics.filter(d => d.line === 2).length).toBe(2);
+    it('handles CRLF line endings without corrupting the file', () => {
+        const dir = createTempDir();
+        const input = [
+            `import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const a = CallToolRequestSchema.parse(data);`,
+            ``
+        ].join('\r\n');
+        writeFileSync(path.join(dir, 'server.ts'), input);
+
+        run(migration, { targetDir: dir });
+
+        const output = readFileSync(path.join(dir, 'server.ts'), 'utf8');
+        expect(output).toContain(CODEMOD_ERROR_PREFIX);
+        const lines = output.split(/\r?\n/);
+        const commentIdx = lines.findIndex(l => l.includes(CODEMOD_ERROR_PREFIX));
+        expect(commentIdx).toBeGreaterThan(-1);
+        expect(lines[commentIdx]!.trim()).toMatch(/^\/\*.*\*\/$/);
+        expect(lines[commentIdx + 1]).toContain('.parse(data)');
     });
 });

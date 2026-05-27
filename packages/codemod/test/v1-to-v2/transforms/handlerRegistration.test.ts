@@ -162,6 +162,7 @@ describe('handler-registration transform', () => {
 
     it('emits diagnostic for custom method schema (not in spec map)', () => {
         const input = [
+            `import { Server } from '@modelcontextprotocol/sdk/server/index.js';`,
             `const AcmeSearch = z.object({ method: z.literal('acme/search'), params: z.object({ query: z.string() }) });`,
             `server.setRequestHandler(AcmeSearch, async (request) => {`,
             `    return { items: [] };`,
@@ -179,6 +180,7 @@ describe('handler-registration transform', () => {
 
     it('emits diagnostic for custom notification schema', () => {
         const input = [
+            `import { Server } from '@modelcontextprotocol/sdk/server/index.js';`,
             `const CustomNotification = z.object({ method: z.literal('acme/notify') });`,
             `server.setNotificationHandler(CustomNotification, async () => {});`,
             ''
@@ -190,6 +192,20 @@ describe('handler-registration transform', () => {
         expect(result.diagnostics[0]!.message).toContain('Custom method handler');
         expect(result.diagnostics[0]!.message).toContain('setNotificationHandler');
         expect(result.diagnostics[0]!.message).toContain('CustomNotification');
+    });
+
+    it('skips files with no MCP imports', () => {
+        const input = [
+            `import { EventBus } from 'some-other-library';`,
+            `const CustomSchema = z.object({ method: z.literal('custom/op') });`,
+            `bus.setRequestHandler(CustomSchema, async (req) => {});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = handlerRegistrationTransform.apply(sourceFile, ctx);
+        expect(result.changesCount).toBe(0);
+        expect(result.diagnostics.length).toBe(0);
     });
 
     it('replaces ListTasksRequestSchema with method string', () => {

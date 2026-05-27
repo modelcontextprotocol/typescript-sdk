@@ -143,7 +143,7 @@ for (const [name, migration] of listMigrations()) {
                 if (result.commentCount > 0) {
                     console.log(
                         `${result.commentCount} location(s) marked with ${CODEMOD_ERROR_PREFIX} comments — search your code to find them:\n` +
-                            `  grep -r '${CODEMOD_ERROR_PREFIX}' ${resolvedDir}\n`
+                            `  grep -r '${CODEMOD_ERROR_PREFIX}' "${resolvedDir}"\n`
                     );
                 }
 

@@ -30,8 +30,9 @@ function insertDiagnosticComments(project: Project, fileResults: FileResult[]): 
         // Insertions below mutate sf, but we process in descending line order, so
         // each insertText only shifts positions above the next insertion point —
         // prior byte offsets stay valid.
-        const sourceText = sf.getFullText().replaceAll('\r\n', '\n');
+        const sourceText = sf.getFullText();
         const lines = sourceText.split('\n');
+        const lineEnding = sourceText.includes('\r\n') ? '\r\n' : '\n';
 
         for (const diag of merged) {
             const lineIndex = diag.line - 1;
@@ -44,7 +45,7 @@ function insertDiagnosticComments(project: Project, fileResults: FileResult[]): 
             const comment = `${indent}/* ${CODEMOD_ERROR_PREFIX} ${safeMessage} */`;
 
             const lineStart = lines.slice(0, lineIndex).reduce((sum, l) => sum + l.length + 1, 0);
-            sf.insertText(lineStart, comment + '\n');
+            sf.insertText(lineStart, comment + lineEnding);
             insertedCount++;
         }
     }
