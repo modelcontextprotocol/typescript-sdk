@@ -5,6 +5,7 @@ import type {
     CompleteRequestResourceTemplate,
     CompleteResult,
     GetPromptResult,
+    Icon,
     Implementation,
     ListPromptsResult,
     ListResourcesResult,
@@ -438,6 +439,7 @@ export class McpServer {
                             name,
                             title: prompt.title,
                             description: prompt.description,
+                            icons: prompt.icons,
                             arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
                             _meta: prompt._meta
                         };
@@ -607,6 +609,7 @@ export class McpServer {
         name: string,
         title: string | undefined,
         description: string | undefined,
+        icons: Icon[] | undefined,
         argsSchema: StandardSchemaWithJSON | undefined,
         callback: PromptCallback<StandardSchemaWithJSON | undefined>,
         _meta: Record<string, unknown> | undefined
@@ -618,6 +621,7 @@ export class McpServer {
         const registeredPrompt: RegisteredPrompt = {
             title,
             description,
+            icons,
             argsSchema,
             _meta,
             handler: createPromptHandler(name, argsSchema, callback),
@@ -632,6 +636,7 @@ export class McpServer {
                 }
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
+                if (updates.icons !== undefined) registeredPrompt.icons = updates.icons;
                 if (updates._meta !== undefined) registeredPrompt._meta = updates._meta;
 
                 // Track if we need to regenerate the handler
@@ -857,6 +862,7 @@ export class McpServer {
         config: {
             title?: string;
             description?: string;
+            icons?: Icon[];
             argsSchema?: Args;
             _meta?: Record<string, unknown>;
         },
@@ -868,6 +874,7 @@ export class McpServer {
         config: {
             title?: string;
             description?: string;
+            icons?: Icon[];
             argsSchema?: Args;
             _meta?: Record<string, unknown>;
         },
@@ -878,6 +885,7 @@ export class McpServer {
         config: {
             title?: string;
             description?: string;
+            icons?: Icon[];
             argsSchema?: StandardSchemaWithJSON | ZodRawShape;
             _meta?: Record<string, unknown>;
         },
@@ -887,12 +895,13 @@ export class McpServer {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema, _meta } = config;
+        const { title, description, icons, argsSchema, _meta } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
             title,
             description,
+            icons,
             normalizeRawShapeSchema(argsSchema),
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
             _meta
@@ -1192,6 +1201,7 @@ type ToolCallbackInternal = (args: unknown, ctx: ServerContext) => CallToolResul
 export type RegisteredPrompt = {
     title?: string;
     description?: string;
+    icons?: Icon[];
     argsSchema?: StandardSchemaWithJSON;
     _meta?: Record<string, unknown>;
     /** @hidden */
@@ -1203,6 +1213,7 @@ export type RegisteredPrompt = {
         name?: string | null;
         title?: string;
         description?: string;
+        icons?: Icon[];
         argsSchema?: Args;
         _meta?: Record<string, unknown>;
         callback?: PromptCallback<Args>;
