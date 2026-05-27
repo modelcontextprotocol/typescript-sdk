@@ -21,6 +21,7 @@ import {
 } from '../../src/types.js';
 import { completable } from '../../src/server/completable.js';
 import { McpServer, ResourceTemplate } from '../../src/server/mcp.js';
+import type { AnySchema } from '../../src/server/zod-compat.js';
 import { InMemoryTaskStore } from '../../src/experimental/tasks/stores/in-memory.js';
 import { zodTestMatrix, type ZodMatrixEntry } from '../../src/__fixtures__/zodTestMatrix.js';
 
@@ -5217,6 +5218,150 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     text: 'items: 5 -> 10'
                 }
             ]);
+        });
+    });
+
+    describe('tools/list with wrapped inputSchema (issue #2145)', () => {
+        // Each entry wraps the same plain object shape:
+        //   z.object({ prompt: z.string().min(1), count: z.number().int().positive().default(1) })
+        // The wrapper (.refine / .superRefine / .transform / .pipe) hides `.shape` from the
+        // top-level schema, but tools/list should still emit the underlying object's
+        // `properties` instead of falling back to {}.
+        const buildBase = () =>
+            z.object({
+                prompt: z.string().min(1),
+                count: z.number().int().positive().default(1)
+            });
+
+        const wrappers: Array<{ name: string; build: () => AnySchema; rejectsLargeCount: boolean }> = [
+            {
+                name: '.refine',
+                build: () =>
+                    (buildBase() as { refine: (...args: unknown[]) => AnySchema }).refine(
+                        (v: { count: number }) => v.count <= 100,
+                        { message: 'count must be <= 100' }
+                    ),
+                rejectsLargeCount: true
+            },
+            {
+                name: '.superRefine',
+                build: () =>
+                    (buildBase() as { superRefine: (...args: unknown[]) => AnySchema }).superRefine(
+                        (v: { count: number }, ctx: { addIssue: (issue: Record<string, unknown>) => void }) => {
+                            if (v.count > 100) {
+                                ctx.addIssue({ code: 'custom', path: ['count'], message: 'count must be <= 100' });
+                            }
+                        }
+                    ),
+                rejectsLargeCount: true
+            },
+            {
+                name: '.transform',
+                build: () =>
+                    (buildBase() as { transform: (...args: unknown[]) => AnySchema }).transform(
+                        (v: Record<string, unknown>) => v
+                    ),
+                rejectsLargeCount: false
+            },
+            {
+                name: '.pipe',
+                build: () =>
+                    (buildBase() as { pipe: (...args: unknown[]) => AnySchema }).pipe(
+                        z.object({
+                            prompt: z.string(),
+                            count: z.number()
+                        })
+                    ),
+                rejectsLargeCount: false
+            }
+        ];
+
+        test.each(wrappers)('$name: tools/list emits properties from the underlying object', async ({ build }) => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test', version: '1.0.0' });
+
+            server.registerTool(
+                'wrapped',
+                { inputSchema: build() },
+                async () => ({ content: [{ type: 'text' as const, text: 'ok' }] })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const wrapped = result.tools.find(t => t.name === 'wrapped');
+            expect(wrapped).toBeDefined();
+            expect(wrapped!.inputSchema.type).toBe('object');
+            const properties = wrapped!.inputSchema.properties as Record<string, unknown> | undefined;
+            expect(properties).toBeDefined();
+            expect(properties!.prompt).toBeDefined();
+            expect(properties!.count).toBeDefined();
+        });
+
+        test.each(wrappers)('$name: tools/call still validates against the wrapped schema', async ({ build, rejectsLargeCount }) => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test', version: '1.0.0' });
+
+            server.registerTool(
+                'wrapped',
+                { inputSchema: build() },
+                async () => ({ content: [{ type: 'text' as const, text: 'ok' }] })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            const okResult = await client.callTool({ name: 'wrapped', arguments: { prompt: 'hi', count: 5 } });
+            expect(okResult.isError).toBeFalsy();
+
+            if (rejectsLargeCount) {
+                const badResult = await client.callTool({ name: 'wrapped', arguments: { prompt: 'hi', count: 200 } });
+                expect(badResult.isError).toBe(true);
+                expect(JSON.stringify(badResult.content)).toContain('count');
+            }
+        });
+
+        test('regression: tool without inputSchema still emits EMPTY_OBJECT_JSON_SCHEMA', async () => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test', version: '1.0.0' });
+
+            server.registerTool('no-args', {}, async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const tool = result.tools.find(t => t.name === 'no-args');
+            expect(tool).toBeDefined();
+            expect(tool!.inputSchema).toEqual({ type: 'object', properties: {} });
+        });
+
+        test('wrapped outputSchema is also emitted in tools/list', async () => {
+            const server = new McpServer({ name: 'test', version: '1.0.0' });
+            const client = new Client({ name: 'test', version: '1.0.0' });
+
+            const wrappedOutput = (
+                z.object({ result: z.string() }) as { refine: (...args: unknown[]) => AnySchema }
+            ).refine(() => true);
+
+            server.registerTool(
+                'with-wrapped-output',
+                { outputSchema: wrappedOutput },
+                async () => ({ content: [{ type: 'text' as const, text: 'ok' }], structuredContent: { result: 'ok' } })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            const tool = result.tools.find(t => t.name === 'with-wrapped-output');
+            expect(tool).toBeDefined();
+            expect(tool!.outputSchema).toBeDefined();
+            expect(tool!.outputSchema!.type).toBe('object');
+            const properties = tool!.outputSchema!.properties as Record<string, unknown> | undefined;
+            expect(properties).toBeDefined();
+            expect(properties!.result).toBeDefined();
         });
     });
 

@@ -146,13 +146,15 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: (() => {
+                                if (!tool.inputSchema) return EMPTY_OBJECT_JSON_SCHEMA;
+                                // Fallback to the original schema when normalizeObjectSchema can't unwrap
+                                // it (e.g. .refine/.superRefine/.transform/.pipe). The converter walks
+                                // those wrappers natively and emits the underlying object's properties.
                                 const obj = normalizeObjectSchema(tool.inputSchema);
-                                return obj
-                                    ? (toJsonSchemaCompat(obj, {
-                                          strictUnions: true,
-                                          pipeStrategy: 'input'
-                                      }) as Tool['inputSchema'])
-                                    : EMPTY_OBJECT_JSON_SCHEMA;
+                                return toJsonSchemaCompat(obj ?? (tool.inputSchema as AnySchema), {
+                                    strictUnions: true,
+                                    pipeStrategy: 'input'
+                                }) as Tool['inputSchema'];
                             })(),
                             annotations: tool.annotations,
                             execution: tool.execution,
@@ -161,12 +163,10 @@ export class McpServer {
 
                         if (tool.outputSchema) {
                             const obj = normalizeObjectSchema(tool.outputSchema);
-                            if (obj) {
-                                toolDefinition.outputSchema = toJsonSchemaCompat(obj, {
-                                    strictUnions: true,
-                                    pipeStrategy: 'output'
-                                }) as Tool['outputSchema'];
-                            }
+                            toolDefinition.outputSchema = toJsonSchemaCompat(obj ?? (tool.outputSchema as AnySchema), {
+                                strictUnions: true,
+                                pipeStrategy: 'output'
+                            }) as Tool['outputSchema'];
                         }
 
                         return toolDefinition;
@@ -306,8 +306,11 @@ export class McpServer {
         }
 
         // if the tool has an output schema, validate structured content
-        const outputObj = normalizeObjectSchema(tool.outputSchema) as AnyObjectSchema;
-        const parseResult = await safeParseAsync(outputObj, result.structuredContent);
+        // Same fallback as validateToolInput: when normalizeObjectSchema returns undefined
+        // (wrapped schema), parse against the original to avoid passing undefined into safeParseAsync.
+        const outputObj = normalizeObjectSchema(tool.outputSchema);
+        const schemaToParse = outputObj ?? (tool.outputSchema as AnySchema);
+        const parseResult = await safeParseAsync(schemaToParse, result.structuredContent);
         if (!parseResult.success) {
             const error = 'error' in parseResult ? parseResult.error : 'Unknown error';
             const errorMessage = getParseErrorMessage(error);
