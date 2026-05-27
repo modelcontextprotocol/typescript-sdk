@@ -5237,10 +5237,9 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             {
                 name: '.refine',
                 build: () =>
-                    (buildBase() as { refine: (...args: unknown[]) => AnySchema }).refine(
-                        (v: { count: number }) => v.count <= 100,
-                        { message: 'count must be <= 100' }
-                    ),
+                    (buildBase() as { refine: (...args: unknown[]) => AnySchema }).refine((v: { count: number }) => v.count <= 100, {
+                        message: 'count must be <= 100'
+                    }),
                 rejectsLargeCount: true
             },
             {
@@ -5257,10 +5256,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             },
             {
                 name: '.transform',
-                build: () =>
-                    (buildBase() as { transform: (...args: unknown[]) => AnySchema }).transform(
-                        (v: Record<string, unknown>) => v
-                    ),
+                build: () => (buildBase() as { transform: (...args: unknown[]) => AnySchema }).transform((v: Record<string, unknown>) => v),
                 rejectsLargeCount: false
             },
             {
@@ -5280,11 +5276,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const server = new McpServer({ name: 'test', version: '1.0.0' });
             const client = new Client({ name: 'test', version: '1.0.0' });
 
-            server.registerTool(
-                'wrapped',
-                { inputSchema: build() },
-                async () => ({ content: [{ type: 'text' as const, text: 'ok' }] })
-            );
+            server.registerTool('wrapped', { inputSchema: build() }, async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }));
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -5303,11 +5295,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const server = new McpServer({ name: 'test', version: '1.0.0' });
             const client = new Client({ name: 'test', version: '1.0.0' });
 
-            server.registerTool(
-                'wrapped',
-                { inputSchema: build() },
-                async () => ({ content: [{ type: 'text' as const, text: 'ok' }] })
-            );
+            server.registerTool('wrapped', { inputSchema: build() }, async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }));
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
@@ -5341,15 +5329,12 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             const server = new McpServer({ name: 'test', version: '1.0.0' });
             const client = new Client({ name: 'test', version: '1.0.0' });
 
-            const wrappedOutput = (
-                z.object({ result: z.string() }) as { refine: (...args: unknown[]) => AnySchema }
-            ).refine(() => true);
+            const wrappedOutput = (z.object({ result: z.string() }) as { refine: (...args: unknown[]) => AnySchema }).refine(() => true);
 
-            server.registerTool(
-                'with-wrapped-output',
-                { outputSchema: wrappedOutput },
-                async () => ({ content: [{ type: 'text' as const, text: 'ok' }], structuredContent: { result: 'ok' } })
-            );
+            server.registerTool('with-wrapped-output', { outputSchema: wrappedOutput }, async () => ({
+                content: [{ type: 'text' as const, text: 'ok' }],
+                structuredContent: { result: 'ok' }
+            }));
 
             const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
             await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
