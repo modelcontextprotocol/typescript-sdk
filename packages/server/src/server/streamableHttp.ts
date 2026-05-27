@@ -12,6 +12,8 @@ import {
     ACCEPT_LANGUAGE_META,
     CONTENT_LANGUAGE_META,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    getErrorContentLanguage,
+    HEADER_MISMATCH_ERROR_CODE,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -924,11 +926,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const metaValue = params._meta?.[ACCEPT_LANGUAGE_META];
 
             if (metaValue !== undefined && typeof metaValue === 'string') {
-                // Both present: check for mismatch
+                // Both present: check for mismatch (SEP-2243 HeaderMismatch)
                 if (metaValue !== headerValue) {
                     const error = `Bad Request: Accept-Language header "${headerValue}" does not match _meta["${ACCEPT_LANGUAGE_META}"] value "${metaValue}"`;
                     this.onerror?.(new Error(error));
-                    return this.createJsonErrorResponse(400, -32_000, error);
+                    return this.createJsonErrorResponse(400, HEADER_MISMATCH_ERROR_CODE, error);
                 }
             } else {
                 // Header present, _meta absent: copy header → _meta
@@ -943,6 +945,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     /**
      * SEP-2792: Extracts Content-Language value from response message(s) _meta.
+     * Checks both successful results (_meta) and error responses (error.data._meta).
      * Returns the first contentLanguage value found, or undefined.
      */
     private _extractContentLanguage(responses: JSONRPCMessage[]): string | undefined {
@@ -951,6 +954,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 const meta = msg.result?._meta;
                 if (meta && typeof meta[CONTENT_LANGUAGE_META] === 'string') {
                     return meta[CONTENT_LANGUAGE_META] as string;
+                }
+            } else if (isJSONRPCErrorResponse(msg)) {
+                const lang = getErrorContentLanguage(msg.error?.data);
+                if (lang) {
+                    return lang;
                 }
             }
         }

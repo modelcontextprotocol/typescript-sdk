@@ -11,7 +11,13 @@
  * Run with stdio:  tsx src/i18nClient.ts stdio
  */
 
-import { ACCEPT_LANGUAGE_META, Client, CONTENT_LANGUAGE_META, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import {
+    ACCEPT_LANGUAGE_META,
+    Client,
+    CONTENT_LANGUAGE_META,
+    getErrorContentLanguage,
+    StreamableHTTPClientTransport
+} from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 const TEST_LANGUAGES = ['en', 'fr-CA,fr;q=0.9,en;q=0.5', 'ja'];
@@ -48,6 +54,20 @@ async function runWithTransport(
         const callContentLang = callResult._meta?.[CONTENT_LANGUAGE_META];
         console.log(`  tools/call → text: "${text}"`);
         console.log(`              contentLanguage: "${callContentLang}"`);
+
+        // Demonstrate localized error: call with empty name
+        try {
+            await client.callTool({
+                name: 'get_greeting',
+                arguments: { name: '' },
+                _meta: { [ACCEPT_LANGUAGE_META]: lang }
+            });
+        } catch (error: unknown) {
+            const err = error as { code?: number; message?: string; data?: unknown };
+            const errorLang = getErrorContentLanguage(err.data);
+            console.log(`  tools/call (error) → message: "${err.message}"`);
+            console.log(`                       contentLanguage: "${errorLang}"`);
+        }
         console.log('');
     }
 

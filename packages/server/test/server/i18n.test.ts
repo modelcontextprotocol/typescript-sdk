@@ -6,8 +6,14 @@
 import { randomUUID } from 'node:crypto';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { ACCEPT_LANGUAGE_META, CONTENT_LANGUAGE_META } from '@modelcontextprotocol/core';
+import {
+    ACCEPT_LANGUAGE_META,
+    CONTENT_LANGUAGE_META,
+    HEADER_MISMATCH_ERROR_CODE,
+    setErrorContentLanguage
+} from '@modelcontextprotocol/core';
 
+import { ProtocolError } from '../../src/index.js';
 import { Server } from '../../src/server/server.js';
 import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
 
@@ -151,7 +157,7 @@ describe('SEP-2792 i18n HTTP transport integration', () => {
         expect(resp.headers.get('content-language')).toBe('de');
     });
 
-    it('returns 400 on header/_meta mismatch', async () => {
+    it('returns 400 with HeaderMismatch error code on header/_meta mismatch', async () => {
         const req = createRequest(
             'POST',
             {
@@ -165,7 +171,8 @@ describe('SEP-2792 i18n HTTP transport integration', () => {
 
         const resp = await transport.handleRequest(req);
         expect(resp.status).toBe(400);
-        const body = (await resp.json()) as { error?: { message?: string } };
+        const body = (await resp.json()) as { error?: { code?: number; message?: string } };
+        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
         expect(body.error?.message).toMatch(/does not match/);
     });
 
@@ -185,6 +192,60 @@ describe('SEP-2792 i18n HTTP transport integration', () => {
         expect(resp.status).toBe(200);
         const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }> } };
         expect(body.result?.tools?.[0]?.title).toBe('Saluer');
+    });
+
+    it('mirrors Content-Language header from error response data._meta', async () => {
+        // Create a server that throws a localized error
+        const errorServer = new Server({ name: 'i18n-error-test', version: '1.0.0' }, { capabilities: { tools: {} } });
+        errorServer.setRequestHandler('tools/call', (_request, ctx) => {
+            const lang = (ctx.mcpReq._meta?.[ACCEPT_LANGUAGE_META] as string) ?? 'en';
+            const resolved = lang.startsWith('fr') ? 'fr' : 'en';
+            const errorData = setErrorContentLanguage({}, resolved);
+            throw new ProtocolError(-32_602, `Localized error in ${resolved}`, errorData);
+        });
+
+        const errorTransport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true
+        });
+        await errorServer.connect(errorTransport);
+
+        // Initialize
+        const initReq = createRequest('POST', {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: { clientInfo: { name: 'test', version: '1.0' }, protocolVersion: '2025-11-25', capabilities: {} },
+            id: 'init-err'
+        } as JSONRPCMessage);
+        const initResp = await errorTransport.handleRequest(initReq);
+        const errSessionId = initResp.headers.get('mcp-session-id')!;
+
+        await errorTransport.handleRequest(
+            createRequest('POST', { jsonrpc: '2.0', method: 'notifications/initialized', params: {} } as JSONRPCMessage, {
+                sessionId: errSessionId
+            })
+        );
+
+        // Call tool that throws localized error
+        const req = createRequest(
+            'POST',
+            {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'greet', arguments: {}, _meta: { [ACCEPT_LANGUAGE_META]: 'fr' } },
+                id: 'err-1'
+            } as JSONRPCMessage,
+            { sessionId: errSessionId, extraHeaders: { 'Accept-Language': 'fr' } }
+        );
+
+        const resp = await errorTransport.handleRequest(req);
+        expect(resp.status).toBe(200);
+        expect(resp.headers.get('content-language')).toBe('fr');
+
+        const body = (await resp.json()) as { error?: { code?: number; data?: unknown } };
+        expect(body.error?.code).toBe(-32_602);
+
+        await errorTransport.close();
     });
 });
 

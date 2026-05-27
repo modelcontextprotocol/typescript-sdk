@@ -12,7 +12,15 @@
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ListToolsResult } from '@modelcontextprotocol/server';
-import { ACCEPT_LANGUAGE_META, getAcceptLanguage, McpServer, negotiateLanguage, setContentLanguage } from '@modelcontextprotocol/server';
+import {
+    ACCEPT_LANGUAGE_META,
+    getAcceptLanguage,
+    McpServer,
+    negotiateLanguage,
+    ProtocolError,
+    setContentLanguage,
+    setErrorContentLanguage
+} from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 
@@ -35,6 +43,11 @@ const STRINGS: Record<string, Record<string, string>> = {
         en: 'Hello, {name}! Welcome.',
         fr: 'Bonjour, {name} ! Bienvenue.',
         de: 'Hallo, {name}! Willkommen.'
+    },
+    'error.name_required': {
+        en: 'A name is required to generate a greeting.',
+        fr: 'Un nom est requis pour générer un salut.',
+        de: 'Ein Name ist erforderlich, um eine Begrüßung zu erzeugen.'
     }
 };
 
@@ -96,6 +109,13 @@ function createI18nServer(): McpServer {
         async ({ name }, ctx): Promise<CallToolResult> => {
             const acceptLang = getAcceptLanguage(ctx.mcpReq as { _meta?: Record<string, unknown> }) ?? '';
             const lang = negotiateLanguage(acceptLang, AVAILABLE_LANGUAGES, 'en')!;
+
+            // Demonstrate localized error: empty name triggers a localized error response
+            if (!name || name.trim() === '') {
+                const errorMessage = t('error.name_required', lang);
+                const errorData = setErrorContentLanguage({}, lang);
+                throw new ProtocolError(-32_602, errorMessage, errorData);
+            }
 
             const result: CallToolResult = {
                 content: [

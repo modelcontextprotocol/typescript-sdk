@@ -4,6 +4,7 @@ import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol
 import {
     ACCEPT_LANGUAGE_META,
     createFetchWithInit,
+    HEADER_MISMATCH_ERROR_CODE,
     isInitializedNotification,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -233,25 +234,18 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Extracts the acceptLanguage value from message(s) _meta for header mirroring (SEP-2792).
-     * For batched messages with differing values, returns the union of language ranges.
+     * Extracts the acceptLanguage value from a message's _meta for header mirroring (SEP-2792).
      */
     private _extractAcceptLanguage(message: JSONRPCMessage | JSONRPCMessage[]): string | undefined {
-        const messages = Array.isArray(message) ? message : [message];
-        const values: string[] = [];
-        for (const msg of messages) {
-            if ('params' in msg && msg.params && typeof msg.params === 'object') {
-                const meta = (msg.params as { _meta?: Record<string, unknown> })._meta;
-                if (meta && typeof meta[ACCEPT_LANGUAGE_META] === 'string') {
-                    values.push(meta[ACCEPT_LANGUAGE_META] as string);
-                }
+        const msg = Array.isArray(message) ? message[0] : message;
+        if (!msg) return undefined;
+        if ('params' in msg && msg.params && typeof msg.params === 'object') {
+            const meta = (msg.params as { _meta?: Record<string, unknown> })._meta;
+            if (meta && typeof meta[ACCEPT_LANGUAGE_META] === 'string') {
+                return meta[ACCEPT_LANGUAGE_META] as string;
             }
         }
-        if (values.length === 0) return undefined;
-        // For batched messages with different values, union the language ranges
-        if (values.length === 1) return values[0];
-        const unique = [...new Set(values)];
-        return unique.length === 1 ? unique[0] : unique.join(', ');
+        return undefined;
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
@@ -576,7 +570,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 if (existingHeader && existingHeader !== metaAcceptLanguage) {
                     throw new SdkError(
                         SdkErrorCode.SendFailed,
-                        `Accept-Language header "${existingHeader}" conflicts with _meta["${ACCEPT_LANGUAGE_META}"] value "${metaAcceptLanguage}". They must be identical per SEP-2792.`
+                        `Accept-Language header "${existingHeader}" conflicts with _meta["${ACCEPT_LANGUAGE_META}"] value "${metaAcceptLanguage}". They must be identical per SEP-2243 (HeaderMismatch code ${HEADER_MISMATCH_ERROR_CODE}).`
                     );
                 }
                 headers.set('accept-language', metaAcceptLanguage);

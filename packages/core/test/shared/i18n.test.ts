@@ -4,9 +4,12 @@ import {
     CONTENT_LANGUAGE_META,
     getAcceptLanguage,
     getContentLanguage,
+    getErrorContentLanguage,
+    HEADER_MISMATCH_ERROR_CODE,
     negotiateLanguage,
     setAcceptLanguage,
-    setContentLanguage
+    setContentLanguage,
+    setErrorContentLanguage
 } from '../../src/shared/i18n.js';
 
 describe('i18n helpers', () => {
@@ -115,6 +118,66 @@ describe('i18n helpers', () => {
 
         it('handles multiple subtag matches preferring higher quality', () => {
             expect(negotiateLanguage('de-AT;q=0.8,fr-CA;q=0.9', available)).toBe('fr');
+        });
+    });
+
+    describe('HEADER_MISMATCH_ERROR_CODE', () => {
+        it('equals -32001', () => {
+            expect(HEADER_MISMATCH_ERROR_CODE).toBe(-32_001);
+        });
+    });
+
+    describe('getErrorContentLanguage', () => {
+        it('returns undefined for null/undefined data', () => {
+            expect(getErrorContentLanguage(undefined)).toBeUndefined();
+            expect(getErrorContentLanguage(null)).toBeUndefined();
+        });
+
+        it('returns undefined when data has no _meta', () => {
+            expect(getErrorContentLanguage({ message: 'error' })).toBeUndefined();
+        });
+
+        it('returns undefined when _meta has no contentLanguage', () => {
+            expect(getErrorContentLanguage({ _meta: { other: 'x' } })).toBeUndefined();
+        });
+
+        it('returns the contentLanguage from data._meta', () => {
+            const data = { _meta: { [CONTENT_LANGUAGE_META]: 'fr' } };
+            expect(getErrorContentLanguage(data)).toBe('fr');
+        });
+
+        it('returns undefined for non-string contentLanguage', () => {
+            const data = { _meta: { [CONTENT_LANGUAGE_META]: 123 } };
+            expect(getErrorContentLanguage(data)).toBeUndefined();
+        });
+    });
+
+    describe('setErrorContentLanguage', () => {
+        it('sets contentLanguage on an existing object', () => {
+            const data = { message: 'err' };
+            const result = setErrorContentLanguage(data, 'de');
+            expect(result._meta).toBeDefined();
+            expect((result._meta as Record<string, unknown>)[CONTENT_LANGUAGE_META]).toBe('de');
+            expect(result.message).toBe('err');
+        });
+
+        it('creates a wrapper object for non-object data', () => {
+            const result = setErrorContentLanguage('raw string', 'fr');
+            expect(result.originalData).toBe('raw string');
+            expect((result._meta as Record<string, unknown>)[CONTENT_LANGUAGE_META]).toBe('fr');
+        });
+
+        it('creates an empty object for undefined data', () => {
+            const result = setErrorContentLanguage(undefined, 'en');
+            expect((result._meta as Record<string, unknown>)[CONTENT_LANGUAGE_META]).toBe('en');
+            expect(result.originalData).toBeUndefined();
+        });
+
+        it('preserves existing _meta fields', () => {
+            const data = { _meta: { other: 'value' } };
+            const result = setErrorContentLanguage(data, 'de');
+            expect((result._meta as Record<string, unknown>).other).toBe('value');
+            expect((result._meta as Record<string, unknown>)[CONTENT_LANGUAGE_META]).toBe('de');
         });
     });
 });

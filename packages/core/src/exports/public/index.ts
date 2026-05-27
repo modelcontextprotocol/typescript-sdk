@@ -80,9 +80,12 @@ export {
     CONTENT_LANGUAGE_META,
     getAcceptLanguage,
     getContentLanguage,
+    getErrorContentLanguage,
+    HEADER_MISMATCH_ERROR_CODE,
     negotiateLanguage,
     setAcceptLanguage,
-    setContentLanguage
+    setContentLanguage,
+    setErrorContentLanguage
 } from '../../shared/i18n.js';
 
 // URI Template

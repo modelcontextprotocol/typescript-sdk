@@ -11,6 +11,12 @@
 import { match } from '@formatjs/intl-localematcher';
 
 /**
+ * JSON-RPC error code for header/body mismatch (SEP-2243).
+ * Used when an HTTP header value disagrees with the corresponding `_meta` field.
+ */
+export const HEADER_MISMATCH_ERROR_CODE = -32_001;
+
+/**
  * The `_meta` key for the client's language preference (request direction).
  * Value syntax matches the HTTP `Accept-Language` field (RFC 9110 §12.5.4).
  */
@@ -56,6 +62,42 @@ export function setContentLanguage(result: { _meta?: Record<string, unknown> }, 
         result._meta = {};
     }
     result._meta[CONTENT_LANGUAGE_META] = value;
+}
+
+/**
+ * Reads `contentLanguage` from a JSON-RPC error's `data._meta`.
+ * Per SEP-2792, localized error content uses `error.data._meta` since
+ * the JSON-RPC Error object has no top-level `_meta`.
+ */
+export function getErrorContentLanguage(errorData: unknown): string | undefined {
+    if (errorData && typeof errorData === 'object' && '_meta' in errorData) {
+        const meta = (errorData as { _meta?: Record<string, unknown> })._meta;
+        if (meta && typeof meta[CONTENT_LANGUAGE_META] === 'string') {
+            return meta[CONTENT_LANGUAGE_META] as string;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * Sets `contentLanguage` on a JSON-RPC error data object's `_meta`.
+ * Mutates the data object (creates `_meta` if absent).
+ * If `data` is not an object, wraps it: `{ originalData, _meta: {...} }`.
+ *
+ * Returns the (possibly new) data object to assign back to `error.data`.
+ */
+export function setErrorContentLanguage(data: unknown, value: string): Record<string, unknown> {
+    let obj: Record<string, unknown>;
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+        obj = data as Record<string, unknown>;
+    } else {
+        obj = data === undefined ? {} : { originalData: data };
+    }
+    if (!obj._meta || typeof obj._meta !== 'object') {
+        obj._meta = {};
+    }
+    (obj._meta as Record<string, unknown>)[CONTENT_LANGUAGE_META] = value;
+    return obj;
 }
 
 /**
