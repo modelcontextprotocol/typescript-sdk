@@ -1,9 +1,36 @@
 import { Client } from '@modelcontextprotocol/client';
 import type { Notification, TextContent } from '@modelcontextprotocol/core';
-import { getDisplayName, InMemoryTransport, ProtocolErrorCode, UriTemplate, UrlElicitationRequiredError } from '@modelcontextprotocol/core';
+import {
+    getDisplayName,
+    InMemoryTransport,
+    ProtocolError,
+    ProtocolErrorCode,
+    UriTemplate,
+    UrlElicitationRequiredError
+} from '@modelcontextprotocol/core';
 import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
+
+async function expectInvalidToolArguments(request: Promise<unknown>, expectedMessages: Array<string | RegExp>) {
+    let error: unknown;
+    try {
+        await request;
+    } catch (error_) {
+        error = error_;
+    }
+
+    expect(error).toBeInstanceOf(ProtocolError);
+    const protocolError = error as ProtocolError;
+    expect(protocolError.code).toBe(ProtocolErrorCode.InvalidParams);
+    for (const expected of expectedMessages) {
+        if (typeof expected === 'string') {
+            expect(protocolError.message).toContain(expected);
+        } else {
+            expect(protocolError.message).toMatch(expected);
+        }
+    }
+}
 
 describe('Zod v4', () => {
     describe('McpServer', () => {
@@ -1189,25 +1216,18 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
-                method: 'tools/call',
-                params: {
-                    name: 'test',
-                    arguments: {
+            await expectInvalidToolArguments(
+                client.request({
+                    method: 'tools/call',
+                    params: {
                         name: 'test',
-                        value: 'not a number'
+                        arguments: {
+                            name: 'test',
+                            value: 'not a number'
+                        }
                     }
-                }
-            });
-
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
-                    {
-                        type: 'text',
-                        text: expect.stringContaining('Input validation error: Invalid arguments for tool test')
-                    }
-                ])
+                }),
+                ['Input validation error: Invalid arguments for tool test']
             );
         });
 
@@ -4986,22 +5006,15 @@ describe('Zod v4', () => {
             await server.connect(serverTransport);
             await client.connect(clientTransport);
 
-            const invalidTypeResult = await client.callTool({
-                name: 'union-test',
-                arguments: {
-                    type: 'a',
-                    value: 123
-                }
-            });
-
-            expect(invalidTypeResult.isError).toBe(true);
-            expect(invalidTypeResult.content).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        type: 'text',
-                        text: expect.stringContaining('Input validation error')
-                    })
-                ])
+            await expectInvalidToolArguments(
+                client.callTool({
+                    name: 'union-test',
+                    arguments: {
+                        type: 'a',
+                        value: 123
+                    }
+                }),
+                ['Input validation error']
             );
         });
     });
@@ -6244,40 +6257,26 @@ describe('Zod v4', () => {
             await server.connect(serverTransport);
             await client.connect(clientTransport);
 
-            const invalidTypeResult = await client.callTool({
-                name: 'union-test',
-                arguments: {
-                    type: 'a',
-                    value: 123
-                }
-            });
-
-            expect(invalidTypeResult.isError).toBe(true);
-            expect(invalidTypeResult.content).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        type: 'text',
-                        text: expect.stringContaining('Input validation error')
-                    })
-                ])
+            await expectInvalidToolArguments(
+                client.callTool({
+                    name: 'union-test',
+                    arguments: {
+                        type: 'a',
+                        value: 123
+                    }
+                }),
+                ['Input validation error']
             );
 
-            const invalidDiscriminatorResult = await client.callTool({
-                name: 'union-test',
-                arguments: {
-                    type: 'c',
-                    value: 'test'
-                }
-            });
-
-            expect(invalidDiscriminatorResult.isError).toBe(true);
-            expect(invalidDiscriminatorResult.content).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        type: 'text',
-                        text: expect.stringContaining('Input validation error')
-                    })
-                ])
+            await expectInvalidToolArguments(
+                client.callTool({
+                    name: 'union-test',
+                    arguments: {
+                        type: 'c',
+                        value: 'test'
+                    }
+                }),
+                ['Input validation error']
             );
         });
     });
