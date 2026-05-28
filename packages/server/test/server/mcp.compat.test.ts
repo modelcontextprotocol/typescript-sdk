@@ -119,6 +119,17 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
 
         await server.close();
     });
+
+    it('rejects a two-argument handler when inputSchema is omitted', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        const handler = ((_args: unknown, _ctx: unknown) => ({
+            content: [{ type: 'text' as const, text: 'ok' }]
+        })) as never;
+
+        expect(() => server.registerTool('no-schema', {}, handler)).toThrow(
+            /no inputSchema.*two-parameter signature|inputSchema.*two-parameter signature/
+        );
+    });
 });
 
 describe('InferRawShape', () => {

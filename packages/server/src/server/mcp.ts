@@ -1216,6 +1216,14 @@ function createToolExecutor(
         return async (args, ctx) => callback(args, ctx);
     }
 
+    if (handler.length > 1) {
+        throw new Error(
+            `Tool handler accepts ${handler.length} parameters but no inputSchema was provided. ` +
+                'Add inputSchema to the tool definition to enable the (args, ctx) two-parameter signature, ' +
+                'or change the handler to accept only one parameter (ctx).'
+        );
+    }
+
     // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
     const callback = handler as (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
     return async (_args, ctx) => callback(ctx);
