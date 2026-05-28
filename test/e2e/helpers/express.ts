@@ -8,7 +8,7 @@
 import express, { Express, RequestHandler } from 'express';
 import type { Server as HttpServer } from 'node:http';
 
-import { hostHeaderValidation } from '../../../src/server/middleware/hostHeaderValidation.js';
+import { hostHeaderValidation } from '@modelcontextprotocol/express';
 
 export interface ExpressHost extends AsyncDisposable {
     readonly baseUrl: URL;

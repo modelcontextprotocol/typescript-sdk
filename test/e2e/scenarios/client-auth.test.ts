@@ -7,32 +7,30 @@
  */
 
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
-import { LATEST_PROTOCOL_VERSION, type IsomorphicHeaders } from '../../../src/types.js';
-
-import { importSPKI, jwtVerify } from 'jose';
-import { expect, vi } from 'vitest';
-import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
 import {
+    Client,
     discoverAuthorizationServerMetadata,
     discoverOAuthProtectedResourceMetadata,
     exchangeAuthorization,
     OAuthClientProvider,
     startAuthorization,
-    UnauthorizedError
-} from '../../../src/client/auth.js';
-import { applyMiddlewares, createMiddleware, withLogging, withOAuth } from '../../../src/client/middleware.js';
-import { StreamableHTTPClientTransport, StreamableHTTPError } from '../../../src/client/streamableHttp.js';
-import { ClientCredentialsProvider, PrivateKeyJwtProvider, StaticPrivateKeyJwtProvider } from '../../../src/client/auth-extensions.js';
-import { McpServer } from '../../../src/server/mcp.js';
+    UnauthorizedError,
+    StreamableHTTPClientTransport,
+    SdkError
+} from '@modelcontextprotocol/client';
 import {
+    LATEST_PROTOCOL_VERSION,
+    McpServer,
     AuthorizationServerMetadata,
     OAuthClientInformationFull,
     OAuthClientInformationMixed,
     OAuthTokens
-} from '../../../src/shared/auth.js';
-
+} from '@modelcontextprotocol/server';
+import { importSPKI, jwtVerify } from 'jose';
+import { expect, vi } from 'vitest';
+import { z } from 'zod/v4';
+import { applyMiddlewares, createMiddleware, withLogging, withOAuth } from '@modelcontextprotocol/client';
+import { ClientCredentialsProvider, PrivateKeyJwtProvider, StaticPrivateKeyJwtProvider } from '@modelcontextprotocol/client';
 import { hostPerSession } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -242,8 +240,8 @@ class RecordingOAuthClientProvider implements OAuthClientProvider {
 function createAuthenticatedHost(validToken: string) {
     return hostPerSession(() => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('probe', { inputSchema: z.object({}) }, (_args, extra) => {
-            if (extra.authInfo?.token !== validToken) {
+        s.registerTool('probe', { inputSchema: z.object({}) }, (_args, ctx) => {
+            if (ctx.http?.authInfo?.token !== validToken) {
                 throw new Error('Invalid token');
             }
             return { content: [{ type: 'text', text: 'ok' }] };
@@ -347,7 +345,7 @@ verifies('client-auth:401-after-auth-throws', async (_args: TestArgs) => {
 
     try {
         const connectPromise = client.connect(transport);
-        await expect(connectPromise).rejects.toBeInstanceOf(StreamableHTTPError);
+        await expect(connectPromise).rejects.toBeInstanceOf(SdkError);
         await expect(connectPromise).rejects.toThrow(/401 after successful authentication/);
 
         // Auth ran exactly once (refresh grant), and the transport stopped after one retry instead of looping.
@@ -425,7 +423,7 @@ verifies('client-auth:403-scope-upgrade', async (_args: TestArgs) => {
 
     try {
         const connectPromise = refreshClient.connect(refreshTransport);
-        await expect(connectPromise).rejects.toBeInstanceOf(StreamableHTTPError);
+        await expect(connectPromise).rejects.toBeInstanceOf(SdkError);
         await expect(connectPromise).rejects.toThrow(/403 after trying upscoping/);
 
         expect(refreshAs.tokenCalls).toHaveLength(1);
@@ -1323,11 +1321,11 @@ verifies('client-middleware:compose', async (_args: TestArgs) => {
         return next(input, { ...init, headers });
     });
 
-    const seenByServer: IsomorphicHeaders[] = [];
+    const seenByServer: Headers[] = [];
     const mcpHost = hostPerSession(() => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('report-headers', { inputSchema: z.object({}) }, (_a, extra) => {
-            seenByServer.push(extra.requestInfo?.headers ?? {});
+        s.registerTool('report-headers', { inputSchema: z.object({}) }, (_a, ctx) => {
+            seenByServer.push(ctx.http?.req?.headers ?? {});
             return { content: [{ type: 'text', text: 'ok' }] };
         });
         return s;

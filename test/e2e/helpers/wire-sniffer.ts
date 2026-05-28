@@ -1,35 +1,12 @@
-/**
- * Wire-format sniffer: asserts every JSON-RPC message crossing a transport is a
- * well-formed MCP message for its direction.
- *
- * Validation runs against the SDK's runtime Zod schemas in `src/types.ts`
- * (`ClientRequestSchema`, `ServerResultSchema`, …). Those schemas are proven
- * equivalent to the spec-synced `src/spec.types.ts` by `test/spec.types.test.ts`
- * (mutual assignability + per-type completeness). So conformance here is
- * transitively conformance to the spec, with `spec.types.ts` as the anchor: if
- * the SDK schemas ever drift off-spec, that equivalence test goes red first.
- *
- * Two layers:
- *   1. JSON-RPC envelope (always) — request / notification / response / error.
- *   2. MCP shape (unless `strictValidation: false`) — the method is a spec
- *      method for the sender's direction and its params/result match the schema.
- *      Vendor-extension method names are rejected unless `allowCustomMethods`.
- */
-
 import {
-    ClientNotificationSchema,
-    ClientRequestSchema,
-    ClientResultSchema,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
-    JSONRPCMessageSchema,
-    ServerNotificationSchema,
-    ServerRequestSchema,
-    ServerResultSchema
-} from '../../../src/types.js';
-import type { Transport } from '../../../src/shared/transport.js';
+    specTypeSchemas,
+    isSpecType
+} from '@modelcontextprotocol/server';
+import type { Transport } from '@modelcontextprotocol/server';
 
 export type WireParty = 'client' | 'server';
 
@@ -41,14 +18,22 @@ export interface SnifferOptions {
 }
 
 const OUTBOUND = {
-    client: { request: ClientRequestSchema, notification: ClientNotificationSchema, result: ClientResultSchema },
-    server: { request: ServerRequestSchema, notification: ServerNotificationSchema, result: ServerResultSchema }
+    client: {
+        request: specTypeSchemas.ClientRequest,
+        notification: specTypeSchemas.ClientNotification,
+        result: specTypeSchemas.ClientResult
+    },
+    server: {
+        request: specTypeSchemas.ServerRequest,
+        notification: specTypeSchemas.ServerNotification,
+        result: specTypeSchemas.ServerResult
+    }
 } as const;
 
 /** Method names valid as an outbound request/notification for each party. */
 const SPEC_METHODS: Record<WireParty, { request: Set<string>; notification: Set<string> }> = {
-    client: { request: methodSet(ClientRequestSchema), notification: methodSet(ClientNotificationSchema) },
-    server: { request: methodSet(ServerRequestSchema), notification: methodSet(ServerNotificationSchema) }
+    client: { request: methodSet(specTypeSchemas.ClientRequest), notification: methodSet(specTypeSchemas.ClientNotification) },
+    server: { request: methodSet(specTypeSchemas.ServerRequest), notification: methodSet(specTypeSchemas.ServerNotification) }
 };
 
 function methodSet(union: { options?: ReadonlyArray<{ shape?: { method?: { value?: string } } }> }): Set<string> {
@@ -70,7 +55,7 @@ function fail(party: WireParty, reason: string, msg: unknown): never {
  * @param party who put it on the wire (`client` outbound = ClientRequest/Notification/Result)
  */
 export function assertWireMessage(msg: unknown, party: WireParty, opts: SnifferOptions = {}): void {
-    if (!JSONRPCMessageSchema.safeParse(msg).success) {
+    if (!isSpecType.JSONRPCMessage(msg)) {
         fail(party, 'not a JSON-RPC message', msg);
     }
     if (opts.strictValidation === false) return;

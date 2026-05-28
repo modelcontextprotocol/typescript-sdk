@@ -21,15 +21,17 @@ import http from 'node:http';
 
 import express, { type RequestHandler } from 'express';
 import { expect } from 'vitest';
-
-import { requireBearerAuth } from '../../../src/server/auth/middleware/bearerAuth.js';
-import { mcpAuthRouter, mcpAuthMetadataRouter, createOAuthMetadata } from '../../../src/server/auth/router.js';
-import { ProxyOAuthServerProvider } from '../../../src/server/auth/providers/proxyProvider.js';
-import type { OAuthServerProvider } from '../../../src/server/auth/provider.js';
-import { InvalidGrantError, InvalidTokenError } from '../../../src/server/auth/errors.js';
-import { createMcpExpressApp } from '../../../src/server/express.js';
-import type { OAuthClientInformationFull } from '../../../src/shared/auth.js';
-
+import type { OAuthClientInformationFull } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import {
+    createOAuthMetadata,
+    mcpAuthMetadataRouter,
+    mcpAuthRouter,
+    ProxyOAuthServerProvider,
+    requireBearerAuth
+} from '@modelcontextprotocol/express';
+import type { OAuthServerProvider } from '@modelcontextprotocol/express';
+import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/server';
 import type { TestArgs } from '../types.js';
 import { startExpressMinimal, startExpressWithHostValidation, type ExpressHost } from '../helpers/express.js';
 import { verifies } from '../helpers/verifies.js';

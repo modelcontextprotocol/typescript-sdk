@@ -8,23 +8,9 @@
 
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { McpServer, type RegisteredTool } from '../../../src/server/mcp.js';
-import { Server } from '../../../src/server/index.js';
-import {
-    ListPromptsRequestSchema,
-    ListResourcesRequestSchema,
-    ListToolsRequestSchema,
-    PromptListChangedNotificationSchema,
-    ResourceListChangedNotificationSchema,
-    SubscribeRequestSchema,
-    ToolListChangedNotificationSchema,
-    type Prompt,
-    type Resource,
-    type Tool
-} from '../../../src/types.js';
-
+import { McpServer, Server } from '@modelcontextprotocol/server';
+import type { RegisteredTool, Prompt, Resource, Tool } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -89,9 +75,9 @@ verifies('client:list-changed:capability-gated', async ({ transport }: TestArgs)
     let server!: Server;
     const makeServer = () => {
         server = new Server({ name: 's', version: '0' }, { capabilities: { tools: { listChanged: true }, prompts: {}, resources: {} } });
-        server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
-        server.setRequestHandler(ListPromptsRequestSchema, () => ({ prompts: [] }));
-        server.setRequestHandler(ListResourcesRequestSchema, () => ({ resources: [] }));
+        server.setRequestHandler('tools/list', () => ({ tools: [] }));
+        server.setRequestHandler('prompts/list', () => ({ prompts: [] }));
+        server.setRequestHandler('resources/list', () => ({ resources: [] }));
         return server;
     };
 
@@ -208,7 +194,7 @@ verifies('mcpserver:handle:enable-disable', async ({ transport }: TestArgs) => {
 
     let listChanged = 0;
     const client = newClient();
-    client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+    client.setNotificationHandler('notifications/tools/list_changed', () => {
         listChanged++;
     });
 
@@ -262,9 +248,9 @@ verifies('mcpserver:list-changed:debounce', async ({ transport }: TestArgs) => {
 
     const counts = { tools: 0, resources: 0, prompts: 0 };
     const client = newClient();
-    client.setNotificationHandler(ToolListChangedNotificationSchema, () => void counts.tools++);
-    client.setNotificationHandler(ResourceListChangedNotificationSchema, () => void counts.resources++);
-    client.setNotificationHandler(PromptListChangedNotificationSchema, () => void counts.prompts++);
+    client.setNotificationHandler('notifications/tools/list_changed', () => void counts.tools++);
+    client.setNotificationHandler('notifications/resources/list_changed', () => void counts.resources++);
+    client.setNotificationHandler('notifications/prompts/list_changed', () => void counts.prompts++);
 
     await using _ = await wire(transport, makeServer, client);
 
@@ -306,9 +292,9 @@ verifies('mcpserver:register:post-connect', async ({ transport }: TestArgs) => {
 
     const seen: string[] = [];
     const client = newClient();
-    client.setNotificationHandler(ToolListChangedNotificationSchema, () => void seen.push('tools'));
-    client.setNotificationHandler(ResourceListChangedNotificationSchema, () => void seen.push('resources'));
-    client.setNotificationHandler(PromptListChangedNotificationSchema, () => void seen.push('prompts'));
+    client.setNotificationHandler('notifications/tools/list_changed', () => void seen.push('tools'));
+    client.setNotificationHandler('notifications/resources/list_changed', () => void seen.push('resources'));
+    client.setNotificationHandler('notifications/prompts/list_changed', () => void seen.push('prompts'));
 
     await using _ = await wire(transport, makeServer, client);
 
@@ -344,7 +330,7 @@ verifies('mcpserver:reach-through:set-request-handler', async ({ transport }: Te
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
 
-    server.server.setRequestHandler(SubscribeRequestSchema, async request => {
+    server.server.setRequestHandler('resources/subscribe', async request => {
         handlerHits.push(request.params.uri);
         return {};
     });

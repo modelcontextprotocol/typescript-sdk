@@ -15,14 +15,9 @@ import cors from 'cors';
 import express from 'express';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { StreamableHTTPClientTransport } from '../../../src/client/streamableHttp.js';
-import { McpServer } from '../../../src/server/mcp.js';
-import { StreamableHTTPServerTransport } from '../../../src/server/streamableHttp.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../../src/server/webStandardStreamableHttp.js';
-import { CreateMessageRequestSchema, LATEST_PROTOCOL_VERSION } from '../../../src/types.js';
-
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { McpServer, WebStandardStreamableHTTPServerTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { startExpressMinimal } from '../helpers/express.js';
 import { hostPerSession, hostStateless, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
@@ -86,7 +81,7 @@ verifies('hosting:session:cors-expose', async (_args: TestArgs) => {
     const router = express.Router();
     router.use(cors({ origin: browserOrigin, exposedHeaders: ['Mcp-Session-Id'] }));
     router.post('/mcp', async (req, res) => {
-        const tx = new StreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
+        const tx = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: randomUUID });
         const server = echoServer();
         await server.connect(tx);
         servers.push(server);
@@ -634,11 +629,11 @@ verifies('hosting:stateless:get-delete-405', async (_args: TestArgs) => {
 verifies('hosting:stateless:progress-in-post-stream', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('progress-tool', { inputSchema: z.object({ steps: z.number() }) }, async ({ steps }, extra) => {
-            const token = extra._meta?.progressToken;
+        s.registerTool('progress-tool', { inputSchema: z.object({ steps: z.number() }) }, async ({ steps }, ctx) => {
+            const token = ctx.mcpReq._meta?.progressToken;
             if (token !== undefined) {
                 for (let i = 1; i <= steps; i++) {
-                    await extra.sendNotification({
+                    await ctx.mcpReq.notify({
                         method: 'notifications/progress',
                         params: { progressToken: token, progress: i, total: steps }
                     });
@@ -741,7 +736,7 @@ verifies('transport:streamable-http:stateless-restrictions', async (_args: TestA
     const url = new URL('http://in-process/mcp');
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { sampling: {} } });
     // A real sampling handler proves any failure comes from the stateless hosting gap, not a missing client capability.
-    client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+    client.setRequestHandler('sampling/createMessage', async () => ({
         model: 'mock-model',
         role: 'assistant',
         content: { type: 'text', text: 'A drafted status update.' }
@@ -803,10 +798,10 @@ verifies('hosting:session:delete-cancels-inflight', async (_args: TestArgs) => {
         s.registerTool(
             'index_repository',
             { description: 'Indexes a source repository for code search.', inputSchema: z.object({ repository: z.string() }) },
-            ({ repository }, extra) =>
+            ({ repository }, ctx) =>
                 new Promise(resolve => {
                     started.push(repository);
-                    extra.signal.addEventListener('abort', () => {
+                    ctx.mcpReq.signal.addEventListener('abort', () => {
                         aborted.push(repository);
                         resolve({ content: [{ type: 'text', text: `${repository} indexing interrupted` }] });
                     });

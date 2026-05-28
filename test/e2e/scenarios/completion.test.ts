@@ -9,21 +9,8 @@
 
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { Server } from '../../../src/server/index.js';
-import { completable } from '../../../src/server/completable.js';
-import { McpServer, ResourceTemplate } from '../../../src/server/mcp.js';
-import {
-    CompleteRequestSchema,
-    CompleteResultSchema,
-    ErrorCode,
-    ListPromptsRequestSchema,
-    ListResourcesRequestSchema,
-    McpError,
-    ReadResourceRequestSchema
-} from '../../../src/types.js';
-
+import { Server, completable, McpServer, ResourceTemplate, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -42,7 +29,7 @@ function colorCompletionServer(): McpServer {
     const s = new McpServer({ name: 's', version: '0' });
     s.registerPrompt(
         'complete-color',
-        { argsSchema: { color: completable(z.string(), value => COLORS.filter(c => c.startsWith(value))) } },
+        { argsSchema: z.object({ color: completable(z.string(), value => COLORS.filter(c => c.startsWith(value))) }) },
         ({ color }) => ({ messages: [{ role: 'user', content: { type: 'text', text: `color=${color}` } }] })
     );
     return s;
@@ -66,7 +53,7 @@ verifies('completion:capability:declared', async ({ transport }: TestArgs) => {
 verifies('completion:complete:not-supported', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerPrompt('summarize-code', { argsSchema: { code: z.string() } }, ({ code }) => ({
+        s.registerPrompt('summarize-code', { argsSchema: z.object({ code: z.string() }) }, ({ code }) => ({
             messages: [{ role: 'user', content: { type: 'text', text: `Summarize the following code:\n${code}` } }]
         }));
         return s;
@@ -81,14 +68,11 @@ verifies('completion:complete:not-supported', async ({ transport }: TestArgs) =>
 
     // Raw request bypasses any client-side capability gating, so the rejection observed is the server's own.
     await expect(
-        client.request(
-            {
-                method: 'completion/complete',
-                params: { ref: { type: 'ref/prompt', name: 'summarize-code' }, argument: { name: 'code', value: 'co' } }
-            },
-            CompleteResultSchema
-        )
-    ).rejects.toMatchObject({ code: ErrorCode.MethodNotFound });
+        client.request({
+            method: 'completion/complete',
+            params: { ref: { type: 'ref/prompt', name: 'summarize-code' }, argument: { name: 'code', value: 'co' } }
+        })
+    ).rejects.toMatchObject({ code: ProtocolErrorCode.MethodNotFound });
 });
 
 verifies('completion:context-arguments', async ({ transport }: TestArgs) => {
@@ -145,11 +129,11 @@ verifies(
 
         await expect(
             client.complete({ ref: { type: 'ref/prompt', name: 'no-such-prompt' }, argument: { name: 'whatever', value: '' } })
-        ).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+        ).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
 
         await expect(
             client.complete({ ref: { type: 'ref/resource', uri: 'nosuchscheme://nowhere/{x}' }, argument: { name: 'x', value: '' } })
-        ).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+        ).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
     },
     { title: 'mcpserver' }
 );
@@ -159,11 +143,11 @@ verifies(
     async ({ transport }: TestArgs) => {
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { completions: {} } });
-            s.setRequestHandler(CompleteRequestSchema, req => {
+            s.setRequestHandler('completion/complete', req => {
                 if (req.params.ref.type === 'ref/prompt' && req.params.ref.name === 'known') {
                     return { completion: { values: ['ok'] } };
                 }
-                throw new McpError(ErrorCode.InvalidParams, `No completion target: ${JSON.stringify(req.params.ref)}`);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `No completion target: ${JSON.stringify(req.params.ref)}`);
             });
             return s;
         };
@@ -175,7 +159,7 @@ verifies(
 
         await expect(
             client.complete({ ref: { type: 'ref/prompt', name: 'no-such-prompt' }, argument: { name: 'a', value: '' } })
-        ).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+        ).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
     },
     { title: 'raw server' }
 );
@@ -241,13 +225,13 @@ verifies('completion:result-shape', async ({ transport }: TestArgs) => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerPrompt(
             'complete-color',
-            { argsSchema: { color: completable(z.string(), value => COLORS.filter(c => c.startsWith(value))) } },
+            { argsSchema: z.object({ color: completable(z.string(), value => COLORS.filter(c => c.startsWith(value))) }) },
             ({ color }) => ({ messages: [{ role: 'user', content: { type: 'text', text: `color=${color}` } }] })
         );
         const many = Array.from({ length: MANY_TOTAL }, (_, i) => `item-${String(i).padStart(3, '0')}`);
         s.registerPrompt(
             'complete-many',
-            { argsSchema: { n: completable(z.string(), value => many.filter(s => s.startsWith(value))) } },
+            { argsSchema: z.object({ n: completable(z.string(), value => many.filter(s => s.startsWith(value))) }) },
             ({ n }) => ({ messages: [{ role: 'user', content: { type: 'text', text: n } }] })
         );
         return s;
@@ -294,7 +278,7 @@ verifies(
     async ({ transport }: TestArgs) => {
         const makeServer = () => {
             const s = new McpServer({ name: 's', version: '0' });
-            s.registerPrompt('non-completable', { argsSchema: { arg: z.string() } }, ({ arg }) => ({
+            s.registerPrompt('non-completable', { argsSchema: z.object({ arg: z.string() }) }, ({ arg }) => ({
                 messages: [{ role: 'user', content: { type: 'text', text: arg } }]
             }));
             s.registerResource(
@@ -330,9 +314,9 @@ verifies(
     async ({ transport }: TestArgs) => {
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { prompts: {}, resources: {} } });
-            s.setRequestHandler(ListPromptsRequestSchema, () => ({ prompts: [{ name: 'plain', arguments: [] }] }));
-            s.setRequestHandler(ListResourcesRequestSchema, () => ({ resources: [] }));
-            s.setRequestHandler(ReadResourceRequestSchema, () => ({ contents: [] }));
+            s.setRequestHandler('prompts/list', () => ({ prompts: [{ name: 'plain', arguments: [] }] }));
+            s.setRequestHandler('resources/list', () => ({ resources: [] }));
+            s.setRequestHandler('resources/read', () => ({ contents: [] }));
             return s;
         };
 

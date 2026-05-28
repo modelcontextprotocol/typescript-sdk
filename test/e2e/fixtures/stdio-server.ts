@@ -9,9 +9,8 @@
  */
 
 import { z } from 'zod/v4';
-
-import { McpServer } from '../../../src/server/mcp.js';
-import { StdioServerTransport } from '../../../src/server/stdio.js';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { McpServer } from '@modelcontextprotocol/server';
 
 const server = new McpServer({ name: 'stdio-echo-server', version: '1.0.0' });
 

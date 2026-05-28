@@ -13,20 +13,9 @@
 
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { Server } from '../../../src/server/index.js';
-import { McpServer } from '../../../src/server/mcp.js';
-import {
-    ErrorCode,
-    isJSONRPCRequest,
-    type LoggingLevel,
-    LoggingLevelSchema,
-    LoggingMessageNotificationSchema,
-    McpError,
-    RequestSchema
-} from '../../../src/types.js';
-
+import { Server, McpServer, isJSONRPCRequest, ProtocolError, ProtocolErrorCode, specTypeSchemas } from '@modelcontextprotocol/server';
+import type { LoggingLevel } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -55,20 +44,20 @@ verifies('logging:message:fields', async ({ transport }: TestArgs) => {
 
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} } });
-        s.registerTool('emit-logs', { inputSchema: z.object({ withLogger: z.boolean().optional() }) }, async ({ withLogger }, extra) => {
+        s.registerTool('emit-logs', { inputSchema: z.object({ withLogger: z.boolean().optional() }) }, async ({ withLogger }, ctx) => {
             if (withLogger) {
-                await extra.sendNotification({
+                await ctx.mcpReq.notify({
                     method: 'notifications/message',
                     params: { level: 'info', logger: 'test-logger', data: 'with-logger' }
                 });
             } else {
-                await extra.sendNotification({
+                await ctx.mcpReq.notify({
                     method: 'notifications/message',
                     params: { level: 'warning', data: 'without-logger' }
                 });
             }
             for (const level of ALL_LEVELS) {
-                await extra.sendNotification({
+                await ctx.mcpReq.notify({
                     method: 'notifications/message',
                     params: { level, logger: 'sweep', data: `level-${level}` }
                 });
@@ -79,7 +68,7 @@ verifies('logging:message:fields', async ({ transport }: TestArgs) => {
     };
 
     const client = newClient();
-    client.setNotificationHandler(LoggingMessageNotificationSchema, n => {
+    client.setNotificationHandler('notifications/message', n => {
         logs.push(n.params);
     });
 
@@ -103,9 +92,9 @@ verifies('logging:message:all-levels', async ({ transport }: TestArgs) => {
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} } });
-        server.registerTool('run-diagnostics', { inputSchema: z.object({}) }, async (_args, extra) => {
+        server.registerTool('run-diagnostics', { inputSchema: z.object({}) }, async (_args, ctx) => {
             for (const level of ALL_LEVELS) {
-                await server.sendLoggingMessage({ level, logger: 'diagnostics', data: `a ${level} event` }, extra.sessionId);
+                await server.sendLoggingMessage({ level, logger: 'diagnostics', data: `a ${level} event` }, ctx.sessionId);
             }
             return { content: [{ type: 'text', text: 'diagnostics complete' }] };
         });
@@ -114,7 +103,7 @@ verifies('logging:message:all-levels', async ({ transport }: TestArgs) => {
 
     const received: Array<{ level: LoggingLevel; logger?: string; data: unknown }> = [];
     const client = newClient();
-    client.setNotificationHandler(LoggingMessageNotificationSchema, n => {
+    client.setNotificationHandler('notifications/message', n => {
         received.push(n.params);
     });
 
@@ -132,9 +121,9 @@ verifies(['logging:message:filtered', 'logging:set-level'], async ({ transport }
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} } });
-        server.registerTool('emit-all', { inputSchema: z.object({}) }, async (_args, extra) => {
+        server.registerTool('emit-all', { inputSchema: z.object({}) }, async (_args, ctx) => {
             for (const level of ALL_LEVELS) {
-                await server.sendLoggingMessage({ level, data: level }, extra.sessionId);
+                await server.sendLoggingMessage({ level, data: level }, ctx.sessionId);
             }
             return { content: [{ type: 'text', text: 'done' }] };
         });
@@ -147,7 +136,7 @@ verifies(['logging:message:filtered', 'logging:set-level'], async ({ transport }
     for (const threshold of ALL_LEVELS) {
         const thresholdRank = ALL_LEVELS.indexOf(threshold);
         const logs: LoggingLevel[] = [];
-        client.setNotificationHandler(LoggingMessageNotificationSchema, n => {
+        client.setNotificationHandler('notifications/message', n => {
             logs.push(n.params.level);
         });
 
@@ -169,8 +158,8 @@ verifies(
         const tap = tapWire(client);
 
         // @ts-expect-error — sending an invalid enum value is the point of this test.
-        await expect(client.setLoggingLevel('superduper')).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
-        expect(ErrorCode.InvalidParams).toBe(-32602);
+        await expect(client.setLoggingLevel('superduper')).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
+        expect(ProtocolErrorCode.InvalidParams).toBe(-32602);
 
         const sent = tap.sent.filter(m => isJSONRPCRequest(m) && m.method === 'logging/setLevel');
         expect(sent).toHaveLength(1);
@@ -186,7 +175,7 @@ verifies(
         // The user-shaped manual implementation of spec-correct invalid-level handling:
         // a handler registered with a loose params schema so the dispatch-time parse
         // succeeds, validating the level itself and throwing InvalidParams.
-        const LooseSetLevelRequestSchema = RequestSchema.extend({
+        const LooseSetLevelRequestSchema = specTypeSchemas.Request.extend({
             method: z.literal('logging/setLevel'),
             params: z.object({ level: z.string() })
         });
@@ -195,11 +184,11 @@ verifies(
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { logging: {} } });
             s.setRequestHandler(LooseSetLevelRequestSchema, req => {
-                const parsed = LoggingLevelSchema.safeParse(req.params.level);
-                if (!parsed.success) {
-                    throw new McpError(ErrorCode.InvalidParams, `Invalid logging level: ${req.params.level}`);
+                const parsed = specTypeSchemas.LoggingLevel['~standard'].validate(req.params.level);
+                if (parsed.issues !== undefined) {
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid logging level: ${req.params.level}`);
                 }
-                applied.push(parsed.data);
+                applied.push(parsed.value);
                 return {};
             });
             return s;
@@ -213,7 +202,7 @@ verifies(
 
         // @ts-expect-error — sending an invalid enum value is the point of this test.
         await expect(client.setLoggingLevel('superduper')).rejects.toMatchObject({
-            code: ErrorCode.InvalidParams,
+            code: ProtocolErrorCode.InvalidParams,
             message: expect.stringContaining('superduper')
         });
         expect(applied).toEqual(['warning']);
@@ -230,7 +219,7 @@ verifies('logging:out-of-band:basic', async ({ transport }: TestArgs) => {
     };
 
     const client = newClient();
-    client.setNotificationHandler(LoggingMessageNotificationSchema, n => {
+    client.setNotificationHandler('notifications/message', n => {
         received.push(n.params);
     });
 

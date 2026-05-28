@@ -22,29 +22,18 @@
 
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { Server } from '../../../src/server/index.js';
-import { McpServer, type RegisteredTool } from '../../../src/server/mcp.js';
-import {
-    CallToolRequestSchema,
-    CompatibilityCallToolResultSchema,
-    type CreateMessageRequest,
-    CreateMessageRequestSchema,
-    type CreateMessageResult,
-    type ElicitRequest,
-    ElicitRequestSchema,
-    ErrorCode,
-    type JSONRPCMessage,
-    ListToolsRequestSchema,
-    LoggingMessageNotificationSchema,
-    McpError,
-    type RequestId,
-    type Tool,
-    ToolListChangedNotificationSchema,
-    UrlElicitationRequiredError
-} from '../../../src/types.js';
-import { AjvJsonSchemaValidator } from '../../../src/validation/ajv-provider.js';
+import { Server, McpServer, ProtocolError, UrlElicitationRequiredError, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import type {
+    RegisteredTool,
+    CreateMessageRequest,
+    CreateMessageResult,
+    ElicitRequest,
+    JSONRPCMessage,
+    RequestId,
+    Tool
+} from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
 
 import { wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
@@ -112,10 +101,10 @@ function schemaServer(): McpServer {
 /** Low-level Server factory listing/calling a single hand-authored JSON-Schema-2020-12 tool. */
 function rawJsonSchemaServer(): Server {
     const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-    s.setRequestHandler(ListToolsRequestSchema, () => ({
+    s.setRequestHandler('tools/list', () => ({
         tools: [{ name: 'json-schema', description: 'raw 2020-12 schema', inputSchema: JSON_SCHEMA_2020_12_INPUT }]
     }));
-    s.setRequestHandler(CallToolRequestSchema, req => {
+    s.setRequestHandler('tools/call', req => {
         const { x, y } = (req.params.arguments as { point: { x: number; y: number } }).point;
         return { content: [{ type: 'text', text: `(${x}, ${y})` }] };
     });
@@ -126,7 +115,7 @@ function rawJsonSchemaServer(): Server {
 function rawSchemaServer(): Server {
     const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
     const outputSchema: Tool['outputSchema'] = { type: 'object', properties: { value: { type: 'number' } }, required: ['value'] };
-    s.setRequestHandler(ListToolsRequestSchema, () => ({
+    s.setRequestHandler('tools/list', () => ({
         tools: [
             {
                 name: 'structured',
@@ -138,7 +127,7 @@ function rawSchemaServer(): Server {
             { name: 'structured-error-skip', inputSchema: { type: 'object' }, outputSchema }
         ]
     }));
-    s.setRequestHandler(CallToolRequestSchema, req => {
+    s.setRequestHandler('tools/call', req => {
         switch (req.params.name) {
             case 'structured': {
                 const n = (req.params.arguments as { n: number }).n;
@@ -152,7 +141,7 @@ function rawSchemaServer(): Server {
             case 'structured-error-skip':
                 return { isError: true, content: [{ type: 'text', text: 'handler-returned-isError' }] };
             default:
-                throw new McpError(ErrorCode.InvalidParams, `unknown tool ${req.params.name}`);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `unknown tool ${req.params.name}`);
         }
     });
     return s;
@@ -301,7 +290,7 @@ verifies('tools:call:sampling-roundtrip', async ({ transport }: TestArgs) => {
 
     const received: CreateMessageRequest[] = [];
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { sampling: {} } });
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return {
             model: 'stub-model',
@@ -339,7 +328,7 @@ verifies('tools:call:elicitation-roundtrip', async ({ transport }: TestArgs) => 
 
     const received: ElicitRequest[] = [];
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { elicitation: { form: {} } } });
-    client.setRequestHandler(ElicitRequestSchema, async req => {
+    client.setRequestHandler('elicitation/create', async req => {
         received.push(req);
         return { action: 'accept', content: { name: 'Ada' } };
     });
@@ -363,8 +352,8 @@ verifies('tools:call:elicitation-roundtrip', async ({ transport }: TestArgs) => 
 verifies('tools:call:logging-mid-execution', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} } });
-        s.registerTool('log-then-ok', { inputSchema: z.object({}) }, async (_args, extra) => {
-            await extra.sendNotification({
+        s.registerTool('log-then-ok', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            await ctx.mcpReq.notify({
                 method: 'notifications/message',
                 params: { level: 'warning', logger: 'tools-test', data: 'work in progress' }
             });
@@ -375,7 +364,7 @@ verifies('tools:call:logging-mid-execution', async ({ transport }: TestArgs) => 
 
     const logs: Array<{ level: string; logger?: string; data: unknown }> = [];
     const client = newClient();
-    client.setNotificationHandler(LoggingMessageNotificationSchema, n => {
+    client.setNotificationHandler('notifications/message', n => {
         logs.push(n.params);
     });
 
@@ -391,11 +380,11 @@ verifies('tools:call:logging-mid-execution', async ({ transport }: TestArgs) => 
 verifies('tools:call:progress', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, extra) => {
-            const token = extra._meta?.progressToken;
+        s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, ctx) => {
+            const token = ctx.mcpReq._meta?.progressToken;
             if (token !== undefined) {
                 for (let i = 1; i <= steps; i++) {
-                    await extra.sendNotification({
+                    await ctx.mcpReq.notify({
                         method: 'notifications/progress',
                         params: { progressToken: token, progress: i, total: steps, message: `step ${i}/${steps}` }
                     });
@@ -523,9 +512,9 @@ verifies(
         await using _ = await wire(transport, echoServer, client);
 
         const call = client.callTool({ name: 'no-such-tool', arguments: {} });
-        await expect(call).rejects.toBeInstanceOf(McpError);
-        const err = await call.catch(e => e as McpError);
-        expect(err.code).toBe(ErrorCode.InvalidParams);
+        await expect(call).rejects.toBeInstanceOf(ProtocolError);
+        const err = await call.catch(e => e as ProtocolError);
+        expect(err.code).toBe(ProtocolErrorCode.InvalidParams);
         expect(err.message).toMatch(/no-such-tool|unknown|not found/i);
     },
     { title: 'mcpserver' }
@@ -536,14 +525,14 @@ verifies(
     async ({ transport }: TestArgs) => {
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-            s.setRequestHandler(ListToolsRequestSchema, () => ({
+            s.setRequestHandler('tools/list', () => ({
                 tools: [{ name: 'echo', inputSchema: { type: 'object', properties: { text: { type: 'string' } } } }]
             }));
-            s.setRequestHandler(CallToolRequestSchema, req => {
+            s.setRequestHandler('tools/call', req => {
                 if (req.params.name === 'echo') {
                     return { content: [{ type: 'text', text: String(req.params.arguments?.text ?? '') }] };
                 }
-                throw new McpError(ErrorCode.InvalidParams, `Tool ${req.params.name} not found`);
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${req.params.name} not found`);
             });
             return s;
         };
@@ -554,9 +543,9 @@ verifies(
         expect(ok.content).toEqual([{ type: 'text', text: 'hi' }]);
 
         const call = client.callTool({ name: 'no-such-tool', arguments: {} });
-        await expect(call).rejects.toBeInstanceOf(McpError);
-        const err = await call.catch(e => e as McpError);
-        expect(err.code).toBe(ErrorCode.InvalidParams);
+        await expect(call).rejects.toBeInstanceOf(ProtocolError);
+        const err = await call.catch(e => e as ProtocolError);
+        expect(err.code).toBe(ProtocolErrorCode.InvalidParams);
     },
     { title: 'raw server' }
 );
@@ -606,11 +595,11 @@ verifies(['client:output-schema:validate', 'client:output-schema:missing-structu
     expect(ok.structuredContent).toEqual({ doubled: 6 });
 
     const mismatch = client.callTool({ name: 'structured-mismatch', arguments: {} });
-    await expect(mismatch).rejects.toBeInstanceOf(McpError);
+    await expect(mismatch).rejects.toBeInstanceOf(ProtocolError);
     await expect(mismatch).rejects.toThrow(/output schema|structured content/i);
 
     const missing = client.callTool({ name: 'structured-missing', arguments: {} });
-    await expect(missing).rejects.toBeInstanceOf(McpError);
+    await expect(missing).rejects.toBeInstanceOf(ProtocolError);
     await expect(missing).rejects.toThrow(/did not return structured content/i);
 });
 
@@ -722,8 +711,8 @@ verifies('tools:list:metadata', async ({ transport }: TestArgs) => {
     };
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [annotated] }));
-        s.setRequestHandler(CallToolRequestSchema, () => ({ content: [] }));
+        s.setRequestHandler('tools/list', () => ({ tools: [annotated] }));
+        s.setRequestHandler('tools/call', () => ({ content: [] }));
         return s;
     };
     const client = newClient();
@@ -783,7 +772,7 @@ verifies(
 
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-            s.setRequestHandler(ListToolsRequestSchema, req => {
+            s.setRequestHandler('tools/list', req => {
                 cursorsReceived.push(req.params?.cursor);
                 const start = req.params?.cursor === undefined ? 0 : parseInt(req.params.cursor, 10);
                 const slice = all.slice(start, start + PAGE);
@@ -792,7 +781,7 @@ verifies(
                     nextCursor: start + PAGE < TOTAL ? String(start + PAGE) : undefined
                 };
             });
-            s.setRequestHandler(CallToolRequestSchema, () => ({ content: [] }));
+            s.setRequestHandler('tools/call', () => ({ content: [] }));
             return s;
         };
         const client = newClient();
@@ -836,7 +825,7 @@ verifies('tools:list-changed', async ({ transport }: TestArgs) => {
 
     let listChanged = 0;
     const client = newClient();
-    client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+    client.setNotificationHandler('notifications/tools/list_changed', () => {
         listChanged++;
     });
 
@@ -903,13 +892,13 @@ verifies('tools:input-schema:preserve-schema-dialect', async ({ transport }: Tes
     // SDK's listing path stamping a single default $schema onto every schema.
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({
+        s.setRequestHandler('tools/list', () => ({
             tools: [
                 { name: 'draft07', inputSchema: { $schema: 'http://json-schema.org/draft-07/schema#', type: 'object' } },
                 { name: 'v2020', inputSchema: { $schema: 'https://json-schema.org/draft/2020-12/schema', type: 'object' } }
             ]
         }));
-        s.setRequestHandler(CallToolRequestSchema, () => ({ content: [] }));
+        s.setRequestHandler('tools/call', () => ({ content: [] }));
         return s;
     };
     const client = newClient();
@@ -928,14 +917,14 @@ verifies('tools:input-schema:preserve-additional-properties', async ({ transport
     // SDK's listing path stamping a single constant onto every schema.
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({
+        s.setRequestHandler('tools/list', () => ({
             tools: [
                 { name: 'strict', inputSchema: { type: 'object', additionalProperties: false } },
                 { name: 'open', inputSchema: { type: 'object', additionalProperties: true } },
                 { name: 'absent', inputSchema: { type: 'object' } }
             ]
         }));
-        s.setRequestHandler(CallToolRequestSchema, () => ({ content: [] }));
+        s.setRequestHandler('tools/call', () => ({ content: [] }));
         return s;
     };
     const client = newClient();
@@ -1005,7 +994,7 @@ verifies('mcpserver:tool:handle-update', async ({ transport }: TestArgs) => {
 
     let listChanged = 0;
     const client = newClient();
-    client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
+    client.setNotificationHandler('notifications/tools/list_changed', () => {
         listChanged++;
     });
     await using _ = await wire(transport, makeServer, client);
@@ -1122,7 +1111,7 @@ verifies('mcpserver:tool:url-elicitation-error', async ({ transport }: TestArgs)
     if (!(err instanceof UrlElicitationRequiredError)) {
         throw new Error(`expected UrlElicitationRequiredError, got ${JSON.stringify(err)}`);
     }
-    expect(err.code).toBe(ErrorCode.UrlElicitationRequired);
+    expect(err.code).toBe(ProtocolErrorCode.UrlElicitationRequired);
     expect(err.elicitations).toEqual([
         {
             mode: 'url',
@@ -1207,12 +1196,12 @@ verifies('typescript:mcpserver:tool:extra', async ({ transport }: TestArgs) => {
     const seen: Array<{ sessionId?: string; requestId: RequestId; hasSignal: boolean; hasSend: boolean }> = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('report-extra', { inputSchema: z.object({}) }, (_a, extra) => {
+        s.registerTool('report-extra', { inputSchema: z.object({}) }, (_a, ctx) => {
             seen.push({
-                sessionId: extra.sessionId,
-                requestId: extra.requestId,
-                hasSignal: extra.signal instanceof AbortSignal,
-                hasSend: typeof extra.sendNotification === 'function' && typeof extra.sendRequest === 'function'
+                sessionId: ctx.sessionId,
+                requestId: ctx.mcpReq.id,
+                hasSignal: ctx.mcpReq.signal instanceof AbortSignal,
+                hasSend: typeof ctx.mcpReq.notify === 'function' && typeof ctx.mcpReq.send === 'function'
             });
             return { content: [] };
         });
@@ -1238,17 +1227,17 @@ verifies('typescript:mcpserver:tool:extra', async ({ transport }: TestArgs) => {
 verifies('client:call-tool:compat-result-schema', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({
+        s.setRequestHandler('tools/list', () => ({
             tools: [{ name: 'legacy', inputSchema: { type: 'object' } }]
         }));
         // legacy 2024-10-07 result shape (tests CompatibilityCallToolResultSchema accepts it)
-        s.setRequestHandler(CallToolRequestSchema, () => ({ toolResult: 'plain string' }));
+        s.setRequestHandler('tools/call', () => ({ toolResult: 'plain string' }));
         return s;
     };
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
 
-    const r = await client.callTool({ name: 'legacy', arguments: {} }, CompatibilityCallToolResultSchema);
+    const r = await client.callTool({ name: 'legacy', arguments: {} });
     expect(r).toHaveProperty('toolResult', 'plain string');
 });
 
@@ -1256,19 +1245,23 @@ verifies('mcpserver:tool:variadic-forms', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         // (name, cb)
-        s.tool('plain', () => ({ content: [{ type: 'text', text: 'plain' }] }));
+        s.registerTool('plain', {}, () => ({ content: [{ type: 'text', text: 'plain' }] }));
         // (name, description, cb)
-        s.tool('desc', 'desc tool', () => ({ content: [{ type: 'text', text: 'desc' }] }));
+        s.registerTool('desc', { description: 'desc tool' }, () => ({ content: [{ type: 'text', text: 'desc' }] }));
         // (name, paramsSchema, cb)
-        s.tool('args', { x: z.string() }, ({ x }) => ({ content: [{ type: 'text', text: x }] }));
+        s.registerTool('args', { inputSchema: z.object({ x: z.string() }) }, ({ x }) => ({ content: [{ type: 'text', text: x }] }));
         // (name, description, paramsSchema, cb)
-        s.tool('desc-args', 'with both', { y: z.number() }, ({ y }) => ({
+        s.registerTool('desc-args', { description: 'with both', inputSchema: z.object({ y: z.number() }) }, ({ y }) => ({
             content: [{ type: 'text', text: String(y) }]
         }));
         // (name, description, paramsSchema, annotations, cb)
-        s.tool('full', 'full overload', { v: z.string() }, { readOnlyHint: true }, ({ v }) => ({
-            content: [{ type: 'text', text: v }]
-        }));
+        s.registerTool(
+            'full',
+            { description: 'full overload', inputSchema: z.object({ v: z.string() }), annotations: { readOnlyHint: true } },
+            ({ v }) => ({
+                content: [{ type: 'text', text: v }]
+            })
+        );
         return s;
     };
 

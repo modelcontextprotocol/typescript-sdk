@@ -15,11 +15,8 @@ import { randomUUID } from 'node:crypto';
 
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-
-import { McpServer } from '../../../src/server/mcp.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../../src/server/webStandardStreamableHttp.js';
-import { LATEST_PROTOCOL_VERSION, type JSONRPCMessage } from '../../../src/types.js';
-
+import { McpServer, WebStandardStreamableHTTPServerTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
+import type { JSONRPCMessage } from '@modelcontextprotocol/server';
 import { hostPerSession, hostStateless, type HttpHandler } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -208,9 +205,9 @@ verifies('hosting:http:disconnect-not-cancel', async (_args: TestArgs) => {
     });
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('slow', { inputSchema: z.object({}) }, async (_args, extra) => {
+        s.registerTool('slow', { inputSchema: z.object({}) }, async (_args, ctx) => {
             await gate;
-            completions.push(extra.signal.aborted ? 'aborted' : 'completed');
+            completions.push(ctx.mcpReq.signal.aborted ? 'aborted' : 'completed');
             return { content: [{ type: 'text', text: 'done' }] };
         });
         return s;

@@ -9,17 +9,9 @@
 import { expect, vi } from 'vitest';
 
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { McpServer } from '../../../src/server/mcp.js';
-import {
-    ErrorCode,
-    type ListRootsResult,
-    ListRootsRequestSchema,
-    McpError,
-    RootsListChangedNotificationSchema
-} from '../../../src/types.js';
-
+import { McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import type { ListRootsResult } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -38,7 +30,7 @@ verifies('roots:list:basic', async ({ transport }: TestArgs) => {
     };
 
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { roots: { listChanged: true } } });
-    client.setRequestHandler(ListRootsRequestSchema, async req => {
+    client.setRequestHandler('roots/list', async req => {
         received.push({ method: req.method });
         return {
             roots: [{ uri: 'file:///home/user/projects/myproject', name: 'My Project' }, { uri: 'file:///home/user/repos/backend' }]
@@ -74,7 +66,7 @@ verifies('roots:list:empty', async ({ transport }: TestArgs) => {
 
     // The client supports roots but currently has none to offer.
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { roots: {} } });
-    client.setRequestHandler(ListRootsRequestSchema, async () => ({ roots: [] }));
+    client.setRequestHandler('roots/list', async () => ({ roots: [] }));
 
     await using _ = await wire(transport, makeServer, client);
 
@@ -86,7 +78,7 @@ verifies('roots:list:empty', async ({ transport }: TestArgs) => {
 });
 
 verifies('roots:list:client-error', async ({ transport }: TestArgs) => {
-    const failures: McpError[] = [];
+    const failures: ProtocolError[] = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('list-roots', { inputSchema: z.object({}) }, async () => {
@@ -94,7 +86,7 @@ verifies('roots:list:client-error', async ({ transport }: TestArgs) => {
                 await s.server.listRoots();
                 return { content: [{ type: 'text', text: 'unexpected success' }] };
             } catch (e) {
-                if (e instanceof McpError) failures.push(e);
+                if (e instanceof ProtocolError) failures.push(e);
                 return { content: [{ type: 'text', text: 'rejected' }] };
             }
         });
@@ -102,8 +94,8 @@ verifies('roots:list:client-error', async ({ transport }: TestArgs) => {
     };
 
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { roots: {} } });
-    client.setRequestHandler(ListRootsRequestSchema, async () => {
-        throw new McpError(ErrorCode.InternalError, 'roots provider crashed');
+    client.setRequestHandler('roots/list', async () => {
+        throw new ProtocolError(ProtocolErrorCode.InternalError, 'roots provider crashed');
     });
 
     await using _ = await wire(transport, makeServer, client);
@@ -113,12 +105,12 @@ verifies('roots:list:client-error', async ({ transport }: TestArgs) => {
     // The handler observed a rejection (not a hang or a malformed result), and it was an McpError.
     expect(result.content).toEqual([{ type: 'text', text: 'rejected' }]);
     expect(failures).toHaveLength(1);
-    expect(failures[0].code).toBe(ErrorCode.InternalError);
+    expect(failures[0].code).toBe(ProtocolErrorCode.InternalError);
     expect(failures[0].message).toMatch(/roots provider crashed/);
 });
 
 verifies('roots:list:not-supported', async ({ transport }: TestArgs) => {
-    const failures: McpError[] = [];
+    const failures: ProtocolError[] = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('list-roots', { inputSchema: z.object({}) }, async () => {
@@ -126,7 +118,7 @@ verifies('roots:list:not-supported', async ({ transport }: TestArgs) => {
                 await s.server.listRoots();
                 return { content: [{ type: 'text', text: 'unexpected success' }] };
             } catch (e) {
-                if (e instanceof McpError) failures.push(e);
+                if (e instanceof ProtocolError) failures.push(e);
                 return { content: [{ type: 'text', text: 'rejected' }] };
             }
         });
@@ -142,7 +134,7 @@ verifies('roots:list:not-supported', async ({ transport }: TestArgs) => {
 
     expect(result.content).toEqual([{ type: 'text', text: 'rejected' }]);
     expect(failures).toHaveLength(1);
-    expect(failures[0].code).toBe(ErrorCode.MethodNotFound);
+    expect(failures[0].code).toBe(ProtocolErrorCode.MethodNotFound);
     expect(failures[0].message).toMatch(/Method not found/);
 });
 
@@ -151,7 +143,7 @@ verifies('roots:list-changed', async ({ transport }: TestArgs) => {
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' });
-        server.server.setNotificationHandler(RootsListChangedNotificationSchema, async () => {
+        server.server.setNotificationHandler('notifications/roots/list_changed', async () => {
             refetched.push(await server.server.listRoots());
         });
         return server;
@@ -159,7 +151,7 @@ verifies('roots:list-changed', async ({ transport }: TestArgs) => {
 
     let roots = [{ uri: 'file:///home/user/projects/a', name: 'A' }];
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { roots: { listChanged: true } } });
-    client.setRequestHandler(ListRootsRequestSchema, async () => ({ roots }));
+    client.setRequestHandler('roots/list', async () => ({ roots }));
 
     await using _ = await wire(transport, makeServer, client);
 

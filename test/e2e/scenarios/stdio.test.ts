@@ -16,11 +16,9 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { expect, vi } from 'vitest';
-
-import { Client } from '../../../src/client/index.js';
-import { StdioClientTransport } from '../../../src/client/stdio.js';
-import { JSONRPCMessageSchema } from '../../../src/types.js';
-
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+import { Client } from '@modelcontextprotocol/client';
+import { JSONRPCMessageSchema } from '@modelcontextprotocol/core';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 

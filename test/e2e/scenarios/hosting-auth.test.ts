@@ -27,13 +27,9 @@ import { randomUUID } from 'node:crypto';
 
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { StreamableHTTPClientTransport } from '../../../src/client/streamableHttp.js';
-import type { AuthInfo } from '../../../src/server/auth/types.js';
-import { McpServer } from '../../../src/server/mcp.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../../src/server/webStandardStreamableHttp.js';
-
+import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import type { AuthInfo } from '@modelcontextprotocol/server';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
@@ -63,13 +59,15 @@ verifies('hosting:auth:authinfo-propagates', async (_args: TestArgs) => {
         s.registerTool(
             'whoami',
             { description: 'Reports the authenticated caller derived from extra.authInfo.', inputSchema: z.object({}) },
-            (_a, extra) => {
-                seenByTool.push(extra.authInfo);
+            (_a, ctx) => {
+                seenByTool.push(ctx.http?.authInfo);
                 return {
                     content: [
                         {
                             type: 'text',
-                            text: extra.authInfo ? `${extra.authInfo.clientId} [${extra.authInfo.scopes.join(' ')}]` : 'no-auth-info'
+                            text: ctx.http?.authInfo
+                                ? `${ctx.http?.authInfo.clientId} [${ctx.http?.authInfo.scopes.join(' ')}]`
+                                : 'no-auth-info'
                         }
                     ]
                 };

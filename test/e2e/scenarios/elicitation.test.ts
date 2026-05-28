@@ -11,23 +11,16 @@
 
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { Server } from '../../../src/server/index.js';
-import { McpServer } from '../../../src/server/mcp.js';
 import {
-    CallToolRequestSchema,
-    ElicitationCompleteNotificationSchema,
-    type ElicitRequest,
-    type ElicitRequestFormParams,
-    ElicitRequestSchema,
-    ElicitResultSchema,
-    ErrorCode,
-    ListToolsRequestSchema,
-    McpError,
-    UrlElicitationRequiredError
-} from '../../../src/types.js';
-
+    Server,
+    McpServer,
+    ProtocolError,
+    UrlElicitationRequiredError,
+    ProtocolErrorCode,
+    specTypeSchemas
+} from '@modelcontextprotocol/server';
+import type { ElicitRequest, ElicitRequestFormParams } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -59,7 +52,7 @@ verifies('elicitation:form:basic', async ({ transport }: TestArgs) => {
 
     const received: Array<{ method: string; params: unknown }> = [];
     const client = formClient();
-    client.setRequestHandler(ElicitRequestSchema, async req => {
+    client.setRequestHandler('elicitation/create', async req => {
         received.push({ method: req.method, params: req.params });
         return { action: 'accept', content: { name: 'Ada' } };
     });
@@ -97,7 +90,7 @@ verifies('elicitation:form:action:accept', async ({ transport }: TestArgs) => {
     };
 
     const client = formClient();
-    client.setRequestHandler(ElicitRequestSchema, async () => {
+    client.setRequestHandler('elicitation/create', async () => {
         return { action: 'accept', content: { name: 'Ada' } };
     });
 
@@ -124,7 +117,7 @@ verifies('elicitation:form:action:cancel', async ({ transport }: TestArgs) => {
     };
 
     const client = formClient();
-    client.setRequestHandler(ElicitRequestSchema, async () => {
+    client.setRequestHandler('elicitation/create', async () => {
         return { action: 'cancel' };
     });
 
@@ -151,7 +144,7 @@ verifies('elicitation:form:action:decline', async ({ transport }: TestArgs) => {
     };
 
     const client = formClient();
-    client.setRequestHandler(ElicitRequestSchema, async () => {
+    client.setRequestHandler('elicitation/create', async () => {
         return { action: 'decline' };
     });
 
@@ -183,7 +176,7 @@ verifies('elicitation:form:defaults', async ({ transport }: TestArgs) => {
     };
 
     const client = formClientWithDefaults();
-    client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'accept', content: { name: 'Ada' } }));
+    client.setRequestHandler('elicitation/create', async () => ({ action: 'accept', content: { name: 'Ada' } }));
 
     await using _ = await wire(transport, makeServer, client);
 
@@ -194,10 +187,10 @@ verifies('elicitation:form:defaults', async ({ transport }: TestArgs) => {
 verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [{ name: 'ask', inputSchema: { type: 'object' } }] }));
-        s.setRequestHandler(CallToolRequestSchema, async (_req, extra) => {
+        s.setRequestHandler('tools/list', () => ({ tools: [{ name: 'ask', inputSchema: { type: 'object' } }] }));
+        s.setRequestHandler('tools/call', async (_req, ctx) => {
             try {
-                const ans = await extra.sendRequest(
+                const ans = await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -205,11 +198,11 @@ verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs
                             requestedSchema: { type: 'object', properties: { name: { type: 'string' } } }
                         }
                     },
-                    ElicitResultSchema
+                    specTypeSchemas.ElicitResult
                 );
                 return { content: [{ type: 'text', text: ans.action }] };
             } catch (e) {
-                if (!(e instanceof McpError)) throw e;
+                if (!(e instanceof ProtocolError)) throw e;
                 return { content: [{ type: 'text', text: `error:${e.code}` }] };
             }
         });
@@ -218,7 +211,7 @@ verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs
 
     const formReceived: ElicitRequest['params'][] = [];
     const formClientInstance = formClient();
-    formClientInstance.setRequestHandler(ElicitRequestSchema, async req => {
+    formClientInstance.setRequestHandler('elicitation/create', async req => {
         formReceived.push(req.params);
         return { action: 'accept', content: { name: 'Test' } };
     });
@@ -233,7 +226,7 @@ verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs
 
     let urlHandlerInvoked = 0;
     const urlClientInstance = urlClient();
-    urlClientInstance.setRequestHandler(ElicitRequestSchema, async () => {
+    urlClientInstance.setRequestHandler('elicitation/create', async () => {
         urlHandlerInvoked++;
         return { action: 'accept' };
     });
@@ -241,7 +234,7 @@ verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs
     await using _2 = await wire(transport, makeServer, urlClientInstance);
 
     const urlResult = await urlClientInstance.callTool({ name: 'ask', arguments: {} });
-    expect(urlResult.content).toEqual([{ type: 'text', text: `error:${ErrorCode.InvalidParams}` }]);
+    expect(urlResult.content).toEqual([{ type: 'text', text: `error:${ProtocolErrorCode.InvalidParams}` }]);
     expect(urlHandlerInvoked).toBe(0);
 });
 
@@ -268,7 +261,7 @@ verifies('elicitation:form:schema:primitives', async ({ transport }: TestArgs) =
     const expected = { name: 'Ada', email: 'ada@example.com', age: 30, score: 95.5, active: true };
     const received: ElicitRequest['params'][] = [];
     const client = formClient();
-    client.setRequestHandler(ElicitRequestSchema, async req => {
+    client.setRequestHandler('elicitation/create', async req => {
         received.push(req.params);
         return { action: 'accept', content: expected };
     });
@@ -316,7 +309,7 @@ verifies('elicitation:form:schema:enum-variants', async ({ transport }: TestArgs
     const expected = { bare: 'Red', titled: '#00FF00', multi: ['#FF0000', '#0000FF'] };
     const received: ElicitRequest['params'][] = [];
     const client = formClient();
-    client.setRequestHandler(ElicitRequestSchema, async req => {
+    client.setRequestHandler('elicitation/create', async req => {
         received.push(req.params);
         return { action: 'accept', content: expected };
     });
@@ -345,7 +338,7 @@ verifies('elicitation:form:response-validation', async ({ transport }: TestArgs)
                     content: [{ type: 'text', text: `SDK accepted invalid content: ${JSON.stringify(ans.content)}` }]
                 };
             } catch (e) {
-                if (!(e instanceof McpError)) throw e;
+                if (!(e instanceof ProtocolError)) throw e;
                 return { content: [{ type: 'text', text: `rejected:${e.code}:${e.message}` }] };
             }
         });
@@ -356,7 +349,7 @@ verifies('elicitation:form:response-validation', async ({ transport }: TestArgs)
     const invalidContents: Array<Record<string, string | number | boolean>> = [{ username: 42 }, {}];
     let handlerInvoked = 0;
     const client = formClient();
-    client.setRequestHandler(ElicitRequestSchema, async () => {
+    client.setRequestHandler('elicitation/create', async () => {
         const content = invalidContents[handlerInvoked];
         handlerInvoked++;
         return { action: 'accept', content };
@@ -364,7 +357,9 @@ verifies('elicitation:form:response-validation', async ({ transport }: TestArgs)
 
     await using _ = await wire(transport, makeServer, client);
 
-    const schemaRejection = expect.stringMatching(new RegExp(`^rejected:${ErrorCode.InvalidParams}:.*does not match requested schema`));
+    const schemaRejection = expect.stringMatching(
+        new RegExp(`^rejected:${ProtocolErrorCode.InvalidParams}:.*does not match requested schema`)
+    );
 
     const wrongType = await client.callTool({ name: 'signup', arguments: {} });
     expect(wrongType.isError).toBeFalsy();
@@ -380,10 +375,10 @@ verifies('elicitation:form:response-validation', async ({ transport }: TestArgs)
 verifies('elicitation:form:schema:restricted-subset', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [{ name: 'profile', inputSchema: { type: 'object' } }] }));
-        s.setRequestHandler(CallToolRequestSchema, async (_req, extra) => {
+        s.setRequestHandler('tools/list', () => ({ tools: [{ name: 'profile', inputSchema: { type: 'object' } }] }));
+        s.setRequestHandler('tools/call', async (_req, ctx) => {
             try {
-                await extra.sendRequest(
+                await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: {
@@ -404,11 +399,11 @@ verifies('elicitation:form:schema:restricted-subset', async ({ transport }: Test
                             }
                         }
                     },
-                    ElicitResultSchema
+                    specTypeSchemas.ElicitResult
                 );
                 return { content: [{ type: 'text', text: 'should-not-reach' }] };
             } catch (e) {
-                if (!(e instanceof McpError)) throw e;
+                if (!(e instanceof ProtocolError)) throw e;
                 return { content: [{ type: 'text', text: `error:${e.code}` }] };
             }
         });
@@ -417,7 +412,7 @@ verifies('elicitation:form:schema:restricted-subset', async ({ transport }: Test
 
     let handlerInvoked = 0;
     const client = formClient();
-    client.setRequestHandler(ElicitRequestSchema, async () => {
+    client.setRequestHandler('elicitation/create', async () => {
         handlerInvoked++;
         return { action: 'accept', content: {} };
     });
@@ -427,7 +422,7 @@ verifies('elicitation:form:schema:restricted-subset', async ({ transport }: Test
 
     const r = await client.callTool({ name: 'profile', arguments: {} });
     expect(r.isError).toBeFalsy();
-    expect(r.content).toEqual([{ type: 'text', text: `error:${ErrorCode.InvalidParams}` }]);
+    expect(r.content).toEqual([{ type: 'text', text: `error:${ProtocolErrorCode.InvalidParams}` }]);
     expect(handlerInvoked).toBe(0);
 });
 
@@ -448,7 +443,7 @@ verifies('elicitation:url:basic', async ({ transport }: TestArgs) => {
 
     const received: ElicitRequest['params'][] = [];
     const client = urlClient();
-    client.setRequestHandler(ElicitRequestSchema, async req => {
+    client.setRequestHandler('elicitation/create', async req => {
         received.push(req.params);
         return { action: 'accept' };
     });
@@ -485,7 +480,7 @@ verifies('elicitation:url:action:accept-no-content', async ({ transport }: TestA
     };
 
     const client = urlClient();
-    client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'accept' }));
+    client.setRequestHandler('elicitation/create', async () => ({ action: 'accept' }));
 
     await using _ = await wire(transport, makeServer, client);
 
@@ -511,7 +506,7 @@ verifies('elicitation:url:action:cancel', async ({ transport }: TestArgs) => {
     };
 
     const client = urlClient();
-    client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'cancel' }));
+    client.setRequestHandler('elicitation/create', async () => ({ action: 'cancel' }));
 
     await using _ = await wire(transport, makeServer, client);
 
@@ -538,7 +533,7 @@ verifies('elicitation:url:action:decline', async ({ transport }: TestArgs) => {
     };
 
     const client = urlClient();
-    client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'decline' }));
+    client.setRequestHandler('elicitation/create', async () => ({ action: 'decline' }));
 
     await using _ = await wire(transport, makeServer, client);
 
@@ -562,8 +557,8 @@ verifies('elicitation:url:complete-notification', async ({ transport }: TestArgs
                 }
             ]);
         });
-        s.registerTool('complete', { inputSchema: z.object({ elicitationId: z.string() }) }, async ({ elicitationId }, extra) => {
-            const notify = s.server.createElicitationCompletionNotifier(elicitationId, { relatedRequestId: extra.requestId });
+        s.registerTool('complete', { inputSchema: z.object({ elicitationId: z.string() }) }, async ({ elicitationId }, ctx) => {
+            const notify = s.server.createElicitationCompletionNotifier(elicitationId, { relatedRequestId: ctx.mcpReq.id });
             await notify();
             return { content: [{ type: 'text', text: 'notified' }] };
         });
@@ -571,7 +566,7 @@ verifies('elicitation:url:complete-notification', async ({ transport }: TestArgs
     };
 
     const client = urlClient();
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, n => {
+    client.setNotificationHandler('notifications/elicitation/complete', n => {
         notifications.push({ method: n.method, params: n.params });
     });
 
@@ -600,10 +595,10 @@ verifies('elicitation:url:complete-unknown-ignored', async ({ transport }: TestA
         });
         // Raw send: the server-side capability gate cannot pass on stateless (client capabilities never learned),
         // and the behavior under test is the client's handling of the notification.
-        s.registerTool('complete', { inputSchema: z.object({ elicitationId: z.string() }) }, async ({ elicitationId }, extra) => {
+        s.registerTool('complete', { inputSchema: z.object({ elicitationId: z.string() }) }, async ({ elicitationId }, ctx) => {
             await s.server.transport!.send(
                 { jsonrpc: '2.0', method: 'notifications/elicitation/complete', params: { elicitationId } },
-                { relatedRequestId: extra.requestId }
+                { relatedRequestId: ctx.mcpReq.id }
             );
             return { content: [{ type: 'text', text: 'sent' }] };
         });
@@ -615,7 +610,7 @@ verifies('elicitation:url:complete-unknown-ignored', async ({ transport }: TestA
     const errors: Error[] = [];
     const client = urlClient();
     client.onerror = e => errors.push(e);
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, n => {
+    client.setNotificationHandler('notifications/elicitation/complete', n => {
         notifications.push({ method: n.method, params: n.params });
     });
 
@@ -663,7 +658,7 @@ verifies('elicitation:url:required-error', async ({ transport }: TestArgs) => {
 
     const err = await client.callTool({ name: 'auth-required', arguments: {} }).catch(e => e);
     if (!(err instanceof UrlElicitationRequiredError)) throw new Error(`expected UrlElicitationRequiredError, got ${err}`);
-    expect(err.code).toBe(ErrorCode.UrlElicitationRequired);
+    expect(err.code).toBe(ProtocolErrorCode.UrlElicitationRequired);
     expect(err.elicitations).toHaveLength(1);
     expect(err.elicitations[0]).toMatchObject({
         mode: 'url',
@@ -688,7 +683,7 @@ verifies('elicitation:capability:empty-is-form', async ({ transport }: TestArgs)
     };
 
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { elicitation: {} } });
-    client.setRequestHandler(ElicitRequestSchema, async () => {
+    client.setRequestHandler('elicitation/create', async () => {
         return { action: 'accept', content: { name: 'Test' } };
     });
 
@@ -701,19 +696,19 @@ verifies('elicitation:capability:empty-is-form', async ({ transport }: TestArgs)
 verifies('elicitation:capability:mode-mismatch', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [{ name: 'auth', inputSchema: { type: 'object' } }] }));
-        s.setRequestHandler(CallToolRequestSchema, async (_req, extra) => {
+        s.setRequestHandler('tools/list', () => ({ tools: [{ name: 'auth', inputSchema: { type: 'object' } }] }));
+        s.setRequestHandler('tools/call', async (_req, ctx) => {
             try {
-                await extra.sendRequest(
+                await ctx.mcpReq.send(
                     {
                         method: 'elicitation/create',
                         params: { mode: 'url', message: 'Sign in', elicitationId: 'mismatch-1', url: 'https://example.com/auth' }
                     },
-                    ElicitResultSchema
+                    specTypeSchemas.ElicitResult
                 );
                 return { content: [{ type: 'text', text: 'should-not-reach' }] };
             } catch (e) {
-                if (!(e instanceof McpError)) throw e;
+                if (!(e instanceof ProtocolError)) throw e;
                 return { content: [{ type: 'text', text: `error:${e.code}` }] };
             }
         });
@@ -722,7 +717,7 @@ verifies('elicitation:capability:mode-mismatch', async ({ transport }: TestArgs)
 
     let handlerInvoked = 0;
     const client = formClient();
-    client.setRequestHandler(ElicitRequestSchema, async () => {
+    client.setRequestHandler('elicitation/create', async () => {
         handlerInvoked++;
         return { action: 'accept', content: {} };
     });
@@ -730,7 +725,7 @@ verifies('elicitation:capability:mode-mismatch', async ({ transport }: TestArgs)
     await using _ = await wire(transport, makeServer, client);
 
     const r = await client.callTool({ name: 'auth', arguments: {} });
-    expect(r.content).toEqual([{ type: 'text', text: `error:${ErrorCode.InvalidParams}` }]);
+    expect(r.content).toEqual([{ type: 'text', text: `error:${ProtocolErrorCode.InvalidParams}` }]);
     expect(handlerInvoked).toBe(0);
 });
 
@@ -755,7 +750,7 @@ verifies('elicitation:capability:server-respects-mode', async ({ transport }: Te
     };
 
     const client = formClient();
-    client.setRequestHandler(ElicitRequestSchema, async () => {
+    client.setRequestHandler('elicitation/create', async () => {
         reachedClient++;
         return { action: 'accept' };
     });

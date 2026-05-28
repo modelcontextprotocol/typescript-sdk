@@ -10,18 +10,9 @@
 
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { Server } from '../../../src/server/index.js';
-import { McpServer, type RegisteredPrompt } from '../../../src/server/mcp.js';
-import {
-    ErrorCode,
-    GetPromptRequestSchema,
-    ListPromptsRequestSchema,
-    McpError,
-    PromptListChangedNotificationSchema
-} from '../../../src/types.js';
-
+import { Server, McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import type { RegisteredPrompt } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -34,9 +25,13 @@ const newClient = () => new Client({ name: 'c', version: '0' });
 
 function summarizeServer(): McpServer {
     const s = new McpServer({ name: 's', version: '0' });
-    s.registerPrompt('summarize', { description: 'Summarize the provided text.', argsSchema: { text: z.string() } }, ({ text }) => ({
-        messages: [{ role: 'user', content: { type: 'text', text: `Summarize the following text:\n${text}` } }]
-    }));
+    s.registerPrompt(
+        'summarize',
+        { description: 'Summarize the provided text.', argsSchema: z.object({ text: z.string() }) },
+        ({ text }) => ({
+            messages: [{ role: 'user', content: { type: 'text', text: `Summarize the following text:\n${text}` } }]
+        })
+    );
     return s;
 }
 
@@ -60,14 +55,18 @@ verifies('prompts:capability:declared', async ({ transport }: TestArgs) => {
 verifies('prompts:list:basic', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerPrompt('summarize', { description: 'Summarize the provided text.', argsSchema: { text: z.string() } }, ({ text }) => ({
-            messages: [{ role: 'user', content: { type: 'text', text: `Summarize the following text:\n${text}` } }]
-        }));
+        s.registerPrompt(
+            'summarize',
+            { description: 'Summarize the provided text.', argsSchema: z.object({ text: z.string() }) },
+            ({ text }) => ({
+                messages: [{ role: 'user', content: { type: 'text', text: `Summarize the following text:\n${text}` } }]
+            })
+        );
         s.registerPrompt(
             'code-review',
             {
                 description: 'Review a code snippet in the given language, optionally focused on one aspect.',
-                argsSchema: { language: z.enum(['ts', 'py']), focus: z.string().optional() }
+                argsSchema: z.object({ language: z.enum(['ts', 'py']), focus: z.string().optional() })
             },
             ({ language, focus }) => ({
                 messages: [
@@ -157,7 +156,7 @@ verifies(
 
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { prompts: {} } });
-            s.setRequestHandler(ListPromptsRequestSchema, req => {
+            s.setRequestHandler('prompts/list', req => {
                 cursorsReceived.push(req.params?.cursor);
                 const start = req.params?.cursor === undefined ? 0 : parseInt(req.params.cursor, 10);
                 const slice = all.slice(start, start + PAGE);
@@ -166,7 +165,7 @@ verifies(
                     nextCursor: start + PAGE < TOTAL ? String(start + PAGE) : undefined
                 };
             });
-            s.setRequestHandler(GetPromptRequestSchema, req => ({
+            s.setRequestHandler('prompts/get', req => ({
                 messages: [{ role: 'user', content: { type: 'text', text: req.params.name } }]
             }));
             return s;
@@ -211,7 +210,7 @@ verifies('prompts:list-changed', async ({ transport }: TestArgs) => {
 
     let listChanged = 0;
     const client = newClient();
-    client.setNotificationHandler(PromptListChangedNotificationSchema, () => {
+    client.setNotificationHandler('notifications/prompts/list_changed', () => {
         listChanged++;
     });
 
@@ -286,7 +285,7 @@ verifies('prompts:get:missing-required-args', async ({ transport }: TestArgs) =>
     await using _ = await wire(transport, summarizeServer, client);
 
     await expect(client.getPrompt({ name: 'summarize', arguments: {} })).rejects.toMatchObject({
-        code: ErrorCode.InvalidParams,
+        code: ProtocolErrorCode.InvalidParams,
         message: expect.stringMatching(/text|required|invalid/i)
     });
 });
@@ -296,7 +295,7 @@ verifies('prompts:get:unknown-name', async ({ transport }: TestArgs) => {
     await using _ = await wire(transport, explainCommitServer, client);
 
     await expect(client.getPrompt({ name: 'no-such-prompt' })).rejects.toMatchObject({
-        code: ErrorCode.InvalidParams,
+        code: ProtocolErrorCode.InvalidParams,
         message: expect.stringMatching(/no-such-prompt|unknown|not found/i)
     });
 });
@@ -348,7 +347,7 @@ verifies('prompts:get:content:audio', async ({ transport }: TestArgs) => {
 verifies('prompts:get:content:embedded-resource', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerPrompt('review-file', { argsSchema: { kind: z.enum(['text', 'blob']) } }, ({ kind }) => ({
+        s.registerPrompt('review-file', { argsSchema: z.object({ kind: z.enum(['text', 'blob']) }) }, ({ kind }) => ({
             messages: [
                 { role: 'user', content: { type: 'text', text: 'Review the attached file.' } },
                 {
@@ -399,7 +398,7 @@ verifies('mcpserver:prompt:args-validation', async ({ transport }: TestArgs) => 
         const s = new McpServer({ name: 's', version: '0' });
         s.registerPrompt(
             'code-review',
-            { argsSchema: { language: z.enum(['ts', 'py']), focus: z.string().optional() } },
+            { argsSchema: z.object({ language: z.enum(['ts', 'py']), focus: z.string().optional() }) },
             ({ language }) => {
                 handlerCalls.n++;
                 return { messages: [{ role: 'user', content: { type: 'text', text: `Review the following ${language} code:` } }] };
@@ -415,13 +414,13 @@ verifies('mcpserver:prompt:args-validation', async ({ transport }: TestArgs) => 
     expect(handlerCalls.n).toBe(1);
 
     await expect(client.getPrompt({ name: 'code-review', arguments: { language: 'rust' } })).rejects.toMatchObject({
-        code: ErrorCode.InvalidParams,
+        code: ProtocolErrorCode.InvalidParams,
         message: expect.stringMatching(/invalid arguments.*code-review/i)
     });
     expect(handlerCalls.n).toBe(1);
 
     await expect(client.getPrompt({ name: 'code-review', arguments: {} })).rejects.toMatchObject({
-        code: ErrorCode.InvalidParams,
+        code: ProtocolErrorCode.InvalidParams,
         message: expect.stringMatching(/invalid arguments/i)
     });
     expect(handlerCalls.n).toBe(1);
@@ -430,19 +429,23 @@ verifies('mcpserver:prompt:args-validation', async ({ transport }: TestArgs) => 
 verifies('mcpserver:prompt:optional-args', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerPrompt('summarize', { argsSchema: { text: z.string(), max_words: z.string().optional() } }, ({ text, max_words }) => ({
-            messages: [
-                {
-                    role: 'user',
-                    content: {
-                        type: 'text',
-                        text: max_words
-                            ? `Summarize the following text in at most ${max_words} words:\n${text}`
-                            : `Summarize the following text:\n${text}`
+        s.registerPrompt(
+            'summarize',
+            { argsSchema: z.object({ text: z.string(), max_words: z.string().optional() }) },
+            ({ text, max_words }) => ({
+                messages: [
+                    {
+                        role: 'user',
+                        content: {
+                            type: 'text',
+                            text: max_words
+                                ? `Summarize the following text in at most ${max_words} words:\n${text}`
+                                : `Summarize the following text:\n${text}`
+                        }
                     }
-                }
-            ]
-        }));
+                ]
+            })
+        );
         return s;
     };
     const client = newClient();
@@ -494,7 +497,7 @@ verifies('mcpserver:prompt:handle-update-remove', async ({ transport }: TestArgs
 
     let listChanged = 0;
     const client = newClient();
-    client.setNotificationHandler(PromptListChangedNotificationSchema, () => {
+    client.setNotificationHandler('notifications/prompts/list_changed', () => {
         listChanged++;
     });
     await using _ = await wire(transport, makeServer, client);
@@ -523,14 +526,14 @@ verifies('mcpserver:prompt:handle-update-remove', async ({ transport }: TestArgs
     await vi.waitFor(() => expect(listChanged).toBeGreaterThan(beforeRemove));
     expect((await client.listPrompts()).prompts).toHaveLength(0);
 
-    await expect(client.getPrompt({ name: 'probe' })).rejects.toBeInstanceOf(McpError);
+    await expect(client.getPrompt({ name: 'probe' })).rejects.toBeInstanceOf(ProtocolError);
     expect((await client.listPrompts()).prompts.find(p => p.name === 'probe')).toBeUndefined();
 });
 
 verifies('mcpserver:prompt:legacy-overload', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.prompt('legacy-prompt', 'Legacy prompt overload (name, description, cb).', () => ({
+        s.registerPrompt('legacy-prompt', { description: 'Legacy prompt overload (name, description, cb).' }, () => ({
             messages: [{ role: 'user', content: { type: 'text', text: 'Explain the project README.' } }]
         }));
         return s;

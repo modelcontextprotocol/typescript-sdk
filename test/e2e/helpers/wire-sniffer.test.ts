@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LATEST_PROTOCOL_VERSION } from '../../../src/types.js';
-
+import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
 import { assertWireMessage } from './wire-sniffer.js';
 
 const req = (method: string, params?: unknown, id = 1) => ({

@@ -10,30 +10,20 @@
 
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { type OAuthClientProvider, UnauthorizedError } from '../../../src/client/auth.js';
-import { StreamableHTTPClientTransport } from '../../../src/client/streamableHttp.js';
-import { Server } from '../../../src/server/index.js';
-import { McpServer } from '../../../src/server/mcp.js';
-import type { EventStore } from '../../../src/server/webStandardStreamableHttp.js';
-import { type OAuthTokens, type OAuthClientMetadata, type OAuthClientInformationMixed } from '../../../src/shared/auth.js';
-import {
-    type CallToolResult,
-    ElicitationCompleteNotificationSchema,
-    type ElicitRequest,
-    type ElicitResult,
-    ElicitRequestSchema,
-    ElicitResultSchema,
-    ErrorCode,
-    type JSONRPCMessage,
-    ListResourcesRequestSchema,
-    ListToolsRequestSchema,
-    type Progress,
-    ReadResourceRequestSchema,
-    UrlElicitationRequiredError
-} from '../../../src/types.js';
-
+import { Server, McpServer, UrlElicitationRequiredError, ProtocolErrorCode, specTypeSchemas } from '@modelcontextprotocol/server';
+import type {
+    EventStore,
+    OAuthTokens,
+    OAuthClientMetadata,
+    OAuthClientInformationMixed,
+    CallToolResult,
+    ElicitRequest,
+    ElicitResult,
+    JSONRPCMessage,
+    Progress
+} from '@modelcontextprotocol/server';
+import { Client, UnauthorizedError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { OAuthClientProvider } from '@modelcontextprotocol/client';
 import { hostPerSession, hostResumable, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -42,8 +32,8 @@ verifies('flow:elicitation:multi-step-form', async ({ transport }: TestArgs) => 
     // Server: tool that issues three sequential elicitation/create requests
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('multi-step', { inputSchema: z.object({}) }, async (_args, extra) => {
-            const step1 = await extra.sendRequest(
+        s.registerTool('multi-step', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            const step1 = await ctx.mcpReq.send(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -52,14 +42,14 @@ verifies('flow:elicitation:multi-step-form', async ({ transport }: TestArgs) => 
                         requestedSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }
                     }
                 },
-                ElicitResultSchema
+                specTypeSchemas.ElicitResult
             );
             if (step1.action !== 'accept' || typeof step1.content?.name !== 'string') {
                 return { content: [{ type: 'text', text: `aborted at step 1: ${step1.action}` }] };
             }
             const name = step1.content.name;
 
-            const step2 = await extra.sendRequest(
+            const step2 = await ctx.mcpReq.send(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -68,14 +58,14 @@ verifies('flow:elicitation:multi-step-form', async ({ transport }: TestArgs) => 
                         requestedSchema: { type: 'object', properties: { color: { type: 'string' } }, required: ['color'] }
                     }
                 },
-                ElicitResultSchema
+                specTypeSchemas.ElicitResult
             );
             if (step2.action !== 'accept' || typeof step2.content?.color !== 'string') {
                 return { content: [{ type: 'text', text: `aborted at step 2: ${step2.action}` }] };
             }
             const color = step2.content.color;
 
-            const step3 = await extra.sendRequest(
+            const step3 = await ctx.mcpReq.send(
                 {
                     method: 'elicitation/create',
                     params: {
@@ -84,7 +74,7 @@ verifies('flow:elicitation:multi-step-form', async ({ transport }: TestArgs) => 
                         requestedSchema: { type: 'object', properties: { confirm: { type: 'boolean' } }, required: ['confirm'] }
                     }
                 },
-                ElicitResultSchema
+                specTypeSchemas.ElicitResult
             );
             if (step3.action !== 'accept') {
                 return { content: [{ type: 'text', text: `aborted at step 3: ${step3.action}` }] };
@@ -99,7 +89,7 @@ verifies('flow:elicitation:multi-step-form', async ({ transport }: TestArgs) => 
     const received: ElicitRequest[] = [];
     const queued: ElicitResult[] = [];
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { elicitation: { form: {} } } });
-    client.setRequestHandler(ElicitRequestSchema, async req => {
+    client.setRequestHandler('elicitation/create', async req => {
         received.push(req);
         const resp = queued.shift();
         if (!resp) throw new Error('no queued elicitation response');
@@ -160,13 +150,13 @@ verifies('flow:elicitation:url-at-session-init', async (_args: TestArgs) => {
                     .catch(() => {});
             }, 0);
         };
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
         return s;
     };
 
     const received: ElicitRequest[] = [];
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { elicitation: { url: {} } } });
-    client.setRequestHandler(ElicitRequestSchema, async req => {
+    client.setRequestHandler('elicitation/create', async req => {
         received.push(req);
         return { action: 'accept' };
     });
@@ -234,7 +224,7 @@ verifies('flow:elicitation:url-required-then-retry', async ({ transport }: TestA
 
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { elicitation: { url: {} } } });
     const completionsSeen: string[] = [];
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, async n => {
+    client.setNotificationHandler('notifications/elicitation/complete', async n => {
         completionsSeen.push(n.params.elicitationId);
     });
     await using _ = await wire(transport, makeServer, client);
@@ -243,7 +233,7 @@ verifies('flow:elicitation:url-required-then-retry', async ({ transport }: TestA
     const err = await client.callTool({ name: 'url-gated', arguments: {} }).catch(e => e);
     expect(err).toBeInstanceOf(UrlElicitationRequiredError);
     const required = err as UrlElicitationRequiredError;
-    expect(required.code).toBe(ErrorCode.UrlElicitationRequired);
+    expect(required.code).toBe(ProtocolErrorCode.UrlElicitationRequired);
     expect(required.elicitations).toHaveLength(1);
     const elicitation = required.elicitations[0];
     expect(elicitation.mode).toBe('url');
@@ -268,11 +258,11 @@ verifies('flow:multi-client:stateful-isolation', async (_args: TestArgs) => {
     // Server: per-session McpServer with progress tool
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, extra) => {
-            const token = extra._meta?.progressToken;
+        s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, ctx) => {
+            const token = ctx.mcpReq._meta?.progressToken;
             if (token !== undefined) {
                 for (let i = 1; i <= steps; i++) {
-                    await extra.sendNotification({
+                    await ctx.mcpReq.notify({
                         method: 'notifications/progress',
                         params: { progressToken: token, progress: i, total: steps, message: `step ${i}/${steps}` }
                     });
@@ -514,15 +504,15 @@ verifies('flow:resume:tool-call-resumption-token', async (_args: TestArgs) => {
     let toolRuns = 0;
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('import-records', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, extra) => {
+        s.registerTool('import-records', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, ctx) => {
             toolRuns++;
-            const token = extra._meta?.progressToken;
+            const token = ctx.mcpReq._meta?.progressToken;
             if (token === undefined) throw new Error('import-records expects a progressToken');
             for (let i = 1; i <= steps; i++) {
                 if (i === DELIVERED_BEFORE_DISCONNECT + 1) {
                     await remainingStepsReleased;
                 }
-                await extra.sendNotification({
+                await ctx.mcpReq.notify({
                     method: 'notifications/progress',
                     params: { progressToken: token, progress: i, total: steps }
                 });
@@ -801,15 +791,15 @@ verifies('flow:proxy:forward-tools-resources', async ({ transport }: TestArgs) =
     const upstreamClient = new Client({ name: 'proxy-upstream', version: '0' });
     const proxyServer = new Server({ name: 'proxy', version: '0' }, { capabilities: { tools: {}, resources: {} } });
 
-    proxyServer.setRequestHandler(ListToolsRequestSchema, async req => {
+    proxyServer.setRequestHandler('tools/list', async req => {
         const result = await upstreamClient.listTools(req.params);
         return { tools: result.tools, nextCursor: result.nextCursor };
     });
-    proxyServer.setRequestHandler(ListResourcesRequestSchema, async req => {
+    proxyServer.setRequestHandler('resources/list', async req => {
         const result = await upstreamClient.listResources(req.params);
         return { resources: result.resources, nextCursor: result.nextCursor };
     });
-    proxyServer.setRequestHandler(ReadResourceRequestSchema, async req => {
+    proxyServer.setRequestHandler('resources/read', async req => {
         return upstreamClient.readResource(req.params);
     });
 

@@ -10,19 +10,9 @@
 
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import type { ServerOptions } from '../../../src/server/index.js';
-import { McpServer } from '../../../src/server/mcp.js';
-import {
-    type CreateMessageRequest,
-    CreateMessageRequestSchema,
-    type CreateMessageResultWithTools,
-    ErrorCode,
-    McpError,
-    type SamplingMessage
-} from '../../../src/types.js';
-
+import { McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import type { ServerOptions, CreateMessageRequest, CreateMessageResultWithTools, SamplingMessage } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -75,7 +65,7 @@ function passthroughServer(options?: ServerOptions) {
 verifies('sampling:capability:declare', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient({ sampling: {} });
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'stub', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
@@ -89,7 +79,7 @@ verifies('sampling:capability:declare', async ({ transport }: TestArgs) => {
 verifies('sampling:create:basic', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'test-model', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'Paris' } };
     });
@@ -114,7 +104,7 @@ verifies('sampling:create:basic', async ({ transport }: TestArgs) => {
 verifies('sampling:create:include-context', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
@@ -136,7 +126,7 @@ verifies('sampling:create:include-context', async ({ transport }: TestArgs) => {
 verifies('sampling:create:model-preferences', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
@@ -153,7 +143,7 @@ verifies('sampling:create:model-preferences', async ({ transport }: TestArgs) =>
 verifies('sampling:create:system-prompt', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
@@ -169,7 +159,7 @@ verifies('sampling:create:system-prompt', async ({ transport }: TestArgs) => {
 verifies('sampling:create:tools', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient({ sampling: { tools: {} } });
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         const mode = req.params.toolChoice?.mode;
         if (mode === 'auto' || mode === 'required') {
@@ -203,8 +193,8 @@ verifies('sampling:create:tools', async ({ transport }: TestArgs) => {
 
 verifies('sampling:error:user-rejected', async ({ transport }: TestArgs) => {
     const client = newClient();
-    client.setRequestHandler(CreateMessageRequestSchema, async () => {
-        throw new McpError(-1, 'User rejected sampling request');
+    client.setRequestHandler('sampling/createMessage', async () => {
+        throw new ProtocolError(-1, 'User rejected sampling request');
     });
 
     await using _ = await wire(transport, passthroughServer, client);
@@ -218,7 +208,7 @@ verifies('sampling:error:user-rejected', async ({ transport }: TestArgs) => {
 verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
@@ -234,7 +224,7 @@ verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs)
 
     received.length = 0;
     const client2 = newClient();
-    client2.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client2.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
@@ -269,7 +259,7 @@ verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs)
 verifies('sampling:result:no-tools-single-content', async ({ transport }: TestArgs) => {
     const client = newClient();
     // No tools/toolChoice in the request, so the client's wrapped sampling handler validates against CreateMessageResultSchema and rejects array content with -32602.
-    client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+    client.setRequestHandler('sampling/createMessage', async () => ({
         model: 'm',
         role: 'assistant',
         stopReason: 'endTurn',
@@ -288,7 +278,7 @@ verifies('sampling:result:no-tools-single-content', async ({ transport }: TestAr
 
 verifies('sampling:result:with-tools-array-content', async ({ transport }: TestArgs) => {
     const client = newClient({ sampling: { tools: {} } });
-    client.setRequestHandler(CreateMessageRequestSchema, async () => {
+    client.setRequestHandler('sampling/createMessage', async () => {
         return {
             model: 'm',
             role: 'assistant',
@@ -321,7 +311,7 @@ verifies('sampling:result:with-tools-array-content', async ({ transport }: TestA
 
 verifies('sampling:tool-result:no-mixed-content', async ({ transport }: TestArgs) => {
     const client = newClient();
-    client.setRequestHandler(CreateMessageRequestSchema, async () => {
+    client.setRequestHandler('sampling/createMessage', async () => {
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'unreachable' } };
     });
 
@@ -344,14 +334,14 @@ verifies('sampling:tool-result:no-mixed-content', async ({ transport }: TestArgs
         }
     });
 
-    expect(r.structuredContent).toMatchObject({ ok: false, code: ErrorCode.InvalidParams });
+    expect(r.structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
     expect((r.structuredContent as { message?: string }).message).toMatch(/tool.?result/i);
 });
 
 verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient({ sampling: { tools: {} } });
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
@@ -395,7 +385,7 @@ verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => 
         }
     });
 
-    expect(missing.structuredContent).toMatchObject({ ok: false, code: ErrorCode.InvalidParams });
+    expect(missing.structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
     expect(received).toHaveLength(1);
 
     const trailing = await client.callTool({
@@ -410,14 +400,14 @@ verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => 
         }
     });
 
-    expect(trailing.structuredContent).toMatchObject({ ok: false, code: ErrorCode.InvalidParams });
+    expect(trailing.structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
     expect(received).toHaveLength(1);
 });
 
 verifies('sampling:tools:server-gated-by-capability', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient({ sampling: {} });
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'unreachable' } };
     });
@@ -455,7 +445,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
 verifies('sampling:create:image-content', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return {
             model: 'mock-vision-1',
@@ -493,7 +483,7 @@ verifies('sampling:create:image-content', async ({ transport }: TestArgs) => {
 verifies('sampling:create:audio-content', async ({ transport }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return {
             model: 'mock-audio-1',
@@ -532,7 +522,7 @@ verifies('sampling:context:server-gated-by-capability', async ({ transport }: Te
     const received: CreateMessageRequest[] = [];
     // Client declares plain sampling but not the sampling.context sub-capability.
     const client = newClient({ sampling: {} });
-    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+    client.setRequestHandler('sampling/createMessage', async req => {
         received.push(req);
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });

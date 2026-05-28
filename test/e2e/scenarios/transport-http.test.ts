@@ -20,13 +20,15 @@ import { randomUUID } from 'node:crypto';
 
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { StreamableHTTPClientTransport } from '../../../src/client/streamableHttp.js';
-import { McpServer } from '../../../src/server/mcp.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../../src/server/webStandardStreamableHttp.js';
-import { type JSONRPCRequest, JSONRPCRequestSchema, LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '../../../src/types.js';
-
+import {
+    McpServer,
+    WebStandardStreamableHTTPServerTransport,
+    LATEST_PROTOCOL_VERSION,
+    SUPPORTED_PROTOCOL_VERSIONS
+} from '@modelcontextprotocol/server';
+import { JSONRPCRequestSchema } from '@modelcontextprotocol/core';
+import type { JSONRPCRequest } from '@modelcontextprotocol/server';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { hostPerSession, type HttpHandler } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -989,11 +991,11 @@ verifies('client-transport:http:resume-stream-api', async (_args: TestArgs) => {
 
     const handle = hostPerSession(() => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, extra) => {
-            const token = extra._meta?.progressToken;
+        s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, ctx) => {
+            const token = ctx.mcpReq._meta?.progressToken;
             if (token !== undefined) {
                 for (let i = 1; i <= steps; i++) {
-                    await extra.sendNotification({
+                    await ctx.mcpReq.notify({
                         method: 'notifications/progress',
                         params: { progressToken: token, progress: i, total: steps }
                     });

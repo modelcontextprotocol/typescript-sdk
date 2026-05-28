@@ -9,17 +9,11 @@
 
 import { randomUUID } from 'node:crypto';
 import { PassThrough } from 'node:stream';
-
-import type { Client } from '../../../src/client/index.js';
-import { StreamableHTTPClientTransport } from '../../../src/client/streamableHttp.js';
-import { InMemoryTransport } from '../../../src/inMemory.js';
-import type { Server } from '../../../src/server/index.js';
-import type { McpServer } from '../../../src/server/mcp.js';
-import { StdioServerTransport } from '../../../src/server/stdio.js';
-import { WebStandardStreamableHTTPServerTransport, type EventStore } from '../../../src/server/webStandardStreamableHttp.js';
-import { ReadBuffer, serializeMessage } from '../../../src/shared/stdio.js';
-import type { JSONRPCMessage } from '../../../src/types.js';
-
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { InMemoryTransport, WebStandardStreamableHTTPServerTransport, ReadBuffer, serializeMessage } from '@modelcontextprotocol/server';
+import type { Server, McpServer, EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { Client } from '@modelcontextprotocol/client';
 import type { Transport } from '../types.js';
 
 import { sniffTransport, type SnifferOptions } from './wire-sniffer.js';

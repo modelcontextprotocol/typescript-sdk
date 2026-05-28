@@ -12,27 +12,23 @@
 
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { Server } from '../../../src/server/index.js';
-import { McpServer } from '../../../src/server/mcp.js';
 import {
-    type ClientCapabilities,
-    CreateMessageRequestSchema,
-    ElicitRequestSchema,
-    type Implementation,
-    type InitializeRequest,
-    InitializeRequestSchema,
+    Server,
+    McpServer,
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
-    type JSONRPCMessage,
     LATEST_PROTOCOL_VERSION,
-    ListRootsRequestSchema,
-    type ServerCapabilities,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '../../../src/types.js';
-
+} from '@modelcontextprotocol/server';
+import type {
+    ClientCapabilities,
+    Implementation,
+    InitializeRequest,
+    JSONRPCMessage,
+    ServerCapabilities
+} from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -58,7 +54,7 @@ function minimalServer(): McpServer {
  */
 function recordingInitServer(replyVersion: string, received: InitializeRequest['params'][]): Server {
     const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
-    s.setRequestHandler(InitializeRequestSchema, async req => {
+    s.setRequestHandler('initialize', async req => {
         received.push(req.params);
         return { protocolVersion: replyVersion, capabilities: {}, serverInfo: { name: 's', version: '0' } };
     });
@@ -102,7 +98,7 @@ verifies('lifecycle:initialize:basic', async ({ transport }: TestArgs) => {
     const initReqs: InitializeRequest['params'][] = [];
     const makeServer = () => {
         const s = new Server({ name: 'lifecycle-server', version: '1.2.3' }, { capabilities: SERVER_CAPS });
-        s.setRequestHandler(InitializeRequestSchema, async req => {
+        s.setRequestHandler('initialize', async req => {
             initReqs.push(req.params);
             return {
                 protocolVersion: req.params.protocolVersion,
@@ -308,14 +304,14 @@ verifies('lifecycle:capability:client-not-declared', async ({ transport }: TestA
     // Client side: cannot send notifications / register handlers for undeclared caps.
     await expect(client.sendRootsListChanged()).rejects.toThrow(/roots.*list.?changed/i);
     expect(() =>
-        client.setRequestHandler(CreateMessageRequestSchema, async () => ({
+        client.setRequestHandler('sampling/createMessage', async () => ({
             role: 'assistant',
             content: { type: 'text', text: 'unreachable' },
             model: 'stub'
         }))
     ).toThrow(/sampling/i);
-    expect(() => client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'cancel' }))).toThrow(/elicitation/i);
-    expect(() => client.setRequestHandler(ListRootsRequestSchema, async () => ({ roots: [] }))).toThrow(/roots/i);
+    expect(() => client.setRequestHandler('elicitation/create', async () => ({ action: 'cancel' }))).toThrow(/elicitation/i);
+    expect(() => client.setRequestHandler('roots/list', async () => ({ roots: [] }))).toThrow(/roots/i);
 
     // Server side: it sees the empty client capabilities. (Server-side request
     // gating on these is opt-in via `enforceStrictCapabilities` and is covered

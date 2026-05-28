@@ -13,13 +13,12 @@
  */
 
 import { expect } from 'vitest';
-
-import { Client } from '../../../src/client/index.js';
-import { Server } from '../../../src/server/index.js';
-import { CallToolRequestSchema, ErrorCode, ListToolsRequestSchema, McpError, type Tool } from '../../../src/types.js';
-import { AjvJsonSchemaValidator } from '../../../src/validation/ajv-provider.js';
-import { CfWorkerJsonSchemaValidator } from '../../../src/validation/cfworker-provider.js';
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '../../../src/validation/types.js';
+import { Server, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import type { Tool } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '@modelcontextprotocol/core';
 
 import { wire } from '../helpers/index.js';
 import type { TestArgs, Transport } from '../types.js';
@@ -40,7 +39,7 @@ const FORECAST_OUTPUT_SCHEMA: Tool['outputSchema'] = {
  */
 function forecastServer(): Server {
     const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-    s.setRequestHandler(ListToolsRequestSchema, () => ({
+    s.setRequestHandler('tools/list', () => ({
         tools: [
             {
                 name: 'forecast',
@@ -56,7 +55,7 @@ function forecastServer(): Server {
             }
         ]
     }));
-    s.setRequestHandler(CallToolRequestSchema, req => {
+    s.setRequestHandler('tools/call', req => {
         if (req.params.name === 'forecast') {
             const structuredContent = { celsius: 21, summary: 'mild and sunny' };
             return { structuredContent, content: [{ type: 'text', text: JSON.stringify(structuredContent) }] };
@@ -83,11 +82,11 @@ async function runForecastOutcomes(transport: Transport, makeClient: () => Clien
 
     const accepted = await client.callTool({ name: 'forecast', arguments: {} });
 
-    let rejection: McpError | undefined;
+    let rejection: ProtocolError | undefined;
     try {
         await client.callTool({ name: 'forecast-corrupted', arguments: {} });
     } catch (e) {
-        if (!(e instanceof McpError)) throw e;
+        if (!(e instanceof ProtocolError)) throw e;
         rejection = e;
     }
 
@@ -107,9 +106,9 @@ verifies('validation:cfworker-provider', async ({ transport }: TestArgs) => {
 
     // Both providers reject the non-conforming payload the same way: an
     // McpError with the same code, pointing at the output-schema mismatch.
-    expect(ajv.rejection).toBeInstanceOf(McpError);
-    expect(cfworker.rejection).toBeInstanceOf(McpError);
-    expect(ajv.rejection?.code).toBe(ErrorCode.InvalidParams);
+    expect(ajv.rejection).toBeInstanceOf(ProtocolError);
+    expect(cfworker.rejection).toBeInstanceOf(ProtocolError);
+    expect(ajv.rejection?.code).toBe(ProtocolErrorCode.InvalidParams);
     expect(cfworker.rejection?.code).toBe(ajv.rejection?.code);
     expect(ajv.rejection?.message).toMatch(/output schema|structured content/i);
     expect(cfworker.rejection?.message).toMatch(/output schema|structured content/i);
@@ -151,7 +150,7 @@ verifies('validation:pluggable-provider', async ({ transport }: TestArgs) => {
     expect(result.structuredContent).toEqual({ celsius: 21, summary: 'mild and sunny' });
     expect(recorder.validatedValues).toEqual([{ celsius: 21, summary: 'mild and sunny' }]);
 
-    await expect(client.callTool({ name: 'forecast-corrupted', arguments: {} })).rejects.toBeInstanceOf(McpError);
+    await expect(client.callTool({ name: 'forecast-corrupted', arguments: {} })).rejects.toBeInstanceOf(ProtocolError);
     expect(recorder.validatedValues).toEqual([
         { celsius: 21, summary: 'mild and sunny' },
         { celsius: 'mild', summary: 42 }

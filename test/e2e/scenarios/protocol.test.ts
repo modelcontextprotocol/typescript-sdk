@@ -8,36 +8,26 @@
 
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { InMemoryTransport } from '../../../src/inMemory.js';
-import { Server } from '../../../src/server/index.js';
-import { McpServer } from '../../../src/server/mcp.js';
 import {
-    type CallToolRequest,
-    CallToolRequestSchema,
-    CreateMessageRequestSchema,
-    CreateMessageResultSchema,
-    ErrorCode,
-    type JSONRPCMessage,
-    type JSONRPCNotification,
-    type JSONRPCRequest,
-    type JSONRPCResponse,
-    ListRootsRequestSchema,
-    ListRootsResultSchema,
-    ListToolsRequestSchema,
-    McpError,
-    type Notification,
-    NotificationSchema,
-    PingRequestSchema,
-    type Progress,
-    PromptListChangedNotificationSchema,
-    type RequestId,
-    RequestSchema,
-    ResultSchema,
-    ToolListChangedNotificationSchema
-} from '../../../src/types.js';
-
+    InMemoryTransport,
+    Server,
+    McpServer,
+    ProtocolError,
+    ProtocolErrorCode,
+    SdkErrorCode,
+    specTypeSchemas
+} from '@modelcontextprotocol/server';
+import type {
+    CallToolRequest,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    Notification,
+    Progress,
+    RequestId
+} from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -48,7 +38,7 @@ const newClient = () => new Client({ name: 'c', version: '0' });
 function neverRespondingServer(): Server {
     const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
     s.setRequestHandler(
-        ListToolsRequestSchema,
+        'tools/list',
         () =>
             new Promise(() => {
                 /* never resolves */
@@ -84,7 +74,7 @@ verifies('protocol:cancel:abort-signal', async ({ transport }: TestArgs) => {
         s.registerTool(
             'echo',
             { inputSchema: z.object({ text: z.string() }) },
-            async ({ text }, extra) =>
+            async ({ text }, ctx) =>
                 new Promise(resolve => {
                     const t = setTimeout(() => resolve({ content: [{ type: 'text', text }] }), 60_000);
                     t.unref();
@@ -92,7 +82,7 @@ verifies('protocol:cancel:abort-signal', async ({ transport }: TestArgs) => {
                         clearTimeout(t);
                         resolve({ content: [{ type: 'text', text: 'late' }] });
                     });
-                    extra.signal.addEventListener('abort', () => {
+                    ctx.mcpReq.signal.addEventListener('abort', () => {
                         clearTimeout(t);
                     });
                 })
@@ -142,11 +132,11 @@ verifies('protocol:cancel:handler-abort-propagates', async ({ transport }: TestA
         s.registerTool(
             'cancellable',
             { inputSchema: z.object({}) },
-            async (_a, extra) =>
+            async (_a, ctx) =>
                 new Promise((resolve, reject) => {
-                    extra.signal.addEventListener('abort', () => {
-                        aborts.push({ requestId: extra.requestId, reason: extra.signal.reason });
-                        reject(new Error(extra.signal.reason));
+                    ctx.mcpReq.signal.addEventListener('abort', () => {
+                        aborts.push({ requestId: ctx.mcpReq.id, reason: ctx.mcpReq.signal.reason });
+                        reject(new Error(ctx.mcpReq.signal.reason));
                     });
                 })
         );
@@ -324,8 +314,8 @@ verifies('typescript:protocol:error:connection-closed', async ({ transport }: Te
     await client.close();
 
     for (const p of inFlight) {
-        await expect(p).rejects.toBeInstanceOf(McpError);
-        await expect(p).rejects.toMatchObject({ code: ErrorCode.ConnectionClosed });
+        await expect(p).rejects.toBeInstanceOf(ProtocolError);
+        await expect(p).rejects.toMatchObject({ code: SdkErrorCode.ConnectionClosed });
     }
     // onclose fires at least once (transport peers may echo a close back, so don't pin the count).
     await vi.waitFor(() => expect(onclose).toHaveBeenCalled());
@@ -336,8 +326,8 @@ verifies('protocol:error:internal-error', async ({ transport }: TestArgs) => {
     // catches handler exceptions and wraps as {isError:true} (covered in tools.ts).
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
-        s.setRequestHandler(CallToolRequestSchema, () => {
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        s.setRequestHandler('tools/call', () => {
             throw new Error('handler exploded');
         });
         return s;
@@ -347,10 +337,10 @@ verifies('protocol:error:internal-error', async ({ transport }: TestArgs) => {
 
     const call = client.callTool({ name: 'any', arguments: {} });
 
-    await expect(call).rejects.toBeInstanceOf(McpError);
-    await expect(call).rejects.toMatchObject({ code: ErrorCode.InternalError });
+    await expect(call).rejects.toBeInstanceOf(ProtocolError);
+    await expect(call).rejects.toMatchObject({ code: ProtocolErrorCode.InternalError });
     await expect(call).rejects.toThrow(/handler exploded/);
-    expect(ErrorCode.InternalError).toBe(-32603);
+    expect(ProtocolErrorCode.InternalError).toBe(-32603);
 });
 
 verifies('protocol:error:invalid-params', async ({ transport }: TestArgs) => {
@@ -359,8 +349,8 @@ verifies('protocol:error:invalid-params', async ({ transport }: TestArgs) => {
     // -32602 InvalidParams at the protocol layer (not McpServer's tool-arg validation).
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
-        s.setRequestHandler(CallToolRequestSchema, () => ({ content: [] }));
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        s.setRequestHandler('tools/call', () => ({ content: [] }));
         return s;
     };
     const client = newClient();
@@ -372,14 +362,14 @@ verifies('protocol:error:invalid-params', async ({ transport }: TestArgs) => {
     // Send tools/call without the required `name` field.
     const call = client.request({ method: 'tools/call', params: { arguments: {} } }, z.object({}).passthrough());
 
-    await expect(call).rejects.toBeInstanceOf(McpError);
+    await expect(call).rejects.toBeInstanceOf(ProtocolError);
 
     // The malformed request did reach the wire (failure is server-side, not client-side validation).
     const sent = outbound.filter(isRequest).find(m => m.method === 'tools/call');
     expect(sent?.params).toEqual({ arguments: {} });
 
-    expect(ErrorCode.InvalidParams).toBe(-32602);
-    await expect(call).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
+    expect(ProtocolErrorCode.InvalidParams).toBe(-32602);
+    await expect(call).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
 });
 
 verifies('protocol:error:method-not-found', async ({ transport }: TestArgs) => {
@@ -399,10 +389,10 @@ verifies('protocol:error:method-not-found', async ({ transport }: TestArgs) => {
 
     const call = client.request({ method: 'no/such/method' }, z.object({}));
 
-    await expect(call).rejects.toBeInstanceOf(McpError);
+    await expect(call).rejects.toBeInstanceOf(ProtocolError);
 
-    const err = await call.catch(e => e as McpError);
-    expect(err.code).toBe(ErrorCode.MethodNotFound);
+    const err = await call.catch(e => e as ProtocolError);
+    expect(err.code).toBe(ProtocolErrorCode.MethodNotFound);
     expect(err.code).toBe(-32601);
 
     const sent = outbound.filter(m => 'method' in m && m.method === 'no/such/method' && 'id' in m);
@@ -474,11 +464,11 @@ verifies('protocol:error:reconnect-no-stale-timers', async (_: TestArgs) => {
 verifies('protocol:progress:callback', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, extra) => {
-            const token = extra._meta?.progressToken;
+        s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, ctx) => {
+            const token = ctx.mcpReq._meta?.progressToken;
             if (token !== undefined) {
                 for (let i = 1; i <= steps; i++) {
-                    await extra.sendNotification({
+                    await ctx.mcpReq.notify({
                         method: 'notifications/progress',
                         params: {
                             progressToken: token,
@@ -514,12 +504,12 @@ verifies('typescript:protocol:progress:token-injected', async ({ transport }: Te
     const received: CallToolRequest['params'][] = [];
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
-        s.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        s.setRequestHandler('tools/call', async (req, ctx) => {
             received.push(req.params);
             const token = req.params._meta?.progressToken;
             if (token !== undefined) {
-                await extra.sendNotification({
+                await ctx.mcpReq.notify({
                     method: 'notifications/progress',
                     params: { progressToken: token, progress: 1, total: 1 }
                 });
@@ -554,11 +544,11 @@ verifies('protocol:progress:token-unique', async ({ transport }: TestArgs) => {
     const tokens: Array<string | number> = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('probe', { inputSchema: z.object({}) }, async (_a, extra) => {
-            const token = extra._meta?.progressToken;
+        s.registerTool('probe', { inputSchema: z.object({}) }, async (_a, ctx) => {
+            const token = ctx.mcpReq._meta?.progressToken;
             if (token !== undefined) {
                 tokens.push(token);
-                await extra.sendNotification({
+                await ctx.mcpReq.notify({
                     method: 'notifications/progress',
                     params: { progressToken: token, progress: 1, total: 1 }
                 });
@@ -603,8 +593,8 @@ verifies('protocol:timeout:basic', async ({ transport }: TestArgs) => {
 
         await vi.advanceTimersByTimeAsync(2);
         expect(outcome?.kind).toBe('rejected');
-        expect(outcome?.value).toBeInstanceOf(McpError);
-        expect(outcome?.value).toMatchObject({ code: ErrorCode.RequestTimeout });
+        expect(outcome?.value).toBeInstanceOf(ProtocolError);
+        expect(outcome?.value).toMatchObject({ code: SdkErrorCode.RequestTimeout });
     } finally {
         vi.useRealTimers();
     }
@@ -618,12 +608,12 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
             s.registerTool(
                 'slow-progress',
                 { inputSchema: z.object({ delayMs: z.number(), steps: z.number() }) },
-                async ({ delayMs, steps }, extra) => {
-                    const token = extra._meta?.progressToken;
+                async ({ delayMs, steps }, ctx) => {
+                    const token = ctx.mcpReq._meta?.progressToken;
                     if (token !== undefined) {
                         for (let i = 1; i <= steps; i++) {
                             await new Promise(resolve => setTimeout(resolve, delayMs));
-                            await extra.sendNotification({
+                            await ctx.mcpReq.notify({
                                 method: 'notifications/progress',
                                 params: { progressToken: token, progress: i, total: steps }
                             });
@@ -655,9 +645,9 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
             await vi.advanceTimersByTimeAsync(delayMs);
         }
 
-        await expect(call).rejects.toBeInstanceOf(McpError);
-        const err = await call.catch(e => e as McpError);
-        expect(err.code).toBe(ErrorCode.RequestTimeout);
+        await expect(call).rejects.toBeInstanceOf(ProtocolError);
+        const err = await call.catch(e => e as ProtocolError);
+        expect(err.code).toBe(SdkErrorCode.RequestTimeout);
 
         expect(ticks.length).toBeGreaterThanOrEqual(3);
     } finally {
@@ -673,12 +663,12 @@ verifies('protocol:timeout:reset-on-progress', async ({ transport }: TestArgs) =
             s.registerTool(
                 'slow-progress',
                 { inputSchema: z.object({ steps: z.number(), delayMs: z.number() }) },
-                async ({ steps, delayMs }, extra) => {
-                    const token = extra._meta?.progressToken;
+                async ({ steps, delayMs }, ctx) => {
+                    const token = ctx.mcpReq._meta?.progressToken;
                     if (token !== undefined) {
                         for (let i = 1; i <= steps; i++) {
                             await new Promise(resolve => setTimeout(resolve, delayMs));
-                            await extra.sendNotification({
+                            await ctx.mcpReq.notify({
                                 method: 'notifications/progress',
                                 params: { progressToken: token, progress: i, total: steps }
                             });
@@ -746,8 +736,8 @@ verifies('protocol:timeout:sends-cancellation', async ({ transport }: TestArgs) 
 
         await vi.advanceTimersByTimeAsync(100);
 
-        await expect(pending).rejects.toBeInstanceOf(McpError);
-        await expect(pending).rejects.toMatchObject({ code: ErrorCode.RequestTimeout });
+        await expect(pending).rejects.toBeInstanceOf(ProtocolError);
+        await expect(pending).rejects.toMatchObject({ code: SdkErrorCode.RequestTimeout });
 
         expect(sentAtRejection).toBeDefined();
         const listReq = sentAtRejection!.filter(isRequest).find(m => m.method === 'tools/list');
@@ -814,7 +804,7 @@ verifies('mcpserver:onerror:reach-through', async ({ transport }: TestArgs) => {
 verifies('protocol:custom-method:notification', async ({ transport }: TestArgs) => {
     const HEARTBEAT_METHOD = 'myorg/heartbeat';
 
-    const CustomNotificationSchema = NotificationSchema.extend({
+    const CustomNotificationSchema = specTypeSchemas.Notification.extend({
         method: z.literal(HEARTBEAT_METHOD),
         params: z.object({ seq: z.number(), tag: z.string() })
     });
@@ -852,9 +842,9 @@ verifies('protocol:error:data-roundtrip', async ({ transport }: TestArgs) => {
     const data = { detail: 'x', nested: { n: 1 } };
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
-        s.setRequestHandler(CallToolRequestSchema, () => {
-            throw new McpError(ErrorCode.InternalError, 'boom', data);
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        s.setRequestHandler('tools/call', () => {
+            throw new ProtocolError(ProtocolErrorCode.InternalError, 'boom', data);
         });
         return s;
     };
@@ -863,9 +853,9 @@ verifies('protocol:error:data-roundtrip', async ({ transport }: TestArgs) => {
 
     const call = client.callTool({ name: 'any', arguments: {} });
 
-    await expect(call).rejects.toBeInstanceOf(McpError);
+    await expect(call).rejects.toBeInstanceOf(ProtocolError);
     await expect(call).rejects.toThrow(/boom/);
-    await expect(call).rejects.toMatchObject({ code: ErrorCode.InternalError, data });
+    await expect(call).rejects.toMatchObject({ code: ProtocolErrorCode.InternalError, data });
 });
 
 verifies('protocol:fallback-notification-handler', async ({ transport }: TestArgs) => {
@@ -877,11 +867,11 @@ verifies('protocol:fallback-notification-handler', async ({ transport }: TestArg
             { name: 's', version: '0' },
             { capabilities: { tools: { listChanged: true }, prompts: { listChanged: true } } }
         );
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
-        s.setRequestHandler(CallToolRequestSchema, async (_req, extra) => {
-            await extra.sendNotification({ method: NEVER_REGISTERED });
-            await extra.sendNotification({ method: 'notifications/prompts/list_changed' });
-            await extra.sendNotification({ method: 'notifications/tools/list_changed' });
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        s.setRequestHandler('tools/call', async (_req, ctx) => {
+            await ctx.mcpReq.notify({ method: NEVER_REGISTERED });
+            await ctx.mcpReq.notify({ method: 'notifications/prompts/list_changed' });
+            await ctx.mcpReq.notify({ method: 'notifications/tools/list_changed' });
             return { content: [] };
         });
         return s;
@@ -893,10 +883,10 @@ verifies('protocol:fallback-notification-handler', async ({ transport }: TestArg
 
     await using _ = await wire(transport, makeServer, client, { allowCustomMethods: true });
 
-    client.setNotificationHandler(ToolListChangedNotificationSchema, async n => {
+    client.setNotificationHandler('notifications/tools/list_changed', async n => {
         specific.push(n);
     });
-    client.setNotificationHandler(PromptListChangedNotificationSchema, async n => {
+    client.setNotificationHandler('notifications/prompts/list_changed', async n => {
         specific.push(n);
     });
 
@@ -929,8 +919,8 @@ verifies('protocol:fallback-notification-handler', async ({ transport }: TestArg
 verifies('protocol:handler:re-register-replaces', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('list-roots', { inputSchema: z.object({}) }, async (_a, extra) => {
-            const result = await extra.sendRequest({ method: 'roots/list' }, ListRootsResultSchema);
+        s.registerTool('list-roots', { inputSchema: z.object({}) }, async (_a, ctx) => {
+            const result = await ctx.mcpReq.send({ method: 'roots/list' }, specTypeSchemas.ListRootsResult);
             return { structuredContent: { ok: true, result }, content: [] };
         });
         return s;
@@ -941,13 +931,13 @@ verifies('protocol:handler:re-register-replaces', async ({ transport }: TestArgs
     let firstCalls = 0;
     let secondCalls = 0;
 
-    client.setRequestHandler(ListRootsRequestSchema, async () => {
+    client.setRequestHandler('roots/list', async () => {
         firstCalls++;
         return { roots: [{ uri: 'file:///first', name: 'first' }] };
     });
 
     expect(() =>
-        client.setRequestHandler(ListRootsRequestSchema, async () => {
+        client.setRequestHandler('roots/list', async () => {
             secondCalls++;
             return { roots: [{ uri: 'file:///second', name: 'second' }] };
         })
@@ -966,11 +956,11 @@ verifies('protocol:handler:re-register-replaces', async ({ transport }: TestArgs
 });
 
 const X_ECHO_METHOD = 'x-e2e/echo';
-const XEchoRequestSchema = RequestSchema.extend({
+const XEchoRequestSchema = specTypeSchemas.Request.extend({
     method: z.literal(X_ECHO_METHOD),
     params: z.object({ value: z.string() })
 });
-const XEchoResultSchema = ResultSchema.extend({ echoed: z.string() });
+const XEchoResultSchema = specTypeSchemas.Result.extend({ echoed: z.string() });
 
 function customEchoServer(): Server {
     const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
@@ -1000,14 +990,14 @@ verifies('protocol:custom-method:roundtrip', async ({ transport }: TestArgs) => 
 
     // A truly-unknown method still surfaces as MethodNotFound, proving the
     // custom registration is what made the previous call succeed.
-    await expect(client.request({ method: 'x-e2e/never-registered', params: {} }, ResultSchema)).rejects.toMatchObject({
-        code: ErrorCode.MethodNotFound
+    await expect(client.request({ method: 'x-e2e/never-registered', params: {} })).rejects.toMatchObject({
+        code: ProtocolErrorCode.MethodNotFound
     });
 });
 
 verifies('protocol:custom-notification:roundtrip', async ({ transport }: TestArgs) => {
     const X_EVENT_METHOD = 'x-e2e/event';
-    const XEventNotificationSchema = NotificationSchema.extend({
+    const XEventNotificationSchema = specTypeSchemas.Notification.extend({
         method: z.literal(X_EVENT_METHOD),
         params: z.object({ kind: z.string(), id: z.number() })
     });
@@ -1043,10 +1033,10 @@ verifies('protocol:meta:request-to-handler', async ({ transport }: TestArgs) => 
     const handlerExtraMeta: unknown[] = [];
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
-        s.setRequestHandler(CallToolRequestSchema, (req, extra) => {
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        s.setRequestHandler('tools/call', (req, ctx) => {
             handlerParamsMeta.push(req.params._meta);
-            handlerExtraMeta.push(extra._meta);
+            handlerExtraMeta.push(ctx.mcpReq._meta);
             return { content: [{ type: 'text', text: 'traced' }] };
         });
         return s;
@@ -1066,8 +1056,8 @@ verifies('protocol:meta:result-to-client', async ({ transport }: TestArgs) => {
     const resultMeta = { 'example.com/cost-tokens': 42, 'example.com/cache': { hit: true, region: 'eu-west-1' } };
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
-        s.setRequestHandler(CallToolRequestSchema, () => ({ content: [{ type: 'text', text: 'metered' }], _meta: resultMeta }));
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        s.setRequestHandler('tools/call', () => ({ content: [{ type: 'text', text: 'metered' }], _meta: resultMeta }));
         return s;
     };
     const client = newClient();
@@ -1158,23 +1148,23 @@ verifies('protocol:notifications:no-response', async ({ transport }: TestArgs) =
 verifies('protocol:progress:monotonic', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('index_files', { inputSchema: z.object({}) }, async (_a, extra) => {
-            const token = extra._meta?.progressToken;
+        s.registerTool('index_files', { inputSchema: z.object({}) }, async (_a, ctx) => {
+            const token = ctx.mcpReq._meta?.progressToken;
             if (token === undefined) throw new Error('expected a progressToken on the request');
-            await extra.sendNotification({
+            await ctx.mcpReq.notify({
                 method: 'notifications/progress',
                 params: { progressToken: token, progress: 5, message: 'indexed 5 files' }
             });
             try {
                 // A spec-compliant sender refuses (or drops) this regression to a smaller value.
-                await extra.sendNotification({
+                await ctx.mcpReq.notify({
                     method: 'notifications/progress',
                     params: { progressToken: token, progress: 3, message: 'regressed' }
                 });
             } catch {
                 /* sender-side rejection of the non-increasing value is a valid way to satisfy the spec */
             }
-            await extra.sendNotification({
+            await ctx.mcpReq.notify({
                 method: 'notifications/progress',
                 params: { progressToken: token, progress: 12, message: 'indexed 12 files' }
             });
@@ -1210,11 +1200,11 @@ verifies('protocol:progress:stops-after-completion', async ({ transport }: TestA
     let lateProgress: (() => Promise<void>) | undefined;
     const makeServer = () => {
         server = new Server({ name: 's', version: '0' }, { capabilities: { tools: { listChanged: true } } });
-        server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
-        server.setRequestHandler(CallToolRequestSchema, async (req, extra) => {
+        server.setRequestHandler('tools/list', () => ({ tools: [] }));
+        server.setRequestHandler('tools/call', async (req, ctx) => {
             const token = req.params._meta?.progressToken;
             if (token === undefined) throw new Error('expected a progressToken on the request');
-            await extra.sendNotification({
+            await ctx.mcpReq.notify({
                 method: 'notifications/progress',
                 params: { progressToken: token, progress: 1, total: 2, message: 'halfway' }
             });
@@ -1264,12 +1254,12 @@ verifies('protocol:cancel:in-flight', async ({ transport }: TestArgs) => {
         s.registerTool(
             'long_export',
             { inputSchema: z.object({}) },
-            async (_a, extra) =>
+            async (_a, ctx) =>
                 new Promise((_resolve, reject) => {
-                    handlerStarted.push(extra.requestId);
-                    extra.signal.addEventListener('abort', () => {
-                        handlerAbortReasons.push(extra.signal.reason);
-                        reject(new Error(String(extra.signal.reason)));
+                    handlerStarted.push(ctx.mcpReq.id);
+                    ctx.mcpReq.signal.addEventListener('abort', () => {
+                        handlerAbortReasons.push(ctx.mcpReq.signal.reason);
+                        reject(new Error(String(ctx.mcpReq.signal.reason)));
                     });
                 })
         );
@@ -1316,8 +1306,8 @@ verifies('protocol:progress:client-to-server', async ({ transport }: TestArgs) =
     const serverUpdates: Progress[] = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('summarize_report', { inputSchema: z.object({ text: z.string() }) }, async ({ text }, extra) => {
-            const result = await extra.sendRequest(
+        s.registerTool('summarize_report', { inputSchema: z.object({ text: z.string() }) }, async ({ text }, ctx) => {
+            const result = await ctx.mcpReq.send(
                 {
                     method: 'sampling/createMessage',
                     params: {
@@ -1325,7 +1315,7 @@ verifies('protocol:progress:client-to-server', async ({ transport }: TestArgs) =
                         maxTokens: 200
                     }
                 },
-                CreateMessageResultSchema,
+                specTypeSchemas.CreateMessageResult,
                 { onprogress: p => serverUpdates.push(p) }
             );
             if (result.content.type !== 'text') throw new Error('expected text sampling content');
@@ -1335,14 +1325,14 @@ verifies('protocol:progress:client-to-server', async ({ transport }: TestArgs) =
     };
 
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { sampling: {} } });
-    client.setRequestHandler(CreateMessageRequestSchema, async (req, extra) => {
+    client.setRequestHandler('sampling/createMessage', async (req, ctx) => {
         const token = req.params._meta?.progressToken;
         if (token === undefined) throw new Error('expected a progressToken on the sampling request');
-        await extra.sendNotification({
+        await ctx.mcpReq.notify({
             method: 'notifications/progress',
             params: { progressToken: token, progress: 1, total: 2, message: 'sampling started' }
         });
-        await extra.sendNotification({
+        await ctx.mcpReq.notify({
             method: 'notifications/progress',
             params: { progressToken: token, progress: 2, total: 2, message: 'sampling finished' }
         });
@@ -1374,16 +1364,14 @@ verifies('protocol:request-handler:override-builtin', async ({ transport }: Test
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
         // Ping has a built-in handler; this should replace it without throwing.
-        s.setRequestHandler(PingRequestSchema, () => ({ _meta: { 'e2e/overridden': true } }));
+        s.setRequestHandler('ping', () => ({ _meta: { 'e2e/overridden': true } }));
         return s;
     };
 
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
 
-    expect(() =>
-        new Server({ name: 's', version: '0' }, { capabilities: {} }).setRequestHandler(PingRequestSchema, () => ({}))
-    ).not.toThrow();
+    expect(() => new Server({ name: 's', version: '0' }, { capabilities: {} }).setRequestHandler('ping', () => ({}))).not.toThrow();
 
     const result = await client.ping();
     expect(result).toEqual({ _meta: { 'e2e/overridden': true } });

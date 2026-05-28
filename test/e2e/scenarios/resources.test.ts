@@ -9,22 +9,9 @@
  */
 
 import { expect, vi } from 'vitest';
-
-import { Client } from '../../../src/client/index.js';
-import { Server } from '../../../src/server/index.js';
-import { McpServer, type RegisteredResource, ResourceTemplate } from '../../../src/server/mcp.js';
-import {
-    ErrorCode,
-    ListResourcesRequestSchema,
-    ListResourceTemplatesRequestSchema,
-    McpError,
-    ReadResourceRequestSchema,
-    ResourceListChangedNotificationSchema,
-    ResourceUpdatedNotificationSchema,
-    SubscribeRequestSchema,
-    UnsubscribeRequestSchema
-} from '../../../src/types.js';
-
+import { Server, McpServer, ResourceTemplate, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import type { RegisteredResource } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -119,7 +106,7 @@ verifies(
 
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { resources: { listChanged: true } } });
-            s.setRequestHandler(ListResourcesRequestSchema, req => {
+            s.setRequestHandler('resources/list', req => {
                 cursorsReceived.push(req.params?.cursor);
                 const start = req.params?.cursor === undefined ? 0 : parseInt(req.params.cursor, 10);
                 const slice = all.slice(start, start + PAGE);
@@ -128,7 +115,7 @@ verifies(
                     nextCursor: start + PAGE < TOTAL ? String(start + PAGE) : undefined
                 };
             });
-            s.setRequestHandler(ReadResourceRequestSchema, () => ({ contents: [] }));
+            s.setRequestHandler('resources/read', () => ({ contents: [] }));
             return s;
         };
         const client = newClient();
@@ -260,7 +247,7 @@ verifies('resources:list-changed', async ({ transport }: TestArgs) => {
 
     let listChanged = 0;
     const client = newClient();
-    client.setNotificationHandler(ResourceListChangedNotificationSchema, () => {
+    client.setNotificationHandler('notifications/resources/list_changed', () => {
         listChanged++;
     });
 
@@ -365,13 +352,13 @@ verifies('resources:subscribe:updated', async ({ transport }: TestArgs) => {
     const subscriptions = new Set<string>();
     const makeServer = () => {
         server = new Server({ name: 's', version: '0' }, { capabilities: { resources: { listChanged: true, subscribe: true } } });
-        server.setRequestHandler(ListResourcesRequestSchema, () => ({
+        server.setRequestHandler('resources/list', () => ({
             resources: [{ uri: 'counter://subscribable', name: 'subscribable', mimeType: 'text/plain' }]
         }));
-        server.setRequestHandler(ReadResourceRequestSchema, () => ({
+        server.setRequestHandler('resources/read', () => ({
             contents: [{ uri: 'counter://subscribable', mimeType: 'text/plain', text: 'count' }]
         }));
-        server.setRequestHandler(SubscribeRequestSchema, req => {
+        server.setRequestHandler('resources/subscribe', req => {
             subscriptions.add(req.params.uri);
             return {};
         });
@@ -380,7 +367,7 @@ verifies('resources:subscribe:updated', async ({ transport }: TestArgs) => {
 
     const updates: string[] = [];
     const client = newClient();
-    client.setNotificationHandler(ResourceUpdatedNotificationSchema, n => {
+    client.setNotificationHandler('notifications/resources/updated', n => {
         updates.push(n.params.uri);
     });
 
@@ -399,18 +386,18 @@ verifies('resources:unsubscribe:stops-updates', async ({ transport }: TestArgs) 
     const subscriptions = new Set<string>();
     const makeServer = () => {
         server = new Server({ name: 's', version: '0' }, { capabilities: { resources: { listChanged: true, subscribe: true } } });
-        server.setRequestHandler(ListResourcesRequestSchema, () => ({
+        server.setRequestHandler('resources/list', () => ({
             resources: [
                 { uri: 'counter://target', name: 'target', mimeType: 'text/plain' },
                 { uri: 'counter://sentinel', name: 'sentinel', mimeType: 'text/plain' }
             ]
         }));
-        server.setRequestHandler(ReadResourceRequestSchema, () => ({ contents: [] }));
-        server.setRequestHandler(SubscribeRequestSchema, req => {
+        server.setRequestHandler('resources/read', () => ({ contents: [] }));
+        server.setRequestHandler('resources/subscribe', req => {
             subscriptions.add(req.params.uri);
             return {};
         });
-        server.setRequestHandler(UnsubscribeRequestSchema, req => {
+        server.setRequestHandler('resources/unsubscribe', req => {
             subscriptions.delete(req.params.uri);
             return {};
         });
@@ -419,7 +406,7 @@ verifies('resources:unsubscribe:stops-updates', async ({ transport }: TestArgs) 
 
     const updates: string[] = [];
     const client = newClient();
-    client.setNotificationHandler(ResourceUpdatedNotificationSchema, n => {
+    client.setNotificationHandler('notifications/resources/updated', n => {
         updates.push(n.params.uri);
     });
 
@@ -533,7 +520,7 @@ verifies(
 
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { resources: { listChanged: true } } });
-            s.setRequestHandler(ListResourceTemplatesRequestSchema, req => {
+            s.setRequestHandler('resources/templates/list', req => {
                 const start = req.params?.cursor === undefined ? 0 : parseInt(req.params.cursor, 10);
                 const slice = all.slice(start, start + PAGE);
                 return {
@@ -607,7 +594,7 @@ verifies('mcpserver:resource:handle-update-remove', async ({ transport }: TestAr
 
     let listChanged = 0;
     const client = newClient();
-    client.setNotificationHandler(ResourceListChangedNotificationSchema, () => {
+    client.setNotificationHandler('notifications/resources/list_changed', () => {
         listChanged++;
     });
     await using _ = await wire(transport, makeServer, client);
@@ -640,7 +627,7 @@ verifies('mcpserver:resource:handle-update-remove', async ({ transport }: TestAr
     await vi.waitFor(() => expect(listChanged).toBeGreaterThan(beforeRemove));
     expect((await client.listResources()).resources).toHaveLength(0);
 
-    await expect(client.readResource({ uri: 'file:///probe.txt' })).rejects.toBeInstanceOf(McpError);
+    await expect(client.readResource({ uri: 'file:///probe.txt' })).rejects.toBeInstanceOf(ProtocolError);
     const gone = (await client.listResources()).resources.find(r => r.uri === 'file:///probe.txt');
     expect(gone).toBeUndefined();
 });
@@ -660,7 +647,7 @@ verifies('mcpserver:resource:read-throws-surfaced', async ({ transport }: TestAr
     await using _ = await wire(transport, makeServer, client);
 
     await expect(client.readResource({ uri: 'file:///throws' })).rejects.toMatchObject({
-        code: ErrorCode.InternalError,
+        code: ProtocolErrorCode.InternalError,
         message: expect.stringContaining('resource read failed')
     });
 
@@ -755,19 +742,19 @@ verifies('mcpserver:resource:legacy-overload', async ({ transport }: TestArgs) =
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         // (name, uri, readCallback)
-        s.resource('plain', 'e2e://legacy/plain', uri => ({
+        s.registerResource('plain', 'e2e://legacy/plain', {}, uri => ({
             contents: [{ uri: uri.href, text: 'plain' }]
         }));
         // (name, uri, metadata, readCallback)
-        s.resource('with-meta', 'e2e://legacy/meta', { description: 'meta', mimeType: 'text/plain' }, uri => ({
+        s.registerResource('with-meta', 'e2e://legacy/meta', { description: 'meta', mimeType: 'text/plain' }, uri => ({
             contents: [{ uri: uri.href, text: 'meta' }]
         }));
         // (name, template, readCallback)
-        s.resource('tmpl', new ResourceTemplate('e2e://legacy/t/{id}', { list: undefined }), (uri, { id }) => ({
+        s.registerResource('tmpl', new ResourceTemplate('e2e://legacy/t/{id}', { list: undefined }), {}, (uri, { id }) => ({
             contents: [{ uri: uri.href, text: `t:${String(id)}` }]
         }));
         // (name, template, metadata, readCallback)
-        s.resource(
+        s.registerResource(
             'tmpl-meta',
             new ResourceTemplate('e2e://legacy/tm/{id}', { list: undefined }),
             { description: 'templated' },

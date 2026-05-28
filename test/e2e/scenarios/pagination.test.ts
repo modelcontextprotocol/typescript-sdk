@@ -6,12 +6,9 @@
 
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
-
-import { Client } from '../../../src/client/index.js';
-import { Server } from '../../../src/server/index.js';
-import { McpServer, ResourceTemplate } from '../../../src/server/mcp.js';
-import { ErrorCode, isJSONRPCRequest, ListToolsRequestSchema, McpError, type Tool } from '../../../src/types.js';
-
+import { Server, McpServer, ResourceTemplate, isJSONRPCRequest, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import type { Tool } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
@@ -36,9 +33,9 @@ verifies('pagination:invalid-cursor', async ({ transport }: TestArgs) => {
     await using _ = await wire(transport, makeServer, client);
 
     const badCursor = 'not-a-cursor-the-server-ever-issued';
-    const invalidParams = expect.objectContaining({ code: ErrorCode.InvalidParams });
+    const invalidParams = expect.objectContaining({ code: ProtocolErrorCode.InvalidParams });
 
-    await expect(client.listTools({ cursor: badCursor })).rejects.toBeInstanceOf(McpError);
+    await expect(client.listTools({ cursor: badCursor })).rejects.toBeInstanceOf(ProtocolError);
     await expect(client.listTools({ cursor: badCursor })).rejects.toEqual(invalidParams);
     await expect(client.listResources({ cursor: badCursor })).rejects.toEqual(invalidParams);
     await expect(client.listResourceTemplates({ cursor: badCursor })).rejects.toEqual(invalidParams);
@@ -83,11 +80,11 @@ verifies('pagination:client:cursor-handling', async ({ transport }: TestArgs) =>
 
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler(ListToolsRequestSchema, req => {
+        s.setRequestHandler('tools/list', req => {
             const cursor = req.params?.cursor;
             receivedCursors.push(cursor);
             const page = pages.get(cursor);
-            if (!page) throw new McpError(ErrorCode.InvalidParams, `Unknown cursor: ${String(cursor)}`);
+            if (!page) throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Unknown cursor: ${String(cursor)}`);
             return { tools: page.tools, nextCursor: page.nextCursor };
         });
         return s;
