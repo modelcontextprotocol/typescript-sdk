@@ -8,14 +8,15 @@
  * tier.
  */
 
+import { Client } from '@modelcontextprotocol/client';
+import type { RegisteredPrompt } from '@modelcontextprotocol/server';
+import { McpServer, ProtocolError, ProtocolErrorCode, Server } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-import { Server, McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
-import type { RegisteredPrompt } from '@modelcontextprotocol/server';
-import { Client } from '@modelcontextprotocol/client';
+
 import { wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const TINY_WAV_BASE64 = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
@@ -93,7 +94,7 @@ verifies('prompts:list:basic', async ({ transport }: TestArgs) => {
     const result = await client.listPrompts();
 
     expect(result.prompts).toHaveLength(3);
-    expect(result.prompts.map(p => p.name).sort()).toEqual(['code-review', 'explain-last-commit', 'summarize']);
+    expect(result.prompts.map(p => p.name).toSorted()).toEqual(['code-review', 'explain-last-commit', 'summarize']);
 
     expect(result.prompts.find(p => p.name === 'summarize')).toMatchObject({
         name: 'summarize',
@@ -158,7 +159,7 @@ verifies(
             const s = new Server({ name: 's', version: '0' }, { capabilities: { prompts: {} } });
             s.setRequestHandler('prompts/list', req => {
                 cursorsReceived.push(req.params?.cursor);
-                const start = req.params?.cursor === undefined ? 0 : parseInt(req.params.cursor, 10);
+                const start = req.params?.cursor === undefined ? 0 : Number.parseInt(req.params.cursor, 10);
                 const slice = all.slice(start, start + PAGE);
                 return {
                     prompts: slice.map(name => ({ name })),
@@ -201,7 +202,7 @@ verifies(
 );
 
 verifies('prompts:list-changed', async ({ transport }: TestArgs) => {
-    let server!: McpServer;
+    let server: McpServer | undefined;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' });
         server.registerPrompt('seed', {}, () => ({ messages: [] }));
@@ -215,17 +216,21 @@ verifies('prompts:list-changed', async ({ transport }: TestArgs) => {
     });
 
     await using _ = await wire(transport, makeServer, client);
+    if (server === undefined) throw new Error('wire() did not invoke the server factory');
 
-    expect((await client.listPrompts()).prompts).toHaveLength(1);
+    const initial = await client.listPrompts();
+    expect(initial.prompts).toHaveLength(1);
 
     const handle = server.registerPrompt('dynamic-probe', {}, () => ({ messages: [] }));
     await vi.waitFor(() => expect(listChanged).toBeGreaterThanOrEqual(1));
-    expect((await client.listPrompts()).prompts).toHaveLength(2);
+    const afterAddList = await client.listPrompts();
+    expect(afterAddList.prompts).toHaveLength(2);
     const afterAdd = listChanged;
 
     handle.remove();
     await vi.waitFor(() => expect(listChanged).toBeGreaterThan(afterAdd));
-    expect((await client.listPrompts()).prompts).toHaveLength(1);
+    const afterRemoveList = await client.listPrompts();
+    expect(afterRemoveList.prompts).toHaveLength(1);
 });
 
 verifies('prompts:get:no-args', async ({ transport }: TestArgs) => {
@@ -467,8 +472,8 @@ verifies('mcpserver:prompt:duplicate-name', async ({ transport }: TestArgs) => {
         s.registerPrompt('fresh', {}, () => ({ messages: [] }));
         try {
             s.registerPrompt('explain-last-commit', {}, () => ({ messages: [] }));
-        } catch (e) {
-            dupError = e;
+        } catch (error) {
+            dupError = error;
         }
         return s;
     };
@@ -478,7 +483,7 @@ verifies('mcpserver:prompt:duplicate-name', async ({ transport }: TestArgs) => {
     expect(dupError).toBeInstanceOf(Error);
     expect(String(dupError)).toMatch(/already registered/i);
 
-    const prompts = (await client.listPrompts()).prompts;
+    const { prompts } = await client.listPrompts();
     expect(prompts.filter(p => p.name === 'explain-last-commit')).toHaveLength(1);
     expect(prompts.map(p => p.name)).toContain('fresh');
     const r = await client.getPrompt({ name: 'explain-last-commit' });
@@ -486,7 +491,7 @@ verifies('mcpserver:prompt:duplicate-name', async ({ transport }: TestArgs) => {
 });
 
 verifies('mcpserver:prompt:handle-update-remove', async ({ transport }: TestArgs) => {
-    let handle!: RegisteredPrompt;
+    let handle: RegisteredPrompt | undefined;
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         handle = s.registerPrompt('probe', { description: 'v1' }, () => ({
@@ -501,11 +506,14 @@ verifies('mcpserver:prompt:handle-update-remove', async ({ transport }: TestArgs
         listChanged++;
     });
     await using _ = await wire(transport, makeServer, client);
+    if (handle === undefined) throw new Error('wire() did not invoke the server factory');
 
-    expect((await client.listPrompts()).prompts).toHaveLength(1);
-    const before = (await client.listPrompts()).prompts.find(p => p.name === 'probe')!;
-    expect(before.description).toBe('v1');
-    expect((await client.getPrompt({ name: 'probe' })).messages).toEqual([{ role: 'user', content: { type: 'text', text: 'v1' } }]);
+    const initialList = await client.listPrompts();
+    expect(initialList.prompts).toHaveLength(1);
+    const before = initialList.prompts.find(p => p.name === 'probe');
+    expect(before?.description).toBe('v1');
+    const initialGet = await client.getPrompt({ name: 'probe' });
+    expect(initialGet.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'v1' } }]);
 
     handle.update({
         description: 'v2',
@@ -513,10 +521,11 @@ verifies('mcpserver:prompt:handle-update-remove', async ({ transport }: TestArgs
     });
 
     await vi.waitFor(() => expect(listChanged).toBeGreaterThanOrEqual(1));
-    expect((await client.listPrompts()).prompts).toHaveLength(1);
+    const updatedList = await client.listPrompts();
+    expect(updatedList.prompts).toHaveLength(1);
 
-    const after = (await client.listPrompts()).prompts.find(p => p.name === 'probe')!;
-    expect(after.description).toBe('v2');
+    const after = updatedList.prompts.find(p => p.name === 'probe');
+    expect(after?.description).toBe('v2');
 
     const r = await client.getPrompt({ name: 'probe' });
     expect(r.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'v2' } }]);
@@ -524,29 +533,10 @@ verifies('mcpserver:prompt:handle-update-remove', async ({ transport }: TestArgs
     const beforeRemove = listChanged;
     handle.remove();
     await vi.waitFor(() => expect(listChanged).toBeGreaterThan(beforeRemove));
-    expect((await client.listPrompts()).prompts).toHaveLength(0);
+    const removedList = await client.listPrompts();
+    expect(removedList.prompts).toHaveLength(0);
 
     await expect(client.getPrompt({ name: 'probe' })).rejects.toBeInstanceOf(ProtocolError);
-    expect((await client.listPrompts()).prompts.find(p => p.name === 'probe')).toBeUndefined();
-});
-
-verifies('mcpserver:prompt:legacy-overload', async ({ transport }: TestArgs) => {
-    const makeServer = () => {
-        const s = new McpServer({ name: 's', version: '0' });
-        s.registerPrompt('legacy-prompt', { description: 'Legacy prompt overload (name, description, cb).' }, () => ({
-            messages: [{ role: 'user', content: { type: 'text', text: 'Explain the project README.' } }]
-        }));
-        return s;
-    };
-    const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
-
-    const { prompts } = await client.listPrompts();
-    const listed = prompts.find(p => p.name === 'legacy-prompt');
-    expect(listed).toBeDefined();
-    expect(listed!.description).toBe('Legacy prompt overload (name, description, cb).');
-    expect(listed!.arguments ?? []).toEqual([]);
-
-    const result = await client.getPrompt({ name: 'legacy-prompt' });
-    expect(result.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'Explain the project README.' } }]);
+    const finalList = await client.listPrompts();
+    expect(finalList.prompts.find(p => p.name === 'probe')).toBeUndefined();
 });

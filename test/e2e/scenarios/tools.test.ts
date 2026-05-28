@@ -20,24 +20,25 @@
  * tier.
  */
 
-import { expect, vi } from 'vitest';
-import { z } from 'zod/v4';
-import { Server, McpServer, ProtocolError, UrlElicitationRequiredError, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
+import type { JsonSchemaType } from '@modelcontextprotocol/core';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
 import type {
-    RegisteredTool,
     CreateMessageRequest,
     CreateMessageResult,
     ElicitRequest,
     JSONRPCMessage,
+    RegisteredTool,
     RequestId,
     Tool
 } from '@modelcontextprotocol/server';
-import { Client } from '@modelcontextprotocol/client';
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
+import { McpServer, ProtocolError, ProtocolErrorCode, Server, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
+import { expect, vi } from 'vitest';
+import { z } from 'zod/v4';
 
 import { wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const TINY_WAV_BASE64 = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
@@ -62,6 +63,11 @@ const JSON_SCHEMA_2020_12_INPUT = {
 
 /** Plain client with no extra capabilities declared. */
 const newClient = () => new Client({ name: 'c', version: '0' });
+
+/** Wire-delivered schemas arrive as plain JSON objects; this runtime check narrows them to the validator's input type. */
+function isJsonSchemaObject(schema: unknown): schema is JsonSchemaType {
+    return typeof schema === 'object' && schema !== null && !Array.isArray(schema);
+}
 
 /** McpServer factory that registers `echo` — the smallest useful server. */
 function echoServer(): McpServer {
@@ -133,15 +139,19 @@ function rawSchemaServer(): Server {
                 const n = (req.params.arguments as { n: number }).n;
                 return { structuredContent: { doubled: n * 2 }, content: [{ type: 'text', text: JSON.stringify({ doubled: n * 2 }) }] };
             }
-            case 'structured-mismatch':
+            case 'structured-mismatch': {
                 // intentionally invalid structuredContent (tests client-side validation rejects it)
                 return { structuredContent: { value: 'not-a-number' }, content: [] };
-            case 'structured-missing':
+            }
+            case 'structured-missing': {
                 return { content: [{ type: 'text', text: 'handler-body-no-structured' }] };
-            case 'structured-error-skip':
+            }
+            case 'structured-error-skip': {
                 return { isError: true, content: [{ type: 'text', text: 'handler-returned-isError' }] };
-            default:
+            }
+            default: {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `unknown tool ${req.params.name}`);
+            }
         }
     });
     return s;
@@ -307,8 +317,10 @@ verifies('tools:call:sampling-roundtrip', async ({ transport }: TestArgs) => {
     expect(r.content).toEqual([{ type: 'text', text: 'model said: pong' }]);
 
     expect(received).toHaveLength(1);
-    expect(received[0].params.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'ping' } }]);
-    expect(received[0].params.maxTokens).toBe(100);
+    const samplingRequest = received[0];
+    if (samplingRequest === undefined) throw new Error('expected a sampling request to have been received');
+    expect(samplingRequest.params.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'ping' } }]);
+    expect(samplingRequest.params.maxTokens).toBe(100);
 });
 
 verifies('tools:call:elicitation-roundtrip', async ({ transport }: TestArgs) => {
@@ -338,8 +350,10 @@ verifies('tools:call:elicitation-roundtrip', async ({ transport }: TestArgs) => 
     const r = await client.callTool({ name: 'ask-name', arguments: {} });
 
     expect(received).toHaveLength(1);
-    expect(received[0].method).toBe('elicitation/create');
-    expect(received[0].params).toMatchObject({
+    const elicitRequest = received[0];
+    if (elicitRequest === undefined) throw new Error('expected an elicitation request to have been received');
+    expect(elicitRequest.method).toBe('elicitation/create');
+    expect(elicitRequest.params).toMatchObject({
         mode: 'form',
         message: 'What is your name?',
         requestedSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }
@@ -402,9 +416,10 @@ verifies('tools:call:progress', async ({ transport }: TestArgs) => {
     let receivedAtResolve = -1;
 
     const r = await client
-        .callTool({ name: 'progress', arguments: { steps } }, undefined, {
-            onprogress: p => received.push({ progress: p.progress, total: p.total, message: p.message })
-        })
+        .callTool(
+            { name: 'progress', arguments: { steps } },
+            { onprogress: p => received.push({ progress: p.progress, total: p.total, message: p.message }) }
+        )
         .then(res => {
             receivedAtResolve = received.length;
             return res;
@@ -453,7 +468,7 @@ verifies('tools:call:concurrent', async ({ transport }: TestArgs) => {
 
     // Both handlers are running at the same time before either is allowed to finish.
     await vi.waitFor(() => expect(started).toHaveLength(2));
-    expect(started.slice().sort()).toEqual(['order-1001', 'order-2002']);
+    expect(started.toSorted()).toEqual(['order-1001', 'order-2002']);
     expect(settled).toEqual([]);
 
     releaseBoth();
@@ -464,7 +479,7 @@ verifies('tools:call:concurrent', async ({ transport }: TestArgs) => {
     expect(first.content).toEqual([{ type: 'text', text: 'order order-1001: shipped' }]);
     expect(second.isError).toBeFalsy();
     expect(second.content).toEqual([{ type: 'text', text: 'order order-2002: shipped' }]);
-    expect(settled.slice().sort()).toEqual(['order-1001', 'order-2002']);
+    expect(settled.toSorted()).toEqual(['order-1001', 'order-2002']);
 });
 
 verifies('tools:call:is-error', async ({ transport }: TestArgs) => {
@@ -513,7 +528,7 @@ verifies(
 
         const call = client.callTool({ name: 'no-such-tool', arguments: {} });
         await expect(call).rejects.toBeInstanceOf(ProtocolError);
-        const err = await call.catch(e => e as ProtocolError);
+        const err = await call.catch(error => error as ProtocolError);
         expect(err.code).toBe(ProtocolErrorCode.InvalidParams);
         expect(err.message).toMatch(/no-such-tool|unknown|not found/i);
     },
@@ -544,7 +559,7 @@ verifies(
 
         const call = client.callTool({ name: 'no-such-tool', arguments: {} });
         await expect(call).rejects.toBeInstanceOf(ProtocolError);
-        const err = await call.catch(e => e as ProtocolError);
+        const err = await call.catch(error => error as ProtocolError);
         expect(err.code).toBe(ProtocolErrorCode.InvalidParams);
     },
     { title: 'raw server' }
@@ -565,6 +580,7 @@ verifies('tools:call:structured-content', async ({ transport }: TestArgs) => {
     expect(r.content).toEqual([{ type: 'text', text: JSON.stringify({ doubled: 14 }) }]);
 
     // structuredContent satisfies the *advertised* outputSchema.
+    if (!isJsonSchemaObject(tool.outputSchema)) throw new Error('advertised outputSchema is not a JSON Schema object');
     const validate = new AjvJsonSchemaValidator().getValidator(tool.outputSchema);
     const v = validate(r.structuredContent);
     expect(v.valid, v.errorMessage).toBe(true);
@@ -774,7 +790,7 @@ verifies(
             const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
             s.setRequestHandler('tools/list', req => {
                 cursorsReceived.push(req.params?.cursor);
-                const start = req.params?.cursor === undefined ? 0 : parseInt(req.params.cursor, 10);
+                const start = req.params?.cursor === undefined ? 0 : Number.parseInt(req.params.cursor, 10);
                 const slice = all.slice(start, start + PAGE);
                 return {
                     tools: slice.map(name => ({ name, inputSchema: { type: 'object' as const } })),
@@ -831,16 +847,19 @@ verifies('tools:list-changed', async ({ transport }: TestArgs) => {
 
     await using _ = await wire(transport, makeServer, client);
 
-    expect((await client.listTools()).tools.length).toBe(1);
+    const initialList = await client.listTools();
+    expect(initialList.tools.length).toBe(1);
 
     const handle = server.registerTool('dynamic-probe', { inputSchema: z.object({}) }, () => ({ content: [] }));
     await vi.waitFor(() => expect(listChanged).toBeGreaterThanOrEqual(1));
-    expect((await client.listTools()).tools.length).toBe(2);
+    const listAfterAdd = await client.listTools();
+    expect(listAfterAdd.tools.length).toBe(2);
     const afterAdd = listChanged;
 
     handle.remove();
     await vi.waitFor(() => expect(listChanged).toBeGreaterThan(afterAdd));
-    expect((await client.listTools()).tools.length).toBe(1);
+    const listAfterRemove = await client.listTools();
+    expect(listAfterRemove.tools.length).toBe(1);
 });
 
 verifies('tools:capability:declared', async ({ transport }: TestArgs) => {
@@ -963,8 +982,8 @@ verifies('mcpserver:tool:duplicate-name', async ({ transport }: TestArgs) => {
         // Duplicate throws at registration time.
         try {
             s.registerTool('echo', { inputSchema: z.object({}) }, () => ({ content: [] }));
-        } catch (e) {
-            dupError = e;
+        } catch (error) {
+            dupError = error;
         }
         return s;
     };
@@ -975,7 +994,7 @@ verifies('mcpserver:tool:duplicate-name', async ({ transport }: TestArgs) => {
     expect(String(dupError)).toMatch(/already registered/i);
 
     // Original survives the failed duplicate registration.
-    const tools = (await client.listTools()).tools;
+    const { tools } = await client.listTools();
     expect(tools.filter(t => t.name === 'echo')).toHaveLength(1);
     expect(tools.map(t => t.name)).toContain('fresh');
     const r = await client.callTool({ name: 'echo', arguments: { text: 'still here' } });
@@ -999,22 +1018,25 @@ verifies('mcpserver:tool:handle-update', async ({ transport }: TestArgs) => {
     });
     await using _ = await wire(transport, makeServer, client);
 
-    const beforeList = (await client.listTools()).tools;
+    const beforeResult = await client.listTools();
+    const beforeList = beforeResult.tools;
     expect(beforeList.length).toBe(1);
     const before = beforeList.find(t => t.name === 'echo')!;
     expect(before.description).toBe('v1');
     expect(before.inputSchema.properties).toHaveProperty('text');
-    expect((await client.callTool({ name: 'echo', arguments: { text: 'hi' } })).content).toEqual([{ type: 'text', text: 'hi' }]);
+    const beforeCall = await client.callTool({ name: 'echo', arguments: { text: 'hi' } });
+    expect(beforeCall.content).toEqual([{ type: 'text', text: 'hi' }]);
 
     handle.update({
         description: 'v2 — replaced via RegisteredTool.update()',
-        paramsSchema: {},
+        paramsSchema: z.object({}),
         callback: () => ({ content: [{ type: 'text', text: 'echo-v2-handler' }] })
     });
 
     await vi.waitFor(() => expect(listChanged).toBeGreaterThanOrEqual(1));
 
-    const afterList = (await client.listTools()).tools;
+    const afterResult = await client.listTools();
+    const afterList = afterResult.tools;
     expect(afterList.length).toBe(1);
     const after = afterList.find(t => t.name === 'echo')!;
     expect(after.description).toBe('v2 — replaced via RegisteredTool.update()');
@@ -1085,7 +1107,8 @@ verifies('mcpserver:tool:naming-validation', async ({ transport }: TestArgs) => 
     for (const bad of INVALID) expect(warnedFor).toContain(bad);
     for (const good of VALID) expect(cleanFor).toContain(good);
 
-    const names = (await client.listTools()).tools.map(t => t.name);
+    const listed = await client.listTools();
+    const names = listed.tools.map(t => t.name);
     for (const good of VALID) expect(names).toContain(good);
 });
 
@@ -1107,7 +1130,7 @@ verifies('mcpserver:tool:url-elicitation-error', async ({ transport }: TestArgs)
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
 
-    const err = await client.callTool({ name: 'needs-auth', arguments: {} }).catch((e: unknown) => e);
+    const err = await client.callTool({ name: 'needs-auth', arguments: {} }).catch((error: unknown) => error);
     if (!(err instanceof UrlElicitationRequiredError)) {
         throw new Error(`expected UrlElicitationRequiredError, got ${JSON.stringify(err)}`);
     }
@@ -1154,7 +1177,7 @@ verifies('typescript:mcpserver:tool:schema-variants', async ({ transport }: Test
                 inputSchema: z.object({
                     n: z
                         .preprocess(v => (typeof v === 'string' ? v.trim() : v), z.string())
-                        .transform(s => Number(s))
+                        .transform(Number)
                         .pipe(z.number().int().nonnegative())
                 })
             },
@@ -1165,27 +1188,26 @@ verifies('typescript:mcpserver:tool:schema-variants', async ({ transport }: Test
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
 
-    expect((await client.callTool({ name: 'zod-union', arguments: { kind: 'a', a: 'hello' } })).content).toEqual([
-        { type: 'text', text: 'a:hello' }
-    ]);
-    expect((await client.callTool({ name: 'zod-union', arguments: { kind: 'b', b: 42 } })).content).toEqual([
-        { type: 'text', text: 'b:42' }
-    ]);
-    expect((await client.callTool({ name: 'zod-intersection', arguments: { left: 'L', right: 'R' } })).content).toEqual([
-        { type: 'text', text: 'L|R' }
-    ]);
-    expect((await client.callTool({ name: 'zod-nested', arguments: { outer: { inner: { value: 5 } } } })).content).toEqual([
-        { type: 'text', text: '5' }
-    ]);
-    expect((await client.callTool({ name: 'zod-coerce', arguments: { n: '  7  ' } })).content).toEqual([
-        { type: 'text', text: 'coerced:7' }
-    ]);
+    const unionA = await client.callTool({ name: 'zod-union', arguments: { kind: 'a', a: 'hello' } });
+    expect(unionA.content).toEqual([{ type: 'text', text: 'a:hello' }]);
+    const unionB = await client.callTool({ name: 'zod-union', arguments: { kind: 'b', b: 42 } });
+    expect(unionB.content).toEqual([{ type: 'text', text: 'b:42' }]);
+    const intersection = await client.callTool({ name: 'zod-intersection', arguments: { left: 'L', right: 'R' } });
+    expect(intersection.content).toEqual([{ type: 'text', text: 'L|R' }]);
+    const nested = await client.callTool({ name: 'zod-nested', arguments: { outer: { inner: { value: 5 } } } });
+    expect(nested.content).toEqual([{ type: 'text', text: '5' }]);
+    const coerced = await client.callTool({ name: 'zod-coerce', arguments: { n: '  7  ' } });
+    expect(coerced.content).toEqual([{ type: 'text', text: 'coerced:7' }]);
 
     // Rejections — proves parse() actually runs for each shape.
-    expect((await client.callTool({ name: 'zod-union', arguments: { kind: 'a', a: 123 } })).isError).toBe(true);
-    expect((await client.callTool({ name: 'zod-intersection', arguments: { left: 'L' } })).isError).toBe(true);
-    expect((await client.callTool({ name: 'zod-nested', arguments: { outer: { inner: { value: 'x' } } } })).isError).toBe(true);
-    expect((await client.callTool({ name: 'zod-coerce', arguments: { n: '-3' } })).isError).toBe(true);
+    const unionRejected = await client.callTool({ name: 'zod-union', arguments: { kind: 'a', a: 123 } });
+    expect(unionRejected.isError).toBe(true);
+    const intersectionRejected = await client.callTool({ name: 'zod-intersection', arguments: { left: 'L' } });
+    expect(intersectionRejected.isError).toBe(true);
+    const nestedRejected = await client.callTool({ name: 'zod-nested', arguments: { outer: { inner: { value: 'x' } } } });
+    expect(nestedRejected.isError).toBe(true);
+    const coerceRejected = await client.callTool({ name: 'zod-coerce', arguments: { n: '-3' } });
+    expect(coerceRejected.isError).toBe(true);
 });
 
 verifies('typescript:mcpserver:tool:extra', async ({ transport }: TestArgs) => {
@@ -1221,75 +1243,7 @@ verifies('typescript:mcpserver:tool:extra', async ({ transport }: TestArgs) => {
         const clientSessionId = client.transport?.sessionId;
         if (clientSessionId !== undefined) expect(r.sessionId).toBe(clientSessionId);
     }
-    expect(seen[1].requestId).not.toBe(seen[0].requestId);
-});
-
-verifies('client:call-tool:compat-result-schema', async ({ transport }: TestArgs) => {
-    const makeServer = () => {
-        const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
-        s.setRequestHandler('tools/list', () => ({
-            tools: [{ name: 'legacy', inputSchema: { type: 'object' } }]
-        }));
-        // legacy 2024-10-07 result shape (tests CompatibilityCallToolResultSchema accepts it)
-        s.setRequestHandler('tools/call', () => ({ toolResult: 'plain string' }));
-        return s;
-    };
-    const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
-
-    const r = await client.callTool({ name: 'legacy', arguments: {} });
-    expect(r).toHaveProperty('toolResult', 'plain string');
-});
-
-verifies('mcpserver:tool:variadic-forms', async ({ transport }: TestArgs) => {
-    const makeServer = () => {
-        const s = new McpServer({ name: 's', version: '0' });
-        // (name, cb)
-        s.registerTool('plain', {}, () => ({ content: [{ type: 'text', text: 'plain' }] }));
-        // (name, description, cb)
-        s.registerTool('desc', { description: 'desc tool' }, () => ({ content: [{ type: 'text', text: 'desc' }] }));
-        // (name, paramsSchema, cb)
-        s.registerTool('args', { inputSchema: z.object({ x: z.string() }) }, ({ x }) => ({ content: [{ type: 'text', text: x }] }));
-        // (name, description, paramsSchema, cb)
-        s.registerTool('desc-args', { description: 'with both', inputSchema: z.object({ y: z.number() }) }, ({ y }) => ({
-            content: [{ type: 'text', text: String(y) }]
-        }));
-        // (name, description, paramsSchema, annotations, cb)
-        s.registerTool(
-            'full',
-            { description: 'full overload', inputSchema: z.object({ v: z.string() }), annotations: { readOnlyHint: true } },
-            ({ v }) => ({
-                content: [{ type: 'text', text: v }]
-            })
-        );
-        return s;
-    };
-
-    const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
-
-    const list = await client.listTools();
-    const names = list.tools.map(t => t.name).sort();
-    expect(names).toEqual(['args', 'desc', 'desc-args', 'full', 'plain']);
-
-    const desc = list.tools.find(t => t.name === 'desc');
-    expect(desc?.description).toBe('desc tool');
-
-    const full = list.tools.find(t => t.name === 'full');
-    expect(full?.description).toBe('full overload');
-    expect(full?.annotations).toMatchObject({ readOnlyHint: true });
-    expect(full?.inputSchema).toMatchObject({ type: 'object', properties: { v: { type: 'string' } } });
-
-    expect(await client.callTool({ name: 'plain', arguments: {} })).toMatchObject({
-        content: [{ type: 'text', text: 'plain' }]
-    });
-    expect(await client.callTool({ name: 'args', arguments: { x: 'hi' } })).toMatchObject({
-        content: [{ type: 'text', text: 'hi' }]
-    });
-    expect(await client.callTool({ name: 'desc-args', arguments: { y: 3 } })).toMatchObject({
-        content: [{ type: 'text', text: '3' }]
-    });
-    expect(await client.callTool({ name: 'full', arguments: { v: 'go' } })).toMatchObject({
-        content: [{ type: 'text', text: 'go' }]
-    });
+    const [firstCallSeen, secondCallSeen] = seen;
+    if (firstCallSeen === undefined || secondCallSeen === undefined) throw new Error('expected both calls to be recorded');
+    expect(secondCallSeen.requestId).not.toBe(firstCallSeen.requestId);
 });

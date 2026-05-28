@@ -163,12 +163,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'protocol:error:invalid-params': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#responses',
-        behavior: 'A request with malformed params is answered with JSON-RPC error -32602 Invalid params.',
-        knownFailures: [
-            {
-                note: 'Protocol wraps schema-parse failures as -32603 (InternalError), not -32602 (InvalidParams) as required by JSON-RPC 2.0.'
-            }
-        ]
+        behavior: 'A request with malformed params is answered with JSON-RPC error -32602 Invalid params.'
     },
     'protocol:error:method-not-found': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#responses',
@@ -322,13 +317,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'tools:call:unknown-name': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling',
-        behavior: 'tools/call for a name the server does not recognise returns a JSON-RPC error.',
-        knownFailures: [
-            {
-                test: 'mcpserver',
-                note: "RULED 2026-05-26: spec violation (spec error-handling section shows -32602 protocol error for unknown tools). McpServer's blanket try/catch around the tools/call handler converts the McpError(InvalidParams, 'Tool {name} not found') into {isError:true} via createToolError(), so callTool() resolves instead of rejecting. Spec says unknown tool is a protocol error and MUST surface as a JSON-RPC error envelope."
-            }
-        ]
+        behavior: 'tools/call for a name the server does not recognise returns a JSON-RPC error.'
     },
     'tools:capability:declared': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#capabilities',
@@ -452,12 +441,15 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'client:call-tool:compat-result-schema': {
         source: 'sdk',
         behavior:
-            'Client.callTool(params, CompatibilityCallToolResultSchema) accepts a legacy protocol-2024-10-07 result ({toolResult: ...}, no content[]) without throwing and returns the parsed toolResult field.'
+            'Client.callTool(params, CompatibilityCallToolResultSchema) accepts a legacy protocol-2024-10-07 result ({toolResult: ...}, no content[]) without throwing and returns the parsed toolResult field.',
+        deferred:
+            'removed in v2: Client.callTool() no longer takes a result-schema parameter, so the legacy {toolResult} compatibility path is not reachable from the public API.'
     },
     'mcpserver:tool:variadic-forms': {
         source: 'sdk',
         behavior:
-            'Deprecated McpServer.tool() positional overloads — (name,cb), (name,desc,cb), (name,paramsSchema,cb), (name,desc,paramsSchema,cb), (name,desc,paramsSchema,annotations,cb), and the annotations-without-schema forms — register tools whose tools/list entry and tools/call result match an equivalent registerTool() registration.'
+            'Deprecated McpServer.tool() positional overloads — (name,cb), (name,desc,cb), (name,paramsSchema,cb), (name,desc,paramsSchema,cb), (name,desc,paramsSchema,annotations,cb), and the annotations-without-schema forms — register tools whose tools/list entry and tools/call result match an equivalent registerTool() registration.',
+        deferred: 'removed in v2: the deprecated McpServer.tool() positional overloads were dropped; only registerTool() exists.'
     },
 
     // Resources
@@ -508,12 +500,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'resources:read:unknown-uri': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling',
-        behavior: 'resources/read for an unknown URI returns JSON-RPC error -32002 (resource not found).',
-        knownFailures: [
-            {
-                note: 'SDK emits -32602 (InvalidParams) instead of spec-mandated -32002 (ResourceNotFound). ErrorCode enum lacks ResourceNotFound member.'
-            }
-        ]
+        behavior: 'resources/read for an unknown URI returns JSON-RPC error -32002 (resource not found).'
     },
     'resources:subscribe:capability-required': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities',
@@ -573,7 +560,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'mcpserver:resource:legacy-overload': {
         source: 'sdk',
         behavior:
-            'The deprecated McpServer.resource() overloads (fixed-URI and ResourceTemplate, with and without the optional metadata arg) register a resource that surfaces in resources/list and reads via resources/read identically to registerResource().'
+            'The deprecated McpServer.resource() overloads (fixed-URI and ResourceTemplate, with and without the optional metadata arg) register a resource that surfaces in resources/list and reads via resources/read identically to registerResource().',
+        deferred: 'removed in v2: the deprecated McpServer.resource() overloads were dropped; only registerResource() exists.'
     },
 
     // Prompts
@@ -658,7 +646,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'mcpserver:prompt:legacy-overload': {
         source: 'sdk',
         behavior:
-            'McpServer.prompt() (deprecated positional overloads: name+cb, name+desc+cb, name+args+cb, name+desc+args+cb) registers a prompt that appears in prompts/list with the given description/arguments and is callable via prompts/get.'
+            'McpServer.prompt() (deprecated positional overloads: name+cb, name+desc+cb, name+args+cb, name+desc+args+cb) registers a prompt that appears in prompts/list with the given description/arguments and is callable via prompts/get.',
+        deferred: 'removed in v2: the deprecated McpServer.prompt() positional overloads were dropped; only registerPrompt() exists.'
     },
 
     // Completion
@@ -818,8 +807,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/sampling#tool-result-messages',
         behavior:
             'A user SamplingMessage containing tool_result content MUST contain only tool_result blocks; mixing with text/image/audio is rejected by the client with -32602 Invalid params.',
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
-        knownFailures: [{ note: 'client does not validate tool_result-only constraint' }]
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'sampling:tool-use:result-balance': {
         transports: STATEFUL_TRANSPORTS,
@@ -827,7 +815,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'In a sampling/createMessage request, every assistant tool_use block in messages MUST be matched by a tool_result with the same toolUseId in the immediately-following user message; an unmatched tool_use is rejected with -32602 Invalid params.',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
-        knownFailures: [{ note: 'client does not validate tool_use/tool_result balance' }]
+        knownFailures: [
+            {
+                note: 'changed in v2: mismatched toolUseId pairs are now rejected, but an assistant tool_use in the final message with no following user message is still accepted.'
+            }
+        ]
     },
     'sampling:tools:server-gated-by-capability': {
         transports: STATEFUL_TRANSPORTS,
@@ -999,12 +991,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'Form-mode requested schemas are flat objects with primitive-typed properties only; nested structures and arrays of objects are not used.',
         transports: ['inMemory', 'stdio', 'streamableHttp'],
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
-        knownFailures: [
-            {
-                note: 'The client rejects a nested requestedSchema before the user handler, but via the raw ZodError from parseWithCompat in Protocol.setRequestHandler (src/shared/protocol.ts:1428-1431), which _onrequest maps to -32603 InternalError (~line 823) instead of -32602 InvalidParams; the InvalidParams guard in src/client/index.ts (~363-368) is unreachable.'
-            }
-        ]
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
 
     // Roots
@@ -1512,7 +1499,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior: 'A stateless per-request transport cannot be reused for a second request.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and stateless mode; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and stateless mode; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        knownFailures: [
+            {
+                note: 'changed in v2: the stateless reuse guard was removed, so a second request on the same per-request transport is processed instead of rejected.'
+            }
+        ]
     },
     'hosting:stateless:no-session-id': {
         source: 'sdk',
@@ -1566,7 +1558,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'The authorization-server routes expose the authorize, token, and registration endpoints (and revocation when supported).',
         transports: ['streamableHttp'],
-        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        deferred:
+            'removed in v2: the bundled OAuth authorization server (mcpAuthRouter, OAuthServerProvider) is no longer part of the SDK; only requireBearerAuth, mcpAuthMetadataRouter and hostHeaderValidation remain.'
     },
     'hosting:auth:aud-validation': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#access-token-usage',
@@ -1629,7 +1623,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'ProxyOAuthServerProvider plugged into mcpAuthRouter mounts the /authorize, /token, and /revoke endpoints and serves them.',
         transports: ['streamableHttp'],
-        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs. Asserting that requests are forwarded to the configured upstream AS endpoints is post-ship backlog.'
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs. Asserting that requests are forwarded to the configured upstream AS endpoints is post-ship backlog.',
+        deferred:
+            'removed in v2: ProxyOAuthServerProvider and mcpAuthRouter are no longer part of the SDK, so there is no public API to mount proxied authorization-server endpoints.'
     },
 
     // Hosting: resumability
@@ -1813,18 +1809,17 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'The bundled registration endpoint accepts only redirect URIs that use HTTPS or target a loopback host.',
         transports: ['streamableHttp'],
         note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        knownFailures: [
-            {
-                note: 'The bundled registration endpoint validates redirect_uris only with SafeUrlSchema, so a non-HTTPS, non-loopback URI like http://attacker.example.com/callback is registered with 201 instead of being rejected with 400 invalid_client_metadata.'
-            }
-        ]
+        deferred:
+            'removed in v2: the bundled dynamic client registration endpoint no longer exists, so its redirect_uri scheme validation cannot be exercised (this was a knownFailure on v1.x).'
     },
     'hosting:auth:as:redirect-uri-binding': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#open-redirection',
         behavior:
             "The bundled token endpoint rejects an authorization-code exchange whose `redirect_uri` differs from the one used at authorize; the bundled authorize endpoint rejects a `redirect_uri` not in the client's registered list without redirecting to it.",
         transports: ['streamableHttp'],
-        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        deferred:
+            'removed in v2: the bundled authorize and token endpoints no longer exist, so redirect_uri binding across authorize and token cannot be exercised.'
     },
     'hosting:session:post-termination-404': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
@@ -1847,21 +1842,27 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-code-protection',
         behavior: 'The bundled authorization endpoint rejects an authorize request that omits `code_challenge` with `invalid_request`.',
         transports: ['streamableHttp'],
-        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        deferred:
+            'removed in v2: the bundled authorization endpoint no longer exists, so PKCE enforcement at authorize cannot be exercised.'
     },
     'hosting:auth:as:verifier-mismatch': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-code-protection',
         behavior:
             'The bundled token endpoint rejects an authorization-code exchange whose `code_verifier` does not hash to the stored `code_challenge` with `invalid_grant`.',
         transports: ['streamableHttp'],
-        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        deferred:
+            'removed in v2: the bundled token endpoint no longer exists, so code_verifier checking at token exchange cannot be exercised.'
     },
     'hosting:auth:as:code-single-use': {
         source: 'sdk',
         behavior:
             'An authorization code can be exchanged exactly once; a second exchange of the same code is rejected with `invalid_grant`. Enforced by the provider deleting the code on first use; the handler relies on `the stored authorization code` returning None.',
         transports: ['streamableHttp'],
-        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        deferred:
+            'removed in v2: the bundled token endpoint no longer exists, so single-use authorization-code exchange cannot be exercised.'
     },
     'hosting:http:protocol-version-default': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header',

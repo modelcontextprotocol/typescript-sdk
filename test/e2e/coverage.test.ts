@@ -8,14 +8,14 @@
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { expect, test } from 'vitest';
 
 import { REQUIREMENTS } from './requirements.js';
 
-const E2E_DIR = dirname(fileURLToPath(import.meta.url));
+const E2E_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 interface VerifiesCall {
     file: string;
@@ -27,16 +27,16 @@ interface VerifiesCall {
 /** Statically scan test/e2e/scenarios/*.test.ts for `verifies(<ids>, ...)` calls. */
 function scanVerifiesCalls(): VerifiesCall[] {
     const calls: VerifiesCall[] = [];
-    const scenariosDir = join(E2E_DIR, 'scenarios');
+    const scenariosDir = path.join(E2E_DIR, 'scenarios');
     const files = readdirSync(scenariosDir)
         .filter(f => f.endsWith('.test.ts'))
-        .sort();
+        .toSorted();
     for (const file of files) {
-        const text = readFileSync(join(scenariosDir, file), 'utf8');
+        const text = readFileSync(path.join(scenariosDir, file), 'utf8');
         // Each call spans from its header to the first column-0 close (`});` for an
         // untitled hugged call, `);` for a call expanded by an opts third argument).
         for (const m of text.matchAll(/verifies\(\s*('[^']*'|\[[^\]]*\])\s*,\s*async\s*\([\s\S]*?\n(?:\}\);|\);)/g)) {
-            const ids = [...m[1].matchAll(/'([^']*)'/g)].map(x => x[1]);
+            const ids = [...(m[1] ?? '').matchAll(/'([^']*)'/g)].map(x => x[1]).filter(id => id !== undefined);
             const title = m[0].match(/\{\s*title:\s*'([^']*)'\s*\}\s*\n?\);$/)?.[1];
             calls.push({ file, title, ids });
         }

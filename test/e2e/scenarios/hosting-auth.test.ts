@@ -25,13 +25,14 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { AuthInfo } from '@modelcontextprotocol/server';
+import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
-import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
-import type { AuthInfo } from '@modelcontextprotocol/server';
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import type { TestArgs } from '../types.js';
+
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const VALID_TOKEN = 'analytics-dashboard-access-token';
 
@@ -83,10 +84,13 @@ verifies('hosting:auth:authinfo-propagates', async (_args: TestArgs) => {
         if (req.method === 'POST') postAuthHeaders.push(req.headers.get('authorization'));
         const authInfo = verifyBearer(req.headers.get('authorization'));
         if (!authInfo) {
-            return new Response(JSON.stringify({ error: 'invalid_token' }), {
-                status: 401,
-                headers: { 'content-type': 'application/json', 'www-authenticate': 'Bearer error="invalid_token"' }
-            });
+            return Response.json(
+                { error: 'invalid_token' },
+                {
+                    status: 401,
+                    headers: { 'content-type': 'application/json', 'www-authenticate': 'Bearer error="invalid_token"' }
+                }
+            );
         }
 
         const sid = req.headers.get('mcp-session-id') ?? undefined;

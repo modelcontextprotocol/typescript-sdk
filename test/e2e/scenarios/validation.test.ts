@@ -12,17 +12,17 @@
  * own output — that is what makes the client-side validation observable.
  */
 
-import { expect } from 'vitest';
-import { Server, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
-import type { Tool } from '@modelcontextprotocol/server';
 import { Client } from '@modelcontextprotocol/client';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '@modelcontextprotocol/core';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '@modelcontextprotocol/core';
+import type { Tool } from '@modelcontextprotocol/server';
+import { ProtocolError, ProtocolErrorCode, Server } from '@modelcontextprotocol/server';
+import { expect } from 'vitest';
 
 import { wire } from '../helpers/index.js';
-import type { TestArgs, Transport } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs, Transport } from '../types.js';
 
 const FORECAST_OUTPUT_SCHEMA: Tool['outputSchema'] = {
     type: 'object',
@@ -78,16 +78,16 @@ async function runForecastOutcomes(transport: Transport, makeClient: () => Clien
     // listTools() primes the client's output-schema validator cache — this is
     // where the configured provider compiles the schema.
     const { tools } = await client.listTools();
-    expect(tools.map(t => t.name).sort()).toEqual(['forecast', 'forecast-corrupted']);
+    expect(tools.map(t => t.name).toSorted()).toEqual(['forecast', 'forecast-corrupted']);
 
     const accepted = await client.callTool({ name: 'forecast', arguments: {} });
 
     let rejection: ProtocolError | undefined;
     try {
         await client.callTool({ name: 'forecast-corrupted', arguments: {} });
-    } catch (e) {
-        if (!(e instanceof ProtocolError)) throw e;
-        rejection = e;
+    } catch (error) {
+        if (!(error instanceof ProtocolError)) throw error;
+        rejection = error;
     }
 
     return { acceptedStructuredContent: accepted.structuredContent, rejection };

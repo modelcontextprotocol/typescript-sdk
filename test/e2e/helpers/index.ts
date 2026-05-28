@@ -9,14 +9,16 @@
 
 import { randomUUID } from 'node:crypto';
 import { PassThrough } from 'node:stream';
-import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
-import { InMemoryTransport, WebStandardStreamableHTTPServerTransport, ReadBuffer, serializeMessage } from '@modelcontextprotocol/server';
-import type { Server, McpServer, EventStore, JSONRPCMessage } from '@modelcontextprotocol/server';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import type { Client } from '@modelcontextprotocol/client';
-import type { Transport } from '../types.js';
 
-import { sniffTransport, type SnifferOptions } from './wire-sniffer.js';
+import type { Client } from '@modelcontextprotocol/client';
+import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { EventStore, JSONRPCMessage, McpServer, Server } from '@modelcontextprotocol/server';
+import { InMemoryTransport, ReadBuffer, serializeMessage, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+
+import type { Transport } from '../types.js';
+import type { SnifferOptions } from './wire-sniffer.js';
+import { sniffTransport } from './wire-sniffer.js';
 
 export type ServerFactory = () => McpServer | Server;
 
@@ -104,12 +106,12 @@ export function hostPerSession(makeServer: ServerFactory): { handleRequest: Http
             if (sid !== undefined) {
                 // Mirror the SDK's documented hosting pattern: an unrecognized session id is
                 // rejected at the app level, so the transport's own 404 is never reached.
-                return new Response(
-                    JSON.stringify({
+                return Response.json(
+                    {
                         jsonrpc: '2.0',
-                        error: { code: -32000, message: 'Bad Request: No valid session ID provided' },
+                        error: { code: -32_000, message: 'Bad Request: No valid session ID provided' },
                         id: null
-                    }),
+                    },
                     { status: 400, headers: { 'Content-Type': 'application/json' } }
                 );
             }
@@ -169,10 +171,13 @@ export function hostStateless(makeServer: ServerFactory): { handleRequest: HttpH
     return {
         handleRequest: async req => {
             if (req.method !== 'POST') {
-                return new Response(JSON.stringify({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' }, id: null }), {
-                    status: 405,
-                    headers: { 'Content-Type': 'application/json' }
-                });
+                return Response.json(
+                    { jsonrpc: '2.0', error: { code: -32_000, message: 'Method not allowed.' }, id: null },
+                    {
+                        status: 405,
+                        headers: { 'Content-Type': 'application/json' }
+                    }
+                );
             }
             const server = makeServer();
             const tx = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });

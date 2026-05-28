@@ -6,14 +6,15 @@
  * parsing and raw GET requests drive resume scenarios.
  */
 
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { EventId, EventStore, JSONRPCMessage, StreamId } from '@modelcontextprotocol/server';
+import { LATEST_PROTOCOL_VERSION, McpServer, parseJSONRPCMessage } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-import { McpServer, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
-import type { EventStore, EventId, StreamId, JSONRPCMessage } from '@modelcontextprotocol/server';
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+
 import { hostResumable } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 /**
  * These three tests assert the raw frame sequence of the POST SSE stream itself, so they cannot run their traffic through a connected client.
@@ -89,10 +90,10 @@ class InMemoryEventStore implements EventStore {
         lastEventId: EventId,
         { send }: { send: (eventId: EventId, message: JSONRPCMessage) => Promise<void> }
     ): Promise<StreamId> {
-        const idx = this.events.findIndex(e => e.id === lastEventId);
-        if (idx < 0) return '';
-        const streamId = this.events[idx].streamId;
-        for (const e of this.events.slice(idx + 1)) {
+        const anchor = this.events.find(e => e.id === lastEventId);
+        if (!anchor) return '';
+        const streamId = anchor.streamId;
+        for (const e of this.events.slice(this.events.indexOf(anchor) + 1)) {
             if (e.streamId === streamId) await send(e.id, e.message);
         }
         return streamId;
@@ -119,6 +120,12 @@ function parseSseFrames(body: string): Array<{ id: string; data: string }> {
         }
     }
     return frames;
+}
+
+/** Narrow a Response's body for SSE reading. */
+function requireBody(res: Response): ReadableStream<Uint8Array> {
+    if (!res.body) throw new Error('Expected response to have a body');
+    return res.body;
 }
 
 /** Read an SSE Response body to completion. */
@@ -203,7 +210,7 @@ verifies('hosting:resume:event-ids', async (_args: TestArgs) => {
         expect(postRes.status).toBe(200);
         expect(postRes.headers.get('content-type')).toMatch(/text\/event-stream/);
 
-        const postBody = await readSseBody(postRes.body!);
+        const postBody = await readSseBody(requireBody(postRes));
 
         const postBlocks = postBody.split(/\r?\n\r?\n/).filter(b => b.trim().length > 0);
         expect(postBlocks).toHaveLength(5);
@@ -213,7 +220,7 @@ verifies('hosting:resume:event-ids', async (_args: TestArgs) => {
         const postMessages = postBlocks
             .map(b => b.match(/^data: (.+)$/m)?.[1])
             .filter((d): d is string => d !== undefined && d.trim().length > 0)
-            .map(d => JSON.parse(d) as JSONRPCMessage);
+            .map(d => parseJSONRPCMessage(JSON.parse(d)));
         expect(postMessages.filter(m => 'method' in m && m.method === 'notifications/progress')).toHaveLength(3);
         expect(postMessages.filter(m => 'id' in m && m.id === 'evt-1')).toHaveLength(1);
 
@@ -227,7 +234,7 @@ verifies('hosting:resume:event-ids', async (_args: TestArgs) => {
         await serverRef.sendLoggingMessage({ level: 'info', data: 'standalone-1' });
         await serverRef.sendLoggingMessage({ level: 'warning', data: 'standalone-2' });
 
-        const getBuf = await readSseFramesUntil(getRes.body!, 2);
+        const getBuf = await readSseFramesUntil(requireBody(getRes), 2);
 
         const getBlocks = getBuf.split(/\r?\n\r?\n/).filter(b => b.trim().length > 0);
         expect(getBlocks).toHaveLength(2);
@@ -274,7 +281,8 @@ verifies('hosting:resume:replay', async (_args: TestArgs) => {
     try {
         await client.connect(transport);
 
-        const sessionId = transport.sessionId!;
+        const sessionId = transport.sessionId;
+        if (!sessionId) throw new Error('No session ID after connect');
         const baseHeaders = { 'mcp-session-id': sessionId };
 
         const postRes = await fetch(url, {
@@ -288,12 +296,14 @@ verifies('hosting:resume:replay', async (_args: TestArgs) => {
             })
         });
         expect(postRes.status).toBe(200);
-        const postBody = await readSseBody(postRes.body!);
+        const postBody = await readSseBody(requireBody(postRes));
         const originalFrames = parseSseFrames(postBody);
         expect(originalFrames.length).toBeGreaterThanOrEqual(2);
 
-        const anchorId = originalFrames[0].id;
-        const expectedAfterIds = originalFrames.slice(1).map(f => f.id);
+        const [anchorFrame, ...framesAfterAnchor] = originalFrames;
+        if (!anchorFrame) throw new Error('No anchor frame in POST SSE body');
+        const anchorId = anchorFrame.id;
+        const expectedAfterIds = framesAfterAnchor.map(f => f.id);
 
         const resumeRes = await fetch(url, {
             method: 'GET',
@@ -302,7 +312,7 @@ verifies('hosting:resume:replay', async (_args: TestArgs) => {
         expect(resumeRes.status).toBe(200);
         expect(resumeRes.headers.get('content-type')).toMatch(/text\/event-stream/);
 
-        const resumeBody = await readSseFramesUntil(resumeRes.body!, expectedAfterIds.length);
+        const resumeBody = await readSseFramesUntil(requireBody(resumeRes), expectedAfterIds.length);
         const replayedFrames = parseSseFrames(resumeBody);
         const replayedIds = replayedFrames.map(f => f.id);
 
@@ -310,7 +320,7 @@ verifies('hosting:resume:replay', async (_args: TestArgs) => {
         expect(replayedIds).not.toContain(anchorId);
 
         for (const f of replayedFrames) {
-            const msg = JSON.parse(f.data) as JSONRPCMessage;
+            const msg: unknown = JSON.parse(f.data);
             expect(msg).toHaveProperty('jsonrpc', '2.0');
         }
     } finally {
@@ -349,10 +359,11 @@ verifies('hosting:resume:buffered-replay', async (_args: TestArgs) => {
         expect(initRes.status).toBe(200);
         const sessionId = initRes.headers.get('mcp-session-id');
         expect(sessionId).toBeTruthy();
+        if (!sessionId) throw new Error('No session ID in initialize response');
 
-        await readSseBody(initRes.body!);
+        await readSseBody(requireBody(initRes));
 
-        const baseHeaders = { 'mcp-session-id': sessionId! };
+        const baseHeaders = { 'mcp-session-id': sessionId };
 
         await fetch(url, {
             method: 'POST',
@@ -372,7 +383,7 @@ verifies('hosting:resume:buffered-replay', async (_args: TestArgs) => {
         });
         expect(getRes.status).toBe(200);
 
-        const reader = getRes.body!.getReader();
+        const reader = requireBody(getRes).getReader();
         const decoder = new TextDecoder();
         let anchorBuf = '';
 
@@ -383,7 +394,7 @@ verifies('hosting:resume:buffered-replay', async (_args: TestArgs) => {
                 const { value, done } = await reader.read();
                 if (value) anchorBuf += decoder.decode(value, { stream: true });
                 const frames = parseSseFrames(anchorBuf);
-                if (frames.length >= 1) break;
+                if (frames.length > 0) break;
                 if (done) break;
             }
         } finally {
@@ -392,7 +403,9 @@ verifies('hosting:resume:buffered-replay', async (_args: TestArgs) => {
 
         const anchorFrames = parseSseFrames(anchorBuf);
         expect(anchorFrames.length).toBeGreaterThanOrEqual(1);
-        const anchorId = anchorFrames[anchorFrames.length - 1].id;
+        const lastAnchorFrame = anchorFrames.at(-1);
+        if (!lastAnchorFrame) throw new Error('No anchor frame on the standalone GET stream');
+        const anchorId = lastAnchorFrame.id;
 
         await serverRef.sendLoggingMessage({ level: 'info', data: 'buffered-1' });
         await serverRef.sendLoggingMessage({ level: 'warning', data: 'buffered-2' });
@@ -404,20 +417,19 @@ verifies('hosting:resume:buffered-replay', async (_args: TestArgs) => {
         });
         expect(resumeRes.status).toBe(200);
 
-        const resumeBody = await readSseFramesUntil(resumeRes.body!, 3);
+        const resumeBody = await readSseFramesUntil(requireBody(resumeRes), 3);
         const replayedFrames = parseSseFrames(resumeBody);
         expect(replayedFrames.length).toBeGreaterThanOrEqual(3);
 
         const logData = replayedFrames
             .map(f => {
-                const msg = JSON.parse(f.data) as JSONRPCMessage;
-                if ('method' in msg && msg.method === 'notifications/message' && 'params' in msg) {
-                    const params = msg.params as { data: unknown };
-                    return params.data;
+                const msg = parseJSONRPCMessage(JSON.parse(f.data));
+                if ('method' in msg && msg.method === 'notifications/message') {
+                    return msg.params?.data;
                 }
-                return undefined;
+                return;
             })
-            .filter((d): d is unknown => d !== undefined);
+            .filter(d => d !== undefined);
 
         expect(logData.slice(0, 3)).toEqual(['buffered-1', 'buffered-2', 'buffered-3']);
         expect(logData).not.toContain('anchor');
@@ -435,9 +447,9 @@ verifies('typescript:hosting:resume:bad-event-id', async (_args: TestArgs) => {
             return `${streamId}_stored`;
         },
         async getStreamIdForEventId(eventId) {
-            if (eventId === UNMAPPABLE_EVENT_ID) return undefined;
+            if (eventId === UNMAPPABLE_EVENT_ID) return;
             if (eventId === THROWING_EVENT_ID) return 'stream-will-throw';
-            return undefined;
+            return;
         },
         async replayEventsAfter(lastEventId) {
             if (lastEventId === THROWING_EVENT_ID) {
@@ -460,7 +472,8 @@ verifies('typescript:hosting:resume:bad-event-id', async (_args: TestArgs) => {
     try {
         await client.connect(transport);
 
-        const sessionId = transport.sessionId!;
+        const sessionId = transport.sessionId;
+        if (!sessionId) throw new Error('No session ID after connect');
         const baseHeaders = { 'mcp-session-id': sessionId };
 
         const unmappedRes = await fetch(url, {
@@ -468,16 +481,16 @@ verifies('typescript:hosting:resume:bad-event-id', async (_args: TestArgs) => {
             headers: { ...baseHeaders, accept: 'application/json, text/event-stream', 'last-event-id': UNMAPPABLE_EVENT_ID }
         });
         expect(unmappedRes.status).toBe(400);
-        const unmappedBody = await unmappedRes.json();
-        expect(unmappedBody.error?.code).toBe(-32000);
+        const unmappedBody: unknown = await unmappedRes.json();
+        expect(unmappedBody).toMatchObject({ error: { code: -32_000 } });
 
         const failedRes = await fetch(url, {
             method: 'GET',
             headers: { ...baseHeaders, accept: 'application/json, text/event-stream', 'last-event-id': THROWING_EVENT_ID }
         });
         expect(failedRes.status).toBe(500);
-        const failedBody = await failedRes.json();
-        expect(failedBody.error?.code).toBe(-32000);
+        const failedBody: unknown = await failedRes.json();
+        expect(failedBody).toMatchObject({ error: { code: -32_000 } });
     } finally {
         await client.close();
         await handle.close();
@@ -515,28 +528,32 @@ verifies('hosting:resume:priming', async (_args: TestArgs) => {
         expect(postRes.status).toBe(200);
         expect(postRes.headers.get('content-type')).toMatch(/text\/event-stream/);
 
-        const body = await readSseBody(postRes.body!);
+        const body = await readSseBody(requireBody(postRes));
         const events = body.split('\n\n').filter(e => e.trim().length > 0);
         expect(events.length).toBeGreaterThanOrEqual(2);
 
         const priming = events[0];
+        if (priming === undefined) throw new Error('No priming event block in POST SSE body');
         const primingLines = priming.split('\n');
 
         const idLine = primingLines.find(l => l.startsWith('id:'));
         expect(idLine).toBeDefined();
-        expect(idLine!.slice('id:'.length).trim().length).toBeGreaterThan(0);
+        if (idLine === undefined) throw new Error('No id line in priming event');
+        expect(idLine.slice('id:'.length).trim().length).toBeGreaterThan(0);
 
         expect(primingLines).toContain(`retry: ${RETRY_MS}`);
 
         const dataLine = primingLines.find(l => l.startsWith('data:'));
         expect(dataLine).toBeDefined();
-        expect(dataLine!.replace(/^data:\s?/, '')).toBe('');
+        if (dataLine === undefined) throw new Error('No data line in priming event');
+        expect(dataLine.replace(/^data:\s?/, '')).toBe('');
 
         expect(priming).not.toMatch(/^event: message$/m);
 
         const responseEvent = events.find(e => /^event: message$/m.test(e));
         expect(responseEvent).toBeDefined();
-        expect(events.indexOf(responseEvent!)).toBeGreaterThan(0);
+        if (responseEvent === undefined) throw new Error('No response event in POST SSE body');
+        expect(events.indexOf(responseEvent)).toBeGreaterThan(0);
     } finally {
         await handle.close();
     }
@@ -584,10 +601,11 @@ verifies('hosting:resume:stream-scoped', async (_args: TestArgs) => {
         expect(initRes.status).toBe(200);
         const sessionId = initRes.headers.get('mcp-session-id');
         expect(sessionId).toBeTruthy();
+        if (!sessionId) throw new Error('No session ID in initialize response');
 
-        await readSseBody(initRes.body!);
+        await readSseBody(requireBody(initRes));
 
-        const baseHeaders = { 'mcp-session-id': sessionId! };
+        const baseHeaders = { 'mcp-session-id': sessionId };
 
         await fetch(url, {
             method: 'POST',
@@ -605,7 +623,7 @@ verifies('hosting:resume:stream-scoped', async (_args: TestArgs) => {
         });
         expect(getRes.status).toBe(200);
 
-        const reader = getRes.body!.getReader();
+        const reader = requireBody(getRes).getReader();
         const decoder = new TextDecoder();
         let anchorBuf = '';
 
@@ -617,7 +635,7 @@ verifies('hosting:resume:stream-scoped', async (_args: TestArgs) => {
                 const { value, done } = await reader.read();
                 if (value) anchorBuf += decoder.decode(value, { stream: true });
                 const frames = parseSseFrames(anchorBuf);
-                if (frames.length >= 1) break;
+                if (frames.length > 0) break;
                 if (done) break;
             }
         } finally {
@@ -626,11 +644,14 @@ verifies('hosting:resume:stream-scoped', async (_args: TestArgs) => {
 
         const anchorFrames = parseSseFrames(anchorBuf);
         expect(anchorFrames.length).toBeGreaterThanOrEqual(1);
-        const anchorId = anchorFrames[anchorFrames.length - 1].id;
+        const lastAnchorFrame = anchorFrames.at(-1);
+        if (!lastAnchorFrame) throw new Error('No anchor frame on the standalone GET stream');
+        const anchorId = lastAnchorFrame.id;
         const stored = eventStore.getStoredEvents();
         const anchorEvent = stored.find(e => e.id === anchorId);
         expect(anchorEvent).toBeDefined();
-        const streamAId = anchorEvent!.streamId;
+        if (!anchorEvent) throw new Error('Anchor event not found in event store');
+        const streamAId = anchorEvent.streamId;
 
         const postRes = await fetch(url, {
             method: 'POST',
@@ -643,7 +664,7 @@ verifies('hosting:resume:stream-scoped', async (_args: TestArgs) => {
             })
         });
         expect(postRes.status).toBe(200);
-        await readSseBody(postRes.body!);
+        await readSseBody(requireBody(postRes));
 
         const storedAfterProgress = eventStore.getStoredEvents();
         const streamBEvents = storedAfterProgress.filter(e => e.streamId !== streamAId);
@@ -658,7 +679,7 @@ verifies('hosting:resume:stream-scoped', async (_args: TestArgs) => {
         });
         expect(resumeRes.status).toBe(200);
 
-        const resumeReader = resumeRes.body!.getReader();
+        const resumeReader = requireBody(resumeRes).getReader();
         const resumeDecoder = new TextDecoder();
         let resumeBuf = '';
         const readResumedUntil = async (haveEnough: (frames: ReturnType<typeof parseSseFrames>) => boolean) => {
@@ -676,7 +697,7 @@ verifies('hosting:resume:stream-scoped', async (_args: TestArgs) => {
 
             const replayedEvents = replayedFrames.map(f => ({
                 id: f.id,
-                message: JSON.parse(f.data) as JSONRPCMessage
+                message: parseJSONRPCMessage(JSON.parse(f.data))
             }));
 
             const storedFinal = eventStore.getStoredEvents();
@@ -692,13 +713,12 @@ verifies('hosting:resume:stream-scoped', async (_args: TestArgs) => {
 
             const logData = replayedEvents
                 .map(r => {
-                    if ('method' in r.message && r.message.method === 'notifications/message' && 'params' in r.message) {
-                        const params = r.message.params as { data: unknown };
-                        return params.data;
+                    if ('method' in r.message && r.message.method === 'notifications/message') {
+                        return r.message.params?.data;
                     }
-                    return undefined;
+                    return;
                 })
-                .filter((d): d is unknown => d !== undefined);
+                .filter(d => d !== undefined);
             expect(logData.slice(0, 2)).toEqual(['after-1', 'after-2']);
             expect(logData).not.toContain('anchor');
 
@@ -715,25 +735,24 @@ verifies('hosting:resume:stream-scoped', async (_args: TestArgs) => {
             expect(livePostRes.status).toBe(200);
             expect(livePostRes.headers.get('content-type')).toMatch(/text\/event-stream/);
 
-            const liveMessages = parseSseFrames(await readSseBody(livePostRes.body!))
+            const livePostBody = await readSseBody(requireBody(livePostRes));
+            const liveMessages = parseSseFrames(livePostBody)
                 .filter(f => f.data.trim().length > 0)
-                .map(f => JSON.parse(f.data) as JSONRPCMessage);
+                .map(f => parseJSONRPCMessage(JSON.parse(f.data)));
             expect(liveMessages.filter(m => 'method' in m && m.method === 'notifications/progress')).toHaveLength(2);
             expect(liveMessages.filter(m => 'id' in m && m.id === 'live-1')).toHaveLength(1);
 
             await serverRef.sendLoggingMessage({ level: 'info', data: 'sentinel' });
             const resumedFrames = await readResumedUntil(frames =>
                 frames.some(f => {
-                    const m = JSON.parse(f.data) as JSONRPCMessage;
-                    return 'method' in m && m.method === 'notifications/message' && (m.params as { data?: unknown })?.data === 'sentinel';
+                    const m = parseJSONRPCMessage(JSON.parse(f.data));
+                    return 'method' in m && m.method === 'notifications/message' && m.params?.data === 'sentinel';
                 })
             );
-            const resumedMessages = resumedFrames.map(f => JSON.parse(f.data) as JSONRPCMessage);
-            expect(
-                resumedMessages.some(
-                    m => 'method' in m && m.method === 'notifications/message' && (m.params as { data?: unknown })?.data === 'sentinel'
-                )
-            ).toBe(true);
+            const resumedMessages = resumedFrames.map(f => parseJSONRPCMessage(JSON.parse(f.data)));
+            expect(resumedMessages.some(m => 'method' in m && m.method === 'notifications/message' && m.params?.data === 'sentinel')).toBe(
+                true
+            );
             expect(resumedMessages.filter(m => 'method' in m && m.method === 'notifications/progress')).toHaveLength(0);
             expect(resumedMessages.filter(m => 'id' in m && m.id === 'live-1')).toHaveLength(0);
         } finally {
@@ -799,15 +818,15 @@ verifies('hosting:resume:close-stream', async (_args: TestArgs) => {
         await vi.waitFor(() => expect(hooksSeen).toHaveLength(1));
         expect(hooksSeen[0]).toEqual({ closeRequestStream: true, closeStandalone: true });
 
-        const postBody = await readSseBody(postRes.body!);
-        const standaloneBody = await readSseBody(standaloneRes.body!);
+        const postBody = await readSseBody(requireBody(postRes));
+        const standaloneBody = await readSseBody(requireBody(standaloneRes));
 
         expect(standaloneBody).toBe('');
         expect(postBody).not.toMatch(/^event: message$/m);
 
-        const primingIdMatch = postBody.match(/^id:\s*(.+)$/m);
-        expect(primingIdMatch?.[1]?.trim()).toBeTruthy();
-        const primingId = primingIdMatch![1].trim();
+        const primingId = postBody.match(/^id:\s*(.+)$/m)?.[1]?.trim();
+        expect(primingId).toBeTruthy();
+        if (!primingId) throw new Error('No priming event id in POST SSE body');
 
         const resumeRes = await fetch(url, {
             method: 'GET',
@@ -818,11 +837,13 @@ verifies('hosting:resume:close-stream', async (_args: TestArgs) => {
 
         releaseTool();
 
-        const resumeBody = await readSseBody(resumeRes.body!);
+        const resumeBody = await readSseBody(requireBody(resumeRes));
         const resumeFrames = parseSseFrames(resumeBody);
         expect(resumeFrames).toHaveLength(1);
 
-        const response: unknown = JSON.parse(resumeFrames[0].data);
+        const resumeFrame = resumeFrames[0];
+        if (!resumeFrame) throw new Error('No frames on the resumed stream');
+        const response: unknown = JSON.parse(resumeFrame.data);
         expect(response).toMatchObject({
             jsonrpc: '2.0',
             id: 'close-1',

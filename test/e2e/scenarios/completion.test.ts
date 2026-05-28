@@ -7,13 +7,14 @@
  * on the partial value and optional context (already-resolved variables).
  */
 
+import { Client } from '@modelcontextprotocol/client';
+import { completable, McpServer, ProtocolError, ProtocolErrorCode, ResourceTemplate, Server } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
-import { Server, completable, McpServer, ResourceTemplate, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
-import { Client } from '@modelcontextprotocol/client';
+
 import { wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const COLORS = ['red', 'green', 'blue', 'rebeccapurple'] as const;
 const FILE_PATHS = ['README.md', 'src/index.ts', 'src/types.ts'] as const;

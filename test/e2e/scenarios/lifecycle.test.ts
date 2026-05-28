@@ -10,17 +10,7 @@
  * names mirror the requirement id in camelCase.
  */
 
-import { expect } from 'vitest';
-import { z } from 'zod/v4';
-import {
-    Server,
-    McpServer,
-    isJSONRPCNotification,
-    isJSONRPCRequest,
-    isJSONRPCResultResponse,
-    LATEST_PROTOCOL_VERSION,
-    SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import type {
     ClientCapabilities,
     Implementation,
@@ -28,12 +18,29 @@ import type {
     JSONRPCMessage,
     ServerCapabilities
 } from '@modelcontextprotocol/server';
-import { Client } from '@modelcontextprotocol/client';
-import { tapWire, wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
-import { verifies } from '../helpers/verifies.js';
+import {
+    isJSONRPCNotification,
+    isJSONRPCRequest,
+    isJSONRPCResultResponse,
+    LATEST_PROTOCOL_VERSION,
+    McpServer,
+    Server,
+    SUPPORTED_PROTOCOL_VERSIONS
+} from '@modelcontextprotocol/server';
+import { expect } from 'vitest';
+import { z } from 'zod/v4';
 
-const OLDER_SUPPORTED_VERSION = SUPPORTED_PROTOCOL_VERSIONS.find(v => v !== LATEST_PROTOCOL_VERSION)!;
+import { tapWire, wire } from '../helpers/index.js';
+import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
+
+function olderSupportedVersion(): string {
+    const older = SUPPORTED_PROTOCOL_VERSIONS.find(v => v !== LATEST_PROTOCOL_VERSION);
+    if (older === undefined) throw new Error('expected SUPPORTED_PROTOCOL_VERSIONS to include a version other than the latest');
+    return older;
+}
+
+const OLDER_SUPPORTED_VERSION = olderSupportedVersion();
 const BOGUS_VERSION = '1999-01-01';
 
 const DEFAULT_INSTRUCTIONS = 'This is the default server instruction set for lifecycle tests.';
@@ -114,9 +121,11 @@ verifies('lifecycle:initialize:basic', async ({ transport }: TestArgs) => {
 
     // Server saw an InitializeRequest with all spec-mandated fields populated.
     expect(initReqs).toHaveLength(1);
-    expect(initReqs[0].protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
-    expect(initReqs[0].clientInfo).toEqual({ name: 'lifecycle-client', version: '0.0.0' });
-    expect(initReqs[0].capabilities).toEqual({ roots: {} });
+    const initParams = initReqs[0];
+    if (!initParams) throw new Error('expected the server to receive exactly one initialize request');
+    expect(initParams.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+    expect(initParams.clientInfo).toEqual({ name: 'lifecycle-client', version: '0.0.0' });
+    expect(initParams.capabilities).toEqual({ roots: {} });
 
     // Client surfaces what the server returned.
     expect(client.getServerVersion()).toEqual({ name: 'lifecycle-server', version: '1.2.3' });
@@ -220,7 +229,9 @@ verifies('lifecycle:version:match', async ({ transport }: TestArgs) => {
     await using _ = await wire(transport, makeServer, client);
 
     expect(initReqs).toHaveLength(1);
-    expect(initReqs[0].protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+    const initParams = initReqs[0];
+    if (!initParams) throw new Error('expected the server to receive exactly one initialize request');
+    expect(initParams.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
 
     // Connect succeeded at the matched version: server state is populated.
     expect(client.getServerCapabilities()).toEqual({});
@@ -239,7 +250,9 @@ verifies('lifecycle:version:downgrade', async ({ transport }: TestArgs) => {
     // accepted the downgrade. There is no transport-agnostic SDK getter for the
     // negotiated version (`client.transport.protocolVersion` is HTTP-only).
     expect(initReqs).toHaveLength(1);
-    expect(initReqs[0].protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+    const initParams = initReqs[0];
+    if (!initParams) throw new Error('expected the server to receive exactly one initialize request');
+    expect(initParams.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
     expect(OLDER_SUPPORTED_VERSION).not.toBe(LATEST_PROTOCOL_VERSION);
     expect(client.getServerCapabilities()).toEqual({});
     expect(client.getServerVersion()).toEqual({ name: 's', version: '0' });

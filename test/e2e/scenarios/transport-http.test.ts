@@ -18,20 +18,21 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { JSONRPCRequestSchema } from '@modelcontextprotocol/core';
+import {
+    LATEST_PROTOCOL_VERSION,
+    McpServer,
+    SUPPORTED_PROTOCOL_VERSIONS,
+    WebStandardStreamableHTTPServerTransport
+} from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-import {
-    McpServer,
-    WebStandardStreamableHTTPServerTransport,
-    LATEST_PROTOCOL_VERSION,
-    SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/server';
-import { JSONRPCRequestSchema } from '@modelcontextprotocol/core';
-import type { JSONRPCRequest } from '@modelcontextprotocol/server';
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { hostPerSession, type HttpHandler } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
+
+import type { HttpHandler } from '../helpers/index.js';
+import { hostPerSession } from '../helpers/index.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 
@@ -43,13 +44,21 @@ function echoServer(): McpServer {
     return s;
 }
 
-const OLDER_VERSION = SUPPORTED_PROTOCOL_VERSIONS.find(v => v !== LATEST_PROTOCOL_VERSION)!;
+const OLDER_VERSION = SUPPORTED_PROTOCOL_VERSIONS.find(v => v !== LATEST_PROTOCOL_VERSION);
 
 interface RecordedRequest {
     method: string;
     url: string;
     headers: Record<string, string>;
     body?: string;
+}
+
+function headersToRecord(headers: Headers): Record<string, string> {
+    const record: Record<string, string> = {};
+    for (const [key, value] of headers.entries()) {
+        record[key.toLowerCase()] = value;
+    }
+    return record;
 }
 
 function recordingFetch(
@@ -59,14 +68,16 @@ function recordingFetch(
     return async (url, init) => {
         const u = typeof url === 'string' ? url : url.toString();
         const req = new Request(u, init);
-        const headers: Record<string, string> = {};
-        req.headers.forEach((v, k) => {
-            headers[k.toLowerCase()] = v;
-        });
         const body = init?.body ? String(init.body) : undefined;
-        records.push({ method: req.method, url: u, headers, body });
+        records.push({ method: req.method, url: u, headers: headersToRecord(req.headers), body });
         return baseHandler(req);
     };
+}
+
+/** Narrows away `undefined` for values the surrounding test has already proven exist (replaces non-null assertions). */
+function defined<T>(value: T | undefined, label: string): T {
+    if (value === undefined) throw new Error(`expected ${label} to be defined`);
+    return value;
 }
 
 verifies('client-transport:http:session-stored', async (_args: TestArgs) => {
@@ -87,12 +98,13 @@ verifies('client-transport:http:session-stored', async (_args: TestArgs) => {
 
         const initReq = records.find(r => r.body?.includes('"method":"initialize"'));
         expect(initReq).toBeDefined();
-        expect(initReq!.headers['mcp-session-id']).toBeUndefined();
+        const initRequest = defined(initReq, 'recorded initialize request');
+        expect(initRequest.headers['mcp-session-id']).toBeUndefined();
 
         await client.ping();
         await client.listTools();
 
-        const initIdx = records.indexOf(initReq!);
+        const initIdx = records.indexOf(initRequest);
         const subsequent = records.slice(initIdx + 1);
         expect(subsequent.length).toBeGreaterThan(0);
         for (const req of subsequent) {
@@ -130,29 +142,21 @@ verifies('typescript:client-transport:http:protocol-version-stored', async (_arg
 
 verifies('client-transport:http:protocol-version-header', async (_args: TestArgs) => {
     const records: RecordedRequest[] = [];
-    let claimedVersion = LATEST_PROTOCOL_VERSION;
 
+    expect(OLDER_VERSION).toBeDefined();
+    expect(OLDER_VERSION).not.toBe(LATEST_PROTOCOL_VERSION);
+    const olderVersion = defined(OLDER_VERSION, 'older supported protocol version');
+
+    // The server only supports an older spec version, so initialize negotiates the connection down to it
     const handle = hostPerSession(() => {
-        const s = echoServer();
-        const origHandlers = (
-            s.server as unknown as { _requestHandlers: Map<string, (req: JSONRPCRequest, extra: unknown) => Promise<unknown>> }
-        )._requestHandlers;
-        const initHandler = origHandlers.get('initialize');
-        if (initHandler) {
-            origHandlers.set('initialize', async (req: JSONRPCRequest, extra: unknown) => {
-                const result = (await initHandler(req, extra)) as { protocolVersion: string };
-                return { ...result, protocolVersion: claimedVersion };
-            });
-        }
+        const s = new McpServer({ name: 's', version: '0' }, { supportedProtocolVersions: [olderVersion] });
+        s.registerTool('echo', { description: 'Echo tool', inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
+            content: [{ type: 'text', text }]
+        }));
         return s;
     });
 
     try {
-        expect(OLDER_VERSION).toBeDefined();
-        expect(OLDER_VERSION).not.toBe(LATEST_PROTOCOL_VERSION);
-
-        claimedVersion = OLDER_VERSION;
-
         const url = new URL('http://in-process/mcp');
         const transport = new StreamableHTTPClientTransport(url, {
             fetch: recordingFetch(records, handle.handleRequest)
@@ -168,13 +172,14 @@ verifies('client-transport:http:protocol-version-header', async (_args: TestArgs
 
         const initIdx = records.findIndex(r => r.body?.includes('"method":"initialize"'));
         expect(initIdx).toBeGreaterThanOrEqual(0);
-        expect(records[initIdx].headers['mcp-protocol-version']).toBeUndefined();
+        const initReq = defined(records[initIdx], 'recorded initialize request');
+        expect(initReq.headers['mcp-protocol-version']).toBeUndefined();
 
         const afterInit = records.slice(initIdx + 1);
         expect(afterInit.length).toBeGreaterThanOrEqual(2);
 
         for (const req of afterInit) {
-            expect(req.headers['mcp-protocol-version']).toBe(OLDER_VERSION);
+            expect(req.headers['mcp-protocol-version']).toBe(olderVersion);
         }
 
         await client.close();
@@ -362,10 +367,7 @@ verifies('client-transport:http:404-surfaces', async (_args: TestArgs) => {
                 const req = new Request(u, init);
                 const sid = req.headers.get('mcp-session-id');
                 if (sid && sid === sessionIdToBreak) {
-                    return new Response(JSON.stringify({ error: 'Session not found' }), {
-                        status: 404,
-                        headers: { 'Content-Type': 'application/json' }
-                    });
+                    return Response.json({ error: 'Session not found' }, { status: 404 });
                 }
                 return handle.handleRequest(req);
             }
@@ -477,12 +479,12 @@ verifies('client-transport:http:no-reconnect-after-close', async (_args: TestArg
         await vi.waitFor(() => expect(getControllers.length).toBe(1));
 
         // Prove the reconnect machinery is live in this setup: an errored GET stream is reconnected after the delay
-        getControllers[0].error(new Error('connection reset'));
+        defined(getControllers[0], 'first GET stream controller').error(new Error('connection reset'));
         await vi.waitFor(() => expect(records.filter(r => r.method === 'GET').length).toBe(2));
         await vi.waitFor(() => expect(getControllers.length).toBe(2));
 
         // Error the second stream so a reconnection is pending, then close before its 200ms delay elapses
-        getControllers[1].error(new Error('connection reset'));
+        defined(getControllers[1], 'second GET stream controller').error(new Error('connection reset'));
         await vi.waitFor(() => expect(transportErrors.filter(e => e.message.includes('SSE stream disconnected')).length).toBe(2), {
             interval: 10
         });
@@ -505,12 +507,10 @@ verifies('client-transport:http:concurrent-streams', async (_args: TestArgs) => 
     const started: string[] = [];
     const gates = new Map<string, { promise: Promise<void>; release: () => void }>();
     for (const text of ['first', 'second', 'third']) {
-        let release!: () => void;
-        const promise = new Promise<void>(resolve => {
-            release = resolve;
-        });
-        gates.set(text, { promise, release });
+        const { promise, resolve } = Promise.withResolvers<void>();
+        gates.set(text, { promise, release: resolve });
     }
+    const releaseGate = (text: string) => defined(gates.get(text), `gate for ${text}`).release();
 
     const handle = hostPerSession(() => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -532,23 +532,24 @@ verifies('client-transport:http:concurrent-streams', async (_args: TestArgs) => 
 
         await client.connect(transport);
 
-        const calls = [
-            client.callTool({ name: 'echo', arguments: { text: 'first' } }),
-            client.callTool({ name: 'echo', arguments: { text: 'second' } }),
-            client.callTool({ name: 'echo', arguments: { text: 'third' } })
-        ];
+        const firstCall = client.callTool({ name: 'echo', arguments: { text: 'first' } });
+        const secondCall = client.callTool({ name: 'echo', arguments: { text: 'second' } });
+        const thirdCall = client.callTool({ name: 'echo', arguments: { text: 'third' } });
 
-        await vi.waitFor(() => expect([...started].sort()).toEqual(['first', 'second', 'third']));
+        await vi.waitFor(() => expect(started.toSorted()).toEqual(['first', 'second', 'third']));
 
         // Release responses in reverse order: each promise must still receive its own call's text
-        gates.get('third')!.release();
-        expect((await calls[2]).content).toEqual([{ type: 'text', text: 'third' }]);
+        releaseGate('third');
+        const thirdResult = await thirdCall;
+        expect(thirdResult.content).toEqual([{ type: 'text', text: 'third' }]);
 
-        gates.get('second')!.release();
-        expect((await calls[1]).content).toEqual([{ type: 'text', text: 'second' }]);
+        releaseGate('second');
+        const secondResult = await secondCall;
+        expect(secondResult.content).toEqual([{ type: 'text', text: 'second' }]);
 
-        gates.get('first')!.release();
-        expect((await calls[0]).content).toEqual([{ type: 'text', text: 'first' }]);
+        releaseGate('first');
+        const firstResult = await firstCall;
+        expect(firstResult.content).toEqual([{ type: 'text', text: 'first' }]);
 
         await client.close();
         await transport.close();
@@ -571,12 +572,8 @@ verifies('client-transport:http:no-reconnect-after-response', async (_args: Test
         const transport = new StreamableHTTPClientTransport(url, {
             fetch: async (u, init) => {
                 const req = new Request(u, init);
-                const headers: Record<string, string> = {};
-                req.headers.forEach((v, k) => {
-                    headers[k.toLowerCase()] = v;
-                });
                 const body = init?.body ? String(init.body) : undefined;
-                records.push({ method: req.method, url: u.toString(), headers, body });
+                records.push({ method: req.method, url: u.toString(), headers: headersToRecord(req.headers), body });
 
                 if (req.method === 'GET') {
                     // Refuse the standalone GET so any further GET could only be a reconnection of the POST stream
@@ -613,9 +610,10 @@ verifies('client-transport:http:no-reconnect-after-response', async (_args: Test
 
         await vi.waitFor(() => expect(records.filter(r => r.method === 'GET').length).toBe(1));
 
-        const result = await client.callTool({ name: 'echo', arguments: { text: 'delivered' } }, undefined, {
-            onresumptiontoken: token => void tokens.push(token)
-        });
+        const result = await client.callTool(
+            { name: 'echo', arguments: { text: 'delivered' } },
+            { onresumptiontoken: token => void tokens.push(token) }
+        );
 
         expect(result.content).toEqual([{ type: 'text', text: 'delivered' }]);
         expect(tokens).toContain(PRIMING_EVENT_ID);
@@ -693,14 +691,15 @@ verifies('client-transport:http:reconnect-retry-value', async (_args: TestArgs) 
 
             await client.connect(transport);
 
-            const call = client.callTool({ name: 'echo', arguments: { text: 'after retry' } }, undefined, {
-                onresumptiontoken: token => void tokens.push(token)
-            });
+            const call = client.callTool(
+                { name: 'echo', arguments: { text: 'after retry' } },
+                { onresumptiontoken: token => void tokens.push(token) }
+            );
 
             await vi.waitFor(() => expect(tokens).toContain('retry-evt-1'));
 
             const disconnectedAt = Date.now();
-            postController!.error(new Error('connection reset'));
+            defined(postController, 'POST SSE stream controller').error(new Error('connection reset'));
 
             await vi.advanceTimersByTimeAsync(RETRY_MS);
             // Bounded waitFor keeps total advanced time under the 1000ms default delay, so only a retry-honoring reconnect can arrive
@@ -709,7 +708,10 @@ verifies('client-transport:http:reconnect-retry-value', async (_args: TestArgs) 
                 interval: 10
             });
 
-            const reconnect = getRecords.find(g => g.lastEventId === 'retry-evt-1')!;
+            const reconnect = defined(
+                getRecords.find(g => g.lastEventId === 'retry-evt-1'),
+                'reconnection GET carrying the retry event id'
+            );
             expect(reconnect.at - disconnectedAt).toBeGreaterThanOrEqual(RETRY_MS);
 
             const result = await call;
@@ -747,7 +749,7 @@ verifies('client-transport:http:reconnect-retry-value', async (_args: TestArgs) 
                 },
                 reconnectionOptions: {
                     initialReconnectionDelay: 100,
-                    maxReconnectionDelay: 10000,
+                    maxReconnectionDelay: 10_000,
                     reconnectionDelayGrowFactor: 2,
                     maxRetries: 2
                 }
@@ -760,19 +762,21 @@ verifies('client-transport:http:reconnect-retry-value', async (_args: TestArgs) 
             await vi.waitFor(() => expect(firstGetController).toBeDefined());
 
             const disconnectedAt = Date.now();
-            firstGetController!.error(new Error('connection reset'));
+            defined(firstGetController, 'first GET stream controller').error(new Error('connection reset'));
 
             await vi.waitFor(() => expect(getRecords).toHaveLength(2));
-            expect(getRecords[1].at - disconnectedAt).toBeGreaterThanOrEqual(100);
+            const secondGet = defined(getRecords[1], 'second GET record');
+            expect(secondGet.at - disconnectedAt).toBeGreaterThanOrEqual(100);
 
             await vi.waitFor(() => expect(getRecords).toHaveLength(3));
-            expect(getRecords[2].at - getRecords[1].at).toBeGreaterThanOrEqual(200);
+            const thirdGet = defined(getRecords[2], 'third GET record');
+            expect(thirdGet.at - secondGet.at).toBeGreaterThanOrEqual(200);
 
             await vi.waitFor(() =>
                 expect(transportErrors.some(e => e.message.includes('Maximum reconnection attempts (2) exceeded'))).toBe(true)
             );
 
-            await vi.advanceTimersByTimeAsync(30000);
+            await vi.advanceTimersByTimeAsync(30_000);
             expect(getRecords).toHaveLength(3);
 
             await client.close();
@@ -798,14 +802,10 @@ verifies('client-transport:http:reconnect-get', async (_args: TestArgs) => {
         const transport = new StreamableHTTPClientTransport(url, {
             fetch: async (u, init) => {
                 const req = new Request(u, init);
-                const headers: Record<string, string> = {};
-                req.headers.forEach((v, k) => {
-                    headers[k.toLowerCase()] = v;
-                });
                 records.push({
                     method: req.method,
                     url: u.toString(),
-                    headers,
+                    headers: headersToRecord(req.headers),
                     body: init?.body ? String(init.body) : undefined
                 });
 
@@ -842,16 +842,19 @@ verifies('client-transport:http:reconnect-get', async (_args: TestArgs) => {
 
         await client.connect(transport);
 
-        await vi.waitFor(() => records.filter(r => r.method === 'GET').length >= 1);
+        await vi.waitFor(() => expect(records.filter(r => r.method === 'GET').length).toBeGreaterThanOrEqual(1));
 
-        const firstGet = records.find(r => r.method === 'GET');
-        expect(firstGet!.headers['last-event-id']).toBeUndefined();
+        const firstGet = defined(
+            records.find(r => r.method === 'GET'),
+            'first GET request'
+        );
+        expect(firstGet.headers['last-event-id']).toBeUndefined();
 
         await vi.advanceTimersByTimeAsync(100);
 
-        await vi.waitFor(() => records.filter(r => r.method === 'GET').length >= 2);
+        await vi.waitFor(() => expect(records.filter(r => r.method === 'GET').length).toBeGreaterThanOrEqual(2));
 
-        const secondGet = records.filter(r => r.method === 'GET')[1];
+        const secondGet = defined(records.filter(r => r.method === 'GET')[1], 'second GET request');
         expect(secondGet.headers['last-event-id']).toBe(FIRST_EVENT_ID);
 
         await client.close();
@@ -880,10 +883,7 @@ verifies('client-transport:http:reconnect-post-priming', async (_args: TestArgs)
         const transport = new StreamableHTTPClientTransport(url, {
             fetch: async (u, init) => {
                 const req = new Request(u, init);
-                const headers: Record<string, string> = {};
-                req.headers.forEach((v, k) => {
-                    headers[k.toLowerCase()] = v;
-                });
+                const headers = headersToRecord(req.headers);
                 const body = init?.body ? String(init.body) : undefined;
                 records.push({ method: req.method, url: u.toString(), headers, body });
 
@@ -953,18 +953,21 @@ verifies('client-transport:http:reconnect-post-priming', async (_args: TestArgs)
         );
 
         await vi.waitFor(() => expect(unprimedController).toBeDefined());
-        unprimedController!.error(new Error('connection reset before priming'));
+        defined(unprimedController, 'un-primed POST stream controller').error(new Error('connection reset before priming'));
         await vi.waitFor(() => expect(transportErrors.some(e => e.message.includes('SSE stream disconnected'))).toBe(true));
 
         // POST stream errored after the priming event: must reconnect with Last-Event-ID set to the priming id
-        const primedCall = client.callTool({ name: 'echo', arguments: { text: 'with priming' } }, undefined, {
-            onresumptiontoken: token => {
-                primedTokens.push(token);
+        const primedCall = client.callTool(
+            { name: 'echo', arguments: { text: 'with priming' } },
+            {
+                onresumptiontoken: token => {
+                    primedTokens.push(token);
+                }
             }
-        });
+        );
 
         await vi.waitFor(() => expect(primedTokens).toContain(PRIMING_EVENT_ID));
-        primedController!.error(new Error('connection reset after priming'));
+        defined(primedController, 'primed POST stream controller').error(new Error('connection reset after priming'));
 
         await vi.waitFor(() =>
             expect(records.filter(r => r.method === 'GET' && r.headers['last-event-id'] === PRIMING_EVENT_ID).length).toBe(1)
@@ -1019,12 +1022,15 @@ verifies('client-transport:http:resume-stream-api', async (_args: TestArgs) => {
         expect(sessionId).toBeDefined();
 
         const tokens: string[] = [];
-        await client.callTool({ name: 'progress', arguments: { steps: 3 } }, undefined, {
-            onprogress: () => {},
-            onresumptiontoken: id => {
-                if (id) tokens.push(id);
+        await client.callTool(
+            { name: 'progress', arguments: { steps: 3 } },
+            {
+                onprogress: () => {},
+                onresumptiontoken: id => {
+                    if (id) tokens.push(id);
+                }
             }
-        });
+        );
 
         if (tokens.length === 0) {
             await client.close();
@@ -1032,7 +1038,7 @@ verifies('client-transport:http:resume-stream-api', async (_args: TestArgs) => {
             return;
         }
 
-        const resumeFrom = tokens[0];
+        const resumeFrom = defined(tokens[0], 'first resumption token');
         const replayed: string[] = [];
 
         const beforeResume = records.length;
@@ -1042,8 +1048,9 @@ verifies('client-transport:http:resume-stream-api', async (_args: TestArgs) => {
 
         const resumeReq = records.slice(beforeResume).find(r => r.method === 'GET');
         expect(resumeReq).toBeDefined();
-        expect(resumeReq!.headers['last-event-id']).toBe(resumeFrom);
-        expect(resumeReq!.headers['mcp-session-id']).toBe(sessionId);
+        const resumeRequest = defined(resumeReq, 'resume GET request');
+        expect(resumeRequest.headers['last-event-id']).toBe(resumeFrom);
+        expect(resumeRequest.headers['mcp-session-id']).toBe(sessionId);
 
         await client.close();
         await transport.close();
@@ -1146,8 +1153,8 @@ verifies('client-transport:http:session-404-reinitialize', async (_args: TestArg
 
         const initReqs = records.filter(r => r.body?.includes('"method":"initialize"'));
         expect(initReqs.length).toBe(2);
-        expect(initReqs[0].headers['mcp-session-id']).toBeUndefined();
-        expect(initReqs[1].headers['mcp-session-id']).toBeUndefined();
+        expect(defined(initReqs[0], 'first initialize request').headers['mcp-session-id']).toBeUndefined();
+        expect(defined(initReqs[1], 'second initialize request').headers['mcp-session-id']).toBeUndefined();
 
         await client.close();
         await transport.close();

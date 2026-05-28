@@ -6,15 +6,15 @@
  * the server when roots change via `notifications/roots/list_changed`.
  */
 
-import { expect, vi } from 'vitest';
-
-import { z } from 'zod/v4';
-import { McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
-import type { ListRootsResult } from '@modelcontextprotocol/server';
 import { Client } from '@modelcontextprotocol/client';
+import type { ListRootsResult } from '@modelcontextprotocol/server';
+import { McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
+import { expect, vi } from 'vitest';
+import { z } from 'zod/v4';
+
 import { wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 verifies('roots:list:basic', async ({ transport }: TestArgs) => {
     const received: Array<{ method: string }> = [];
@@ -42,7 +42,7 @@ verifies('roots:list:basic', async ({ transport }: TestArgs) => {
     const result = await client.callTool({ name: 'list-roots', arguments: {} });
 
     expect(received).toHaveLength(1);
-    expect(received[0].method).toBe('roots/list');
+    expect(received[0]?.method).toBe('roots/list');
 
     expect(result.isError).toBeFalsy();
     expect(result.structuredContent).toMatchObject({
@@ -74,7 +74,7 @@ verifies('roots:list:empty', async ({ transport }: TestArgs) => {
 
     expect(result.isError).toBeFalsy();
     expect(results).toHaveLength(1);
-    expect(results[0].roots).toEqual([]);
+    expect(results[0]?.roots).toEqual([]);
 });
 
 verifies('roots:list:client-error', async ({ transport }: TestArgs) => {
@@ -85,8 +85,8 @@ verifies('roots:list:client-error', async ({ transport }: TestArgs) => {
             try {
                 await s.server.listRoots();
                 return { content: [{ type: 'text', text: 'unexpected success' }] };
-            } catch (e) {
-                if (e instanceof ProtocolError) failures.push(e);
+            } catch (error) {
+                if (error instanceof ProtocolError) failures.push(error);
                 return { content: [{ type: 'text', text: 'rejected' }] };
             }
         });
@@ -102,11 +102,11 @@ verifies('roots:list:client-error', async ({ transport }: TestArgs) => {
 
     const result = await client.callTool({ name: 'list-roots', arguments: {} });
 
-    // The handler observed a rejection (not a hang or a malformed result), and it was an McpError.
+    // The handler observed a rejection (not a hang or a malformed result), and it was a ProtocolError.
     expect(result.content).toEqual([{ type: 'text', text: 'rejected' }]);
     expect(failures).toHaveLength(1);
-    expect(failures[0].code).toBe(ProtocolErrorCode.InternalError);
-    expect(failures[0].message).toMatch(/roots provider crashed/);
+    expect(failures[0]?.code).toBe(ProtocolErrorCode.InternalError);
+    expect(failures[0]?.message).toMatch(/roots provider crashed/);
 });
 
 verifies('roots:list:not-supported', async ({ transport }: TestArgs) => {
@@ -117,8 +117,8 @@ verifies('roots:list:not-supported', async ({ transport }: TestArgs) => {
             try {
                 await s.server.listRoots();
                 return { content: [{ type: 'text', text: 'unexpected success' }] };
-            } catch (e) {
-                if (e instanceof ProtocolError) failures.push(e);
+            } catch (error) {
+                if (error instanceof ProtocolError) failures.push(error);
                 return { content: [{ type: 'text', text: 'rejected' }] };
             }
         });
@@ -134,15 +134,14 @@ verifies('roots:list:not-supported', async ({ transport }: TestArgs) => {
 
     expect(result.content).toEqual([{ type: 'text', text: 'rejected' }]);
     expect(failures).toHaveLength(1);
-    expect(failures[0].code).toBe(ProtocolErrorCode.MethodNotFound);
-    expect(failures[0].message).toMatch(/Method not found/);
+    expect(failures[0]?.code).toBe(ProtocolErrorCode.MethodNotFound);
+    expect(failures[0]?.message).toMatch(/Method not found/);
 });
 
 verifies('roots:list-changed', async ({ transport }: TestArgs) => {
     const refetched: ListRootsResult[] = [];
-    let server!: McpServer;
     const makeServer = () => {
-        server = new McpServer({ name: 's', version: '0' });
+        const server = new McpServer({ name: 's', version: '0' });
         server.server.setNotificationHandler('notifications/roots/list_changed', async () => {
             refetched.push(await server.server.listRoots());
         });
@@ -163,10 +162,10 @@ verifies('roots:list-changed', async ({ transport }: TestArgs) => {
     ];
     await client.sendRootsListChanged();
     await vi.waitFor(() => expect(refetched).toHaveLength(1));
-    expect(refetched[0].roots).toEqual(roots);
+    expect(refetched[0]?.roots).toEqual(roots);
 
     roots = [{ uri: 'file:///home/user/projects/b', name: 'B' }];
     await client.sendRootsListChanged();
     await vi.waitFor(() => expect(refetched).toHaveLength(2));
-    expect(refetched[1].roots).toEqual(roots);
+    expect(refetched[1]?.roots).toEqual(roots);
 });

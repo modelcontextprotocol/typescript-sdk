@@ -5,10 +5,11 @@
  * closes cleanly. Used by hosting-express.ts scenarios.
  */
 
-import express, { Express, RequestHandler } from 'express';
 import type { Server as HttpServer } from 'node:http';
 
 import { hostHeaderValidation } from '@modelcontextprotocol/express';
+import type { Express, RequestHandler } from 'express';
+import express from 'express';
 
 export interface ExpressHost extends AsyncDisposable {
     readonly baseUrl: URL;

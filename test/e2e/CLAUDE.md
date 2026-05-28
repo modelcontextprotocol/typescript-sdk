@@ -1,16 +1,19 @@
 # E2E test suite
 
-Conformance-style tests for the SDK's public surface. `requirements.ts` is the manifest: every behavior the SDK must satisfy, linked to the test cases that prove it. `matrix.test.ts` runs each over `ALL_TRANSPORTS`.
+Conformance-style tests for the SDK's public surface. `requirements.ts` is a pure-data manifest: every behavior the SDK must satisfy, with its spec/source link. Test files in `scenarios/` cite the requirement id(s) they prove via `verifies()` (`helpers/verifies.ts`), which
+registers one cell per applicable (transport, spec version). `coverage.test.ts` statically checks that every non-deferred requirement is cited and that the manifest is internally consistent.
 
 ## Writing a test
 
-A test is an exported async function in `scenarios/<area>.ts`:
+Add a `verifies()` call with an anonymous async body to `scenarios/<area>.test.ts`:
 
 ```ts
-export async function toolsCallContentText(transport: Transport) {
+verifies('tools:call:content:text', async ({ transport }) => {
     const makeServer = () => {
         const s = new McpServer({ name: 't', version: '0' });
-        s.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({ content: [{ type: 'text', text }] }));
+        s.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
+            content: [{ type: 'text', text }]
+        }));
         return s;
     };
     const client = new Client({ name: 'c', version: '0' });
@@ -19,45 +22,52 @@ export async function toolsCallContentText(transport: Transport) {
 
     const r = await client.callTool({ name: 'echo', arguments: { text: 'hi' } });
     expect(r.content).toEqual([{ type: 'text', text: 'hi' }]);
-}
+});
 ```
 
-Self-contained: build server inline (factory), build client inline, `wire()`, assert. No shared fixture files.
+Self-contained: build server inline (factory), build client inline, `wire()`, assert. No shared fixture files. Pass an array of ids when one body genuinely proves several requirements; pass `{ title: '...' }` as the third argument only when a requirement needs more than one body
+(the title is how knownFailures target a specific body).
 
-Then link it in `requirements.ts`:
+The corresponding manifest entry is pure data:
 
 ```ts
 'tools:call:content:text': {
     source: 'https://modelcontextprotocol.io/...',
-    behavior: 'tools/call returns content[] with type:text...',
-    tests: [tools.toolsCallContentText]
+    behavior: 'tools/call returns content[] with type:text...'
 },
 ```
 
-## knownFailures and transport restrictions
+## knownFailures, deferred, and transport restrictions
 
-When a test asserts spec-correct behavior the SDK doesn't yet implement:
+When a test asserts required behavior the SDK does not satisfy, keep the test exact and record it in the manifest:
 
 ```ts
-knownFailures: [{ test: tools.toolsCallUnknownName, note: 'McpServer wraps as isError; spec says JSON-RPC error' }];
+knownFailures: [{ note: 'changed in v2: ...' /* optional: test: '<verifies title>', transport, specVersion */ }];
 ```
 
-`matrix.test.ts` runs it as `test.fails()` — passes when it fails as expected, fails when the SDK is fixed (then remove the entry).
+`verifies()` runs matching cells as `test.fails()` — they pass while the SDK misbehaves and fail once it is fixed (then remove the entry). When the behavior cannot be expressed against the public surface at all (e.g. an API removed in v2), mark the requirement
+`deferred: '<reason>'` instead — deferred ids must not be cited by any `verifies()` call.
 
-When a transport structurally cannot express the behavior (e.g., server→client roundtrip on stateless hosting), restrict the requirement itself rather than skipping tests:
+When a transport structurally cannot express the behavior (e.g. server→client roundtrip on stateless hosting), restrict the requirement itself rather than skipping tests:
 
 ```ts
 transports: STATEFUL_TRANSPORTS, // or an explicit list
 note: 'stateless hosting has no server→client back-channel'
 ```
 
+`addedInSpecVersion` / `removedInSpecVersion` bound the spec versions a requirement applies to; a behavior changed by a spec release gets a sibling entry linked via `supersedes`.
+
 ## Running
 
+From the repo root (the suite is the `@modelcontextprotocol/test-e2e` workspace package):
+
 ```bash
-npx vitest run test/e2e                       # all
-npx vitest run test/e2e/tools.test.ts         # one area
-npx vitest run test/e2e -t 'tools:'           # one requirement-id prefix
-npx vitest run test/e2e/coverage.test.ts      # gate: every req id is cited by a verifies() test
+pnpm --filter @modelcontextprotocol/test-e2e test                                    # all
+pnpm --filter @modelcontextprotocol/test-e2e exec vitest run scenarios/tools.test.ts # one area
+pnpm --filter @modelcontextprotocol/test-e2e exec vitest run -t 'tools:'             # one requirement-id prefix
+pnpm --filter @modelcontextprotocol/test-e2e exec vitest run coverage.test.ts        # manifest gates
+pnpm --filter @modelcontextprotocol/test-e2e typecheck
+pnpm --filter @modelcontextprotocol/test-e2e lint
 ```
 
 Slugs prefixed `typescript:` are TypeScript-SDK-specific requirements (they describe this SDK's own API surface and intentionally have no shared cross-SDK meaning); unprefixed slugs share their id and behavior wording with the Python interaction suite where both cover the

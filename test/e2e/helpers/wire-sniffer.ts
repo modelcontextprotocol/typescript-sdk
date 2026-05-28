@@ -1,12 +1,19 @@
 import {
+    ClientNotificationSchema,
+    ClientRequestSchema,
+    ClientResultSchema,
+    ServerNotificationSchema,
+    ServerRequestSchema,
+    ServerResultSchema
+} from '@modelcontextprotocol/core';
+import type { Transport } from '@modelcontextprotocol/server';
+import {
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
-    specTypeSchemas,
     isSpecType
 } from '@modelcontextprotocol/server';
-import type { Transport } from '@modelcontextprotocol/server';
 
 export type WireParty = 'client' | 'server';
 
@@ -19,28 +26,29 @@ export interface SnifferOptions {
 
 const OUTBOUND = {
     client: {
-        request: specTypeSchemas.ClientRequest,
-        notification: specTypeSchemas.ClientNotification,
-        result: specTypeSchemas.ClientResult
+        request: ClientRequestSchema,
+        notification: ClientNotificationSchema,
+        result: ClientResultSchema
     },
     server: {
-        request: specTypeSchemas.ServerRequest,
-        notification: specTypeSchemas.ServerNotification,
-        result: specTypeSchemas.ServerResult
+        request: ServerRequestSchema,
+        notification: ServerNotificationSchema,
+        result: ServerResultSchema
     }
 } as const;
 
 /** Method names valid as an outbound request/notification for each party. */
 const SPEC_METHODS: Record<WireParty, { request: Set<string>; notification: Set<string> }> = {
-    client: { request: methodSet(specTypeSchemas.ClientRequest), notification: methodSet(specTypeSchemas.ClientNotification) },
-    server: { request: methodSet(specTypeSchemas.ServerRequest), notification: methodSet(specTypeSchemas.ServerNotification) }
+    client: { request: methodSet(ClientRequestSchema), notification: methodSet(ClientNotificationSchema) },
+    server: { request: methodSet(ServerRequestSchema), notification: methodSet(ServerNotificationSchema) }
 };
 
-function methodSet(union: { options?: ReadonlyArray<{ shape?: { method?: { value?: string } } }> }): Set<string> {
+function methodSet(union: { options?: ReadonlyArray<{ shape?: { method?: { values?: ReadonlySet<unknown> } } }> }): Set<string> {
     const out = new Set<string>();
     for (const member of union.options ?? []) {
-        const v = member.shape?.method?.value;
-        if (typeof v === 'string') out.add(v);
+        for (const v of member.shape?.method?.values ?? []) {
+            if (typeof v === 'string') out.add(v);
+        }
     }
     return out;
 }

@@ -11,14 +11,15 @@
  * tier.
  */
 
+import { Client } from '@modelcontextprotocol/client';
+import type { LoggingLevel } from '@modelcontextprotocol/server';
+import { isJSONRPCRequest, McpServer, ProtocolError, ProtocolErrorCode, Server, specTypeSchemas } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-import { Server, McpServer, isJSONRPCRequest, ProtocolError, ProtocolErrorCode, specTypeSchemas } from '@modelcontextprotocol/server';
-import type { LoggingLevel } from '@modelcontextprotocol/server';
-import { Client } from '@modelcontextprotocol/client';
+
 import { tapWire, wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const ALL_LEVELS: LoggingLevel[] = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'];
 
@@ -45,17 +46,15 @@ verifies('logging:message:fields', async ({ transport }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} } });
         s.registerTool('emit-logs', { inputSchema: z.object({ withLogger: z.boolean().optional() }) }, async ({ withLogger }, ctx) => {
-            if (withLogger) {
-                await ctx.mcpReq.notify({
-                    method: 'notifications/message',
-                    params: { level: 'info', logger: 'test-logger', data: 'with-logger' }
-                });
-            } else {
-                await ctx.mcpReq.notify({
-                    method: 'notifications/message',
-                    params: { level: 'warning', data: 'without-logger' }
-                });
-            }
+            await (withLogger
+                ? ctx.mcpReq.notify({
+                      method: 'notifications/message',
+                      params: { level: 'info', logger: 'test-logger', data: 'with-logger' }
+                  })
+                : ctx.mcpReq.notify({
+                      method: 'notifications/message',
+                      params: { level: 'warning', data: 'without-logger' }
+                  }));
             for (const level of ALL_LEVELS) {
                 await ctx.mcpReq.notify({
                     method: 'notifications/message',
@@ -153,13 +152,14 @@ verifies(
     'logging:set-level:invalid-level',
     async ({ transport }: TestArgs) => {
         const client = newClient();
-        await using _ = await wire(transport, loggingServer, client);
+        // strictValidation off: the invalid level must actually reach the server for it to reject.
+        await using _ = await wire(transport, loggingServer, client, { strictValidation: false });
 
         const tap = tapWire(client);
 
         // @ts-expect-error — sending an invalid enum value is the point of this test.
         await expect(client.setLoggingLevel('superduper')).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
-        expect(ProtocolErrorCode.InvalidParams).toBe(-32602);
+        expect(ProtocolErrorCode.InvalidParams).toBe(-32_602);
 
         const sent = tap.sent.filter(m => isJSONRPCRequest(m) && m.method === 'logging/setLevel');
         expect(sent).toHaveLength(1);
@@ -175,18 +175,13 @@ verifies(
         // The user-shaped manual implementation of spec-correct invalid-level handling:
         // a handler registered with a loose params schema so the dispatch-time parse
         // succeeds, validating the level itself and throwing InvalidParams.
-        const LooseSetLevelRequestSchema = specTypeSchemas.Request.extend({
-            method: z.literal('logging/setLevel'),
-            params: z.object({ level: z.string() })
-        });
-
         const applied: LoggingLevel[] = [];
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { logging: {} } });
-            s.setRequestHandler(LooseSetLevelRequestSchema, req => {
-                const parsed = specTypeSchemas.LoggingLevel['~standard'].validate(req.params.level);
+            s.setRequestHandler('logging/setLevel', { params: z.object({ level: z.string() }) }, params => {
+                const parsed = specTypeSchemas.LoggingLevel['~standard'].validate(params.level);
                 if (parsed.issues !== undefined) {
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid logging level: ${req.params.level}`);
+                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid logging level: ${params.level}`);
                 }
                 applied.push(parsed.value);
                 return {};

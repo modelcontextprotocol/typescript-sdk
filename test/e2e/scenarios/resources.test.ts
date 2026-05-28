@@ -8,13 +8,14 @@
  * over the same array.
  */
 
-import { expect, vi } from 'vitest';
-import { Server, McpServer, ResourceTemplate, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
-import type { RegisteredResource } from '@modelcontextprotocol/server';
 import { Client } from '@modelcontextprotocol/client';
+import type { RegisteredResource } from '@modelcontextprotocol/server';
+import { McpServer, ProtocolError, ProtocolErrorCode, ResourceTemplate, Server } from '@modelcontextprotocol/server';
+import { expect, vi } from 'vitest';
+
 import { wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const FIXTURE_LAST_MODIFIED = '2024-01-15T10:30:00.000Z';
@@ -41,7 +42,7 @@ verifies('resources:list:basic', async ({ transport }: TestArgs) => {
     const result = await client.listResources();
 
     expect(result.resources).toHaveLength(3);
-    expect(result.resources.map(r => r.uri).sort()).toEqual(['file:///annotated.md', 'file:///fixture.png', 'file:///fixture.txt']);
+    expect(result.resources.map(r => r.uri).toSorted()).toEqual(['file:///annotated.md', 'file:///fixture.png', 'file:///fixture.txt']);
 
     expect(result.resources.find(r => r.uri === 'file:///fixture.txt')).toMatchObject({
         uri: 'file:///fixture.txt',
@@ -108,7 +109,7 @@ verifies(
             const s = new Server({ name: 's', version: '0' }, { capabilities: { resources: { listChanged: true } } });
             s.setRequestHandler('resources/list', req => {
                 cursorsReceived.push(req.params?.cursor);
-                const start = req.params?.cursor === undefined ? 0 : parseInt(req.params.cursor, 10);
+                const start = req.params?.cursor === undefined ? 0 : Number.parseInt(req.params.cursor, 10);
                 const slice = all.slice(start, start + PAGE);
                 return {
                     resources: slice.map(uri => ({ uri, name: uri, mimeType: 'text/plain' })),
@@ -164,6 +165,7 @@ verifies('resources:read:text', async ({ transport }: TestArgs) => {
     expect(result.contents).toHaveLength(1);
 
     const [entry] = result.contents;
+    if (entry === undefined) throw new Error('expected exactly one content entry');
     expect(entry.uri).toBe('file:///fixture.txt');
     expect(entry.mimeType).toBe('text/plain');
     expect('text' in entry && entry.text).toBe('hello, world');
@@ -201,7 +203,7 @@ verifies('resources:read:unknown-uri', async ({ transport }: TestArgs) => {
     await using _ = await wire(transport, makeServer, client);
 
     await expect(client.readResource({ uri: 'file:///no-such-resource' })).rejects.toMatchObject({
-        code: -32002,
+        code: -32_002,
         message: expect.stringMatching(/not found|unknown/i)
     });
 });
@@ -253,18 +255,21 @@ verifies('resources:list-changed', async ({ transport }: TestArgs) => {
 
     await using _ = await wire(transport, makeServer, client);
 
-    expect((await client.listResources()).resources).toHaveLength(1);
+    const initial = await client.listResources();
+    expect(initial.resources).toHaveLength(1);
 
     const handle = server.registerResource('dynamic', 'file:///probe.txt', { mimeType: 'text/plain' }, () => ({
         contents: [{ uri: 'file:///probe.txt', mimeType: 'text/plain', text: 'probe' }]
     }));
     await vi.waitFor(() => expect(listChanged).toBeGreaterThanOrEqual(1));
-    expect((await client.listResources()).resources).toHaveLength(2);
+    const afterAddList = await client.listResources();
+    expect(afterAddList.resources).toHaveLength(2);
     const afterAdd = listChanged;
 
     handle.remove();
     await vi.waitFor(() => expect(listChanged).toBeGreaterThan(afterAdd));
-    expect((await client.listResources()).resources).toHaveLength(1);
+    const afterRemoveList = await client.listResources();
+    expect(afterRemoveList.resources).toHaveLength(1);
 });
 
 verifies('resources:annotations', async ({ transport }: TestArgs) => {
@@ -296,7 +301,7 @@ verifies('resources:annotations', async ({ transport }: TestArgs) => {
     const { resources } = await client.listResources();
     const resource = resources.find(r => r.uri === 'file:///annotated.md');
     expect(resource).toBeDefined();
-    expect(resource!.annotations).toEqual({
+    expect(resource?.annotations).toEqual({
         audience: ['user', 'assistant'],
         priority: 0.8,
         lastModified: FIXTURE_LAST_MODIFIED
@@ -305,11 +310,11 @@ verifies('resources:annotations', async ({ transport }: TestArgs) => {
     const { resourceTemplates } = await client.listResourceTemplates();
     const template = resourceTemplates.find(t => t.name === 'greet');
     expect(template).toBeDefined();
-    expect(template!.annotations).toEqual({ audience: ['user'], priority: 0.5, lastModified: FIXTURE_LAST_MODIFIED });
+    expect(template?.annotations).toEqual({ audience: ['user'], priority: 0.5, lastModified: FIXTURE_LAST_MODIFIED });
 
     const result = await client.readResource({ uri: 'file:///annotated.md' });
     expect(result.contents).toHaveLength(1);
-    expect(result.contents[0].uri).toBe('file:///annotated.md');
+    expect(result.contents[0]?.uri).toBe('file:///annotated.md');
 });
 
 verifies('resources:capability:declared', async ({ transport }: TestArgs) => {
@@ -325,7 +330,8 @@ verifies('resources:capability:declared', async ({ transport }: TestArgs) => {
 
     const caps = client.getServerCapabilities();
     expect(caps?.resources).toBeDefined();
-    expect((await client.listResources()).resources).toHaveLength(1);
+    const list = await client.listResources();
+    expect(list.resources).toHaveLength(1);
     expect(caps?.resources?.listChanged).toBe(true);
 });
 
@@ -458,7 +464,7 @@ verifies('resources:templates:list', async ({ transport }: TestArgs) => {
     const result = await client.listResourceTemplates();
 
     expect(result.resourceTemplates).toHaveLength(2);
-    expect(result.resourceTemplates.map(t => t.name).sort()).toEqual(['greet', 'listed']);
+    expect(result.resourceTemplates.map(t => t.name).toSorted()).toEqual(['greet', 'listed']);
 
     expect(result.resourceTemplates.find(t => t.name === 'greet')).toMatchObject({
         name: 'greet',
@@ -521,7 +527,7 @@ verifies(
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { resources: { listChanged: true } } });
             s.setRequestHandler('resources/templates/list', req => {
-                const start = req.params?.cursor === undefined ? 0 : parseInt(req.params.cursor, 10);
+                const start = req.params?.cursor === undefined ? 0 : Number.parseInt(req.params.cursor, 10);
                 const slice = all.slice(start, start + PAGE);
                 return {
                     resourceTemplates: slice.map(uriTemplate => ({ uriTemplate, name: uriTemplate, mimeType: 'text/plain' })),
@@ -599,13 +605,13 @@ verifies('mcpserver:resource:handle-update-remove', async ({ transport }: TestAr
     });
     await using _ = await wire(transport, makeServer, client);
 
-    expect((await client.listResources()).resources).toHaveLength(1);
-    const before = (await client.listResources()).resources.find(r => r.uri === 'file:///probe.txt');
+    const initialList = await client.listResources();
+    expect(initialList.resources).toHaveLength(1);
+    const before = initialList.resources.find(r => r.uri === 'file:///probe.txt');
     expect(before).toBeDefined();
-    expect(before!.name).toBe('probe');
-    expect((await client.readResource({ uri: 'file:///probe.txt' })).contents).toEqual([
-        { uri: 'file:///probe.txt', mimeType: 'text/plain', text: 'v1' }
-    ]);
+    expect(before?.name).toBe('probe');
+    const initialRead = await client.readResource({ uri: 'file:///probe.txt' });
+    expect(initialRead.contents).toEqual([{ uri: 'file:///probe.txt', mimeType: 'text/plain', text: 'v1' }]);
 
     const beforeUpdate = listChanged;
     handle.update({
@@ -613,22 +619,24 @@ verifies('mcpserver:resource:handle-update-remove', async ({ transport }: TestAr
         callback: () => ({ contents: [{ uri: 'file:///probe.txt', mimeType: 'text/plain', text: 'v2' }] })
     });
     await vi.waitFor(() => expect(listChanged).toBeGreaterThan(beforeUpdate));
-    expect((await client.listResources()).resources).toHaveLength(1);
+    const updatedList = await client.listResources();
+    expect(updatedList.resources).toHaveLength(1);
 
-    const after = (await client.listResources()).resources.find(r => r.uri === 'file:///probe.txt');
+    const after = updatedList.resources.find(r => r.uri === 'file:///probe.txt');
     expect(after).toBeDefined();
-    expect(after!.name).toBe('probe (v2)');
-    expect((await client.readResource({ uri: 'file:///probe.txt' })).contents).toEqual([
-        { uri: 'file:///probe.txt', mimeType: 'text/plain', text: 'v2' }
-    ]);
+    expect(after?.name).toBe('probe (v2)');
+    const updatedRead = await client.readResource({ uri: 'file:///probe.txt' });
+    expect(updatedRead.contents).toEqual([{ uri: 'file:///probe.txt', mimeType: 'text/plain', text: 'v2' }]);
 
     const beforeRemove = listChanged;
     handle.remove();
     await vi.waitFor(() => expect(listChanged).toBeGreaterThan(beforeRemove));
-    expect((await client.listResources()).resources).toHaveLength(0);
+    const removedList = await client.listResources();
+    expect(removedList.resources).toHaveLength(0);
 
     await expect(client.readResource({ uri: 'file:///probe.txt' })).rejects.toBeInstanceOf(ProtocolError);
-    const gone = (await client.listResources()).resources.find(r => r.uri === 'file:///probe.txt');
+    const finalList = await client.listResources();
+    const gone = finalList.resources.find(r => r.uri === 'file:///probe.txt');
     expect(gone).toBeUndefined();
 });
 
@@ -684,7 +692,7 @@ verifies('mcpserver:resource:template-list-callback', async ({ transport }: Test
     expect(resources.some(r => r.uri === 'file:///static.txt')).toBe(true);
 
     const listed = resources.filter(r => r.uri.startsWith('listed://items/'));
-    expect(listed.map(r => r.uri).sort()).toEqual(['listed://items/alpha', 'listed://items/beta', 'listed://items/gamma']);
+    expect(listed.map(r => r.uri).toSorted()).toEqual(['listed://items/alpha', 'listed://items/beta', 'listed://items/gamma']);
 
     const alpha = listed.find(r => r.uri === 'listed://items/alpha');
     expect(alpha).toMatchObject({
@@ -735,59 +743,5 @@ verifies('mcpserver:resource:metadata-override', async ({ transport }: TestArgs)
         name: 'gamma',
         description: 'Per-resource override.',
         mimeType: 'application/json'
-    });
-});
-
-verifies('mcpserver:resource:legacy-overload', async ({ transport }: TestArgs) => {
-    const makeServer = () => {
-        const s = new McpServer({ name: 's', version: '0' });
-        // (name, uri, readCallback)
-        s.registerResource('plain', 'e2e://legacy/plain', {}, uri => ({
-            contents: [{ uri: uri.href, text: 'plain' }]
-        }));
-        // (name, uri, metadata, readCallback)
-        s.registerResource('with-meta', 'e2e://legacy/meta', { description: 'meta', mimeType: 'text/plain' }, uri => ({
-            contents: [{ uri: uri.href, text: 'meta' }]
-        }));
-        // (name, template, readCallback)
-        s.registerResource('tmpl', new ResourceTemplate('e2e://legacy/t/{id}', { list: undefined }), {}, (uri, { id }) => ({
-            contents: [{ uri: uri.href, text: `t:${String(id)}` }]
-        }));
-        // (name, template, metadata, readCallback)
-        s.registerResource(
-            'tmpl-meta',
-            new ResourceTemplate('e2e://legacy/tm/{id}', { list: undefined }),
-            { description: 'templated' },
-            (uri, { id }) => ({ contents: [{ uri: uri.href, text: `tm:${String(id)}` }] })
-        );
-        return s;
-    };
-
-    const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
-
-    const list = await client.listResources();
-    const fixed = list.resources.map(r => r.uri).sort();
-    expect(fixed).toEqual(['e2e://legacy/meta', 'e2e://legacy/plain']);
-    expect(list.resources.find(r => r.uri === 'e2e://legacy/meta')).toMatchObject({
-        description: 'meta',
-        mimeType: 'text/plain'
-    });
-
-    const templates = await client.listResourceTemplates();
-    const tmplUris = templates.resourceTemplates.map(t => t.uriTemplate).sort();
-    expect(tmplUris).toEqual(['e2e://legacy/t/{id}', 'e2e://legacy/tm/{id}']);
-    expect(templates.resourceTemplates.find(t => t.uriTemplate === 'e2e://legacy/tm/{id}')).toMatchObject({
-        description: 'templated'
-    });
-
-    expect(await client.readResource({ uri: 'e2e://legacy/plain' })).toMatchObject({
-        contents: [{ uri: 'e2e://legacy/plain', text: 'plain' }]
-    });
-    expect(await client.readResource({ uri: 'e2e://legacy/t/abc' })).toMatchObject({
-        contents: [{ text: 't:abc' }]
-    });
-    expect(await client.readResource({ uri: 'e2e://legacy/tm/xyz' })).toMatchObject({
-        contents: [{ text: 'tm:xyz' }]
     });
 });

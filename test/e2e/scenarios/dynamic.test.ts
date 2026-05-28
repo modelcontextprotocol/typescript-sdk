@@ -6,14 +6,15 @@
  * debounce, enable/disable, low-level handler reach-through).
  */
 
+import { Client } from '@modelcontextprotocol/client';
+import type { Prompt, RegisteredTool, Resource, Tool } from '@modelcontextprotocol/server';
+import { McpServer, ProtocolErrorCode, Server } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-import { McpServer, Server } from '@modelcontextprotocol/server';
-import type { RegisteredTool, Prompt, Resource, Tool } from '@modelcontextprotocol/server';
-import { Client } from '@modelcontextprotocol/client';
+
 import { wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 
@@ -115,7 +116,7 @@ verifies('client:list-changed:capability-gated', async ({ transport }: TestArgs)
     await server.sendPromptListChanged();
     await server.sendResourceListChanged();
 
-    await waitUntil(() => toolsCalls.length >= 1);
+    await waitUntil(() => toolsCalls.length > 0);
     expect(toolsCalls[0]).toEqual({ err: null, items: null });
 
     await client.listTools();
@@ -165,15 +166,15 @@ verifies('client:list-changed:signal-only', async ({ transport }: TestArgs) => {
     resourceCalls.length = 0;
 
     server.registerTool('signal-only-tool', { inputSchema: z.object({}) }, () => ({ content: [] }));
-    await waitUntil(() => toolCalls.length >= 1);
+    await waitUntil(() => toolCalls.length > 0);
     expect(toolCalls[0]).toEqual({ error: null, items: null });
 
     server.registerPrompt('signal-only-prompt', { description: '' }, () => ({ messages: [] }));
-    await waitUntil(() => promptCalls.length >= 1);
+    await waitUntil(() => promptCalls.length > 0);
     expect(promptCalls[0]).toEqual({ error: null, items: null });
 
     server.registerResource('signal-only', 'test://signal-only', {}, () => ({ contents: [] }));
-    await waitUntil(() => resourceCalls.length >= 1);
+    await waitUntil(() => resourceCalls.length > 0);
     expect(resourceCalls[0]).toEqual({ error: null, items: null });
 
     const after = await client.listTools();
@@ -200,7 +201,8 @@ verifies('mcpserver:handle:enable-disable', async ({ transport }: TestArgs) => {
 
     await using _ = await wire(transport, makeServer, client);
 
-    expect((await client.listTools()).tools.map(t => t.name)).toContain('toggle-probe');
+    const initialList = await client.listTools();
+    expect(initialList.tools.map(t => t.name)).toContain('toggle-probe');
     const baseline = await client.callTool({ name: 'toggle-probe', arguments: {} });
     expect(baseline.isError).toBeFalsy();
     expect(baseline.content).toEqual([{ type: 'text', text: 'toggle-probe' }]);
@@ -209,16 +211,20 @@ verifies('mcpserver:handle:enable-disable', async ({ transport }: TestArgs) => {
     handle.disable();
     await waitUntil(() => listChanged > beforeDisable);
 
-    expect((await client.listTools()).tools.map(t => t.name)).not.toContain('toggle-probe');
-    const disabledCall = await client.callTool({ name: 'toggle-probe', arguments: {} });
-    expect(disabledCall.isError).toBe(true);
-    expect(disabledCall.content).toEqual([{ type: 'text', text: expect.stringMatching(/disabled/i) }]);
+    const disabledList = await client.listTools();
+    expect(disabledList.tools.map(t => t.name)).not.toContain('toggle-probe');
+    // changed in v2: calling a disabled tool surfaces a JSON-RPC InvalidParams error instead of an isError result
+    await expect(client.callTool({ name: 'toggle-probe', arguments: {} })).rejects.toMatchObject({
+        code: ProtocolErrorCode.InvalidParams,
+        message: expect.stringMatching(/disabled/i)
+    });
 
     const beforeEnable = listChanged;
     handle.enable();
     await waitUntil(() => listChanged > beforeEnable);
 
-    expect((await client.listTools()).tools.map(t => t.name)).toContain('toggle-probe');
+    const restoredList = await client.listTools();
+    expect(restoredList.tools.map(t => t.name)).toContain('toggle-probe');
     const restored = await client.callTool({ name: 'toggle-probe', arguments: {} });
     expect(restored.isError).toBeFalsy();
     expect(restored.content).toEqual([{ type: 'text', text: 'toggle-probe' }]);
@@ -301,17 +307,20 @@ verifies('mcpserver:register:post-connect', async ({ transport }: TestArgs) => {
     seen.length = 0;
     server.registerTool('post-connect-tool', { inputSchema: z.object({}) }, () => ({ content: [] }));
     await waitUntil(() => seen.includes('tools'));
-    expect((await client.listTools()).tools.map(t => t.name)).toContain('post-connect-tool');
+    const { tools } = await client.listTools();
+    expect(tools.map(t => t.name)).toContain('post-connect-tool');
 
     seen.length = 0;
     server.registerResource('post-connect', 'test://post-connect', {}, () => ({ contents: [] }));
     await waitUntil(() => seen.includes('resources'));
-    expect((await client.listResources()).resources.map(r => r.uri)).toContain('test://post-connect');
+    const { resources } = await client.listResources();
+    expect(resources.map(r => r.uri)).toContain('test://post-connect');
 
     seen.length = 0;
     server.registerPrompt('post-connect-prompt', { description: '' }, () => ({ messages: [] }));
     await waitUntil(() => seen.includes('prompts'));
-    expect((await client.listPrompts()).prompts.map(p => p.name)).toContain('post-connect-prompt');
+    const { prompts } = await client.listPrompts();
+    expect(prompts.map(p => p.name)).toContain('post-connect-prompt');
 });
 
 verifies('mcpserver:reach-through:set-request-handler', async ({ transport }: TestArgs) => {

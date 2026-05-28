@@ -4,14 +4,15 @@
  * resources/templates/list, prompts/list).
  */
 
+import { Client } from '@modelcontextprotocol/client';
+import type { Tool } from '@modelcontextprotocol/server';
+import { isJSONRPCRequest, McpServer, ProtocolError, ProtocolErrorCode, ResourceTemplate, Server } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
-import { Server, McpServer, ResourceTemplate, isJSONRPCRequest, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
-import type { Tool } from '@modelcontextprotocol/server';
-import { Client } from '@modelcontextprotocol/client';
+
 import { tapWire, wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 
@@ -109,6 +110,6 @@ verifies('pagination:client:cursor-handling', async ({ transport }: TestArgs) =>
     expect(collectedPages).toEqual([['get_weather', 'get_forecast', 'get_alerts'], ['convert_units'], ['list_stations', 'get_station']]);
 
     // The wire requests carried the server-issued strings byte-for-byte — opaque, unparsed, unmodified.
-    const wireListRequests = tap.sent.filter(isJSONRPCRequest).filter(m => m.method === 'tools/list');
+    const wireListRequests = tap.sent.filter(m => isJSONRPCRequest(m)).filter(m => m.method === 'tools/list');
     expect(wireListRequests.map(m => m.params?.cursor)).toEqual([undefined, cursorToPage2, cursorToPage3]);
 });

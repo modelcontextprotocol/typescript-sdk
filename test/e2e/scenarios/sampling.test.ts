@@ -5,19 +5,23 @@
  * sending `sampling/createMessage`. Each test builds its own server (via
  * factory) and client, wires them with {@link wire}, and asserts. Clients
  * declare the `sampling` capability and register a handler via
- * `setRequestHandler(CreateMessageRequestSchema, ...)`.
+ * `setRequestHandler('sampling/createMessage', ...)`.
  */
 
+import type { ClientCapabilities } from '@modelcontextprotocol/client';
+import { Client } from '@modelcontextprotocol/client';
+import { CreateMessageRequestParamsSchema } from '@modelcontextprotocol/core';
+import type { CreateMessageRequest, CreateMessageResultWithTools, ServerOptions } from '@modelcontextprotocol/server';
+import { McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
-import { McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
-import type { ServerOptions, CreateMessageRequest, CreateMessageResultWithTools, SamplingMessage } from '@modelcontextprotocol/server';
-import { Client } from '@modelcontextprotocol/client';
-import { tapWire, wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
-import { verifies } from '../helpers/verifies.js';
 
-const newClient = (capabilities: { sampling?: object } = { sampling: {} }) => new Client({ name: 'c', version: '0' }, { capabilities });
+import { tapWire, wire } from '../helpers/index.js';
+import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
+
+const newClient = (capabilities?: ClientCapabilities) =>
+    new Client({ name: 'c', version: '0' }, { capabilities: capabilities ?? { sampling: {} } });
 
 function samplingServer() {
     const s = new McpServer({ name: 's', version: '0' });
@@ -26,9 +30,8 @@ function samplingServer() {
             messages: [{ role: 'user', content: { type: 'text', text: prompt } }],
             maxTokens: 100
         });
-        const text = Array.isArray(result.content)
-            ? ((result.content[0] as { type: string; text?: string }).text ?? '')
-            : ((result.content as { type: string; text?: string }).text ?? '');
+        // Without tools in the request, createMessage returns a single content block.
+        const text = result.content.type === 'text' ? result.content.text : '';
         return { content: [{ type: 'text', text: `model said: ${text}` }] };
     });
     return s;
@@ -39,22 +42,22 @@ function passthroughServer(options?: ServerOptions) {
     s.registerTool(
         'sampling-passthrough',
         {
-            inputSchema: z.any(),
+            // The SDK's own params schema keeps the forwarded arguments fully typed without casts.
+            inputSchema: CreateMessageRequestParamsSchema,
             outputSchema: z.object({
                 ok: z.boolean(),
-                result: z.any().optional(),
+                result: z.unknown().optional(),
                 code: z.number().optional(),
                 message: z.string().optional()
             })
         },
         async args => {
             try {
-                const result = await s.server.createMessage(args as unknown as CreateMessageRequest['params']);
+                const result = await s.server.createMessage(args);
                 return { structuredContent: { ok: true, result }, content: [{ type: 'text', text: JSON.stringify(result) }] };
-            } catch (e: unknown) {
-                const err = e as { code?: number; message?: string };
-                const message = err.message ?? String(e);
-                const code = err.code ?? (e instanceof Error ? undefined : (e as { error?: { code?: number } }).error?.code);
+            } catch (error) {
+                const message = error instanceof Error ? error.message : String(error);
+                const code = error instanceof ProtocolError ? error.code : undefined;
                 return { structuredContent: { ok: false, code, message }, content: [{ type: 'text', text: message }] };
             }
         }
@@ -92,8 +95,9 @@ verifies('sampling:create:basic', async ({ transport }: TestArgs) => {
     });
 
     expect(received).toHaveLength(1);
-    expect(received[0].params.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'capital?' } }]);
-    expect(received[0].params.maxTokens).toBe(50);
+    const [request] = received;
+    expect(request?.params.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'capital?' } }]);
+    expect(request?.params.maxTokens).toBe(50);
 
     expect(r.structuredContent).toEqual({
         ok: true,
@@ -117,10 +121,7 @@ verifies('sampling:create:include-context', async ({ transport }: TestArgs) => {
     await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10 } });
 
     expect(received).toHaveLength(4);
-    expect(received[0].params.includeContext).toBe('none');
-    expect(received[1].params.includeContext).toBe('thisServer');
-    expect(received[2].params.includeContext).toBe('allServers');
-    expect(received[3].params.includeContext).toBeUndefined();
+    expect(received.map(r => r.params.includeContext)).toEqual(['none', 'thisServer', 'allServers', undefined]);
 });
 
 verifies('sampling:create:model-preferences', async ({ transport }: TestArgs) => {
@@ -137,7 +138,8 @@ verifies('sampling:create:model-preferences', async ({ transport }: TestArgs) =>
     await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10, modelPreferences: prefs } });
 
     expect(received).toHaveLength(1);
-    expect(received[0].params.modelPreferences).toEqual(prefs);
+    const [request] = received;
+    expect(request?.params.modelPreferences).toEqual(prefs);
 });
 
 verifies('sampling:create:system-prompt', async ({ transport }: TestArgs) => {
@@ -153,7 +155,8 @@ verifies('sampling:create:system-prompt', async ({ transport }: TestArgs) => {
     await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10, systemPrompt: 'Be helpful' } });
 
     expect(received).toHaveLength(1);
-    expect(received[0].params.systemPrompt).toBe('Be helpful');
+    const [request] = received;
+    expect(request?.params.systemPrompt).toBe('Be helpful');
 });
 
 verifies('sampling:create:tools', async ({ transport }: TestArgs) => {
@@ -184,11 +187,8 @@ verifies('sampling:create:tools', async ({ transport }: TestArgs) => {
     }
 
     expect(received).toHaveLength(3);
-    for (let i = 0; i < 3; i++) {
-        expect(received[i].params.tools).toHaveLength(1);
-        expect(received[i].params.tools![0].name).toBe('weather');
-        expect(received[i].params.toolChoice?.mode).toBe(['auto', 'required', 'none'][i]);
-    }
+    expect(received.map(r => r.params.tools?.map(t => t.name))).toEqual([['weather'], ['weather'], ['weather']]);
+    expect(received.map(r => r.params.toolChoice?.mode)).toEqual(['auto', 'required', 'none']);
 });
 
 verifies('sampling:error:user-rejected', async ({ transport }: TestArgs) => {
@@ -202,7 +202,7 @@ verifies('sampling:error:user-rejected', async ({ transport }: TestArgs) => {
     const r = await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10 } });
 
     expect(r.structuredContent).toMatchObject({ ok: false, code: -1 });
-    expect((r.structuredContent as { message?: string }).message).toMatch(/User rejected sampling request/);
+    expect(r.structuredContent?.message).toMatch(/User rejected sampling request/);
 });
 
 verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs) => {
@@ -218,9 +218,9 @@ verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs)
     await client.callTool({ name: 'ask-llm', arguments: { prompt: 'one' } });
 
     expect(received).toHaveLength(1);
-    const msg = received[0].params.messages[0] as SamplingMessage;
-    expect(Array.isArray(msg.content)).toBe(false);
-    expect(msg.content).toEqual({ type: 'text', text: 'one' });
+    const singleMessage = received[0]?.params.messages[0];
+    expect(Array.isArray(singleMessage?.content)).toBe(false);
+    expect(singleMessage?.content).toEqual({ type: 'text', text: 'one' });
 
     received.length = 0;
     const client2 = newClient();
@@ -229,31 +229,34 @@ verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs)
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
 
-    await using _2 = await wire(transport, passthroughServer, client2);
+    // Inner block scopes the second connection's `await using` binding.
+    {
+        await using _ = await wire(transport, passthroughServer, client2);
 
-    await client2.callTool({
-        name: 'sampling-passthrough',
-        arguments: {
-            messages: [
-                {
-                    role: 'user',
-                    content: [
-                        { type: 'text', text: 'a' },
-                        { type: 'text', text: 'b' }
-                    ]
-                }
-            ],
-            maxTokens: 10
-        }
-    });
+        await client2.callTool({
+            name: 'sampling-passthrough',
+            arguments: {
+                messages: [
+                    {
+                        role: 'user',
+                        content: [
+                            { type: 'text', text: 'a' },
+                            { type: 'text', text: 'b' }
+                        ]
+                    }
+                ],
+                maxTokens: 10
+            }
+        });
 
-    expect(received).toHaveLength(1);
-    const msg2 = received[0].params.messages[0] as SamplingMessage;
-    expect(Array.isArray(msg2.content)).toBe(true);
-    expect(msg2.content).toEqual([
-        { type: 'text', text: 'a' },
-        { type: 'text', text: 'b' }
-    ]);
+        expect(received).toHaveLength(1);
+        const arrayMessage = received[0]?.params.messages[0];
+        expect(Array.isArray(arrayMessage?.content)).toBe(true);
+        expect(arrayMessage?.content).toEqual([
+            { type: 'text', text: 'a' },
+            { type: 'text', text: 'b' }
+        ]);
+    }
 });
 
 verifies('sampling:result:no-tools-single-content', async ({ transport }: TestArgs) => {
@@ -273,7 +276,9 @@ verifies('sampling:result:no-tools-single-content', async ({ transport }: TestAr
     expect(r.isError).toBe(true);
     expect(r.content).toEqual([{ type: 'text', text: expect.stringContaining('Invalid sampling result') }]);
     // The handler's text must never reach the tool result: the client rejects before any sampling result is returned.
-    expect((r.content as [{ text: string }])[0].text).not.toContain('array-content');
+    const [block] = r.content;
+    if (block?.type !== 'text') throw new Error('expected a text content block');
+    expect(block.text).not.toContain('array-content');
 });
 
 verifies('sampling:result:with-tools-array-content', async ({ transport }: TestArgs) => {
@@ -335,7 +340,7 @@ verifies('sampling:tool-result:no-mixed-content', async ({ transport }: TestArgs
     });
 
     expect(r.structuredContent).toMatchObject({ ok: false, code: ProtocolErrorCode.InvalidParams });
-    expect((r.structuredContent as { message?: string }).message).toMatch(/tool.?result/i);
+    expect(r.structuredContent?.message).toMatch(/tool.?result/i);
 });
 
 verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => {
@@ -420,7 +425,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     });
 
     expect(withTools.structuredContent).toMatchObject({ ok: false });
-    expect((withTools.structuredContent as { message?: string }).message).toMatch(/sampling.*tools/i);
+    expect(withTools.structuredContent?.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 
     const withChoice = await client.callTool({
@@ -429,7 +434,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     });
 
     expect(withChoice.structuredContent).toMatchObject({ ok: false });
-    expect((withChoice.structuredContent as { message?: string }).message).toMatch(/sampling.*tools/i);
+    expect(withChoice.structuredContent?.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 
     const empty = await client.callTool({
@@ -438,7 +443,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     });
 
     expect(empty.structuredContent).toMatchObject({ ok: false });
-    expect((empty.structuredContent as { message?: string }).message).toMatch(/sampling.*tools/i);
+    expect(empty.structuredContent?.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 });
 
@@ -466,8 +471,9 @@ verifies('sampling:create:image-content', async ({ transport }: TestArgs) => {
     });
 
     expect(received).toHaveLength(1);
-    expect(received[0].params.messages).toEqual([{ role: 'user', content: { type: 'image', data: 'aW1n', mimeType: 'image/jpeg' } }]);
-    expect(received[0].params.maxTokens).toBe(100);
+    const [request] = received;
+    expect(request?.params.messages).toEqual([{ role: 'user', content: { type: 'image', data: 'aW1n', mimeType: 'image/jpeg' } }]);
+    expect(request?.params.maxTokens).toBe(100);
 
     expect(r.structuredContent).toEqual({
         ok: true,
@@ -504,8 +510,9 @@ verifies('sampling:create:audio-content', async ({ transport }: TestArgs) => {
     });
 
     expect(received).toHaveLength(1);
-    expect(received[0].params.messages).toEqual([{ role: 'user', content: { type: 'audio', data: 'c25k', mimeType: 'audio/mpeg' } }]);
-    expect(received[0].params.maxTokens).toBe(100);
+    const [request] = received;
+    expect(request?.params.messages).toEqual([{ role: 'user', content: { type: 'audio', data: 'c25k', mimeType: 'audio/mpeg' } }]);
+    expect(request?.params.maxTokens).toBe(100);
 
     expect(r.structuredContent).toEqual({
         ok: true,

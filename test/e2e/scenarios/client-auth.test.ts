@@ -7,37 +7,49 @@
  */
 
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
+
+import type { OAuthClientProvider } from '@modelcontextprotocol/client';
 import {
+    applyMiddlewares,
     Client,
+    ClientCredentialsProvider,
+    createMiddleware,
     discoverAuthorizationServerMetadata,
     discoverOAuthProtectedResourceMetadata,
     exchangeAuthorization,
-    OAuthClientProvider,
+    PrivateKeyJwtProvider,
+    SdkError,
     startAuthorization,
-    UnauthorizedError,
+    StaticPrivateKeyJwtProvider,
     StreamableHTTPClientTransport,
-    SdkError
+    UnauthorizedError,
+    withLogging,
+    withOAuth
 } from '@modelcontextprotocol/client';
-import {
-    LATEST_PROTOCOL_VERSION,
-    McpServer,
+import type {
     AuthorizationServerMetadata,
     OAuthClientInformationFull,
     OAuthClientInformationMixed,
     OAuthTokens
 } from '@modelcontextprotocol/server';
+import { LATEST_PROTOCOL_VERSION, McpServer } from '@modelcontextprotocol/server';
 import { importSPKI, jwtVerify } from 'jose';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-import { applyMiddlewares, createMiddleware, withLogging, withOAuth } from '@modelcontextprotocol/client';
-import { ClientCredentialsProvider, PrivateKeyJwtProvider, StaticPrivateKeyJwtProvider } from '@modelcontextprotocol/client';
+
 import { hostPerSession } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const ISSUER = 'https://auth.example.com';
 const MCP_URL = 'http://in-process/mcp';
 const RESOURCE = 'http://in-process/mcp';
+
+// Narrows indexed-access results that the surrounding count assertions have already proven to exist.
+function defined<T>(value: T | undefined, label: string): T {
+    if (value === undefined) throw new Error(`Expected ${label} to be defined`);
+    return value;
+}
 
 interface MockASConfig {
     tokenResponses?: Array<Partial<OAuthTokens>>;
@@ -88,7 +100,7 @@ function createMockAuthorizationServer(config: MockASConfig = {}) {
             if (config.noPRMDiscovery) {
                 return new Response('Not Found', { status: 404 });
             }
-            return new Response(JSON.stringify(prmMetadata), {
+            return Response.json(prmMetadata, {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -99,7 +111,7 @@ function createMockAuthorizationServer(config: MockASConfig = {}) {
             if (config.noASDiscovery) {
                 return new Response('Not Found', { status: 404 });
             }
-            return new Response(JSON.stringify(asMetadata), {
+            return Response.json(asMetadata, {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -114,28 +126,28 @@ function createMockAuthorizationServer(config: MockASConfig = {}) {
             const bodyText = await req.text();
             const body = new URLSearchParams(bodyText);
             const headers: Record<string, string> = {};
-            req.headers.forEach((v, k) => {
+            for (const [k, v] of req.headers.entries()) {
                 headers[k] = v;
-            });
+            }
             tokenCalls.push({ method: req.method, headers, body });
 
             if (config.tokenErrorResponses && tokenErrorIndex < config.tokenErrorResponses.length) {
                 const err = config.tokenErrorResponses[tokenErrorIndex++];
-                return new Response(JSON.stringify(err), {
+                return Response.json(err, {
                     status: 400,
                     headers: { 'Content-Type': 'application/json' }
                 });
             }
 
             const response = config.tokenResponses?.[tokenIndex++] ?? { access_token: 'mock-token', token_type: 'Bearer' };
-            return new Response(JSON.stringify(response), {
+            return Response.json(response, {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' }
             });
         }
 
         if (path === '/register' && req.method === 'POST') {
-            const body: Record<string, unknown> = await req.json();
+            const body = z.record(z.string(), z.unknown()).parse(await req.json());
             registerCalls.push({ body });
             // RFC 7591: the registration response echoes the submitted metadata plus issued credentials.
             const response = {
@@ -145,7 +157,7 @@ function createMockAuthorizationServer(config: MockASConfig = {}) {
                 token_endpoint_auth_method: 'client_secret_basic',
                 ...config.registerResponse
             };
-            return new Response(JSON.stringify(response), {
+            return Response.json(response, {
                 status: 201,
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -303,8 +315,9 @@ verifies('client-auth:401-triggers-flow', async (_args: TestArgs) => {
         // Flow ran exactly once: a single 401'd POST, a single redirect to the authorization endpoint.
         expect(mcpPosts).toHaveLength(1);
         expect(provider.redirectedTo).toHaveLength(1);
-        expect(provider.redirectedTo[0].origin).toBe(ISSUER);
-        expect(provider.redirectedTo[0].pathname).toBe('/authorize');
+        const redirect = defined(provider.redirectedTo[0], 'authorization redirect URL');
+        expect(redirect.origin).toBe(ISSUER);
+        expect(redirect.pathname).toBe('/authorize');
         expect(provider.saved.codeVerifier).toBeDefined();
 
         expect(as.discoveryCalls.some(p => p.includes('/.well-known/oauth-protected-resource'))).toBe(true);
@@ -346,12 +359,13 @@ verifies('client-auth:401-after-auth-throws', async (_args: TestArgs) => {
     try {
         const connectPromise = client.connect(transport);
         await expect(connectPromise).rejects.toBeInstanceOf(SdkError);
-        await expect(connectPromise).rejects.toThrow(/401 after successful authentication/);
+        await expect(connectPromise).rejects.toThrow(/Server returned 401 after re-authentication/);
 
         // Auth ran exactly once (refresh grant), and the transport stopped after one retry instead of looping.
         expect(as.tokenCalls).toHaveLength(1);
-        expect(as.tokenCalls[0].body.get('grant_type')).toBe('refresh_token');
-        expect(as.tokenCalls[0].body.get('refresh_token')).toBe('stale-refresh-token');
+        const refreshCall = defined(as.tokenCalls[0], 'token call');
+        expect(refreshCall.body.get('grant_type')).toBe('refresh_token');
+        expect(refreshCall.body.get('refresh_token')).toBe('stale-refresh-token');
         expect(mcpPosts).toHaveLength(2);
         expect(provider.redirectedTo).toHaveLength(0);
     } finally {
@@ -390,7 +404,8 @@ verifies('client-auth:403-scope-upgrade', async (_args: TestArgs) => {
         await expect(interactiveClient.connect(interactiveTransport)).rejects.toThrow(UnauthorizedError);
 
         expect(interactiveProvider.redirectedTo).toHaveLength(1);
-        expect(interactiveProvider.redirectedTo[0].searchParams.get('scope')).toBe(UPGRADED_SCOPE);
+        const upgradeRedirect = defined(interactiveProvider.redirectedTo[0], 'authorization redirect URL');
+        expect(upgradeRedirect.searchParams.get('scope')).toBe(UPGRADED_SCOPE);
         expect(interactiveMcpRequests).toHaveLength(1);
     } finally {
         await interactiveClient.close();
@@ -427,7 +442,7 @@ verifies('client-auth:403-scope-upgrade', async (_args: TestArgs) => {
         await expect(connectPromise).rejects.toThrow(/403 after trying upscoping/);
 
         expect(refreshAs.tokenCalls).toHaveLength(1);
-        expect(refreshAs.tokenCalls[0].body.get('grant_type')).toBe('refresh_token');
+        expect(defined(refreshAs.tokenCalls[0], 'token call').body.get('grant_type')).toBe('refresh_token');
         expect(refreshMcpRequests).toHaveLength(2);
     } finally {
         await refreshClient.close();
@@ -458,7 +473,7 @@ verifies('client-auth:as-metadata-discovery:priority-order', async (_args: TestA
             const urlObj = typeof url === 'string' ? new URL(url) : url;
             calls.push(urlObj.pathname);
             if (urlObj.pathname === servedPath) {
-                return new Response(JSON.stringify(payload), { status: 200, headers: { 'Content-Type': 'application/json' } });
+                return Response.json(payload, { status: 200, headers: { 'Content-Type': 'application/json' } });
             }
             return new Response('Not Found', { status: 404 });
         };
@@ -521,9 +536,9 @@ verifies('client-auth:bearer-header:every-request', async (_args: TestArgs) => {
     const requests: Array<{ method: string; url: string; headers: Record<string, string> }> = [];
     const recordingFetch = async (url: URL | string, init?: RequestInit) => {
         const headers: Record<string, string> = {};
-        new Headers(init?.headers).forEach((v, k) => {
+        for (const [k, v] of new Headers(init?.headers).entries()) {
             headers[k] = v;
-        });
+        }
         requests.push({ method: init?.method ?? 'GET', url: String(url), headers });
         return mcpHost.handleRequest(new Request(url, init));
     };
@@ -572,7 +587,7 @@ verifies('client-auth:cimd', async (_args: TestArgs) => {
         // The CIMD URL is used directly as the client_id; no dynamic registration happens.
         expect(provider.saved.clientInformation?.client_id).toBe(cimdUrl);
         expect(provider.redirectedTo).toHaveLength(1);
-        expect(provider.redirectedTo[0].searchParams.get('client_id')).toBe(cimdUrl);
+        expect(defined(provider.redirectedTo[0], 'authorization redirect URL').searchParams.get('client_id')).toBe(cimdUrl);
         expect(as.registerCalls).toHaveLength(0);
     } finally {
         await client.close();
@@ -612,10 +627,11 @@ verifies('client-auth:client-credentials', async (_args: TestArgs) => {
 
         // Token obtained via the client_credentials grant, authenticated with the configured secret.
         expect(as.tokenCalls).toHaveLength(1);
-        expect(as.tokenCalls[0].body.get('grant_type')).toBe('client_credentials');
-        const basicHeader = as.tokenCalls[0].headers['authorization'];
+        const tokenCall = defined(as.tokenCalls[0], 'token call');
+        expect(tokenCall.body.get('grant_type')).toBe('client_credentials');
+        const basicHeader = defined(tokenCall.headers['authorization'], 'Basic authorization header');
         expect(basicHeader).toMatch(/^Basic /);
-        expect(Buffer.from(basicHeader.split(' ')[1], 'base64').toString()).toBe(`${CLIENT_ID}:${CLIENT_SECRET}`);
+        expect(Buffer.from(basicHeader.replace(/^Basic /, ''), 'base64').toString()).toBe(`${CLIENT_ID}:${CLIENT_SECRET}`);
 
         // No user interaction: the authorization endpoint is never visited.
         expect(as.authorizeCalls).toHaveLength(0);
@@ -647,13 +663,14 @@ verifies('client-auth:dcr', async (_args: TestArgs) => {
 
         // No client_id was preconfigured, so the SDK must register at the AS /register endpoint.
         expect(as.registerCalls).toHaveLength(1);
-        expect(as.registerCalls[0].body.client_name).toBe('Test Client');
-        expect(as.registerCalls[0].body.redirect_uris).toContain('http://localhost:3000/callback');
+        const registerCall = defined(as.registerCalls[0], 'registration call');
+        expect(registerCall.body.client_name).toBe('Test Client');
+        expect(registerCall.body.redirect_uris).toContain('http://localhost:3000/callback');
 
         // The issued client_id is persisted and used for the authorization request.
         expect(provider.saved.clientInformation?.client_id).toBe('registered-client-id');
         expect(provider.redirectedTo).toHaveLength(1);
-        expect(provider.redirectedTo[0].searchParams.get('client_id')).toBe('registered-client-id');
+        expect(defined(provider.redirectedTo[0], 'authorization redirect URL').searchParams.get('client_id')).toBe('registered-client-id');
     } finally {
         await client.close();
         await mcpHost.close();
@@ -681,7 +698,7 @@ verifies('client-auth:invalid-client-clears-all', async (_args: TestArgs) => {
 
             // The refresh attempt with the stale registration is what surfaced the error.
             expect(as.tokenCalls).toHaveLength(1);
-            expect(as.tokenCalls[0].body.get('grant_type')).toBe('refresh_token');
+            expect(defined(as.tokenCalls[0], 'token call').body.get('grant_type')).toBe('refresh_token');
 
             // Everything is invalidated: tokens are gone and the stale client_id was discarded,
             // forcing a fresh dynamic registration on the retry.
@@ -715,7 +732,7 @@ verifies('client-auth:invalid-grant-clears-tokens', async (_args: TestArgs) => {
 
         // The refresh attempt with the expired grant is what surfaced the error.
         expect(as.tokenCalls).toHaveLength(1);
-        expect(as.tokenCalls[0].body.get('grant_type')).toBe('refresh_token');
+        expect(defined(as.tokenCalls[0], 'token call').body.get('grant_type')).toBe('refresh_token');
 
         // Only tokens are invalidated; the client registration is kept and reused (no re-registration).
         expect(provider.invalidatedCredentials).toContain('tokens');
@@ -765,19 +782,19 @@ verifies('client-auth:pkce:s256', async (_args: TestArgs) => {
     try {
         await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
 
-        const authorizeUrl = provider.redirectedTo[0];
+        const authorizeUrl = defined(provider.redirectedTo[0], 'authorization redirect URL');
         expect(authorizeUrl.searchParams.get('code_challenge_method')).toBe('S256');
         const challenge = authorizeUrl.searchParams.get('code_challenge');
         expect(challenge).toBeTruthy();
 
-        const verifier = provider.saved.codeVerifier!;
+        const verifier = defined(provider.saved.codeVerifier, 'saved code verifier');
         expect(verifier).toMatch(/^[A-Za-z0-9\-._~]{43,128}$/);
         const expectedChallenge = createHash('sha256').update(verifier).digest('base64url');
         expect(challenge).toBe(expectedChallenge);
 
         await transport.finishAuth('mock-code');
         expect(as.tokenCalls).toHaveLength(1);
-        expect(as.tokenCalls[0].body.get('code_verifier')).toBe(verifier);
+        expect(defined(as.tokenCalls[0], 'token call').body.get('code_verifier')).toBe(verifier);
     } finally {
         await client.close();
         await mcpHost.close();
@@ -801,17 +818,19 @@ verifies('client-auth:pre-registration', async (_args: TestArgs) => {
         // DCR is skipped: the preconfigured client_id is what reaches the AS authorize endpoint.
         expect(as.registerCalls).toHaveLength(0);
         expect(provider.redirectedTo).toHaveLength(1);
-        expect(provider.redirectedTo[0].origin).toBe(ISSUER);
-        expect(provider.redirectedTo[0].pathname).toBe('/authorize');
-        expect(provider.redirectedTo[0].searchParams.get('client_id')).toBe('pre-registered-client');
+        const redirect = defined(provider.redirectedTo[0], 'authorization redirect URL');
+        expect(redirect.origin).toBe(ISSUER);
+        expect(redirect.pathname).toBe('/authorize');
+        expect(redirect.searchParams.get('client_id')).toBe('pre-registered-client');
 
         // The token exchange authenticates with the preconfigured secret.
         await transport.finishAuth('granted-authorization-code');
         expect(as.tokenCalls).toHaveLength(1);
-        expect(as.tokenCalls[0].body.get('grant_type')).toBe('authorization_code');
-        const basicHeader = as.tokenCalls[0].headers['authorization'];
+        const tokenCall = defined(as.tokenCalls[0], 'token call');
+        expect(tokenCall.body.get('grant_type')).toBe('authorization_code');
+        const basicHeader = defined(tokenCall.headers['authorization'], 'Basic authorization header');
         expect(basicHeader).toMatch(/^Basic /);
-        expect(Buffer.from(basicHeader.split(' ')[1], 'base64').toString()).toBe('pre-registered-client:pre-registered-secret');
+        expect(Buffer.from(basicHeader.replace(/^Basic /, ''), 'base64').toString()).toBe('pre-registered-client:pre-registered-secret');
     } finally {
         await client.close();
         await mcpHost.close();
@@ -843,18 +862,20 @@ verifies('client-auth:private-key-jwt', async (_args: TestArgs) => {
         expect(tools.some(t => t.name === 'probe')).toBe(true);
 
         expect(as.tokenCalls).toHaveLength(1);
-        const body = as.tokenCalls[0].body;
+        const tokenCall = defined(as.tokenCalls[0], 'token call');
+        const body = tokenCall.body;
         expect(body.get('grant_type')).toBe('client_credentials');
         expect(body.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
 
         // The client authenticates with a JWT signed by its private key — no shared secret anywhere.
         expect(body.get('client_secret')).toBeNull();
-        expect(as.tokenCalls[0].headers['authorization']).toBeUndefined();
+        expect(tokenCall.headers['authorization']).toBeUndefined();
 
         const assertion = body.get('client_assertion');
         expect(assertion).toBeTruthy();
+        if (assertion === null) throw new Error('Expected a client_assertion in the token request body');
         const verificationKey = await importSPKI(publicKeyPem, 'RS256');
-        const { payload } = await jwtVerify(assertion!, verificationKey);
+        const { payload } = await jwtVerify(assertion, verificationKey);
         expect(payload.iss).toBe(CLIENT_ID);
         expect(payload.sub).toBe(CLIENT_ID);
         expect(payload.aud).toBe(ISSUER);
@@ -878,7 +899,7 @@ verifies('client-auth:prm-discovery:fallback-order', async (_args: TestArgs) => 
         discoveryCalls.push(path);
 
         if (path === '/.well-known/oauth-protected-resource/mcp') {
-            return new Response(JSON.stringify(prmMetadata), {
+            return Response.json(prmMetadata, {
                 status: 200,
                 headers: { 'Content-Type': 'application/json' }
             });
@@ -935,14 +956,16 @@ verifies('client-auth:prm-discovery:no-prm-fallback', async (_args: TestArgs) =>
 
         // The flow proceeds with the authorization endpoint from the origin-discovered metadata instead of aborting.
         expect(provider.redirectedTo).toHaveLength(1);
-        expect(provider.redirectedTo[0].origin + provider.redirectedTo[0].pathname).toBe(`${ISSUER}/authorize`);
-        expect(provider.redirectedTo[0].searchParams.get('client_id')).toBe('legacy-fallback-client');
+        const redirect = defined(provider.redirectedTo[0], 'authorization redirect URL');
+        expect(redirect.origin + redirect.pathname).toBe(`${ISSUER}/authorize`);
+        expect(redirect.searchParams.get('client_id')).toBe('legacy-fallback-client');
 
         // The same origin-discovered metadata drives the code exchange at the AS token endpoint.
         await transport.finishAuth('granted-authorization-code');
         expect(as.tokenCalls).toHaveLength(1);
-        expect(as.tokenCalls[0].body.get('grant_type')).toBe('authorization_code');
-        expect(as.tokenCalls[0].body.get('code')).toBe('granted-authorization-code');
+        const tokenCall = defined(as.tokenCalls[0], 'token call');
+        expect(tokenCall.body.get('grant_type')).toBe('authorization_code');
+        expect(tokenCall.body.get('code')).toBe('granted-authorization-code');
     } finally {
         await client.close();
         await mcpHost.close();
@@ -1010,9 +1033,10 @@ verifies('client-auth:refresh:transparent', async (_args: TestArgs) => {
 
         // Exactly one refresh_token grant, carrying the stored refresh token and the resource indicator.
         expect(as.tokenCalls).toHaveLength(1);
-        expect(as.tokenCalls[0].body.get('grant_type')).toBe('refresh_token');
-        expect(as.tokenCalls[0].body.get('refresh_token')).toBe('long-lived-refresh-token');
-        expect(as.tokenCalls[0].body.get('resource')).toBe(RESOURCE);
+        const refreshCall = defined(as.tokenCalls[0], 'token call');
+        expect(refreshCall.body.get('grant_type')).toBe('refresh_token');
+        expect(refreshCall.body.get('refresh_token')).toBe('long-lived-refresh-token');
+        expect(refreshCall.body.get('resource')).toBe(RESOURCE);
 
         // The refresh is transparent (no user-facing redirect) and the rotated token set is persisted.
         expect(provider.redirectedTo).toHaveLength(0);
@@ -1040,11 +1064,11 @@ verifies('client-auth:resource-parameter', async (_args: TestArgs) => {
     try {
         await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
 
-        const authorizeUrl = provider.redirectedTo[0];
+        const authorizeUrl = defined(provider.redirectedTo[0], 'authorization redirect URL');
         expect(authorizeUrl.searchParams.get('resource')).toBe(RESOURCE);
 
         await transport.finishAuth('mock-code');
-        expect(as.tokenCalls[0].body.get('resource')).toBe(RESOURCE);
+        expect(defined(as.tokenCalls[0], 'token call').body.get('resource')).toBe(RESOURCE);
     } finally {
         await client.close();
         await mcpHost.close();
@@ -1080,7 +1104,7 @@ verifies('client-auth:scope-selection:priority', async (_args: TestArgs) => {
 
     try {
         await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
-        const authorizeUrl = provider.redirectedTo[0];
+        const authorizeUrl = defined(provider.redirectedTo[0], 'authorization redirect URL');
         expect(authorizeUrl.searchParams.get('scope')).toBe('mcp:custom');
     } finally {
         await client.close();
@@ -1115,7 +1139,7 @@ verifies('typescript:client-auth:state:verify', async (_args: TestArgs) => {
 
     try {
         await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
-        const authorizeUrl = provider.redirectedTo[0];
+        const authorizeUrl = defined(provider.redirectedTo[0], 'authorization redirect URL');
         expect(authorizeUrl.searchParams.get('state')).toBe(provider.saved.state);
         expect(provider.saved.state).toMatch(/^state-\d+$/);
     } finally {
@@ -1152,13 +1176,13 @@ verifies('client-auth:token-endpoint-auth-method', async (_args: TestArgs) => {
             await transport.finishAuth('granted-authorization-code');
 
             expect(as.tokenCalls).toHaveLength(1);
-            const tokenCall = as.tokenCalls[0];
+            const tokenCall = defined(as.tokenCalls[0], 'token call');
             expect(tokenCall.body.get('grant_type')).toBe('authorization_code');
 
             if (method === 'client_secret_basic') {
-                const authHeader = tokenCall.headers['authorization'];
+                const authHeader = defined(tokenCall.headers['authorization'], 'Basic authorization header');
                 expect(authHeader).toMatch(/^Basic /);
-                expect(Buffer.from(authHeader.split(' ')[1], 'base64').toString()).toBe(`${REGISTERED_ID}:${REGISTERED_SECRET}`);
+                expect(Buffer.from(authHeader.replace(/^Basic /, ''), 'base64').toString()).toBe(`${REGISTERED_ID}:${REGISTERED_SECRET}`);
                 expect(tokenCall.body.get('client_secret')).toBeNull();
             } else if (method === 'client_secret_post') {
                 // client_secret_post: credentials travel in the form body, not the Authorization header.
@@ -1232,7 +1256,7 @@ verifies('client-auth:low-level:discover-and-exchange', async (_args: TestArgs) 
 
     expect(tokens.access_token).toBe('low-level-access-token');
     expect(as.tokenCalls).toHaveLength(1);
-    const tokenBody = as.tokenCalls[0].body;
+    const tokenBody = defined(as.tokenCalls[0], 'token call').body;
     expect(tokenBody.get('grant_type')).toBe('authorization_code');
     expect(tokenBody.get('code')).toBe('granted-authorization-code');
     expect(tokenBody.get('code_verifier')).toBe(codeVerifier);
@@ -1284,7 +1308,7 @@ verifies('client-auth:private-key-jwt:static-assertion', async (_args: TestArgs)
 
         // The pre-built assertion is sent verbatim — no per-request signing changes it.
         expect(as.tokenCalls).toHaveLength(1);
-        const body = as.tokenCalls[0].body;
+        const body = defined(as.tokenCalls[0], 'token call').body;
         expect(body.get('grant_type')).toBe('client_credentials');
         expect(body.get('client_assertion')).toBe(preBuiltJwt);
         expect(body.get('client_assertion_type')).toBe('urn:ietf:params:oauth:client-assertion-type:jwt-bearer');
@@ -1325,7 +1349,7 @@ verifies('client-middleware:compose', async (_args: TestArgs) => {
     const mcpHost = hostPerSession(() => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('report-headers', { inputSchema: z.object({}) }, (_a, ctx) => {
-            seenByServer.push(ctx.http?.req?.headers ?? {});
+            seenByServer.push(ctx.http?.req?.headers ?? new Headers());
             return { content: [{ type: 'text', text: 'ok' }] };
         });
         return s;
@@ -1334,9 +1358,9 @@ verifies('client-middleware:compose', async (_args: TestArgs) => {
     const baseRequests: Array<{ method: string; headers: Record<string, string> }> = [];
     const baseFetch = async (url: URL | string, init?: RequestInit) => {
         const headers: Record<string, string> = {};
-        new Headers(init?.headers).forEach((v, k) => {
+        for (const [k, v] of new Headers(init?.headers).entries()) {
             headers[k] = v;
-        });
+        }
         baseRequests.push({ method: init?.method ?? 'GET', headers });
         return mcpHost.handleRequest(new Request(url, init));
     };
@@ -1359,9 +1383,10 @@ verifies('client-middleware:compose', async (_args: TestArgs) => {
 
         // The middleware-set headers arrived at the MCP server on the tools/call request.
         expect(seenByServer).toHaveLength(1);
-        expect(seenByServer[0]['x-mw-first']).toBe('1');
-        expect(seenByServer[0]['x-mw-second']).toBe('1');
-        expect(seenByServer[0][TRACE]).toBe('second>first');
+        const serverHeaders = defined(seenByServer[0], 'tools/call request headers');
+        expect(serverHeaders.get('x-mw-first')).toBe('1');
+        expect(serverHeaders.get('x-mw-second')).toBe('1');
+        expect(serverHeaders.get(TRACE)).toBe('second>first');
     } finally {
         await client.close();
         await mcpHost.close();
@@ -1453,8 +1478,9 @@ verifies('client-auth:middleware:with-oauth', async (_args: TestArgs) => {
 
         expect(refreshProvider.saved.tokens?.access_token).toBe(REFRESHED);
         expect(refreshAs.tokenCalls).toHaveLength(1);
-        expect(refreshAs.tokenCalls[0].body.get('grant_type')).toBe('refresh_token');
-        expect(refreshAs.tokenCalls[0].body.get('refresh_token')).toBe('initial-refresh-token');
+        const refreshCall = defined(refreshAs.tokenCalls[0], 'token call');
+        expect(refreshCall.body.get('grant_type')).toBe('refresh_token');
+        expect(refreshCall.body.get('refresh_token')).toBe('initial-refresh-token');
 
         expect(mcpAuthHeaders.length).toBeGreaterThanOrEqual(2);
         expect(mcpAuthHeaders[0]).toBe(`Bearer ${STALE}`);

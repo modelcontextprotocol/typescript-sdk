@@ -8,25 +8,25 @@
  * Client) rather than importing shared fixtures.
  */
 
-import { expect, vi } from 'vitest';
-import { z } from 'zod/v4';
-import { Server, McpServer, UrlElicitationRequiredError, ProtocolErrorCode, specTypeSchemas } from '@modelcontextprotocol/server';
+import type { OAuthClientProvider } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 import type {
-    EventStore,
-    OAuthTokens,
-    OAuthClientMetadata,
-    OAuthClientInformationMixed,
-    CallToolResult,
     ElicitRequest,
     ElicitResult,
+    EventStore,
     JSONRPCMessage,
+    OAuthClientInformationMixed,
+    OAuthClientMetadata,
+    OAuthTokens,
     Progress
 } from '@modelcontextprotocol/server';
-import { Client, UnauthorizedError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import type { OAuthClientProvider } from '@modelcontextprotocol/client';
+import { McpServer, ProtocolErrorCode, Server, specTypeSchemas, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
+import { expect, vi } from 'vitest';
+import { z } from 'zod/v4';
+
 import { hostPerSession, hostResumable, wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 verifies('flow:elicitation:multi-step-form', async ({ transport }: TestArgs) => {
     // Server: tool that issues three sequential elicitation/create requests
@@ -99,33 +99,35 @@ verifies('flow:elicitation:multi-step-form', async ({ transport }: TestArgs) => 
     await using _ = await wire(transport, makeServer, client);
 
     // Happy path: accept all three steps
-    queued.push({ action: 'accept', content: { name: 'Ada' } });
-    queued.push({ action: 'accept', content: { color: 'blue' } });
-    queued.push({ action: 'accept', content: { confirm: true } });
+    queued.push(
+        { action: 'accept', content: { name: 'Ada' } },
+        { action: 'accept', content: { color: 'blue' } },
+        { action: 'accept', content: { confirm: true } }
+    );
 
     const ok = await client.callTool({ name: 'multi-step', arguments: {} });
     expect(ok.isError).toBeFalsy();
     expect(ok.content).toEqual([{ type: 'text', text: "Ada's favorite color is blue" }]);
 
     expect(received).toHaveLength(3);
-    expect(received[0].params).toMatchObject({ mode: 'form', requestedSchema: { properties: { name: { type: 'string' } } } });
-    expect(received[1].params.message).toContain('Ada');
-    expect(received[1].params).toMatchObject({ mode: 'form', requestedSchema: { properties: { color: { type: 'string' } } } });
-    expect(received[2].params.message).toContain('Ada');
-    expect(received[2].params.message).toContain('blue');
-    expect(received[2].params).toMatchObject({ mode: 'form', requestedSchema: { properties: { confirm: { type: 'boolean' } } } });
+    const [firstStep, secondStep, thirdStep] = received;
+    if (!firstStep || !secondStep || !thirdStep) throw new Error('expected three elicitation requests');
+    expect(firstStep.params).toMatchObject({ mode: 'form', requestedSchema: { properties: { name: { type: 'string' } } } });
+    expect(secondStep.params.message).toContain('Ada');
+    expect(secondStep.params).toMatchObject({ mode: 'form', requestedSchema: { properties: { color: { type: 'string' } } } });
+    expect(thirdStep.params.message).toContain('Ada');
+    expect(thirdStep.params.message).toContain('blue');
+    expect(thirdStep.params).toMatchObject({ mode: 'form', requestedSchema: { properties: { confirm: { type: 'boolean' } } } });
 
     // Decline at step 2
-    queued.push({ action: 'accept', content: { name: 'Bob' } });
-    queued.push({ action: 'decline' });
+    queued.push({ action: 'accept', content: { name: 'Bob' } }, { action: 'decline' });
     const declined = await client.callTool({ name: 'multi-step', arguments: {} });
     expect(declined.isError).toBeFalsy();
     expect(declined.content).toEqual([{ type: 'text', text: 'aborted at step 2: decline' }]);
     expect(received).toHaveLength(5);
 
     // Cancel at step 1
-    queued.push({ action: 'cancel' });
-    queued.push({ action: 'accept', content: { color: 'red' } }); // sentinel: must not be consumed
+    queued.push({ action: 'cancel' }, { action: 'accept', content: { color: 'red' } }); // sentinel: must not be consumed
     const cancelled = await client.callTool({ name: 'multi-step', arguments: {} });
     expect(cancelled.isError).toBeFalsy();
     expect(cancelled.content).toEqual([{ type: 'text', text: 'aborted at step 1: cancel' }]);
@@ -167,10 +169,14 @@ verifies('flow:elicitation:url-at-session-init', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(url, { fetch: customFetch });
 
     // Tap wire before connecting
-    const sent: Array<{ method?: string }> = [];
+    const sent: JSONRPCMessage[] = [];
     const origSend = transport.send.bind(transport);
     transport.send = async (m, opts) => {
-        sent.push(m as { method?: string });
+        if (Array.isArray(m)) {
+            sent.push(...m);
+        } else {
+            sent.push(m);
+        }
         return origSend(m, opts);
     };
 
@@ -181,8 +187,10 @@ verifies('flow:elicitation:url-at-session-init', async (_args: TestArgs) => {
         await vi.waitFor(() => expect(received.length).toBeGreaterThanOrEqual(1));
 
         expect(received).toHaveLength(1);
-        expect(received[0].method).toBe('elicitation/create');
-        const params = received[0].params;
+        const [initElicitation] = received;
+        if (!initElicitation) throw new Error('expected one elicitation request');
+        expect(initElicitation.method).toBe('elicitation/create');
+        const params = initElicitation.params;
         if (params.mode !== 'url') throw new Error('expected url mode');
         expect(params.elicitationId).toBe('session-init-elicit');
         expect(() => new URL(params.url)).not.toThrow();
@@ -201,7 +209,7 @@ verifies('flow:elicitation:url-at-session-init', async (_args: TestArgs) => {
 verifies('flow:elicitation:url-required-then-retry', async ({ transport }: TestArgs) => {
     // Server: tool that throws UrlElicitationRequiredError until elicitation is completed
     const completed = new Set<string>();
-    let server!: McpServer;
+    let server: McpServer | undefined;
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('url-gated', { inputSchema: z.object({}) }, () => {
@@ -230,12 +238,13 @@ verifies('flow:elicitation:url-required-then-retry', async ({ transport }: TestA
     await using _ = await wire(transport, makeServer, client);
 
     // Step 1: first call rejects with UrlElicitationRequiredError
-    const err = await client.callTool({ name: 'url-gated', arguments: {} }).catch(e => e);
+    const err = await client.callTool({ name: 'url-gated', arguments: {} }).catch((error: unknown) => error);
     expect(err).toBeInstanceOf(UrlElicitationRequiredError);
-    const required = err as UrlElicitationRequiredError;
-    expect(required.code).toBe(ProtocolErrorCode.UrlElicitationRequired);
-    expect(required.elicitations).toHaveLength(1);
-    const elicitation = required.elicitations[0];
+    if (!(err instanceof UrlElicitationRequiredError)) throw new Error('expected UrlElicitationRequiredError');
+    expect(err.code).toBe(ProtocolErrorCode.UrlElicitationRequired);
+    expect(err.elicitations).toHaveLength(1);
+    const [elicitation] = err.elicitations;
+    if (!elicitation) throw new Error('expected one required elicitation');
     expect(elicitation.mode).toBe('url');
     expect(typeof elicitation.elicitationId).toBe('string');
     expect(elicitation.url).toMatch(/^https?:\/\//);
@@ -244,6 +253,7 @@ verifies('flow:elicitation:url-required-then-retry', async ({ transport }: TestA
     completed.add(elicitation.elicitationId);
 
     // Step 3: server emits notifications/elicitation/complete and the client receives it for that exact elicitation
+    if (!server) throw new Error('makeServer was never invoked');
     await server.server.createElicitationCompletionNotifier(elicitation.elicitationId)();
     await vi.waitFor(() => expect(completionsSeen).toEqual([elicitation.elicitationId]));
 
@@ -273,48 +283,53 @@ verifies('flow:multi-client:stateful-isolation', async (_args: TestArgs) => {
         return s;
     };
 
-    // Three clients connect to the same per-session host
-    const clientA = new Client({ name: 'a', version: '0' });
-    const clientB = new Client({ name: 'b', version: '0' });
-    const clientC = new Client({ name: 'c', version: '0' });
-
+    // Three clients connect to the same per-session host, each with distinct step counts
     const handle = hostPerSession(makeServer);
     const url = new URL('http://in-process/mcp');
     const customFetch = (u: URL | string, init?: RequestInit) => handle.handleRequest(new Request(u, init));
 
-    await clientA.connect(new StreamableHTTPClientTransport(url, { fetch: customFetch }));
-    await clientB.connect(new StreamableHTTPClientTransport(url, { fetch: customFetch }));
-    await clientC.connect(new StreamableHTTPClientTransport(url, { fetch: customFetch }));
+    interface SessionUnderTest {
+        client: Client;
+        transport: StreamableHTTPClientTransport;
+        steps: number;
+        errors: Error[];
+    }
+    const sessions: SessionUnderTest[] = [
+        { name: 'a', steps: 2 },
+        { name: 'b', steps: 3 },
+        { name: 'c', steps: 4 }
+    ].map(({ name, steps }) => ({
+        client: new Client({ name, version: '0' }),
+        transport: new StreamableHTTPClientTransport(url, { fetch: customFetch }),
+        steps,
+        errors: []
+    }));
 
     try {
-        const clients = [clientA, clientB, clientC] as const;
-        const sessionIds = clients.map(c => (c.transport as StreamableHTTPClientTransport).sessionId);
+        for (const session of sessions) {
+            session.client.onerror = error => session.errors.push(error);
+            await session.client.connect(session.transport);
+        }
 
+        const sessionIds = sessions.map(s => s.transport.sessionId);
         for (const id of sessionIds) {
             expect(id).toEqual(expect.any(String));
         }
         expect(new Set(sessionIds).size).toBe(3);
 
         // Concurrent progress calls with distinct step counts
-        const STEPS = [2, 3, 4] as const;
-        const errors: Error[][] = [[], [], []];
-        clients.forEach((cl, i) => {
-            cl.onerror = e => errors[i].push(e);
-        });
-
         const runs = await Promise.all(
-            clients.map(async (cl, i) => {
+            sessions.map(async ({ client, steps }) => {
                 const received: Progress[] = [];
-                const result = await cl.callTool({ name: 'progress', arguments: { steps: STEPS[i] } }, undefined, {
-                    onprogress: p => received.push({ progress: p.progress, total: p.total, message: p.message })
-                });
-                return { received, result };
+                const result = await client.callTool(
+                    { name: 'progress', arguments: { steps } },
+                    { onprogress: p => received.push({ progress: p.progress, total: p.total, message: p.message }) }
+                );
+                return { steps, received, result };
             })
         );
 
-        for (let i = 0; i < 3; i++) {
-            const steps = STEPS[i];
-            const { received, result } = runs[i];
+        for (const { steps, received, result } of runs) {
             expect(received).toEqual(
                 Array.from({ length: steps }, (_, k) => ({
                     progress: k + 1,
@@ -325,11 +340,11 @@ verifies('flow:multi-client:stateful-isolation', async (_args: TestArgs) => {
             expect(result.content).toEqual([{ type: 'text', text: `done after ${steps} steps` }]);
         }
 
-        for (const errs of errors) {
-            expect(errs).toEqual([]);
+        for (const session of sessions) {
+            expect(session.errors).toEqual([]);
         }
     } finally {
-        await Promise.all([clientA.close(), clientB.close(), clientC.close(), handle.close()]);
+        await Promise.all([...sessions.map(s => s.client.close()), handle.close()]);
     }
 });
 
@@ -347,8 +362,8 @@ verifies('flow:oauth:authorization-code-roundtrip', async (_args: TestArgs) => {
         const req = new Request(url, init);
         const u = new URL(req.url);
         if (u.pathname === '/.well-known/oauth-authorization-server') {
-            return new Response(
-                JSON.stringify({
+            return Response.json(
+                {
                     issuer: AS_ORIGIN,
                     authorization_endpoint: `${AS_ORIGIN}/authorize`,
                     token_endpoint: `${AS_ORIGIN}/token`,
@@ -356,25 +371,19 @@ verifies('flow:oauth:authorization-code-roundtrip', async (_args: TestArgs) => {
                     grant_types_supported: ['authorization_code'],
                     response_types_supported: ['code'],
                     code_challenge_methods_supported: ['S256']
-                }),
-                { status: 200, headers: { 'Content-Type': 'application/json' } }
+                },
+                { status: 200 }
             );
         }
         if (u.pathname === '/register' && req.method === 'POST') {
-            const body: Record<string, unknown> = await req.json();
+            const body = z.record(z.string(), z.unknown()).parse(await req.json());
             registerRequests.push(body);
             // RFC 7591: the registration response echoes the submitted metadata plus the issued client_id.
-            return new Response(JSON.stringify({ ...body, client_id: 'mock-client-id' }), {
-                status: 201,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            return Response.json({ ...body, client_id: 'mock-client-id' }, { status: 201 });
         }
         if (u.pathname === '/token' && req.method === 'POST') {
             tokenRequests.push(new URLSearchParams(await req.text()));
-            return new Response(JSON.stringify({ access_token: ACCESS_TOKEN, token_type: 'Bearer', expires_in: 3600 }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            return Response.json({ access_token: ACCESS_TOKEN, token_type: 'Bearer', expires_in: 3600 }, { status: 200 });
         }
         return new Response('Not Found', { status: 404 });
     };
@@ -429,10 +438,7 @@ verifies('flow:oauth:authorization-code-roundtrip', async (_args: TestArgs) => {
         const req = new Request(u, init);
         const requestUrl = new URL(req.url);
         if (requestUrl.pathname.startsWith(PRM_PATH)) {
-            return new Response(JSON.stringify({ resource: url.toString(), authorization_servers: [AS_ORIGIN] }), {
-                status: 200,
-                headers: { 'Content-Type': 'application/json' }
-            });
+            return Response.json({ resource: url.toString(), authorization_servers: [AS_ORIGIN] }, { status: 200 });
         }
         const auth = req.headers.get('authorization');
         if (auth !== `Bearer ${ACCESS_TOKEN}`) {
@@ -458,7 +464,9 @@ verifies('flow:oauth:authorization-code-roundtrip', async (_args: TestArgs) => {
         await expect(client.connect(transport1)).rejects.toBeInstanceOf(UnauthorizedError);
 
         expect(redirectedTo).toHaveLength(1);
-        const authorizeUrl = new URL(redirectedTo[0]);
+        const [authorizationRedirect] = redirectedTo;
+        if (!authorizationRedirect) throw new Error('expected a redirect to the authorization endpoint');
+        const authorizeUrl = new URL(authorizationRedirect);
         expect(authorizeUrl.origin).toBe(AS_ORIGIN);
         expect(authorizeUrl.pathname).toBe('/authorize');
         expect(authorizeUrl.searchParams.get('client_id')).toBe('mock-client-id');
@@ -473,10 +481,12 @@ verifies('flow:oauth:authorization-code-roundtrip', async (_args: TestArgs) => {
         await transport1.finishAuth(AUTH_CODE);
 
         expect(tokenRequests).toHaveLength(1);
-        expect(tokenRequests[0].get('grant_type')).toBe('authorization_code');
-        expect(tokenRequests[0].get('code')).toBe(AUTH_CODE);
-        expect(tokenRequests[0].get('code_verifier')).toBe(codeVerifier);
-        expect(tokenRequests[0].get('redirect_uri')).toBe('http://localhost/callback');
+        const [tokenRequest] = tokenRequests;
+        if (!tokenRequest) throw new Error('expected one token request');
+        expect(tokenRequest.get('grant_type')).toBe('authorization_code');
+        expect(tokenRequest.get('code')).toBe(AUTH_CODE);
+        expect(tokenRequest.get('code_verifier')).toBe(codeVerifier);
+        expect(tokenRequest.get('redirect_uri')).toBe('http://localhost/callback');
         expect(saved.tokens?.access_token).toBe(ACCESS_TOKEN);
 
         // Step 3: second connect with fresh transport succeeds and tools/list works
@@ -497,7 +507,9 @@ verifies('flow:resume:tool-call-resumption-token', async (_args: TestArgs) => {
 
     // The tool pauses after the first two progress notifications so the test can sever the call's SSE
     // stream before the remaining notifications and the result are produced.
-    let releaseRemainingSteps!: () => void;
+    let releaseRemainingSteps: () => void = () => {
+        throw new Error('remainingStepsReleased resolver not captured yet');
+    };
     const remainingStepsReleased = new Promise<void>(resolve => {
         releaseRemainingSteps = resolve;
     });
@@ -532,8 +544,9 @@ verifies('flow:resume:tool-call-resumption-token', async (_args: TestArgs) => {
         },
         replayEventsAfter: async (lastEventId, { send }) => {
             const lastIndex = storedEvents.findIndex(e => e.eventId === lastEventId);
-            if (lastIndex === -1) return '';
-            const { streamId } = storedEvents[lastIndex];
+            const lastEvent = storedEvents[lastIndex];
+            if (!lastEvent) return '';
+            const { streamId } = lastEvent;
             for (const event of storedEvents.slice(lastIndex + 1)) {
                 if (event.streamId === streamId) await send(event.eventId, event.message);
             }
@@ -552,7 +565,9 @@ verifies('flow:resume:tool-call-resumption-token', async (_args: TestArgs) => {
     let severToolCallStream: () => void = () => {
         throw new Error('tools/call SSE stream not opened yet');
     };
-    let originalStreamFinished!: () => void;
+    let originalStreamFinished: () => void = () => {
+        throw new Error('originalStreamComplete resolver not captured yet');
+    };
     const originalStreamComplete = new Promise<void>(resolve => {
         originalStreamFinished = resolve;
     });
@@ -609,14 +624,17 @@ verifies('flow:resume:tool-call-resumption-token', async (_args: TestArgs) => {
         const callSettled = vi.fn();
 
         // The one and only tools/call of this test: this same promise must resolve after the disconnect.
-        const call = client.callTool({ name: 'import-records', arguments: { steps: TOTAL_STEPS } }, undefined, {
-            onprogress: (p: Progress) => progressSeen.push(p.progress),
-            onresumptiontoken: id => eventIdsSeen.push(id)
-        });
+        const call = client.callTool(
+            { name: 'import-records', arguments: { steps: TOTAL_STEPS } },
+            {
+                onprogress: (p: Progress) => progressSeen.push(p.progress),
+                onresumptiontoken: id => eventIdsSeen.push(id)
+            }
+        );
         call.then(callSettled, callSettled);
 
         await vi.waitFor(() => expect(progressSeen).toEqual([1, 2]));
-        const lastEventIdBeforeDisconnect = eventIdsSeen[eventIdsSeen.length - 1];
+        const lastEventIdBeforeDisconnect = eventIdsSeen.at(-1);
 
         // Sever mid-call, then let the server finish steps 3..4 and the result while the client is disconnected.
         severToolCallStream();
@@ -653,16 +671,20 @@ verifies('flow:resume:tool-call-resumption-token', async (_args: TestArgs) => {
         ]);
         expect(eventIdsSeen).toEqual(toolCallStreamEvents.map(e => e.eventId));
         // Index DELIVERED_BEFORE_DISCONNECT skips the priming event, landing on the second progress notification.
-        expect(lastEventIdBeforeDisconnect).toBe(toolCallStreamEvents[DELIVERED_BEFORE_DISCONNECT].eventId);
+        const expectedLastDeliveredEvent = toolCallStreamEvents[DELIVERED_BEFORE_DISCONNECT];
+        if (!expectedLastDeliveredEvent) throw new Error('the tool-call stream did not retain the second progress notification');
+        expect(lastEventIdBeforeDisconnect).toBe(expectedLastDeliveredEvent.eventId);
 
         // Transparency: the caller never re-issued the call; the transport recovered with a single GET
         // carrying Last-Event-ID for the last event delivered before the disconnect, on the same session.
         expect(requests.filter(r => r.method === 'POST' && r.body?.includes('"tools/call"'))).toHaveLength(1);
         const recoveryGets = requests.filter(r => r.method === 'GET' && r.lastEventId !== undefined);
         expect(recoveryGets).toHaveLength(1);
-        expect(recoveryGets[0].lastEventId).toBe(lastEventIdBeforeDisconnect);
+        const [recoveryGet] = recoveryGets;
+        if (!recoveryGet) throw new Error('expected one recovery GET');
+        expect(recoveryGet.lastEventId).toBe(lastEventIdBeforeDisconnect);
         expect(transport.sessionId).toEqual(expect.any(String));
-        expect(recoveryGets[0].sessionId).toBe(transport.sessionId);
+        expect(recoveryGet.sessionId).toBe(transport.sessionId);
     } finally {
         await Promise.all([client.close(), handle.close()]);
     }
@@ -740,7 +762,7 @@ verifies('flow:tool-result:resource-link-follow', async ({ transport }: TestArgs
     await using _ = await wire(transport, makeServer, client);
 
     // Call tool and get resource_link
-    const toolResult = (await client.callTool({ name: 'resource-link', arguments: {} })) as CallToolResult;
+    const toolResult = await client.callTool({ name: 'resource-link', arguments: {} });
     expect(toolResult.isError).toBeFalsy();
 
     const link = toolResult.content.find(c => c.type === 'resource_link');
@@ -752,6 +774,7 @@ verifies('flow:tool-result:resource-link-follow', async ({ transport }: TestArgs
     const readResult = await client.readResource({ uri: link.uri });
     expect(readResult.contents).toHaveLength(1);
     const [entry] = readResult.contents;
+    if (!entry) throw new Error('expected one resource contents entry');
     expect(entry.uri).toBe(link.uri);
     expect(entry.mimeType).toBe('text/plain');
     if (entry.mimeType?.startsWith('text/')) {
@@ -806,25 +829,36 @@ verifies('flow:proxy:forward-tools-resources', async ({ transport }: TestArgs) =
     // Wire: downstream client → proxy server → upstream client → upstream server
     const downstreamClient = new Client({ name: 'downstream', version: '0' });
 
-    await using _upstreamW = await wire(transport, () => upstreamServer, upstreamClient);
-    await using _proxyW = await wire(transport, () => proxyServer, downstreamClient);
+    // Two wires must stay open for the whole body; explicit dispose in finally instead of two `await using` bindings.
+    const upstreamWired = await wire(transport, () => upstreamServer, upstreamClient);
+    try {
+        const proxyWired = await wire(transport, () => proxyServer, downstreamClient);
+        try {
+            // Downstream sees upstream tools
+            const { tools } = await downstreamClient.listTools();
+            const echo = tools.find(t => t.name === 'echo');
+            expect(echo).toBeDefined();
+            if (!echo) throw new Error('unreachable');
+            expect(echo.description).toBe('Echoes text');
+            expect(echo.inputSchema.properties).toMatchObject({ text: { type: 'string' } });
 
-    // Downstream sees upstream tools
-    const { tools } = await downstreamClient.listTools();
-    const echo = tools.find(t => t.name === 'echo');
-    expect(echo).toBeDefined();
-    expect(echo!.description).toBe('Echoes text');
-    expect(echo!.inputSchema.properties).toMatchObject({ text: { type: 'string' } });
+            const annotatedTool = tools.find(t => t.name === 'annotated');
+            expect(annotatedTool).toBeDefined();
+            if (!annotatedTool) throw new Error('unreachable');
+            expect(annotatedTool.annotations).toMatchObject({ readOnlyHint: true, idempotentHint: true });
+            expect(annotatedTool._meta).toEqual({ 'example.com/fixture': true });
 
-    const annotatedTool = tools.find(t => t.name === 'annotated');
-    expect(annotatedTool).toBeDefined();
-    expect(annotatedTool!.annotations).toMatchObject({ readOnlyHint: true, idempotentHint: true });
-    expect(annotatedTool!._meta).toEqual({ 'example.com/fixture': true });
-
-    // Downstream sees upstream resources
-    const { resources } = await downstreamClient.listResources();
-    const annotatedRes = resources.find(r => r.uri === 'file:///annotated.md');
-    expect(annotatedRes).toBeDefined();
-    expect(annotatedRes!.name).toBe('annotated');
-    expect(annotatedRes!._meta).toEqual({ 'example.com/fixture': true });
+            // Downstream sees upstream resources
+            const { resources } = await downstreamClient.listResources();
+            const annotatedRes = resources.find(r => r.uri === 'file:///annotated.md');
+            expect(annotatedRes).toBeDefined();
+            if (!annotatedRes) throw new Error('unreachable');
+            expect(annotatedRes.name).toBe('annotated');
+            expect(annotatedRes._meta).toEqual({ 'example.com/fixture': true });
+        } finally {
+            await proxyWired[Symbol.asyncDispose]();
+        }
+    } finally {
+        await upstreamWired[Symbol.asyncDispose]();
+    }
 });

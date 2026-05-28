@@ -12,21 +12,22 @@
 
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { expect, vi } from 'vitest';
-import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { Client } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { JSONRPCMessageSchema } from '@modelcontextprotocol/core';
-import type { TestArgs } from '../types.js';
+import { expect, vi } from 'vitest';
+
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 /** Absolute path to the runnable fixture server (executed with tsx). */
 const FIXTURE_PATH = fileURLToPath(new URL('../fixtures/stdio-server.ts', import.meta.url));
 
-/** Repo root — used as the spawn cwd so `npx`/node resolve the workspace-local `tsx`. */
-const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url));
+/** E2E package root — spawn cwd so `npx`/node resolve the local `tsx` and its tsconfig paths map workspace packages to source. */
+const E2E_ROOT = fileURLToPath(new URL('../', import.meta.url));
 
 /** Plain client with no extra capabilities declared. */
 const newClient = () => new Client({ name: 'c', version: '0' });
@@ -56,14 +57,14 @@ verifies('transport:stdio:clean-shutdown', async (_args: TestArgs) => {
     // logging stderr markers: the exit path is observed (stdin EOF seen, no
     // SIGTERM delivered) instead of inferred from a wall-clock bound.
     const wrapperScript = [
-        `process.on('SIGTERM', () => { process.stderr.write('[wrapper] sigterm received\\n'); process.exit(143); });`,
-        `process.stdin.on('end', () => { process.stderr.write('[wrapper] stdin eof\\n'); });`,
+        String.raw`process.on('SIGTERM', () => { process.stderr.write('[wrapper] sigterm received\n'); process.exit(143); });`,
+        String.raw`process.stdin.on('end', () => { process.stderr.write('[wrapper] stdin eof\n'); });`,
         `await import(${JSON.stringify(pathToFileURL(FIXTURE_PATH).href)});`
     ].join('\n');
     const transport = new StdioClientTransport({
         command: process.execPath,
         args: ['--import', 'tsx', '--input-type=module', '-e', wrapperScript],
-        cwd: REPO_ROOT,
+        cwd: E2E_ROOT,
         stderr: 'pipe'
     });
     const stderr = transport.stderr;
@@ -94,7 +95,7 @@ verifies('transport:stdio:clean-shutdown', async (_args: TestArgs) => {
 
         expect(sawClose).toBe(true);
         expect(processAlive(childPid)).toBe(false);
-        await vi.waitFor(() => expect(captured).toContain('[wrapper] stdin eof'), { timeout: 2_000, interval: 25 });
+        await vi.waitFor(() => expect(captured).toContain('[wrapper] stdin eof'), { timeout: 2000, interval: 25 });
         // Exit came from the EOF path, not the SIGTERM/SIGKILL escalation ladder.
         expect(captured).not.toContain('[wrapper] sigterm received');
     } finally {
@@ -115,9 +116,9 @@ verifies('transport:stdio:no-embedded-newlines', async (_args: TestArgs) => {
     // Tee wrapper between client and fixture: appends each direction's raw bytes
     // to a capture file (synchronously, before forwarding) so the serialized wire
     // framing itself is observable, not just the content round-trip.
-    const captureDir = await mkdtemp(join(tmpdir(), 'stdio-wire-'));
-    const clientToServerPath = join(captureDir, 'client-to-server.jsonl');
-    const serverToClientPath = join(captureDir, 'server-to-client.jsonl');
+    const captureDir = await mkdtemp(path.join(tmpdir(), 'stdio-wire-'));
+    const clientToServerPath = path.join(captureDir, 'client-to-server.jsonl');
+    const serverToClientPath = path.join(captureDir, 'server-to-client.jsonl');
     const teeScript = [
         `import { spawn } from 'node:child_process';`,
         `import { appendFileSync } from 'node:fs';`,
@@ -131,7 +132,7 @@ verifies('transport:stdio:no-embedded-newlines', async (_args: TestArgs) => {
     const transport = new StdioClientTransport({
         command: process.execPath,
         args: ['--input-type=module', '-e', teeScript],
-        cwd: REPO_ROOT
+        cwd: E2E_ROOT
     });
     const client = newClient();
     try {
@@ -174,7 +175,7 @@ verifies('transport:stdio:shutdown-escalation', async (_args: TestArgs) => {
     const transport = new StdioClientTransport({
         command: process.execPath,
         args: ['--import', 'tsx', FIXTURE_PATH],
-        cwd: REPO_ROOT,
+        cwd: E2E_ROOT,
         env: { E2E_IGNORE_SIGTERM: '1' },
         stderr: 'pipe'
     });
@@ -204,8 +205,8 @@ verifies('transport:stdio:shutdown-escalation', async (_args: TestArgs) => {
         // SIGTERM really was delivered and ignored — surviving rung 1 (stdin
         // EOF) and rung 2 (SIGTERM) is proven by the marker, so the child's
         // termination below can only have come from the SIGKILL escalation.
-        await vi.waitFor(() => expect(captured).toContain('[stdio-server] sigterm ignored'), { timeout: 1_000, interval: 25 });
-        await vi.waitFor(() => expect(processAlive(pid)).toBe(false), { timeout: 2_000, interval: 25 });
+        await vi.waitFor(() => expect(captured).toContain('[stdio-server] sigterm ignored'), { timeout: 1000, interval: 25 });
+        await vi.waitFor(() => expect(processAlive(pid)).toBe(false), { timeout: 2000, interval: 25 });
     } finally {
         await transport.close();
         // Belt and braces: if an assertion threw mid-ladder the stubborn child
@@ -217,7 +218,7 @@ verifies('transport:stdio:shutdown-escalation', async (_args: TestArgs) => {
 });
 
 verifies('transport:stdio:stderr-passthrough', async (_args: TestArgs) => {
-    const transport = new StdioClientTransport({ command: 'npx', args: ['tsx', FIXTURE_PATH], cwd: REPO_ROOT, stderr: 'pipe' });
+    const transport = new StdioClientTransport({ command: 'npx', args: ['tsx', FIXTURE_PATH], cwd: E2E_ROOT, stderr: 'pipe' });
 
     // With stderr: 'pipe' the stream is available before start(), so listeners
     // attached here cannot miss output written while the server boots.
@@ -235,7 +236,7 @@ verifies('transport:stdio:stderr-passthrough', async (_args: TestArgs) => {
         // The startup marker the server wrote to stderr is observable on
         // transport.stderr — the transport neither swallows it nor mixes it
         // into the stdout JSON-RPC channel.
-        await vi.waitFor(() => expect(captured).toContain('[stdio-server] ready'), { timeout: 2_000, interval: 25 });
+        await vi.waitFor(() => expect(captured).toContain('[stdio-server] ready'), { timeout: 2000, interval: 25 });
 
         // ...and stderr output does not disturb the JSON-RPC channel itself.
         const echoed = await client.callTool({ name: 'echo', arguments: { text: 'hello over stdio' } });
@@ -252,15 +253,15 @@ verifies('lifecycle:connect:onerror-pre-handshake', async (_args: TestArgs) => {
     // prior to connect (Protocol wires transport.onerror before start() and
     // before the initialize handshake).'
     //
-    // Spawn the fixture with E2E_GARBAGE_STDOUT=1: it writes non-JSON garbage to
-    // stdout immediately (before the handshake) and exits. The garbage fails to
-    // parse, triggering transport.onerror. Assert that client.onerror fires and
-    // that connect() does not hang or falsely succeed.
+    // Spawn the fixture with E2E_GARBAGE_STDOUT=1: before the handshake it writes
+    // non-JSON noise (which v2 deliberately skips) plus a schema-invalid JSON-RPC
+    // line, which must surface through transport.onerror. Assert that
+    // client.onerror fires and that connect() does not hang or falsely succeed.
 
     const transport = new StdioClientTransport({
         command: 'npx',
         args: ['tsx', FIXTURE_PATH],
-        cwd: REPO_ROOT,
+        cwd: E2E_ROOT,
         env: { E2E_GARBAGE_STDOUT: '1' }
     });
 
@@ -277,7 +278,7 @@ verifies('lifecycle:connect:onerror-pre-handshake', async (_args: TestArgs) => {
         // incorrectly succeeds or hangs.
         const connectPromise = client.connect(transport);
         const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('connect timed out (expected behavior)')), 8_000)
+            setTimeout(() => reject(new Error('connect timed out (expected behavior)')), 8000)
         );
 
         await expect(Promise.race([connectPromise, timeoutPromise])).rejects.toThrow();
@@ -286,9 +287,14 @@ verifies('lifecycle:connect:onerror-pre-handshake', async (_args: TestArgs) => {
         // the garbage JSON parse failures.
         expect(errors.length).toBeGreaterThan(0);
 
-        // At least one error should relate to JSON parsing of the garbage lines.
+        // At least one error should be the parse/schema failure for the garbage lines.
         const hasJsonError = errors.some(
-            e => e.message.includes('JSON') || e.message.includes('parse') || e.message.includes('Unexpected token')
+            e =>
+                e.message.includes('JSON') ||
+                e.message.includes('parse') ||
+                e.message.includes('Unexpected token') ||
+                // changed in v2: schema-invalid lines surface as a validation error naming the jsonrpc field
+                e.message.includes('"jsonrpc"')
         );
         expect(hasJsonError).toBe(true);
     } finally {
@@ -314,7 +320,7 @@ verifies('transport:stdio:default-env-safelist', async (_args: TestArgs) => {
     const transport = new StdioClientTransport({
         command: 'npx',
         args: ['tsx', FIXTURE_PATH],
-        cwd: REPO_ROOT
+        cwd: E2E_ROOT
         // Deliberately omit `env` option, so getDefaultEnvironment() applies.
     });
 

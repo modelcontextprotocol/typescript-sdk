@@ -6,17 +6,7 @@
  * via the requirement's tier map.
  */
 
-import { expect, vi } from 'vitest';
-import { z } from 'zod/v4';
-import {
-    InMemoryTransport,
-    Server,
-    McpServer,
-    ProtocolError,
-    ProtocolErrorCode,
-    SdkErrorCode,
-    specTypeSchemas
-} from '@modelcontextprotocol/server';
+import { Client } from '@modelcontextprotocol/client';
 import type {
     CallToolRequest,
     JSONRPCMessage,
@@ -27,10 +17,22 @@ import type {
     Progress,
     RequestId
 } from '@modelcontextprotocol/server';
-import { Client } from '@modelcontextprotocol/client';
+import {
+    InMemoryTransport,
+    McpServer,
+    ProtocolError,
+    ProtocolErrorCode,
+    SdkError,
+    SdkErrorCode,
+    Server,
+    specTypeSchemas
+} from '@modelcontextprotocol/server';
+import { expect, vi } from 'vitest';
+import { z } from 'zod/v4';
+
 import { tapWire, wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 
@@ -92,35 +94,31 @@ verifies('protocol:cancel:abort-signal', async ({ transport }: TestArgs) => {
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
 
-    const outbound: JSONRPCMessage[] = [];
-    const originalSend = client.transport!.send.bind(client.transport!);
-    client.transport!.send = async m => {
-        outbound.push(m);
-        return originalSend(m);
-    };
+    const outbound = tapOutbound(client);
 
     const controller = new AbortController();
-    const call = client.callTool({ name: 'echo', arguments: { text: 'never' } }, undefined, {
-        signal: controller.signal
-    });
+    const call = client.callTool(
+        { name: 'echo', arguments: { text: 'never' } },
+        {
+            signal: controller.signal
+        }
+    );
     call.catch(() => {});
 
-    await vi.waitFor(() => outbound.some(m => 'method' in m && m.method === 'tools/call'));
-    const callMsg = outbound.find(
-        (m): m is Extract<JSONRPCMessage, { method: string; id: RequestId }> => 'method' in m && m.method === 'tools/call' && 'id' in m
-    )!;
+    await vi.waitFor(() => expect(outbound.some(m => 'method' in m && m.method === 'tools/call')).toBe(true));
+    const callMsg = outbound.filter(m => isRequest(m)).find(m => m.method === 'tools/call');
+    if (!callMsg) throw new Error('tools/call request not captured');
 
     controller.abort('user requested cancellation');
 
     await expect(call).rejects.toThrow(/user requested cancellation/);
 
-    await vi.waitFor(() => outbound.some(m => 'method' in m && m.method === 'notifications/cancelled'));
-    const cancelled = outbound.find(m => 'method' in m && m.method === 'notifications/cancelled') as {
-        id?: RequestId;
-        params?: { requestId?: RequestId; reason?: string };
-    };
+    await vi.waitFor(() => expect(outbound.some(m => 'method' in m && m.method === 'notifications/cancelled')).toBe(true));
+    const cancelled = outbound.find(m => 'method' in m && m.method === 'notifications/cancelled');
 
+    expect(cancelled).toBeDefined();
     expect(cancelled).not.toHaveProperty('id');
+    if (!cancelled || !('params' in cancelled)) throw new Error('notifications/cancelled message has no params');
     expect(cancelled.params?.requestId).toBe(callMsg.id);
     expect(cancelled.params?.reason).toContain('user requested cancellation');
 });
@@ -146,7 +144,7 @@ verifies('protocol:cancel:handler-abort-propagates', async ({ transport }: TestA
     await using _ = await wire(transport, makeServer, client);
 
     const ac = new AbortController();
-    const call = client.callTool({ name: 'cancellable', arguments: {} }, undefined, { signal: ac.signal });
+    const call = client.callTool({ name: 'cancellable', arguments: {} }, { signal: ac.signal });
     call.catch(() => {});
 
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -157,9 +155,11 @@ verifies('protocol:cancel:handler-abort-propagates', async ({ transport }: TestA
 
     await vi.waitFor(() => expect(aborts.length).toBeGreaterThan(0));
 
+    const firstAbort = aborts[0];
+    if (!firstAbort) throw new Error('no abort recorded');
     // Server-side signal.reason carries the cancellation reason text from the
     // notifications/cancelled the client sent (possibly wrapped).
-    expect(String(aborts[0].reason)).toContain('user cancelled');
+    expect(String(firstAbort.reason)).toContain('user cancelled');
 });
 
 verifies('protocol:cancel:initialize-not-cancellable', async (_: TestArgs) => {
@@ -182,8 +182,8 @@ verifies('protocol:cancel:initialize-not-cancellable', async (_: TestArgs) => {
     const connecting = client.connect(clientTx, { signal: ac.signal });
     connecting.catch(() => {});
 
-    await vi.waitFor(() => expect(outbound.filter(isRequest).some(m => m.method === 'initialize')).toBe(true));
-    const initReq = outbound.filter(isRequest).find(m => m.method === 'initialize');
+    await vi.waitFor(() => expect(outbound.filter(m => isRequest(m)).some(m => m.method === 'initialize')).toBe(true));
+    const initReq = outbound.filter(m => isRequest(m)).find(m => m.method === 'initialize');
     expect(initReq?.id).toBeDefined();
 
     ac.abort(new Error('user aborted connect'));
@@ -192,7 +192,7 @@ verifies('protocol:cancel:initialize-not-cancellable', async (_: TestArgs) => {
     await new Promise(resolve => setTimeout(resolve, 50));
 
     const cancelledForInit = outbound
-        .filter(isNotification)
+        .filter(m => isNotification(m))
         .filter(m => m.method === 'notifications/cancelled' && m.params?.requestId === initReq?.id);
     expect(cancelledForInit).toEqual([]);
 
@@ -221,29 +221,23 @@ verifies('protocol:cancel:late-response-ignored', async ({ transport }: TestArgs
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
 
-    const outbound: JSONRPCMessage[] = [];
-    const originalSend = client.transport!.send.bind(client.transport!);
-    client.transport!.send = async m => {
-        outbound.push(m);
-        return originalSend(m);
-    };
+    const outbound = tapOutbound(client);
 
     const errors: Error[] = [];
     client.onerror = e => errors.push(e);
 
     const ac = new AbortController();
-    const call = client.callTool({ name: 'echo', arguments: { text: 'late' } }, undefined, { signal: ac.signal });
+    const call = client.callTool({ name: 'echo', arguments: { text: 'late' } }, { signal: ac.signal });
     call.catch(() => {});
 
-    await vi.waitFor(() => outbound.some(m => 'method' in m && m.method === 'tools/call'));
-    const callReq = outbound.find(
-        (m): m is Extract<JSONRPCMessage, { method: string; id: RequestId }> => 'method' in m && m.method === 'tools/call' && 'id' in m
-    )!;
+    await vi.waitFor(() => expect(outbound.some(m => 'method' in m && m.method === 'tools/call')).toBe(true));
+    const callReq = outbound.filter(m => isRequest(m)).find(m => m.method === 'tools/call');
+    if (!callReq) throw new Error('tools/call request not captured');
     const callId = callReq.id;
 
     ac.abort(new Error('user cancelled'));
 
-    await vi.waitFor(() => outbound.some(m => 'method' in m && m.method === 'notifications/cancelled'));
+    await vi.waitFor(() => expect(outbound.some(m => 'method' in m && m.method === 'notifications/cancelled')).toBe(true));
 
     await expect(call).rejects.toThrow('user cancelled');
 
@@ -252,7 +246,9 @@ verifies('protocol:cancel:late-response-ignored', async ({ transport }: TestArgs
         id: callId,
         result: { content: [{ type: 'text', text: 'late' }] }
     };
-    client.transport!.onmessage?.(lateResponse);
+    const clientTx = client.transport;
+    if (!clientTx) throw new Error('client transport not connected');
+    clientTx.onmessage?.(lateResponse);
 
     await new Promise(resolve => setTimeout(resolve, 50));
 
@@ -280,7 +276,7 @@ verifies('protocol:cancel:unknown-id-ignored', async ({ transport }: TestArgs) =
     await expect(
         client.notification({
             method: 'notifications/cancelled',
-            params: { requestId: 99999, reason: 'unknown numeric id' }
+            params: { requestId: 99_999, reason: 'unknown numeric id' }
         })
     ).resolves.toBeUndefined();
 
@@ -314,7 +310,7 @@ verifies('typescript:protocol:error:connection-closed', async ({ transport }: Te
     await client.close();
 
     for (const p of inFlight) {
-        await expect(p).rejects.toBeInstanceOf(ProtocolError);
+        await expect(p).rejects.toBeInstanceOf(SdkError);
         await expect(p).rejects.toMatchObject({ code: SdkErrorCode.ConnectionClosed });
     }
     // onclose fires at least once (transport peers may echo a close back, so don't pin the count).
@@ -340,7 +336,7 @@ verifies('protocol:error:internal-error', async ({ transport }: TestArgs) => {
     await expect(call).rejects.toBeInstanceOf(ProtocolError);
     await expect(call).rejects.toMatchObject({ code: ProtocolErrorCode.InternalError });
     await expect(call).rejects.toThrow(/handler exploded/);
-    expect(ProtocolErrorCode.InternalError).toBe(-32603);
+    expect(ProtocolErrorCode.InternalError).toBe(-32_603);
 });
 
 verifies('protocol:error:invalid-params', async ({ transport }: TestArgs) => {
@@ -365,10 +361,10 @@ verifies('protocol:error:invalid-params', async ({ transport }: TestArgs) => {
     await expect(call).rejects.toBeInstanceOf(ProtocolError);
 
     // The malformed request did reach the wire (failure is server-side, not client-side validation).
-    const sent = outbound.filter(isRequest).find(m => m.method === 'tools/call');
+    const sent = outbound.filter(m => isRequest(m)).find(m => m.method === 'tools/call');
     expect(sent?.params).toEqual({ arguments: {} });
 
-    expect(ProtocolErrorCode.InvalidParams).toBe(-32602);
+    expect(ProtocolErrorCode.InvalidParams).toBe(-32_602);
     await expect(call).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
 });
 
@@ -380,20 +376,13 @@ verifies('protocol:error:method-not-found', async ({ transport }: TestArgs) => {
     const client = newClient();
     await using _ = await wire(transport, makeServer, client, { allowCustomMethods: true });
 
-    const outbound: JSONRPCMessage[] = [];
-    const originalSend = client.transport!.send.bind(client.transport!);
-    client.transport!.send = async m => {
-        outbound.push(m);
-        return originalSend(m);
-    };
+    const outbound = tapOutbound(client);
 
     const call = client.request({ method: 'no/such/method' }, z.object({}));
 
     await expect(call).rejects.toBeInstanceOf(ProtocolError);
-
-    const err = await call.catch(e => e as ProtocolError);
-    expect(err.code).toBe(ProtocolErrorCode.MethodNotFound);
-    expect(err.code).toBe(-32601);
+    await expect(call).rejects.toMatchObject({ code: ProtocolErrorCode.MethodNotFound });
+    expect(ProtocolErrorCode.MethodNotFound).toBe(-32_601);
 
     const sent = outbound.filter(m => 'method' in m && m.method === 'no/such/method' && 'id' in m);
     expect(sent).toHaveLength(1);
@@ -425,7 +414,7 @@ verifies('protocol:error:reconnect-no-stale-timers', async (_: TestArgs) => {
     const inFlight = client.listTools(undefined, { timeout: 400 });
     inFlight.catch(() => {});
 
-    await vi.waitFor(() => expect(sentOnA.filter(isRequest).some(m => m.method === 'tools/list')).toBe(true));
+    await vi.waitFor(() => expect(sentOnA.filter(m => isRequest(m)).some(m => m.method === 'tools/list')).toBe(true));
 
     // Connection drops before the 400 ms timeout fires; the in-flight request is
     // rejected by close (how it rejects is protocol:error:connection-closed's concern).
@@ -450,12 +439,12 @@ verifies('protocol:error:reconnect-no-stale-timers', async (_: TestArgs) => {
     // request id server B never saw) onto the new transport.
     await new Promise(resolve => setTimeout(resolve, 550));
 
-    expect(sentOnB.filter(isNotification).filter(m => m.method === 'notifications/cancelled')).toEqual([]);
+    expect(sentOnB.filter(m => isNotification(m)).filter(m => m.method === 'notifications/cancelled')).toEqual([]);
     expect(clientErrors).toEqual([]);
 
     // The reconnected session is healthy.
     await expect(client.ping()).resolves.toBeDefined();
-    expect(sentOnB.filter(isRequest).some(m => m.method === 'ping')).toBe(true);
+    expect(sentOnB.filter(m => isRequest(m)).some(m => m.method === 'ping')).toBe(true);
 
     await client.close();
     await serverB.close();
@@ -488,9 +477,12 @@ verifies('protocol:progress:callback', async ({ transport }: TestArgs) => {
 
     const updates: Progress[] = [];
 
-    await client.callTool({ name: 'progress', arguments: { steps: 2 } }, undefined, {
-        onprogress: p => updates.push(p)
-    });
+    await client.callTool(
+        { name: 'progress', arguments: { steps: 2 } },
+        {
+            onprogress: p => updates.push(p)
+        }
+    );
 
     expect(updates).toHaveLength(2);
 
@@ -525,15 +517,18 @@ verifies('typescript:protocol:progress:token-injected', async ({ transport }: Te
     const traceId = 'trace-abc-123';
     const progressEvents: Progress[] = [];
 
-    const result = await client.callTool({ name: 'any', arguments: {}, _meta: { [traceKey]: traceId } }, undefined, {
-        onprogress: p => progressEvents.push(p)
-    });
+    const result = await client.callTool(
+        { name: 'any', arguments: {}, _meta: { [traceKey]: traceId } },
+        {
+            onprogress: p => progressEvents.push(p)
+        }
+    );
 
     expect(result.isError).toBeFalsy();
     expect(progressEvents).toEqual([expect.objectContaining({ progress: 1, total: 1 })]);
 
     expect(received).toHaveLength(1);
-    const meta = received[0]._meta;
+    const meta = received[0]?._meta;
     expect(meta?.progressToken).toBeDefined();
     expect(['number', 'string']).toContain(typeof meta?.progressToken);
     // Existing _meta fields are preserved alongside the injected token.
@@ -560,8 +555,8 @@ verifies('protocol:progress:token-unique', async ({ transport }: TestArgs) => {
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
 
-    const a = client.callTool({ name: 'probe', arguments: {} }, undefined, { onprogress: () => {} });
-    const b = client.callTool({ name: 'probe', arguments: {} }, undefined, { onprogress: () => {} });
+    const a = client.callTool({ name: 'probe', arguments: {} }, { onprogress: () => {} });
+    const b = client.callTool({ name: 'probe', arguments: {} }, { onprogress: () => {} });
 
     await Promise.all([a, b]);
 
@@ -581,11 +576,11 @@ verifies('protocol:timeout:basic', async ({ transport }: TestArgs) => {
         const pending = client.listTools(undefined, { timeout: 100 });
         void pending.then(
             v => (outcome = { kind: 'resolved', value: v }),
-            (e: unknown) => (outcome = { kind: 'rejected', value: e })
+            (error: unknown) => (outcome = { kind: 'rejected', value: error })
         );
 
         await vi.advanceTimersByTimeAsync(0);
-        expect(outbound.filter(isRequest).some(m => m.method === 'tools/list')).toBe(true);
+        expect(outbound.filter(m => isRequest(m)).some(m => m.method === 'tools/list')).toBe(true);
         expect(outcome).toBeUndefined();
 
         await vi.advanceTimersByTimeAsync(99);
@@ -593,7 +588,7 @@ verifies('protocol:timeout:basic', async ({ transport }: TestArgs) => {
 
         await vi.advanceTimersByTimeAsync(2);
         expect(outcome?.kind).toBe('rejected');
-        expect(outcome?.value).toBeInstanceOf(ProtocolError);
+        expect(outcome?.value).toBeInstanceOf(SdkError);
         expect(outcome?.value).toMatchObject({ code: SdkErrorCode.RequestTimeout });
     } finally {
         vi.useRealTimers();
@@ -633,21 +628,23 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
 
         const ticks: number[] = [];
 
-        const call = client.callTool({ name: 'slow-progress', arguments: { delayMs, steps: 100 } }, undefined, {
-            timeout: perChunk,
-            resetTimeoutOnProgress: true,
-            maxTotalTimeout: maxTotal,
-            onprogress: p => ticks.push(p.progress)
-        });
+        const call = client.callTool(
+            { name: 'slow-progress', arguments: { delayMs, steps: 100 } },
+            {
+                timeout: perChunk,
+                resetTimeoutOnProgress: true,
+                maxTotalTimeout: maxTotal,
+                onprogress: p => ticks.push(p.progress)
+            }
+        );
         call.catch(() => {});
 
         for (let elapsed = 0; elapsed < maxTotal + perChunk; elapsed += delayMs) {
             await vi.advanceTimersByTimeAsync(delayMs);
         }
 
-        await expect(call).rejects.toBeInstanceOf(ProtocolError);
-        const err = await call.catch(e => e as ProtocolError);
-        expect(err.code).toBe(SdkErrorCode.RequestTimeout);
+        await expect(call).rejects.toBeInstanceOf(SdkError);
+        await expect(call).rejects.toMatchObject({ code: SdkErrorCode.RequestTimeout });
 
         expect(ticks.length).toBeGreaterThanOrEqual(3);
     } finally {
@@ -690,16 +687,19 @@ verifies('protocol:timeout:reset-on-progress', async ({ transport }: TestArgs) =
         let settled: 'resolved' | 'rejected' | undefined;
 
         const call = client
-            .callTool({ name: 'slow-progress', arguments: { steps, delayMs } }, undefined, {
-                timeout,
-                resetTimeoutOnProgress: true,
-                onprogress: p => {
-                    received.push(p.progress);
+            .callTool(
+                { name: 'slow-progress', arguments: { steps, delayMs } },
+                {
+                    timeout,
+                    resetTimeoutOnProgress: true,
+                    onprogress: p => {
+                        received.push(p.progress);
+                    }
                 }
-            })
+            )
             .then(
                 r => ((settled = 'resolved'), r),
-                e => ((settled = 'rejected'), Promise.reject(e))
+                error => ((settled = 'rejected'), Promise.reject(error))
             );
 
         for (let i = 1; i <= steps; i++) {
@@ -736,104 +736,109 @@ verifies('protocol:timeout:sends-cancellation', async ({ transport }: TestArgs) 
 
         await vi.advanceTimersByTimeAsync(100);
 
-        await expect(pending).rejects.toBeInstanceOf(ProtocolError);
+        await expect(pending).rejects.toBeInstanceOf(SdkError);
         await expect(pending).rejects.toMatchObject({ code: SdkErrorCode.RequestTimeout });
 
         expect(sentAtRejection).toBeDefined();
-        const listReq = sentAtRejection!.filter(isRequest).find(m => m.method === 'tools/list');
+        if (!sentAtRejection) throw new Error('rejection snapshot not captured');
+        const listReq = sentAtRejection.filter(m => isRequest(m)).find(m => m.method === 'tools/list');
         expect(listReq).toBeDefined();
 
-        const cancelled = sentAtRejection!.filter(isNotification).find(m => m.method === 'notifications/cancelled');
+        const cancelled = sentAtRejection.filter(m => isNotification(m)).find(m => m.method === 'notifications/cancelled');
         expect(cancelled, 'notifications/cancelled must be handed to transport.send() before the request promise rejects').toBeDefined();
-        expect(cancelled?.params?.requestId).toBe(listReq?.id);
-        expect(String(cancelled?.params?.reason)).toMatch(/timed? ?out/i);
-        expect(sentAtRejection!.indexOf(cancelled!)).toBeGreaterThan(sentAtRejection!.indexOf(listReq!));
+        if (!listReq || !cancelled) throw new Error('expected tools/list request and notifications/cancelled on the wire');
+        expect(cancelled.params?.requestId).toBe(listReq.id);
+        expect(String(cancelled.params?.reason)).toMatch(/timed? ?out/i);
+        expect(sentAtRejection.indexOf(cancelled)).toBeGreaterThan(sentAtRejection.indexOf(listReq));
     } finally {
         vi.useRealTimers();
     }
 });
 
-verifies('mcpserver:onerror:reach-through', async ({ transport }: TestArgs) => {
-    const errors: Error[] = [];
-    const makeServer = () => {
-        const s = new McpServer({ name: 's', version: '0' });
-        s.server.onerror = e => errors.push(e);
-        return s;
-    };
-    const client = newClient();
-    await using _ = await wire(transport, makeServer, client, { strictValidation: false });
+verifies(
+    'mcpserver:onerror:reach-through',
+    async ({ transport }: TestArgs) => {
+        const errors: Error[] = [];
+        const makeServer = () => {
+            const s = new McpServer({ name: 's', version: '0' });
+            s.server.onerror = e => errors.push(e);
+            return s;
+        };
+        const client = newClient();
+        await using _ = await wire(transport, makeServer, client, { strictValidation: false });
 
-    const baseA = errors.length;
-    const stray: JSONRPCMessage = { jsonrpc: '2.0', id: 99999, result: {} };
-    await client.transport?.send(stray);
+        const baseA = errors.length;
+        const stray: JSONRPCMessage = { jsonrpc: '2.0', id: 99_999, result: {} };
+        await client.transport?.send(stray);
 
-    await vi.waitFor(() => errors.length > baseA);
+        await vi.waitFor(() => errors.length > baseA);
 
-    const hitA = errors.slice(baseA).find(e => /unknown message ID/i.test(e.message));
-    expect(
-        hitA,
-        `expected an "unknown message ID" onerror; got: ${errors
-            .slice(baseA)
-            .map(e => e.message)
-            .join(' | ')}`
-    ).toBeDefined();
-    expect(hitA!.message).toContain('99999');
+        const hitA = errors.slice(baseA).find(e => /unknown message ID/i.test(e.message));
+        expect(
+            hitA,
+            `expected an "unknown message ID" onerror; got: ${errors
+                .slice(baseA)
+                .map(e => e.message)
+                .join(' | ')}`
+        ).toBeDefined();
+        expect(hitA?.message).toContain('99999');
 
-    const baseB = errors.length;
-    const badProgress = {
-        jsonrpc: '2.0',
-        method: 'notifications/progress',
-        params: { progressToken: 'onerror-reach-through', progress: 'not-a-number' }
-    } as unknown as JSONRPCMessage;
-    await client.transport?.send(badProgress);
+        const baseB = errors.length;
+        const badProgress: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'notifications/progress',
+            params: { progressToken: 'onerror-reach-through', progress: 'not-a-number' }
+        };
+        await client.transport?.send(badProgress);
 
-    await vi.waitFor(() => errors.length > baseB);
+        await vi.waitFor(() => errors.length > baseB);
 
-    const hitB = errors.slice(baseB).find(e => /uncaught error in notification handler/i.test(e.message));
-    expect(
-        hitB,
-        `expected an "Uncaught error in notification handler" onerror; got: ${errors
-            .slice(baseB)
-            .map(e => e.message)
-            .join(' | ')}`
-    ).toBeDefined();
+        const hitB = errors.slice(baseB).find(e => /uncaught error in notification handler/i.test(e.message));
+        expect(
+            hitB,
+            `expected an "Uncaught error in notification handler" onerror; got: ${errors
+                .slice(baseB)
+                .map(e => e.message)
+                .join(' | ')}`
+        ).toBeDefined();
 
-    await expect(client.ping()).resolves.toBeDefined();
-});
+        await expect(client.ping()).resolves.toBeDefined();
+    },
+    { title: 'via mcpServer.server' }
+);
 
 verifies('protocol:custom-method:notification', async ({ transport }: TestArgs) => {
     const HEARTBEAT_METHOD = 'myorg/heartbeat';
+    const HeartbeatParamsSchema = z.object({ seq: z.number(), tag: z.string() });
 
-    const CustomNotificationSchema = specTypeSchemas.Notification.extend({
-        method: z.literal(HEARTBEAT_METHOD),
-        params: z.object({ seq: z.number(), tag: z.string() })
-    });
-    type CustomNotification = z.infer<typeof CustomNotificationSchema>;
+    let server: Server | undefined;
+    const makeServer = () => {
+        server = new Server({ name: 's', version: '0' }, { capabilities: {} });
+        return server;
+    };
 
-    let server!: Server;
-    const makeServer = () => (server = new Server({ name: 's', version: '0' }, { capabilities: {} }));
-
-    const received: CustomNotification[] = [];
+    const received: Array<{ method: string; params: z.infer<typeof HeartbeatParamsSchema> }> = [];
     const clientErrors: Error[] = [];
     const client = newClient();
     client.onerror = e => clientErrors.push(e);
 
     await using _ = await wire(transport, makeServer, client, { allowCustomMethods: true });
 
-    client.setNotificationHandler(CustomNotificationSchema, n => {
-        received.push(n);
+    client.setNotificationHandler(HEARTBEAT_METHOD, { params: HeartbeatParamsSchema }, (params, notification) => {
+        received.push({ method: notification.method, params });
     });
 
+    if (!server) throw new Error('server not created');
     await server.notification({
         method: HEARTBEAT_METHOD,
         params: { seq: 7, tag: 'custom', extra: 'stripped-by-zod' }
     });
 
     await vi.waitFor(() => expect(received).toHaveLength(1));
-    expect(received[0].method).toBe(HEARTBEAT_METHOD);
-    // Handler receives the Zod-parsed params (extra fields stripped).
-    expect(received[0].params).toEqual({ seq: 7, tag: 'custom' });
-    expect(received[0].params).not.toHaveProperty('extra');
+    expect(received[0]?.method).toBe(HEARTBEAT_METHOD);
+    // Handler receives the schema-parsed params (extra fields stripped).
+    expect(received[0]?.params).toEqual({ seq: 7, tag: 'custom' });
+    expect(received[0]?.params).not.toHaveProperty('extra');
     expect(clientErrors).toEqual([]);
 });
 
@@ -956,15 +961,12 @@ verifies('protocol:handler:re-register-replaces', async ({ transport }: TestArgs
 });
 
 const X_ECHO_METHOD = 'x-e2e/echo';
-const XEchoRequestSchema = specTypeSchemas.Request.extend({
-    method: z.literal(X_ECHO_METHOD),
-    params: z.object({ value: z.string() })
-});
-const XEchoResultSchema = specTypeSchemas.Result.extend({ echoed: z.string() });
+const XEchoParamsSchema = z.object({ value: z.string() });
+const XEchoResultSchema = z.object({ echoed: z.string() });
 
 function customEchoServer(): Server {
     const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
-    s.setRequestHandler(XEchoRequestSchema, req => ({ echoed: req.params.value }));
+    s.setRequestHandler(X_ECHO_METHOD, { params: XEchoParamsSchema, result: XEchoResultSchema }, params => ({ echoed: params.value }));
     return s;
 }
 
@@ -990,26 +992,22 @@ verifies('protocol:custom-method:roundtrip', async ({ transport }: TestArgs) => 
 
     // A truly-unknown method still surfaces as MethodNotFound, proving the
     // custom registration is what made the previous call succeed.
-    await expect(client.request({ method: 'x-e2e/never-registered', params: {} })).rejects.toMatchObject({
+    await expect(client.request({ method: 'x-e2e/never-registered', params: {} }, specTypeSchemas.Result)).rejects.toMatchObject({
         code: ProtocolErrorCode.MethodNotFound
     });
 });
 
 verifies('protocol:custom-notification:roundtrip', async ({ transport }: TestArgs) => {
     const X_EVENT_METHOD = 'x-e2e/event';
-    const XEventNotificationSchema = specTypeSchemas.Notification.extend({
-        method: z.literal(X_EVENT_METHOD),
-        params: z.object({ kind: z.string(), id: z.number() })
-    });
-    type XEvent = z.infer<typeof XEventNotificationSchema>;
+    const XEventParamsSchema = z.object({ kind: z.string(), id: z.number() });
 
-    const received: XEvent[] = [];
+    const received: Array<{ method: string; params: z.infer<typeof XEventParamsSchema> }> = [];
     const serverErrors: Error[] = [];
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
         s.onerror = e => serverErrors.push(e);
-        s.setNotificationHandler(XEventNotificationSchema, n => {
-            received.push(n);
+        s.setNotificationHandler(X_EVENT_METHOD, { params: XEventParamsSchema }, (params, notification) => {
+            received.push({ method: notification.method, params });
         });
         return s;
     };
@@ -1020,10 +1018,10 @@ verifies('protocol:custom-notification:roundtrip', async ({ transport }: TestArg
     await client.notification({ method: X_EVENT_METHOD, params: { kind: 'k', id: 42, extra: 'stripped-by-zod' } });
 
     await vi.waitFor(() => expect(received).toHaveLength(1));
-    expect(received[0].method).toBe(X_EVENT_METHOD);
-    // Handler receives the Zod-parsed params (extra fields stripped), not raw passthrough.
-    expect(received[0].params).toEqual({ kind: 'k', id: 42 });
-    expect(received[0].params).not.toHaveProperty('extra');
+    expect(received[0]?.method).toBe(X_EVENT_METHOD);
+    // Handler receives the schema-parsed params (extra fields stripped), not raw passthrough.
+    expect(received[0]?.params).toEqual({ kind: 'k', id: 42 });
+    expect(received[0]?.params).not.toHaveProperty('extra');
     expect(serverErrors).toEqual([]);
 });
 
@@ -1091,8 +1089,8 @@ verifies('protocol:request-id:unique', async ({ transport }: TestArgs) => {
     ]);
     await client.ping();
 
-    const requests = tap.sent.filter(isRequest);
-    expect(requests.map(m => m.method).sort()).toEqual(['ping', 'ping', 'tools/call', 'tools/call', 'tools/list']);
+    const requests = tap.sent.filter(m => isRequest(m));
+    expect(requests.map(m => m.method).toSorted()).toEqual(['ping', 'ping', 'tools/call', 'tools/call', 'tools/list']);
 
     const ids = requests.map(m => m.id);
     for (const id of ids) {
@@ -1119,7 +1117,7 @@ verifies('protocol:notifications:no-response', async ({ transport }: TestArgs) =
     await client.sendRootsListChanged();
     await client.notification({
         method: 'notifications/cancelled',
-        params: { requestId: 424242, reason: 'request was never issued' }
+        params: { requestId: 424_242, reason: 'request was never issued' }
     });
 
     const result = await client.callTool({ name: 'echo', arguments: { text: 'after notifications' } });
@@ -1129,11 +1127,14 @@ verifies('protocol:notifications:no-response', async ({ transport }: TestArgs) =
     // Both requests round-tripped after the notifications, so a (non-conformant) reply to either notification would have arrived by now.
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    expect(tap.sent.filter(isNotification).map(m => m.method)).toEqual(['notifications/roots/list_changed', 'notifications/cancelled']);
-    const requestIds = tap.sent.filter(isRequest).map(m => m.id);
+    expect(tap.sent.filter(m => isNotification(m)).map(m => m.method)).toEqual([
+        'notifications/roots/list_changed',
+        'notifications/cancelled'
+    ]);
+    const requestIds = tap.sent.filter(m => isRequest(m)).map(m => m.id);
     expect(requestIds).toHaveLength(2);
 
-    const responses = tap.received.filter(isResponse);
+    const responses = tap.received.filter(m => isResponse(m));
     expect(responses.map(m => m.id)).toEqual(requestIds);
     for (const m of tap.received) {
         if (isResponse(m)) {
@@ -1176,7 +1177,7 @@ verifies('protocol:progress:monotonic', async ({ transport }: TestArgs) => {
     await using _ = await wire(transport, makeServer, client);
 
     const updates: Progress[] = [];
-    const result = await client.callTool({ name: 'index_files', arguments: {} }, undefined, { onprogress: p => updates.push(p) });
+    const result = await client.callTool({ name: 'index_files', arguments: {} }, { onprogress: p => updates.push(p) });
 
     expect(result.content).toEqual([{ type: 'text', text: 'indexing complete' }]);
 
@@ -1188,20 +1189,24 @@ verifies('protocol:progress:monotonic', async ({ transport }: TestArgs) => {
     }
     // Spec: the progress value MUST increase with each notification for the token, so the regressed value never reaches the caller.
     for (let i = 1; i < updates.length; i++) {
+        const previous = updates[i - 1];
+        const current = updates[i];
+        if (!previous || !current) throw new Error('progress updates list changed during iteration');
         expect(
-            updates[i].progress,
+            current.progress,
             `progress sequence ${updates.map(p => p.progress).join(' → ')} must be strictly increasing`
-        ).toBeGreaterThan(updates[i - 1].progress);
+        ).toBeGreaterThan(previous.progress);
     }
 });
 
 verifies('protocol:progress:stops-after-completion', async ({ transport }: TestArgs) => {
-    let server!: Server;
+    let server: Server | undefined;
     let lateProgress: (() => Promise<void>) | undefined;
     const makeServer = () => {
-        server = new Server({ name: 's', version: '0' }, { capabilities: { tools: { listChanged: true } } });
-        server.setRequestHandler('tools/list', () => ({ tools: [] }));
-        server.setRequestHandler('tools/call', async (req, ctx) => {
+        const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: { listChanged: true } } });
+        server = s;
+        s.setRequestHandler('tools/list', () => ({ tools: [] }));
+        s.setRequestHandler('tools/call', async (req, ctx) => {
             const token = req.params._meta?.progressToken;
             if (token === undefined) throw new Error('expected a progressToken on the request');
             await ctx.mcpReq.notify({
@@ -1210,13 +1215,13 @@ verifies('protocol:progress:stops-after-completion', async ({ transport }: TestA
             });
             // Captured so the test can attempt a post-completion progress send for the same token through the public API.
             lateProgress = () =>
-                server.notification({
+                s.notification({
                     method: 'notifications/progress',
                     params: { progressToken: token, progress: 2, total: 2, message: 'late' }
                 });
             return { content: [{ type: 'text', text: 'partial upload complete' }] };
         });
-        return server;
+        return s;
     };
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
@@ -1224,7 +1229,7 @@ verifies('protocol:progress:stops-after-completion', async ({ transport }: TestA
     const tap = tapWire(client);
 
     const updates: Progress[] = [];
-    const result = await client.callTool({ name: 'upload', arguments: {} }, undefined, { onprogress: p => updates.push(p) });
+    const result = await client.callTool({ name: 'upload', arguments: {} }, { onprogress: p => updates.push(p) });
 
     expect(result.content).toEqual([{ type: 'text', text: 'partial upload complete' }]);
     expect(updates).toEqual([{ progress: 1, total: 2, message: 'halfway' }]);
@@ -1233,15 +1238,16 @@ verifies('protocol:progress:stops-after-completion', async ({ transport }: TestA
     if (!lateProgress) throw new Error('handler did not capture the late-progress sender');
     await lateProgress();
     // Sentinel on the same server→client channel: once it arrives, the late progress (had it been sent) would have arrived too.
+    if (!server) throw new Error('server not created');
     await server.sendToolListChanged();
     await vi.waitFor(() =>
-        expect(tap.received.filter(isNotification).filter(m => m.method === 'notifications/tools/list_changed')).toHaveLength(1)
+        expect(tap.received.filter(m => isNotification(m)).filter(m => m.method === 'notifications/tools/list_changed')).toHaveLength(1)
     );
 
     // Spec: progress notifications for the token stop once the associated request has completed.
     const lateProgressOnWire = tap.received
         .slice(receivedBeforeLateSend)
-        .filter(isNotification)
+        .filter(m => isNotification(m))
         .filter(m => m.method === 'notifications/progress');
     expect(lateProgressOnWire).toEqual([]);
 });
@@ -1271,12 +1277,12 @@ verifies('protocol:cancel:in-flight', async ({ transport }: TestArgs) => {
     const tap = tapWire(client);
 
     const ac = new AbortController();
-    const call = client.callTool({ name: 'long_export', arguments: {} }, undefined, { signal: ac.signal });
+    const call = client.callTool({ name: 'long_export', arguments: {} }, { signal: ac.signal });
     call.catch(() => {});
 
     // Cancel only once the handler is running, so the cancellation targets a request that is genuinely in flight on the server.
     await vi.waitFor(() => expect(handlerStarted).toHaveLength(1));
-    const callRequest = tap.sent.filter(isRequest).find(m => m.method === 'tools/call');
+    const callRequest = tap.sent.filter(m => isRequest(m)).find(m => m.method === 'tools/call');
     if (!callRequest) throw new Error('tools/call request not captured');
 
     ac.abort(new Error('user cancelled the export'));
@@ -1285,7 +1291,7 @@ verifies('protocol:cancel:in-flight', async ({ transport }: TestArgs) => {
     await vi.waitFor(() =>
         expect(
             tap.sent
-                .filter(isNotification)
+                .filter(m => isNotification(m))
                 .filter(m => m.method === 'notifications/cancelled')
                 .map(m => m.params?.requestId)
         ).toEqual([callRequest.id])
@@ -1299,7 +1305,7 @@ verifies('protocol:cancel:in-flight', async ({ transport }: TestArgs) => {
     await expect(client.ping()).resolves.toBeDefined();
     await new Promise(resolve => setTimeout(resolve, 50));
 
-    expect(tap.received.filter(isResponse).filter(m => m.id === callRequest.id)).toEqual([]);
+    expect(tap.received.filter(m => isResponse(m)).filter(m => m.id === callRequest.id)).toEqual([]);
 });
 
 verifies('protocol:progress:client-to-server', async ({ transport }: TestArgs) => {
@@ -1377,31 +1383,35 @@ verifies('protocol:request-handler:override-builtin', async ({ transport }: Test
     expect(result).toEqual({ _meta: { 'e2e/overridden': true } });
 });
 
-export async function mcpserverOnerrorReachThroughRaw({ transport }: TestArgs) {
-    const errors: Error[] = [];
-    const makeServer = () => {
-        const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
-        s.onerror = e => errors.push(e);
-        return s;
-    };
-    const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+verifies(
+    'mcpserver:onerror:reach-through',
+    async ({ transport }: TestArgs) => {
+        const errors: Error[] = [];
+        const makeServer = () => {
+            const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
+            s.onerror = e => errors.push(e);
+            return s;
+        };
+        const client = newClient();
+        await using _ = await wire(transport, makeServer, client);
 
-    const baseA = errors.length;
-    const stray: JSONRPCMessage = { jsonrpc: '2.0', id: 99999, result: {} };
-    await client.transport?.send(stray);
+        const baseA = errors.length;
+        const stray: JSONRPCMessage = { jsonrpc: '2.0', id: 99_999, result: {} };
+        await client.transport?.send(stray);
 
-    await vi.waitFor(() => errors.length > baseA);
+        await vi.waitFor(() => expect(errors.length).toBeGreaterThan(baseA));
 
-    const hitA = errors.slice(baseA).find(e => /unknown message ID/i.test(e.message));
-    expect(
-        hitA,
-        `expected an "unknown message ID" onerror; got: ${errors
-            .slice(baseA)
-            .map(e => e.message)
-            .join(' | ')}`
-    ).toBeDefined();
-    expect(hitA!.message).toContain('99999');
+        const hitA = errors.slice(baseA).find(e => /unknown message ID/i.test(e.message));
+        expect(
+            hitA,
+            `expected an "unknown message ID" onerror; got: ${errors
+                .slice(baseA)
+                .map(e => e.message)
+                .join(' | ')}`
+        ).toBeDefined();
+        expect(hitA?.message).toContain('99999');
 
-    await expect(client.ping()).resolves.toBeDefined();
-}
+        await expect(client.ping()).resolves.toBeDefined();
+    },
+    { title: 'raw Server' }
+);

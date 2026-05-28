@@ -13,13 +13,15 @@
 
 import { randomUUID } from 'node:crypto';
 
+import type { JSONRPCMessage } from '@modelcontextprotocol/server';
+import { LATEST_PROTOCOL_VERSION, McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-import { McpServer, WebStandardStreamableHTTPServerTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
-import type { JSONRPCMessage } from '@modelcontextprotocol/server';
-import { hostPerSession, hostStateless, type HttpHandler } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
+
+import type { HttpHandler } from '../helpers/index.js';
+import { hostPerSession, hostStateless } from '../helpers/index.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 function echoServer(): McpServer {
     const s = new McpServer({ name: 's', version: '0' });
@@ -29,12 +31,12 @@ function echoServer(): McpServer {
     return s;
 }
 
-const initializeBody = (clientInfo = { name: 'probe', version: '0' }) =>
+const initializeBody = (clientInfo?: { name: string; version: string }) =>
     JSON.stringify({
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
-        params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo }
+        params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: clientInfo ?? { name: 'probe', version: '0' } }
     });
 
 function sseTap(body: ReadableStream<Uint8Array>) {
@@ -318,7 +320,7 @@ verifies('hosting:http:dns-rebinding', async (_args: TestArgs) => {
         );
         expect(badOriginGet.status).toBe(403);
     } finally {
-        for (const t of Array.from(sessions.values())) await t.close();
+        for (const t of sessions.values()) await t.close();
         sessions.clear();
     }
 });
@@ -362,7 +364,7 @@ verifies('hosting:http:method-405', async (_args: TestArgs) => {
             );
             expect(res.status).toBe(405);
             expect(res.headers.get('allow')).toBe('GET, POST, DELETE');
-            expect(await res.json()).toMatchObject({ jsonrpc: '2.0', error: { code: -32000, message: 'Method not allowed.' } });
+            expect(await res.json()).toMatchObject({ jsonrpc: '2.0', error: { code: -32_000, message: 'Method not allowed.' } });
         }
     } finally {
         await tx.close();
@@ -447,13 +449,14 @@ verifies('hosting:http:no-broadcast', async (_args: TestArgs) => {
             }
 
             expect(received).toHaveLength(1);
-            expect(received[0].stream).toBe('get');
-            expect(received[0].msg).toMatchObject({ method: 'notifications/message', params: { level: 'info', data: 'probe' } });
+            expect(received[0]?.stream).toBe('get');
+            expect(received[0]?.msg).toMatchObject({ method: 'notifications/message', params: { level: 'info', data: 'probe' } });
 
             release();
             let response: JSONRPCMessage | undefined;
             for (let i = 0; i < 10 && response === undefined; i++) {
-                response = (await postTap.poll(50)).find(m => 'id' in m && m.id === 2);
+                const polled = await postTap.poll(50);
+                response = polled.find(m => 'id' in m && m.id === 2);
             }
             expect(response).toMatchObject({ jsonrpc: '2.0', id: 2 });
         } finally {
@@ -524,7 +527,7 @@ verifies('hosting:http:onerror', async (_args: TestArgs) => {
         const ok = { ...base, 'mcp-session-id': sessionId, 'content-type': 'application/json', accept };
         const listBody = JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
 
-        const rejections: Array<{ req: Request; status: number; message: string }> = [
+        const rejections: Array<{ req: Request; status: number; message: string | RegExp }> = [
             {
                 req: new Request('http://in-process/mcp', { method: 'PUT', headers: ok }),
                 status: 405,
@@ -551,7 +554,8 @@ verifies('hosting:http:onerror', async (_args: TestArgs) => {
             {
                 req: new Request('http://in-process/mcp', { method: 'POST', headers: ok, body: 'not json' }),
                 status: 400,
-                message: 'Parse error: Invalid JSON'
+                // changed in v2: onerror receives the raw SyntaxError rather than a wrapped 'Parse error: Invalid JSON'
+                message: /JSON/
             },
             {
                 req: new Request('http://in-process/mcp', {
@@ -569,7 +573,11 @@ verifies('hosting:http:onerror', async (_args: TestArgs) => {
             const res = await tx.handleRequest(req);
             expect(res.status).toBe(status);
             expect(errors).toHaveLength(before + 1);
-            expect(errors[before].message).toBe(message);
+            if (message instanceof RegExp) {
+                expect(errors[before]?.message).toMatch(message);
+            } else {
+                expect(errors[before]?.message).toBe(message);
+            }
         }
     } finally {
         await tx.close();
@@ -593,7 +601,7 @@ verifies('hosting:http:parse-error-400', async (_args: TestArgs) => {
         );
         expect(badJson.status).toBe(400);
         const body = await badJson.json();
-        expect(body).toMatchObject({ jsonrpc: '2.0', error: { code: -32700 } });
+        expect(body).toMatchObject({ jsonrpc: '2.0', error: { code: -32_700 } });
     } finally {
         await close();
     }
@@ -738,7 +746,8 @@ verifies('hosting:http:response-same-connection', async (_args: TestArgs) => {
         try {
             let response: JSONRPCMessage | undefined;
             for (let i = 0; i < 10 && response === undefined; i++) {
-                response = (await postTap.poll(50)).find(m => 'id' in m && m.id === 2);
+                const polled = await postTap.poll(50);
+                response = polled.find(m => 'id' in m && m.id === 2);
             }
             expect(response).toMatchObject({ jsonrpc: '2.0', id: 2, result: { tools: [{ name: 'echo' }] } });
 
@@ -871,9 +880,9 @@ verifies('hosting:http:sse-close-after-response', async (_args: TestArgs) => {
                 if (done) break;
                 buf += decoder.decode(value, { stream: true });
 
-                const m = buf.match(/^data: (.+)$/m);
-                if (m) {
-                    const msg = JSON.parse(m[1]);
+                const data = buf.match(/^data: (.+)$/m)?.[1];
+                if (data !== undefined) {
+                    const msg: JSONRPCMessage = JSON.parse(data);
                     if ('result' in msg) {
                         foundResult = true;
                     }
@@ -930,7 +939,8 @@ verifies('hosting:http:standalone-sse', async (_args: TestArgs) => {
 
             let received: JSONRPCMessage | undefined;
             for (let i = 0; i < 20 && received === undefined; i++) {
-                received = (await tap.poll(50)).find(m => 'method' in m && m.method === 'notifications/message');
+                const polled = await tap.poll(50);
+                received = polled.find(m => 'method' in m && m.method === 'notifications/message');
             }
             expect(received).toMatchObject({ method: 'notifications/message', params: { level: 'info', data: 'probe' } });
         } finally {

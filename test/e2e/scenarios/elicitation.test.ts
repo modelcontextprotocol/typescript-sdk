@@ -9,21 +9,22 @@
  * Function names mirror the requirement id in camelCase.
  */
 
-import { expect } from 'vitest';
-import { z } from 'zod/v4';
+import { Client } from '@modelcontextprotocol/client';
+import type { ElicitRequest, ElicitRequestFormParams } from '@modelcontextprotocol/server';
 import {
-    Server,
     McpServer,
     ProtocolError,
-    UrlElicitationRequiredError,
     ProtocolErrorCode,
-    specTypeSchemas
+    Server,
+    specTypeSchemas,
+    UrlElicitationRequiredError
 } from '@modelcontextprotocol/server';
-import type { ElicitRequest, ElicitRequestFormParams } from '@modelcontextprotocol/server';
-import { Client } from '@modelcontextprotocol/client';
+import { expect } from 'vitest';
+import { z } from 'zod/v4';
+
 import { tapWire, wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 /** Client with form-mode elicitation support. */
 const formClient = () => new Client({ name: 'c', version: '0' }, { capabilities: { elicitation: { form: {} } } });
@@ -62,8 +63,10 @@ verifies('elicitation:form:basic', async ({ transport }: TestArgs) => {
     const r = await client.callTool({ name: 'ask-name', arguments: {} });
 
     expect(received).toHaveLength(1);
-    expect(received[0].method).toBe('elicitation/create');
-    expect(received[0].params).toMatchObject({
+    const firstRequest = received[0];
+    if (firstRequest === undefined) throw new Error('expected exactly one elicitation request');
+    expect(firstRequest.method).toBe('elicitation/create');
+    expect(firstRequest.params).toMatchObject({
         mode: 'form',
         message: 'What is your name?',
         requestedSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }
@@ -201,9 +204,9 @@ verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs
                     specTypeSchemas.ElicitResult
                 );
                 return { content: [{ type: 'text', text: ans.action }] };
-            } catch (e) {
-                if (!(e instanceof ProtocolError)) throw e;
-                return { content: [{ type: 'text', text: `error:${e.code}` }] };
+            } catch (error) {
+                if (!(error instanceof ProtocolError)) throw error;
+                return { content: [{ type: 'text', text: `error:${error.code}` }] };
             }
         });
         return s;
@@ -216,13 +219,17 @@ verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs
         return { action: 'accept', content: { name: 'Test' } };
     });
 
-    await using _1 = await wire(transport, makeServer, formClientInstance);
+    {
+        await using _ = await wire(transport, makeServer, formClientInstance);
 
-    const formResult = await formClientInstance.callTool({ name: 'ask', arguments: {} });
+        const formResult = await formClientInstance.callTool({ name: 'ask', arguments: {} });
 
-    expect(formReceived).toHaveLength(1);
-    expect(formReceived[0].mode).toBeUndefined();
-    expect(formResult.content).toEqual([{ type: 'text', text: 'accept' }]);
+        expect(formReceived).toHaveLength(1);
+        const firstFormRequest = formReceived[0];
+        if (firstFormRequest === undefined) throw new Error('expected exactly one form elicitation request');
+        expect(firstFormRequest.mode).toBeUndefined();
+        expect(formResult.content).toEqual([{ type: 'text', text: 'accept' }]);
+    }
 
     let urlHandlerInvoked = 0;
     const urlClientInstance = urlClient();
@@ -231,11 +238,13 @@ verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs
         return { action: 'accept' };
     });
 
-    await using _2 = await wire(transport, makeServer, urlClientInstance);
+    {
+        await using _ = await wire(transport, makeServer, urlClientInstance);
 
-    const urlResult = await urlClientInstance.callTool({ name: 'ask', arguments: {} });
-    expect(urlResult.content).toEqual([{ type: 'text', text: `error:${ProtocolErrorCode.InvalidParams}` }]);
-    expect(urlHandlerInvoked).toBe(0);
+        const urlResult = await urlClientInstance.callTool({ name: 'ask', arguments: {} });
+        expect(urlResult.content).toEqual([{ type: 'text', text: `error:${ProtocolErrorCode.InvalidParams}` }]);
+        expect(urlHandlerInvoked).toBe(0);
+    }
 });
 
 verifies('elicitation:form:schema:primitives', async ({ transport }: TestArgs) => {
@@ -337,9 +346,9 @@ verifies('elicitation:form:response-validation', async ({ transport }: TestArgs)
                     isError: true,
                     content: [{ type: 'text', text: `SDK accepted invalid content: ${JSON.stringify(ans.content)}` }]
                 };
-            } catch (e) {
-                if (!(e instanceof ProtocolError)) throw e;
-                return { content: [{ type: 'text', text: `rejected:${e.code}:${e.message}` }] };
+            } catch (error) {
+                if (!(error instanceof ProtocolError)) throw error;
+                return { content: [{ type: 'text', text: `rejected:${error.code}:${error.message}` }] };
             }
         });
         return s;
@@ -402,9 +411,9 @@ verifies('elicitation:form:schema:restricted-subset', async ({ transport }: Test
                     specTypeSchemas.ElicitResult
                 );
                 return { content: [{ type: 'text', text: 'should-not-reach' }] };
-            } catch (e) {
-                if (!(e instanceof ProtocolError)) throw e;
-                return { content: [{ type: 'text', text: `error:${e.code}` }] };
+            } catch (error) {
+                if (!(error instanceof ProtocolError)) throw error;
+                return { content: [{ type: 'text', text: `error:${error.code}` }] };
             }
         });
         return s;
@@ -572,9 +581,11 @@ verifies('elicitation:url:complete-notification', async ({ transport }: TestArgs
 
     await using _ = await wire(transport, makeServer, client);
 
-    const err = await client.callTool({ name: 'auth', arguments: {} }).catch(e => e);
+    const err = await client.callTool({ name: 'auth', arguments: {} }).catch(error => error);
     if (!(err instanceof UrlElicitationRequiredError)) throw new Error(`expected UrlElicitationRequiredError, got ${err}`);
-    const elicitationId = err.elicitations[0].elicitationId;
+    const pending = err.elicitations[0];
+    if (pending === undefined) throw new Error('expected one pending elicitation');
+    const elicitationId = pending.elicitationId;
 
     await client.callTool({ name: 'complete', arguments: { elicitationId } });
 
@@ -596,7 +607,9 @@ verifies('elicitation:url:complete-unknown-ignored', async ({ transport }: TestA
         // Raw send: the server-side capability gate cannot pass on stateless (client capabilities never learned),
         // and the behavior under test is the client's handling of the notification.
         s.registerTool('complete', { inputSchema: z.object({ elicitationId: z.string() }) }, async ({ elicitationId }, ctx) => {
-            await s.server.transport!.send(
+            const tx = s.server.transport;
+            if (!tx) throw new Error('server transport not connected');
+            await tx.send(
                 { jsonrpc: '2.0', method: 'notifications/elicitation/complete', params: { elicitationId } },
                 { relatedRequestId: ctx.mcpReq.id }
             );
@@ -616,9 +629,11 @@ verifies('elicitation:url:complete-unknown-ignored', async ({ transport }: TestA
 
     await using _ = await wire(transport, makeServer, client);
 
-    const err = await client.callTool({ name: 'auth', arguments: {} }).catch(e => e);
+    const err = await client.callTool({ name: 'auth', arguments: {} }).catch(error => error);
     if (!(err instanceof UrlElicitationRequiredError)) throw new Error(`expected UrlElicitationRequiredError, got ${err}`);
-    const seenId = err.elicitations[0].elicitationId;
+    const seenPending = err.elicitations[0];
+    if (seenPending === undefined) throw new Error('expected one pending elicitation');
+    const seenId = seenPending.elicitationId;
 
     await client.callTool({ name: 'complete', arguments: { elicitationId: seenId } });
     // Already-completed id, then an id the client never saw: both must be ignored without error.
@@ -656,7 +671,7 @@ verifies('elicitation:url:required-error', async ({ transport }: TestArgs) => {
     const client = urlClient();
     await using _ = await wire(transport, makeServer, client);
 
-    const err = await client.callTool({ name: 'auth-required', arguments: {} }).catch(e => e);
+    const err = await client.callTool({ name: 'auth-required', arguments: {} }).catch(error => error);
     if (!(err instanceof UrlElicitationRequiredError)) throw new Error(`expected UrlElicitationRequiredError, got ${err}`);
     expect(err.code).toBe(ProtocolErrorCode.UrlElicitationRequired);
     expect(err.elicitations).toHaveLength(1);
@@ -707,9 +722,9 @@ verifies('elicitation:capability:mode-mismatch', async ({ transport }: TestArgs)
                     specTypeSchemas.ElicitResult
                 );
                 return { content: [{ type: 'text', text: 'should-not-reach' }] };
-            } catch (e) {
-                if (!(e instanceof ProtocolError)) throw e;
-                return { content: [{ type: 'text', text: `error:${e.code}` }] };
+            } catch (error) {
+                if (!(error instanceof ProtocolError)) throw error;
+                return { content: [{ type: 'text', text: `error:${error.code}` }] };
             }
         });
         return s;
@@ -742,8 +757,8 @@ verifies('elicitation:capability:server-respects-mode', async ({ transport }: Te
                     url: 'https://example.com/auth'
                 });
                 return { isError: true, content: [{ type: 'text', text: 'SDK let it through' }] };
-            } catch (e) {
-                return { content: [{ type: 'text', text: `refused:${e instanceof Error ? e.message : e}` }] };
+            } catch (error) {
+                return { content: [{ type: 'text', text: `refused:${error instanceof Error ? error.message : error}` }] };
             }
         });
         return s;
@@ -774,8 +789,8 @@ verifies('elicitation:capability:not-declared', async ({ transport }: TestArgs) 
                     requestedSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] }
                 });
                 return { isError: true, content: [{ type: 'text', text: 'SDK let the form elicitation through' }] };
-            } catch (e) {
-                return { content: [{ type: 'text', text: `refused:${e instanceof Error ? e.message : e}` }] };
+            } catch (error) {
+                return { content: [{ type: 'text', text: `refused:${error instanceof Error ? error.message : error}` }] };
             }
         });
         s.registerTool('ask-url', { inputSchema: z.object({}) }, async () => {
@@ -787,8 +802,8 @@ verifies('elicitation:capability:not-declared', async ({ transport }: TestArgs) 
                     url: 'https://example.com/auth'
                 });
                 return { isError: true, content: [{ type: 'text', text: 'SDK let the url elicitation through' }] };
-            } catch (e) {
-                return { content: [{ type: 'text', text: `refused:${e instanceof Error ? e.message : e}` }] };
+            } catch (error) {
+                return { content: [{ type: 'text', text: `refused:${error instanceof Error ? error.message : error}` }] };
             }
         });
         return s;

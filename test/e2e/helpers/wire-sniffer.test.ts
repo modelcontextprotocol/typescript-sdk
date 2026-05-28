@@ -1,14 +1,15 @@
-import { describe, expect, it } from 'vitest';
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
+import { describe, expect, it } from 'vitest';
+
 import { assertWireMessage } from './wire-sniffer.js';
 
 const req = (method: string, params?: unknown, id = 1) => ({
     jsonrpc: '2.0' as const,
     id,
     method,
-    ...(params !== undefined ? { params } : {})
+    ...(params === undefined ? {} : { params })
 });
-const notif = (method: string, params?: unknown) => ({ jsonrpc: '2.0' as const, method, ...(params !== undefined ? { params } : {}) });
+const notif = (method: string, params?: unknown) => ({ jsonrpc: '2.0' as const, method, ...(params === undefined ? {} : { params }) });
 const resp = (result: unknown, id = 1) => ({ jsonrpc: '2.0' as const, id, result });
 
 describe('assertWireMessage', () => {
@@ -61,7 +62,7 @@ describe('assertWireMessage', () => {
     });
 
     it('accepts a JSON-RPC error response for either party', () => {
-        const err = { jsonrpc: '2.0' as const, id: 1, error: { code: -32601, message: 'Method not found' } };
+        const err = { jsonrpc: '2.0' as const, id: 1, error: { code: -32_601, message: 'Method not found' } };
         expect(() => assertWireMessage(err, 'server')).not.toThrow();
         expect(() => assertWireMessage(err, 'client')).not.toThrow();
     });

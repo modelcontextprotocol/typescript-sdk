@@ -11,17 +11,18 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { LATEST_PROTOCOL_VERSION, McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import express from 'express';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import { McpServer, WebStandardStreamableHTTPServerTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+
 import { startExpressMinimal } from '../helpers/express.js';
 import { hostPerSession, hostStateless, wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
+import type { TestArgs } from '../types.js';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 
@@ -127,23 +128,26 @@ verifies('hosting:session:reuse', async (_args: TestArgs) => {
     const fetch = (u: URL | string, init?: RequestInit) => host.handleRequest(new Request(u, init));
 
     const client = newClient();
-    await client.connect(new StreamableHTTPClientTransport(url, { fetch }));
+    const clientTx = new StreamableHTTPClientTransport(url, { fetch });
+    await client.connect(clientTx);
 
-    const sessionId = (client.transport as StreamableHTTPClientTransport).sessionId;
-    expect(sessionId).toBeDefined();
-    expect(typeof sessionId).toBe('string');
+    try {
+        const sessionId = clientTx.sessionId;
+        expect(sessionId).toBeDefined();
+        expect(typeof sessionId).toBe('string');
 
-    const r1 = await client.listTools();
-    expect(r1.tools.map(t => t.name)).toContain('echo');
+        const r1 = await client.listTools();
+        expect(r1.tools.map(t => t.name)).toContain('echo');
 
-    const r2 = await client.callTool({ name: 'echo', arguments: { text: 'reuse-test' } });
-    expect(r2.content).toEqual([{ type: 'text', text: 'reuse-test' }]);
+        const r2 = await client.callTool({ name: 'echo', arguments: { text: 'reuse-test' } });
+        expect(r2.content).toEqual([{ type: 'text', text: 'reuse-test' }]);
 
-    const stillSameSession = (client.transport as StreamableHTTPClientTransport).sessionId;
-    expect(stillSameSession).toBe(sessionId);
-
-    await client.close();
-    await host.close();
+        const stillSameSession = clientTx.sessionId;
+        expect(stillSameSession).toBe(sessionId);
+    } finally {
+        await client.close();
+        await host.close();
+    }
 });
 
 verifies('hosting:session:unknown-id', async (_args: TestArgs) => {
@@ -226,9 +230,16 @@ verifies('hosting:session:missing-id', async (_args: TestArgs) => {
         );
         expect(res.status).toBe(400);
 
-        const body = (await res.json()) as { error?: { code?: number; message?: string } };
-        expect(body.error?.code).toBe(-32000);
-        expect(body.error?.message).toBe('Bad Request: Mcp-Session-Id header is required');
+        const body: unknown = await res.json();
+        if (typeof body !== 'object' || body === null || !('error' in body)) {
+            throw new Error('400 response body does not contain a JSON-RPC error');
+        }
+        const rpcError = body.error;
+        if (typeof rpcError !== 'object' || rpcError === null || !('code' in rpcError) || !('message' in rpcError)) {
+            throw new Error('400 response error is missing code or message');
+        }
+        expect(rpcError.code).toBe(-32_000);
+        expect(rpcError.message).toBe('Bad Request: Mcp-Session-Id header is required');
     } finally {
         await server.close();
     }
@@ -278,7 +289,7 @@ verifies('hosting:session:delete', async (_args: TestArgs) => {
         expect(initRes.status).toBe(200);
         const sessionId = initRes.headers.get('mcp-session-id');
         if (sessionId === null) throw new Error('initialize response is missing the mcp-session-id header');
-        expect(Array.from(sessions.keys())).toEqual([sessionId]);
+        expect([...sessions.keys()]).toEqual([sessionId]);
 
         const listRes = await handle(
             new Request(url, {
@@ -413,7 +424,8 @@ verifies('hosting:session:id-charset', async (_args: TestArgs) => {
             expect(headerValue).toBe(generatedId);
 
             for (const ch of headerValue) {
-                const code = ch.charCodeAt(0);
+                const code = ch.codePointAt(0);
+                if (code === undefined) throw new Error('session id iteration yielded an empty character');
                 expect(code).toBeGreaterThanOrEqual(0x21);
                 expect(code).toBeLessThanOrEqual(0x7e);
             }
@@ -442,31 +454,33 @@ verifies('hosting:session:reinitialize', async (_args: TestArgs) => {
         })
     });
 
-    const initRes = await host.handleRequest(initReq);
-    expect(initRes.status).toBe(200);
-    const sessionId = initRes.headers.get('mcp-session-id');
-    expect(sessionId).toBeDefined();
+    try {
+        const initRes = await host.handleRequest(initReq);
+        expect(initRes.status).toBe(200);
+        const sessionId = initRes.headers.get('mcp-session-id');
+        if (sessionId === null) throw new Error('initialize response is missing the mcp-session-id header');
 
-    const reinitReq = new Request(url, {
-        method: 'POST',
-        headers: {
-            'mcp-session-id': sessionId!,
-            'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
-            'content-type': 'application/json',
-            accept: 'application/json, text/event-stream'
-        },
-        body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: 2,
-            method: 'initialize',
-            params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
-        })
-    });
+        const reinitReq = new Request(url, {
+            method: 'POST',
+            headers: {
+                'mcp-session-id': sessionId,
+                'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                'content-type': 'application/json',
+                accept: 'application/json, text/event-stream'
+            },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 2,
+                method: 'initialize',
+                params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+            })
+        });
 
-    const reinitRes = await host.handleRequest(reinitReq);
-    expect(reinitRes.status).toBe(400);
-
-    await host.close();
+        const reinitRes = await host.handleRequest(reinitReq);
+        expect(reinitRes.status).toBe(400);
+    } finally {
+        await host.close();
+    }
 });
 
 verifies('hosting:session:isolation', async (_args: TestArgs) => {
@@ -562,13 +576,15 @@ verifies('hosting:stateless:no-session-id', async (_args: TestArgs) => {
         })
     });
 
-    const res = await host.handleRequest(req);
-    expect(res.status).toBe(200);
+    try {
+        const res = await host.handleRequest(req);
+        expect(res.status).toBe(200);
 
-    const sessionId = res.headers.get('mcp-session-id');
-    expect(sessionId).toBeNull();
-
-    await host.close();
+        const sessionId = res.headers.get('mcp-session-id');
+        expect(sessionId).toBeNull();
+    } finally {
+        await host.close();
+    }
 });
 
 verifies('hosting:stateless:concurrent-clients', async (_args: TestArgs) => {
@@ -576,26 +592,27 @@ verifies('hosting:stateless:concurrent-clients', async (_args: TestArgs) => {
     const url = new URL('http://in-process/mcp');
     const fetch = (u: URL | string, init?: RequestInit) => host.handleRequest(new Request(u, init));
 
-    const clients = [
-        new Client({ name: 'c1', version: '0' }),
-        new Client({ name: 'c2', version: '0' }),
-        new Client({ name: 'c3', version: '0' })
-    ];
+    const client1 = new Client({ name: 'c1', version: '0' });
+    const client2 = new Client({ name: 'c2', version: '0' });
+    const client3 = new Client({ name: 'c3', version: '0' });
+    const clients = [client1, client2, client3];
 
-    await Promise.all(clients.map(c => c.connect(new StreamableHTTPClientTransport(url, { fetch }))));
+    try {
+        await Promise.all(clients.map(c => c.connect(new StreamableHTTPClientTransport(url, { fetch }))));
 
-    const [r1, r2, r3] = await Promise.all([
-        clients[0].callTool({ name: 'echo', arguments: { text: 'client-1' } }),
-        clients[1].callTool({ name: 'echo', arguments: { text: 'client-2' } }),
-        clients[2].callTool({ name: 'echo', arguments: { text: 'client-3' } })
-    ]);
+        const [r1, r2, r3] = await Promise.all([
+            client1.callTool({ name: 'echo', arguments: { text: 'client-1' } }),
+            client2.callTool({ name: 'echo', arguments: { text: 'client-2' } }),
+            client3.callTool({ name: 'echo', arguments: { text: 'client-3' } })
+        ]);
 
-    expect(r1.content).toEqual([{ type: 'text', text: 'client-1' }]);
-    expect(r2.content).toEqual([{ type: 'text', text: 'client-2' }]);
-    expect(r3.content).toEqual([{ type: 'text', text: 'client-3' }]);
-
-    await Promise.all(clients.map(c => c.close()));
-    await host.close();
+        expect(r1.content).toEqual([{ type: 'text', text: 'client-1' }]);
+        expect(r2.content).toEqual([{ type: 'text', text: 'client-2' }]);
+        expect(r3.content).toEqual([{ type: 'text', text: 'client-3' }]);
+    } finally {
+        await Promise.all(clients.map(c => c.close()));
+        await host.close();
+    }
 });
 
 verifies('hosting:stateless:get-delete-405', async (_args: TestArgs) => {
@@ -651,9 +668,10 @@ verifies('hosting:stateless:progress-in-post-stream', async ({ transport }: Test
     let receivedAtResolve = -1;
 
     const result = await client
-        .callTool({ name: 'progress-tool', arguments: { steps: 3 } }, undefined, {
-            onprogress: p => progressEvents.push({ progress: p.progress, total: p.total })
-        })
+        .callTool(
+            { name: 'progress-tool', arguments: { steps: 3 } },
+            { onprogress: p => progressEvents.push({ progress: p.progress, total: p.total }) }
+        )
         .then(res => {
             receivedAtResolve = progressEvents.length;
             return res;
@@ -724,8 +742,8 @@ verifies('transport:streamable-http:stateless-restrictions', async (_args: TestA
                         maxTokens: 50
                     });
                     return { content: [{ type: 'text', text: JSON.stringify(draft.content) }] };
-                } catch (err) {
-                    return { isError: true, content: [{ type: 'text', text: err instanceof Error ? err.message : String(err) }] };
+                } catch (error) {
+                    return { isError: true, content: [{ type: 'text', text: error instanceof Error ? error.message : String(error) }] };
                 }
             }
         );
@@ -748,7 +766,7 @@ verifies('transport:streamable-http:stateless-restrictions', async (_args: TestA
         let timer: NodeJS.Timeout | undefined;
         const settled = client.callTool({ name: 'needs-sampling', arguments: {} }).then(
             value => ({ kind: 'resolved' as const, value }),
-            (reason: unknown) => ({ kind: 'rejected' as const, reason })
+            (error: unknown) => ({ kind: 'rejected' as const, reason: error })
         );
         const outcome = await Promise.race([
             settled,
@@ -833,13 +851,13 @@ verifies('hosting:session:delete-cancels-inflight', async (_args: TestArgs) => {
         );
         expect(initRes.status).toBe(200);
         const sessionId = initRes.headers.get('mcp-session-id');
-        expect(sessionId).toBeDefined();
+        if (sessionId === null) throw new Error('initialize response is missing the mcp-session-id header');
 
         const callRequest = (id: number, repository: string) =>
             host.handleRequest(
                 new Request(url, {
                     method: 'POST',
-                    headers: { ...headers, 'mcp-session-id': sessionId! },
+                    headers: { ...headers, 'mcp-session-id': sessionId },
                     body: JSON.stringify({
                         jsonrpc: '2.0',
                         id,
@@ -856,18 +874,18 @@ verifies('hosting:session:delete-cancels-inflight', async (_args: TestArgs) => {
         expect(firstCall.headers.get('content-type')).toMatch(/text\/event-stream/);
         expect(secondCall.headers.get('content-type')).toMatch(/text\/event-stream/);
 
-        await vi.waitFor(() => expect([...started].sort()).toEqual(['billing-service', 'docs-site']));
+        await vi.waitFor(() => expect(started.toSorted()).toEqual(['billing-service', 'docs-site']));
         expect(aborted).toEqual([]);
 
         const deleteRes = await host.handleRequest(
             new Request(url, {
                 method: 'DELETE',
-                headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId! }
+                headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
             })
         );
         expect(deleteRes.status).toBe(200);
 
-        await vi.waitFor(() => expect([...aborted].sort()).toEqual(['billing-service', 'docs-site']));
+        await vi.waitFor(() => expect(aborted.toSorted()).toEqual(['billing-service', 'docs-site']));
 
         // text() resolves only once the server ends the stream; no data event means no JSON-RPC response was written.
         const bodies = await Promise.all([firstCall.text(), secondCall.text()]);
