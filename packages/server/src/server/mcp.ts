@@ -208,8 +208,8 @@ export class McpServer {
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
-                if (error instanceof ProtocolError) {
-                    throw error; // Return protocol-level errors to the caller without wrapping in CallToolResult
+                if (error instanceof ProtocolError && this.shouldReturnProtocolError(error)) {
+                    throw error; // Invalid client-supplied arguments and elicitation requests are protocol errors.
                 }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
@@ -234,6 +234,13 @@ export class McpServer {
             ],
             isError: true
         };
+    }
+
+    private shouldReturnProtocolError(error: ProtocolError): boolean {
+        return (
+            error.code === ProtocolErrorCode.UrlElicitationRequired ||
+            (error.code === ProtocolErrorCode.InvalidParams && error.message.startsWith('Input validation error:'))
+        );
     }
 
     /**
