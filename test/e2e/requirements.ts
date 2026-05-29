@@ -2578,6 +2578,521 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'When a task-augmented tool call fails, the failure is stored with status failed and a subsequent tasks/result request for that task returns the stored error result instead of losing it.',
         transports: STATEFUL_TRANSPORTS,
         note: 'Task polling and result retrieval need the same server instance across requests, which stateless hosting does not provide.'
+    },
+
+    // ════════════════════════════════════════════════════════════════════════
+    // 2026-06 spec release backlog — SEP-2260 + the stateless cluster (SEP-2575/2567).
+    // Every entry below is a stub: the cited test fails deliberately and is marked
+    // as a knownFailure. Implementing a requirement = replace the stub with a real
+    // assertion, make it pass, delete the knownFailure. Sub-batch labels (P0, G0,
+    // S1–S9) give the proposed implementation order; see the backlog PR description.
+    // Stubs register on a single representative transport for now; transports
+    // broaden (and version-gating via addedInSpecVersion is added) as each
+    // sub-batch is implemented.
+    // ════════════════════════════════════════════════════════════════════════
+
+    // ── P0 · SEP-2260 server-request association (current spec, parallelizable) ──
+    'protocol:assoc:nested-on-originating-stream': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
+        behavior:
+            "[SEP-2260] Server-to-client requests (elicitation/sampling/roots) are sent only in association with an originating client request: they arrive on that request's response stream, never on a separate channel. (R-2260-1)",
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (P0); see the 2026-06 backlog PR for the sub-batch plan' }]
+    },
+    'protocol:assoc:keepalive-during-nested': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports',
+        behavior:
+            '[SEP-2260] During a nested server-to-client request wait, the server keeps the SSE response stream alive (keepalives observed). (R-2260-4)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (P0)' }]
+    },
+    'protocol:assoc:client-rejects-unsolicited': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/sampling',
+        behavior:
+            '[SEP-2260] A client that receives a server-to-client request with no associated outbound request responds with -32602 Invalid Params. (R-2260-5)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (P0)' }]
+    },
+    'protocol:assoc:get-stream-no-requests': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server',
+        behavior:
+            '[SEP-2260] On GET-initiated standalone SSE streams the server never sends roots/list, sampling/createMessage, or elicitation/create — only notifications and pings. (R-2260-6)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (P0)' }]
+    },
+    'protocol:assoc:no-unsolicited-api': {
+        source: 'sdk',
+        behavior: '[SEP-2260] The SDK exposes no API to send an unsolicited (request-unassociated) server-to-client request. (R-2260-3)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (P0)' }]
+    },
+    'protocol:assoc:ping-exempt': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping',
+        behavior:
+            '[SEP-2260] ping is exempt from the association rule and may be sent by either party at any time on an established connection. (R-2260-8)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (P0)' }]
+    },
+
+    // ── G0 · Groundwork: version negotiation + the NotImplemented gate ──
+    'lifecycle:version:2026-pin-per-instance': {
+        source: 'sdk',
+        behavior:
+            '[SEP-2575] Client and Server can each be constructed restricted to an explicit protocol-version list including 2026-06 and refuse to negotiate outside it.',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (G0)' }]
+    },
+    'lifecycle:version:2026-negotiable': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#protocol-version-negotiation',
+        behavior:
+            '[SEP-2575] A client and server that both support the 2026-06 version can agree on it (via discover or direct per-request use); the agreed version is observable on both sides.',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (G0)' }]
+    },
+    'lifecycle:version:2026-gate-not-implemented': {
+        source: 'sdk',
+        behavior:
+            '[SEP-2575] Once 2026-06 is the operative version, operations whose 2026 behavior is not yet implemented fail fast with a NotImplemented error (never silently fall back to 2025 semantics); 2025-negotiated traffic on the same server is unaffected. Retired when the last NotImplemented throw is removed (post-S8).',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (G0)' }]
+    },
+    'protocol:envelope:ctx-version-readable': {
+        source: 'sdk',
+        behavior:
+            '[SEP-2575] A server request handler can read the protocol version governing the current request from its context, in both 2025 (negotiated) and 2026 (per-request) modes.',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (G0)' }]
+    },
+
+    // ── S1 · server/discover + version-negotiation errors ──
+    'discover:basic': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/discover',
+        behavior: '[SEP-2575] Server implements server/discover, returning supportedVersions, capabilities, and serverInfo. (R-2575-5)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S1)' }]
+    },
+    'lifecycle:version:unsupported-error-32004': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#protocol-version-negotiation',
+        behavior:
+            '[SEP-2575] A request carrying an unsupported protocol version is answered with UnsupportedProtocolVersionError (-32004) listing the supported versions. (R-2575-9)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S1)' }]
+    },
+    'lifecycle:version:unknown-method-32601': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2575] An unknown RPC method under a valid 2026 envelope returns -32601 Method not found (HTTP 404 on streamable HTTP). (R-2575-10b)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S1)' }]
+    },
+    'lifecycle:version:client-retries-from-supported': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            '[SEP-2575] On UnsupportedProtocolVersionError from a modern server, the client selects a mutually supported version from supported[] and retries — it does not fall back to initialize. (R-2575-12)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S1)' }]
+    },
+    'lifecycle:version:client-retry-any-request': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            '[SEP-2575] The supported[]-retry behavior applies to any request that hits -32004, not only an explicit discover probe. (R-2575-17c)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S1)' }]
+    },
+
+    // ── S2 · client _meta envelope stamping ──
+    'client-transport:meta:protocol-version-every-request': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
+        behavior: '[SEP-2575] Every outbound 2026 request carries _meta io.modelcontextprotocol/protocolVersion. (client side of R-2575-1)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S2)' }]
+    },
+    'client-transport:meta:clientinfo-every-request': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
+        behavior: '[SEP-2575] Every outbound 2026 request carries _meta clientInfo with name and version. (R-2575-2)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S2)' }]
+    },
+    'client-transport:meta:capabilities-every-request': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
+        behavior: '[SEP-2575] Every outbound 2026 request carries _meta clientCapabilities (an empty object when none). (R-2575-3)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S2)' }]
+    },
+    'client-transport:http:version-header-every-post': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior: '[SEP-2575] The client sends MCP-Protocol-Version on every POST, matching the _meta protocolVersion. (R-2575-15b)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S2)' }]
+    },
+    'client-transport:stdio:meta-envelope': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#stdio',
+        behavior: '[SEP-2575] The same _meta envelope (version, clientInfo, capabilities) is stamped over stdio, where no header exists.',
+        transports: ['stdio'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S2)' }]
+    },
+
+    // ── S3 · server envelope acceptance + enforcement ──
+    'protocol:envelope:missing-version-rejected': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
+        behavior: '[SEP-2575] A 2026-mode request missing _meta protocolVersion is rejected as malformed (-32602). (R-2575-1)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S3)' }]
+    },
+    'protocol:envelope:missing-clientinfo-rejected': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
+        behavior: '[SEP-2575] A 2026-mode request missing _meta clientInfo is rejected as malformed (-32602). (R-2575-15)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S3)' }]
+    },
+    'hosting:http:header-meta-version-mismatch-400': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2575] If the MCP-Protocol-Version header does not match the _meta protocolVersion, the server returns 400. (R-2575-4)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S3)' }]
+    },
+    'protocol:envelope:caps-not-inherited-across-requests': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            '[SEP-2575] Capabilities are not inherited from prior requests on the same connection: a request whose _meta capabilities lack what the handler needs gets -32003 even if an earlier request declared it. (R-2575-7)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S3)' }]
+    },
+    'protocol:envelope:undeclared-capability-32003': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
+        behavior:
+            '[SEP-2575] A handler that requires a client capability not declared in the request _meta fails with MissingRequiredClientCapabilityError (-32003). (R-2575-20)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S3)' }]
+    },
+    'hosting:http:no-version-header-treated-legacy': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2575] A request without a version header (and without _meta version) is treated as 2025-03-26 legacy traffic, not rejected. (R-2575-35)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S3)' }]
+    },
+
+    // ── S4 · backward-compatibility probe matrix ──
+    'lifecycle:compat:dual-server-answers-initialize': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#backward-compatibility-with-initialization-based-versions',
+        behavior:
+            '[SEP-2575] A dual-stack server still answers a legacy initialize handshake and serves that client with 2025 semantics. (R-A-BC-1)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S4)' }]
+    },
+    'lifecycle:compat:client-probes-discover-stdio': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#backward-compatibility-with-initialization-based-versions',
+        behavior:
+            '[SEP-2575] A dual-era client over stdio probes with server/discover first, carrying its preferred modern version in _meta. (R-2575-10)',
+        transports: ['stdio'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S4)' }]
+    },
+    'lifecycle:compat:client-falls-back-to-initialize': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#backward-compatibility-with-initialization-based-versions',
+        behavior:
+            '[SEP-2575] On -32601 from the discover probe, the client falls back to the legacy initialize handshake and continues with the legacy version. (R-2575-11)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S4)' }]
+    },
+    'lifecycle:compat:mixed-era-one-pipe': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            '[SEP-2575] One server instance handles a modern discover followed by a legacy initialize on the same stdio pipe (per-message handling, no connection mode-lock). (R-A-BC-3)',
+        transports: ['stdio'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S4)' }]
+    },
+
+    // ── S5 · sessionless + stateless HTTP ──
+    'hosting:sessionless:no-session-header': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2567] In 2026 mode the server neither requires nor emits Mcp-Session-Id; requests without it are handled normally. (R-2567-19)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'transport:base:no-session-concept': {
+        source: 'sdk',
+        behavior: '[SEP-2567] The 2026 transport surface exposes no session identifier on the base interface. (R-2567-4)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'hosting:sessionless:get-405': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2575] In 2026 mode GET to the MCP endpoint returns 405 — there is no standalone server-to-client stream. (R-2575-11b)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'hosting:sessionless:no-batching': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior: '[SEP-2575] A POST whose body is a JSON-RPC batch array is rejected with 400. (R-2575-14)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'hosting:sessionless:per-request-auth': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2575] Every request is independently authenticated; a request without auth is rejected even if a prior request on the same connection was authenticated. (R-2575-28)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'hosting:sessionless:no-connection-affinity': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            '[SEP-2575] The same two requests sent over one connection or over two separate connections produce identical results — the server requires no connection reuse. (R-2575-8)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'protocol:stateless:list-connection-independent': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools',
+        behavior:
+            '[SEP-2567] tools/list results do not depend on per-connection or prior-call state: two clients with the same auth see identical lists. (R-2567-1)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'protocol:stateless:list-no-side-effects': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools',
+        behavior:
+            '[SEP-2567] tools/list is unchanged by intervening calls on the same connection (list, call, list is identical). (R-2567-2)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'protocol:request-id:outstanding-scope': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index',
+        behavior:
+            '[SEP-2567] Request-id uniqueness is scoped to outstanding requests: an id may be reused after its request completes. (R-2567-3)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'client-transport:http:accept-both-content-types': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2575] The client sends Accept: application/json, text/event-stream on 2026 requests and handles either response form. (R-2575-32)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'hosting:http:notification-202': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior: '[SEP-2575] An accepted notification POST is answered with 202 (4xx on rejection). (R-2575-33)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+    'hosting:http:stream-notifications-relate-to-request': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2575] Notifications on a POST response stream relate to the originating request (e.g. progress carries its progressToken). (R-2575-34)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S5)' }]
+    },
+
+    // ── S6 · removed RPCs + per-request logging ──
+    'protocol:removed:ping-32601': {
+        source: 'https://modelcontextprotocol.io/specification/draft/changelog',
+        behavior: '[SEP-2575] Under 2026, ping is not served: -32601. (R-2575-12b)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S6)' }]
+    },
+    'protocol:removed:subscribe-32601': {
+        source: 'https://modelcontextprotocol.io/specification/draft/changelog',
+        behavior: '[SEP-2575] Under 2026, resources/subscribe and resources/unsubscribe are not served: -32601. (R-2575-12b)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S6)' }]
+    },
+    'protocol:removed:setlevel-32601': {
+        source: 'https://modelcontextprotocol.io/specification/draft/changelog',
+        behavior: '[SEP-2575] Under 2026, logging/setLevel is not served: -32601. (R-2575-12b)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S6)' }]
+    },
+    'protocol:removed:initialize-32601-2026-only': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            '[SEP-2575] A server configured 2026-only answers initialize with -32601 (the probe signal a dual-era client expects). (R-A-BC-2)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S6)' }]
+    },
+    'logging:per-request:loglevel-opt-in': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
+        behavior:
+            '[SEP-2575] If a request carries no _meta logLevel, the server sends no notifications/message for that request. (R-2575-6)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S6)' }]
+    },
+    'logging:per-request:level-respected': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
+        behavior: '[SEP-2575] When _meta logLevel is present, emitted log notifications respect that level for that request.',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S6)' }]
+    },
+
+    // ── S7 · subscriptions/listen ──
+    'subscriptions:listen-basic': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/subscriptions',
+        behavior:
+            '[SEP-2575] subscriptions/listen with a notifications filter opens a stream that delivers the opted-in notification types. (R-2575-21)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S7)' }]
+    },
+    'subscriptions:filter-required': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/subscriptions',
+        behavior: '[SEP-2575] subscriptions/listen without a notifications filter is an error. (R-2575-21)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S7)' }]
+    },
+    'subscriptions:opt-in-only': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/subscriptions',
+        behavior: '[SEP-2575] Notification types not opted into are not delivered on the subscription stream. (R-2575-13)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S7)' }]
+    },
+    'subscriptions:ack-first-message': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/subscriptions',
+        behavior: '[SEP-2575] The first message on a listen stream is notifications/subscriptions/acknowledged. (R-2575-25)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S7)' }]
+    },
+    'subscriptions:subscription-id-on-notifications': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/subscriptions',
+        behavior:
+            '[SEP-2575] Every notification delivered for a subscription carries _meta subscriptionId matching the listen request id. (R-2575-23)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S7)' }]
+    },
+    'subscriptions:cancel-stops-delivery': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/subscriptions',
+        behavior: '[SEP-2575] After the client cancels a subscription, the server sends no further notifications for it. (R-2575-24)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S7)' }]
+    },
+    'subscriptions:server-teardown-closes': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/subscriptions',
+        behavior:
+            '[SEP-2575] When the server tears a subscription down it closes the SSE stream (HTTP) or sends notifications/cancelled for the listen request (stdio). (R-2575-22)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S7)' }]
+    },
+    'subscriptions:no-requests-on-response-streams': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2575] Response streams carry only notifications and the final result — never independent JSON-RPC requests. (R-2575-13b)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S7)' }]
+    },
+    'subscriptions:stdio-resubscribe-after-restart': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/subscriptions',
+        behavior:
+            '[SEP-2575] After a stdio connection is re-established, the client re-sends subscriptions/listen with the same filter. (R-2575-26)',
+        transports: ['stdio'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S7)' }]
+    },
+    'subscriptions:client-routes-by-subscription-id': {
+        source: 'sdk',
+        behavior:
+            '[SEP-2575] With two concurrent subscriptions the client routes each notification to the right handler by subscriptionId. (R-2575-16c)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S7)' }]
+    },
+
+    // ── S8 · cancellation / SSE-close semantics ──
+    'protocol:cancel:sse-close-cancels': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2575] Closing the SSE response stream mid-request is treated as cancellation: the handler abort fires and no further events are written. (R-2575-16b)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S8)' }]
+    },
+    'protocol:cancel:stdio-notification-2026': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#stdio',
+        behavior: '[SEP-2575] Over stdio under 2026, the client cancels by sending notifications/cancelled. (R-2575-17)',
+        transports: ['stdio'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S8)' }]
+    },
+    'protocol:cancel:no-messages-after-cancel-2026': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/cancellation',
+        behavior: '[SEP-2575] After cancellation the server stops work and sends no further messages for that request. (R-2575-18)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S8)' }]
+    },
+    'hosting:resume:not-honored-2026': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            '[SEP-2575] Last-Event-ID resumption is not honored in 2026 mode: a reconnect with Last-Event-ID gets a fresh stream (or 400), never replayed events. (R-2575-18c)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (S8)' }]
+    },
+
+    // ── S9 · lands with the MRTR (SEP-2322) series ──
+    'mrtr:roots-via-input-required': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/mrtr',
+        behavior:
+            '[SEP-2575][SEP-2322] Roots are requested via the MRTR pattern (InputRequiredResult), not pushed as a server-initiated request. (R-2575-27)',
+        transports: ['streamableHttp'],
+        note: 'Stub: registered on one representative transport for now; transports broaden when the real assertion is written.',
+        knownFailures: [{ note: 'stub — assertion not yet written (implemented with the MRTR series)' }]
     }
 } satisfies Record<string, Requirement>;
 
