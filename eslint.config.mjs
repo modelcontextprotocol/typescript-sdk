@@ -30,5 +30,13 @@ export default tseslint.config(
             'no-console': 'error'
         }
     },
+    {
+        // The e2e suite's `await using _ = await wire(...)` disposal idiom binds a
+        // variable solely for its disposer; allow _-prefixed unused variables there.
+        files: ['test/e2e/**/*.ts'],
+        rules: {
+            '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }]
+        }
+    },
     eslintConfigPrettier
 );
