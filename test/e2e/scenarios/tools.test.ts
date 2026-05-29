@@ -1247,3 +1247,42 @@ verifies('typescript:mcpserver:tool:extra', async ({ transport }: TestArgs) => {
     if (firstCallSeen === undefined || secondCallSeen === undefined) throw new Error('expected both calls to be recorded');
     expect(secondCallSeen.requestId).not.toBe(firstCallSeen.requestId);
 });
+
+verifies('mcpserver:tool:metadata-roundtrip', async ({ transport }: TestArgs) => {
+    // registerTool's public config carries title, description, annotations and _meta (no icons field), so those are asserted verbatim.
+    const annotations = {
+        title: 'Annotated Echo',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+    };
+    const meta = { 'example.com/source': 'metadata-roundtrip-fixture', 'example.com/revision': 3 };
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool(
+            'annotated-echo',
+            {
+                title: 'Annotated Echo',
+                description: 'Echo tool carrying every metadata field registerTool accepts.',
+                inputSchema: z.object({ text: z.string() }),
+                annotations,
+                _meta: meta
+            },
+            ({ text }) => ({ content: [{ type: 'text', text }] })
+        );
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    const { tools } = await client.listTools();
+    expect(tools).toHaveLength(1);
+    const tool = tools[0];
+    if (tool === undefined) throw new Error('expected the registered tool to be listed');
+    expect(tool.name).toBe('annotated-echo');
+    expect(tool.title).toBe('Annotated Echo');
+    expect(tool.description).toBe('Echo tool carrying every metadata field registerTool accepts.');
+    expect(tool.annotations).toEqual(annotations);
+    expect(tool._meta).toEqual(meta);
+});

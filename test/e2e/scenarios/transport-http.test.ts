@@ -18,7 +18,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { Client, SdkHttpError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { JSONRPCRequestSchema } from '@modelcontextprotocol/core';
 import {
     LATEST_PROTOCOL_VERSION,
@@ -30,7 +30,7 @@ import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
 import type { HttpHandler } from '../helpers/index.js';
-import { hostPerSession } from '../helpers/index.js';
+import { hostPerSession, hostStateless } from '../helpers/index.js';
 import { verifies } from '../helpers/verifies.js';
 import type { TestArgs } from '../types.js';
 
@@ -1267,6 +1267,238 @@ verifies('client-transport:http:reconnection-scheduler', async (_args: TestArgs)
         await transport.close();
     } finally {
         vi.useRealTimers();
+        await handle.close();
+    }
+});
+
+verifies('client-transport:http:error-status-code', async (_args: TestArgs) => {
+    const handle = hostPerSession(() => echoServer());
+
+    const expectHttpStatusError = (err: unknown, status: number): void => {
+        expect(err).toBeInstanceOf(SdkHttpError);
+        expect(err instanceof SdkHttpError ? err.status : undefined).toBe(status);
+    };
+
+    try {
+        const url = new URL('http://in-process/mcp');
+
+        // 404 on the connect POST: connect rejects with an SdkHttpError carrying the HTTP status on .status
+        {
+            const transport = new StreamableHTTPClientTransport(url, {
+                fetch: async () => new Response('Not Found', { status: 404 })
+            });
+            const client = newClient();
+
+            const err = await client.connect(transport).then(
+                () => {},
+                (error: unknown) => error
+            );
+            expectHttpStatusError(err, 404);
+
+            await transport.close();
+        }
+
+        // 401 with no authProvider configured: rejects with .status 401 so callers can branch on auth failures
+        {
+            const transport = new StreamableHTTPClientTransport(url, {
+                fetch: async () => new Response('Unauthorized', { status: 401 })
+            });
+            const client = newClient();
+
+            const err = await client.connect(transport).then(
+                () => {},
+                (error: unknown) => error
+            );
+            expectHttpStatusError(err, 401);
+
+            await transport.close();
+        }
+
+        // 500 on a POST after a successful connect: the in-flight request rejects with .status 500
+        {
+            let failToolCalls = false;
+            const transport = new StreamableHTTPClientTransport(url, {
+                fetch: async (u, init) => {
+                    const body = init?.body ? String(init.body) : undefined;
+                    if (failToolCalls && body?.includes('"tools/call"')) {
+                        return new Response('Internal Server Error', { status: 500 });
+                    }
+                    return handle.handleRequest(new Request(u, init));
+                }
+            });
+            const client = newClient();
+
+            await client.connect(transport);
+            failToolCalls = true;
+
+            const err = await client.callTool({ name: 'echo', arguments: { text: 'boom' } }).then(
+                () => {},
+                (error: unknown) => error
+            );
+            expectHttpStatusError(err, 500);
+
+            await client.close();
+            await transport.close();
+        }
+    } finally {
+        await handle.close();
+    }
+});
+
+verifies('typescript:client-transport:http:session-id-property', async (_args: TestArgs) => {
+    const serverAssignedIds: Array<string | null> = [];
+    const handle = hostPerSession(() => echoServer());
+    const statelessHandle = hostStateless(() => echoServer());
+
+    try {
+        const url = new URL('http://in-process/mcp');
+        const transport = new StreamableHTTPClientTransport(url, {
+            fetch: async (u, init) => {
+                const response = await handle.handleRequest(new Request(u, init));
+                if (init?.body && String(init.body).includes('"method":"initialize"')) {
+                    serverAssignedIds.push(response.headers.get('mcp-session-id'));
+                }
+                return response;
+            }
+        });
+        const client = newClient();
+
+        expect(transport.sessionId).toBeUndefined();
+
+        await client.connect(transport);
+
+        expect(serverAssignedIds).toHaveLength(1);
+        const assigned = serverAssignedIds[0];
+        expect(assigned).not.toBeNull();
+        expect(transport.sessionId).toBe(assigned);
+
+        await client.close();
+        await transport.close();
+
+        // Stateless hosting assigns no Mcp-Session-Id, so the property stays undefined after connect
+        const statelessTransport = new StreamableHTTPClientTransport(url, {
+            fetch: (u, init) => statelessHandle.handleRequest(new Request(u, init))
+        });
+        const statelessClient = newClient();
+
+        expect(statelessTransport.sessionId).toBeUndefined();
+
+        await statelessClient.connect(statelessTransport);
+
+        expect(statelessTransport.sessionId).toBeUndefined();
+
+        await statelessClient.close();
+        await statelessTransport.close();
+    } finally {
+        await handle.close();
+        await statelessHandle.close();
+    }
+});
+
+verifies('typescript:client-transport:http:session-id-option', async (_args: TestArgs) => {
+    const records: RecordedRequest[] = [];
+    const handle = hostPerSession(() => echoServer());
+
+    try {
+        const url = new URL('http://in-process/mcp');
+
+        // Establish a real session first so the configured sessionId refers to a live server session
+        const firstTransport = new StreamableHTTPClientTransport(url, {
+            fetch: (u, init) => handle.handleRequest(new Request(u, init))
+        });
+        const firstClient = newClient();
+        await firstClient.connect(firstTransport);
+
+        const sessionId = firstTransport.sessionId;
+        if (sessionId === undefined) throw new Error('expected the first connection to negotiate a session id');
+
+        const reusingTransport = new StreamableHTTPClientTransport(url, {
+            sessionId,
+            fetch: recordingFetch(records, handle.handleRequest)
+        });
+        const reusingClient = newClient();
+
+        await reusingClient.connect(reusingTransport);
+
+        const result = await reusingClient.callTool({ name: 'echo', arguments: { text: 'reused session' } });
+        expect(result.content).toEqual([{ type: 'text', text: 'reused session' }]);
+
+        expect(reusingTransport.sessionId).toBe(sessionId);
+        expect(records.length).toBeGreaterThanOrEqual(1);
+        const firstRecorded = defined(records[0], 'first recorded request');
+        expect(firstRecorded.method).toBe('POST');
+        expect(firstRecorded.headers['mcp-session-id']).toBe(sessionId);
+        for (const req of records) {
+            expect(req.headers['mcp-session-id']).toBe(sessionId);
+        }
+
+        await reusingClient.close();
+        await reusingTransport.close();
+        await firstClient.close();
+        await firstTransport.close();
+    } finally {
+        await handle.close();
+    }
+});
+
+verifies('client-transport:http:reconnect-failure-onerror', async (_args: TestArgs) => {
+    const records: RecordedRequest[] = [];
+    const transportErrors: Error[] = [];
+    let firstGetController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    let getCount = 0;
+    const handle = hostPerSession(() => echoServer());
+
+    try {
+        const url = new URL('http://in-process/mcp');
+        const transport = new StreamableHTTPClientTransport(url, {
+            fetch: recordingFetch(records, async req => {
+                if (req.method === 'GET') {
+                    getCount++;
+                    if (getCount === 1) {
+                        return new Response(
+                            new ReadableStream<Uint8Array>({
+                                start(controller) {
+                                    firstGetController = controller;
+                                }
+                            }),
+                            { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+                        );
+                    }
+                    // Every reconnection attempt fails so the retry budget is exhausted
+                    return new Response('Not Found', { status: 404 });
+                }
+                return handle.handleRequest(req);
+            }),
+            reconnectionOptions: {
+                initialReconnectionDelay: 10,
+                maxReconnectionDelay: 10,
+                reconnectionDelayGrowFactor: 1,
+                maxRetries: 2
+            }
+        });
+        transport.onerror = error => void transportErrors.push(error);
+        const client = newClient();
+
+        await client.connect(transport);
+
+        await vi.waitFor(() => expect(firstGetController).toBeDefined());
+        defined(firstGetController, 'first GET stream controller').error(new Error('connection reset'));
+
+        // Each failed attempt and the final budget-exhausted failure are delivered to onerror
+        await vi.waitFor(() =>
+            expect(transportErrors.filter(e => e.message === 'Maximum reconnection attempts (2) exceeded.')).toHaveLength(1)
+        );
+        expect(transportErrors.filter(e => e.message.startsWith('Failed to reconnect SSE stream:'))).toHaveLength(2);
+        expect(records.filter(r => r.method === 'GET')).toHaveLength(3);
+
+        // The reconnection failure stays on onerror: an unrelated request issued afterwards still succeeds
+        const result = await client.callTool({ name: 'echo', arguments: { text: 'still works' } });
+        expect(result.content).toEqual([{ type: 'text', text: 'still works' }]);
+        expect(records.filter(r => r.method === 'GET')).toHaveLength(3);
+
+        await client.close();
+        await transport.close();
+    } finally {
         await handle.close();
     }
 });

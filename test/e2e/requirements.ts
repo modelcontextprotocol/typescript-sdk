@@ -2578,6 +2578,114 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'When a task-augmented tool call fails, the failure is stored with status failed and a subsequent tasks/result request for that task returns the stored error result instead of losing it.',
         transports: STATEFUL_TRANSPORTS,
         note: 'Task polling and result retrieval need the same server instance across requests, which stateless hosting does not provide.'
+    },
+    // Consumer-contract additions (sourced from real SDK dependents)
+    'client-transport:http:error-status-code': {
+        source: 'sdk',
+        behavior:
+            'When a Streamable HTTP POST or connect receives a non-OK response, the transport rejects with an SdkHttpError whose .status property is the HTTP status code so callers can branch on 401/403/404/4xx.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'typescript:protocol:error:not-connected': {
+        source: 'sdk',
+        behavior:
+            "Calling a request method on a Client whose transport is closed or never connected rejects with an Error containing 'Not connected', and client.transport is undefined before connect and after close.",
+        knownFailures: [
+            {
+                note: "changed in v2: capability-lenient list methods resolve with an empty result before connect instead of rejecting 'Not connected'; the after-close rejection still behaves as required."
+            }
+        ]
+    },
+    'typescript:client-transport:http:session-id-property': {
+        source: 'sdk',
+        behavior:
+            'StreamableHTTPClientTransport exposes the negotiated session id via a readable .sessionId property after initialization so consumers can persist and display it.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'typescript:client-transport:http:session-id-option': {
+        source: 'sdk',
+        behavior:
+            'A sessionId passed to the StreamableHTTPClientTransport constructor is sent as the Mcp-Session-Id header from the first request onwards.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-transport:http:reconnect-failure-onerror': {
+        source: 'sdk',
+        behavior:
+            'When the SSE stream drops and automatic reconnection ultimately fails, the failure is delivered to the transport onerror callback rather than throwing out of an unrelated request.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'transport:standalone:raw-relay': {
+        source: 'sdk',
+        behavior:
+            'Client and server transports can be driven directly (start/send/onmessage/onclose/onerror) without wrapping them in a Client or Server, supporting message-relay proxies.'
+    },
+    'transport:custom:client-connect': {
+        source: 'sdk',
+        behavior:
+            'Client.connect accepts any consumer-implemented object satisfying the Transport interface and completes the handshake over it.',
+        transports: ['inMemory'],
+        note: 'The test supplies its own custom Transport implementation, so the matrix transport arg is ignored; it runs as a single inMemory-labelled cell to avoid duplicate runs.'
+    },
+    'protocol:transport-callbacks:wrappable-after-connect': {
+        source: 'sdk',
+        behavior:
+            'Consumers can wrap or replace transport.onmessage/onclose/onerror after Client.connect without breaking protocol dispatch, because the Protocol layer assigns its handlers at connect time and tolerates chaining.'
+    },
+    'transport:stdio:pre-started-tolerated': {
+        source: 'sdk',
+        behavior:
+            'Client.connect succeeds (or fails with a recognizable already-started error that consumers can ignore) when the StdioClientTransport was started before being passed to connect.',
+        transports: ['stdio'],
+        note: 'Spawn-based test against the real StdioClientTransport child process; only meaningful on stdio.'
+    },
+    'client-auth:auth-helper:result-values': {
+        source: 'sdk',
+        behavior:
+            "The auth() helper resolves to the literal string 'REDIRECT' when user authorization is required and 'AUTHORIZED' when tokens were obtained, and consumers branch on these exact values.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:refresh:typed-errors': {
+        source: 'sdk',
+        behavior:
+            'Token refresh and authorization-code exchange failures surface as typed OAuth error classes (e.g. InvalidGrantError, InvalidClientError, ServerError) so consumers can decide between re-auth and hard failure.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        knownFailures: [
+            {
+                note: 'changed in v2: the per-code OAuth error subclasses were consolidated into the single OAuthError class (carrying the machine-readable code), so refresh and exchange rejections are OAuthError rather than InvalidGrantError, InvalidClientError, ServerError, etc.'
+            }
+        ]
+    },
+    'client-auth:no-tokens:no-auth-header': {
+        source: 'sdk',
+        behavior:
+            "When the OAuth provider's tokens() returns undefined the transport sends no Authorization header and the resulting 401 re-enters the auth flow, and a token response without refresh_token leads back to a full authorization-code flow on expiry rather than a refresh attempt.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-transport:sse:401-unauthorized-code': {
+        source: 'sdk',
+        behavior:
+            'The legacy SSEClientTransport surfaces a 401 response as an SseError with code === 401 (and supports finishAuth) with the same auth-retry semantics as the Streamable HTTP transport.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the legacy SSE client transport against an in-process fixture; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'mcpserver:tool:metadata-roundtrip': {
+        source: 'sdk',
+        behavior:
+            'Tool metadata supplied to registerTool (title, annotations, _meta, icons) is returned verbatim in tools/list results to connected clients.'
+    },
+    'hosting:session:lifecycle-callbacks': {
+        source: 'sdk',
+        behavior:
+            'StreamableHTTPServerTransport invokes onsessioninitialized with the new session id after initialization and onsessionclosed when the client issues DELETE, allowing hosts to maintain a session-to-transport map.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     }
 } satisfies Record<string, Requirement>;
 

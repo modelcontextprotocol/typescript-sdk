@@ -364,3 +364,58 @@ verifies('transport:stdio:default-env-safelist', async (_args: TestArgs) => {
         }
     }
 });
+
+verifies('transport:stdio:pre-started-tolerated', async (_args: TestArgs) => {
+    // Real consumers call transport.start() themselves (to capture early stderr) before handing the transport to connect().
+    const transport = new StdioClientTransport({
+        command: process.execPath,
+        args: ['--import', 'tsx', FIXTURE_PATH],
+        cwd: E2E_ROOT,
+        stderr: 'pipe'
+    });
+    const stderr = transport.stderr;
+    if (stderr === null) throw new Error('expected transport.stderr when spawned with stderr: "pipe"');
+    let captured = '';
+    stderr.on('data', (chunk: Buffer) => {
+        captured += chunk.toString();
+    });
+    // Counts fixture boots observed on stderr — more than one means connect() double-spawned the server.
+    const readyCount = () => captured.split('[stdio-server] ready').length - 1;
+
+    const client = newClient();
+    try {
+        await transport.start();
+        const preStartedPid = transport.pid;
+        if (preStartedPid === null) throw new Error('expected a child pid after manual start()');
+        expect(processAlive(preStartedPid)).toBe(true);
+        await vi.waitFor(() => expect(readyCount()).toBe(1), { timeout: 5000, interval: 25 });
+
+        // The contract is disjunctive: connect() over a pre-started transport either completes the handshake or rejects with the recognizable already-started error.
+        let connectOutcome: { ok: true } | { ok: false; error: unknown } = { ok: true };
+        try {
+            await client.connect(transport);
+        } catch (error) {
+            connectOutcome = { ok: false, error };
+        }
+
+        if (connectOutcome.ok) {
+            // Tolerated branch: the handshake ran over the manually started child, so tool calls work...
+            const echoed = await client.callTool({ name: 'echo', arguments: { text: 'pre-started transport' } });
+            expect(echoed.isError).toBeFalsy();
+            expect(echoed.content).toEqual([{ type: 'text', text: 'pre-started transport' }]);
+            // ...and connect() did not spawn a second server process behind the consumer's back.
+            expect(transport.pid).toBe(preStartedPid);
+            expect(readyCount()).toBe(1);
+        } else {
+            if (!(connectOutcome.error instanceof Error)) throw new Error('expected connect() to reject with an Error');
+            // Recognizable: the message names the already-started condition consumers branch on.
+            expect(connectOutcome.error.message).toContain('StdioClientTransport already started');
+            // Ignorable: the rejection left the manually started child alive, still owned by the transport, and not double-spawned.
+            expect(processAlive(preStartedPid)).toBe(true);
+            expect(transport.pid).toBe(preStartedPid);
+            expect(readyCount()).toBe(1);
+        }
+    } finally {
+        await transport.close();
+    }
+});
