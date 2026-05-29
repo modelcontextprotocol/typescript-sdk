@@ -5,10 +5,10 @@ import type { Mock, Mocked } from 'vitest';
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
-import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
+import { LegacyStreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
 
-describe('StreamableHTTPClientTransport', () => {
-    let transport: StreamableHTTPClientTransport;
+describe('LegacyStreamableHTTPClientTransport', () => {
+    let transport: LegacyStreamableHTTPClientTransport;
     let mockAuthProvider: Mocked<OAuthClientProvider>;
 
     beforeEach(() => {
@@ -27,7 +27,7 @@ describe('StreamableHTTPClientTransport', () => {
             codeVerifier: vi.fn(),
             invalidateCredentials: vi.fn()
         };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider: mockAuthProvider });
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider: mockAuthProvider });
         vi.spyOn(globalThis, 'fetch');
     });
 
@@ -125,7 +125,7 @@ describe('StreamableHTTPClientTransport', () => {
     it('should accept protocolVersion constructor option and include it in request headers', async () => {
         // When reconnecting with a preserved sessionId, users need to also preserve the
         // negotiated protocol version so the required mcp-protocol-version header is sent.
-        const reconnectTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        const reconnectTransport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             sessionId: 'preserved-session-id',
             protocolVersion: '2025-11-25'
         });
@@ -406,7 +406,7 @@ describe('StreamableHTTPClientTransport', () => {
 
     it('should support custom reconnection options', () => {
         // Create a transport with custom reconnection options
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             reconnectionOptions: {
                 initialReconnectionDelay: 500,
                 maxReconnectionDelay: 10_000,
@@ -426,7 +426,7 @@ describe('StreamableHTTPClientTransport', () => {
 
     it('should pass lastEventId when reconnecting', async () => {
         // Create a fresh transport
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
 
         // Mock fetch to verify headers sent
         const fetchSpy = globalThis.fetch as Mock;
@@ -458,7 +458,7 @@ describe('StreamableHTTPClientTransport', () => {
         // GET SSE request did not, so non-header options like credentials were dropped.
         vi.clearAllMocks();
 
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: { credentials: 'include', mode: 'cors' }
         });
 
@@ -486,7 +486,7 @@ describe('StreamableHTTPClientTransport', () => {
         vi.clearAllMocks();
 
         // Create a fresh transport instance
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
 
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
@@ -525,7 +525,7 @@ describe('StreamableHTTPClientTransport', () => {
             .mockResolvedValueOnce(new Response(null, { status: 202 }));
 
         // Create transport instance
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             fetch: customFetch
         });
 
@@ -548,7 +548,7 @@ describe('StreamableHTTPClientTransport', () => {
                 'X-Custom-Header': 'CustomValue'
             }
         };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: requestInit
         });
 
@@ -580,7 +580,7 @@ describe('StreamableHTTPClientTransport', () => {
                 'X-Custom-Header': 'CustomValue'
             })
         };
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: requestInit
         });
 
@@ -606,7 +606,7 @@ describe('StreamableHTTPClientTransport', () => {
     });
 
     it('should always send specified custom headers (array of tuples)', async () => {
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: {
                 headers: [
                     ['Authorization', 'Bearer test-token'],
@@ -630,7 +630,7 @@ describe('StreamableHTTPClientTransport', () => {
     });
 
     it('should append custom Accept header to required types on POST requests', async () => {
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: {
                 headers: {
                     Accept: 'application/vnd.example.v1+json'
@@ -657,7 +657,7 @@ describe('StreamableHTTPClientTransport', () => {
     });
 
     it('should append custom Accept header to required types on GET SSE requests', async () => {
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: {
                 headers: {
                     Accept: 'application/json'
@@ -679,7 +679,7 @@ describe('StreamableHTTPClientTransport', () => {
     });
 
     it('should set default Accept header when none provided', async () => {
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
 
         let actualReqInit: RequestInit = {};
 
@@ -698,7 +698,7 @@ describe('StreamableHTTPClientTransport', () => {
     });
 
     it('should not duplicate Accept media types when user-provided value overlaps required types', async () => {
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             requestInit: {
                 headers: {
                     Accept: 'application/json'
@@ -726,7 +726,7 @@ describe('StreamableHTTPClientTransport', () => {
         // This test verifies the maxRetries and backoff calculation directly
 
         // Create transport with specific options for testing
-        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+        transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
             reconnectionOptions: {
                 initialReconnectionDelay: 100,
                 maxReconnectionDelay: 5000,
@@ -877,7 +877,7 @@ describe('StreamableHTTPClientTransport', () => {
     });
 
     describe('Reconnection Logic', () => {
-        let transport: StreamableHTTPClientTransport;
+        let transport: LegacyStreamableHTTPClientTransport;
 
         // Use fake timers to control setTimeout and make the test instant.
         beforeEach(() => vi.useFakeTimers());
@@ -885,7 +885,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('should reconnect a GET-initiated notification stream that fails', async () => {
             // ARRANGE
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 10,
                     maxRetries: 1,
@@ -939,7 +939,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('should NOT reconnect a POST-initiated stream that fails', async () => {
             // ARRANGE
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 10,
                     maxRetries: 1,
@@ -988,7 +988,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('should reconnect a POST-initiated stream after receiving a priming event', async () => {
             // ARRANGE
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 10,
                     maxRetries: 1,
@@ -1049,7 +1049,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('should NOT reconnect a POST stream when response was received', async () => {
             // ARRANGE
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 10,
                     maxRetries: 1,
@@ -1104,7 +1104,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('should NOT reconnect a POST stream when error response was received', async () => {
             // ARRANGE
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 10,
                     maxRetries: 1,
@@ -1176,7 +1176,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('should not attempt reconnection after close() is called', async () => {
             // ARRANGE
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 100,
                     maxRetries: 3,
@@ -1226,7 +1226,7 @@ describe('StreamableHTTPClientTransport', () => {
         });
 
         it('should not throw JSON parse error on priming events with empty data', async () => {
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
 
             const errorSpy = vi.fn();
             transport.onerror = errorSpy;
@@ -1502,7 +1502,7 @@ describe('StreamableHTTPClientTransport', () => {
                 });
 
             // Create transport instance
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 authProvider: mockAuthProvider,
                 fetch: customFetch
             });
@@ -1571,7 +1571,7 @@ describe('StreamableHTTPClientTransport', () => {
                 });
 
             // Create transport instance
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 authProvider: mockAuthProvider,
                 fetch: customFetch
             });
@@ -1617,7 +1617,7 @@ describe('StreamableHTTPClientTransport', () => {
         afterEach(() => vi.useRealTimers());
 
         it('should use server-provided retry value for reconnection delay', async () => {
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 100,
                     maxReconnectionDelay: 5000,
@@ -1672,7 +1672,7 @@ describe('StreamableHTTPClientTransport', () => {
         });
 
         it('should fall back to exponential backoff when no server retry value', () => {
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 100,
                     maxReconnectionDelay: 5000,
@@ -1694,7 +1694,7 @@ describe('StreamableHTTPClientTransport', () => {
         });
 
         it('should reconnect on graceful stream close', async () => {
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 10,
                     maxReconnectionDelay: 1000,
@@ -1752,7 +1752,7 @@ describe('StreamableHTTPClientTransport', () => {
     });
 
     describe('Reconnection Logic with maxRetries 0', () => {
-        let transport: StreamableHTTPClientTransport;
+        let transport: LegacyStreamableHTTPClientTransport;
 
         // Use fake timers to control setTimeout and make the test instant.
         beforeEach(() => vi.useFakeTimers());
@@ -1760,7 +1760,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('should not schedule any reconnection attempts when maxRetries is 0', async () => {
             // ARRANGE
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 10,
                     maxRetries: 0, // This should disable retries completely
@@ -1789,7 +1789,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('should schedule reconnection when maxRetries is greater than 0', async () => {
             // ARRANGE
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 10,
                     maxRetries: 1, // Allow 1 retry
@@ -1892,7 +1892,7 @@ describe('StreamableHTTPClientTransport', () => {
             maxRetries: 3
         };
 
-        function triggerReconnection(t: StreamableHTTPClientTransport): void {
+        function triggerReconnection(t: LegacyStreamableHTTPClientTransport): void {
             (t as unknown as { _scheduleReconnection(opts: StartSSEOptions, attempt?: number): void })._scheduleReconnection({}, 0);
         }
 
@@ -1906,7 +1906,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('invokes the custom scheduler with reconnect, delay, and attemptCount', () => {
             const scheduler = vi.fn<ReconnectionScheduler>();
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions,
                 reconnectionScheduler: scheduler
             });
@@ -1919,7 +1919,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('falls back to setTimeout when no scheduler is provided', () => {
             const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions
             });
 
@@ -1930,7 +1930,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('does not use setTimeout when a custom scheduler is provided', () => {
             const setTimeoutSpy = vi.spyOn(global, 'setTimeout');
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions,
                 reconnectionScheduler: vi.fn()
             });
@@ -1943,7 +1943,7 @@ describe('StreamableHTTPClientTransport', () => {
         it('calls the returned cancel function on close()', async () => {
             const cancel = vi.fn();
             const scheduler: ReconnectionScheduler = vi.fn(() => cancel);
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions,
                 reconnectionScheduler: scheduler
             });
@@ -1956,7 +1956,7 @@ describe('StreamableHTTPClientTransport', () => {
         });
 
         it('tolerates schedulers that return void (no cancel function)', async () => {
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions,
                 reconnectionScheduler: () => {
                     /* no return */
@@ -1969,7 +1969,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('clears the default setTimeout on close() when no scheduler is provided', async () => {
             const clearTimeoutSpy = vi.spyOn(global, 'clearTimeout');
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions
             });
 
@@ -1981,7 +1981,7 @@ describe('StreamableHTTPClientTransport', () => {
 
         it('ignores a late-firing reconnect after close()', async () => {
             let capturedReconnect: (() => void) | undefined;
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions,
                 reconnectionScheduler: reconnect => {
                     capturedReconnect = reconnect;
@@ -2001,7 +2001,7 @@ describe('StreamableHTTPClientTransport', () => {
         });
 
         it('still aborts and fires onclose if the cancel function throws', async () => {
-            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            transport = new LegacyStreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions,
                 reconnectionScheduler: () => () => {
                     throw new Error('cancel failed');

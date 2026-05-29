@@ -52,7 +52,7 @@ export interface StartSSEOptions {
 }
 
 /**
- * Configuration options for reconnection behavior of the {@linkcode StreamableHTTPClientTransport}.
+ * Configuration options for reconnection behavior of the {@linkcode LegacyStreamableHTTPClientTransport}.
  */
 export interface StreamableHTTPReconnectionOptions {
     /**
@@ -92,7 +92,7 @@ export interface StreamableHTTPReconnectionOptions {
  * @param delay - Suggested delay in milliseconds (from backoff calculation).
  * @param attemptCount - Zero-indexed retry attempt number.
  * @returns An optional cancel function. If returned, it will be called on
- * {@linkcode StreamableHTTPClientTransport.close | transport.close()} to abort the
+ * {@linkcode LegacyStreamableHTTPClientTransport.close | transport.close()} to abort the
  * pending reconnection.
  *
  * @example
@@ -106,7 +106,7 @@ export interface StreamableHTTPReconnectionOptions {
 export type ReconnectionScheduler = (reconnect: () => void, delay: number, attemptCount: number) => (() => void) | void;
 
 /**
- * Configuration options for the {@linkcode StreamableHTTPClientTransport}.
+ * Configuration options for the {@linkcode LegacyStreamableHTTPClientTransport}.
  */
 export type StreamableHTTPClientTransportOptions = {
     /**
@@ -123,7 +123,7 @@ export type StreamableHTTPClientTransportOptions = {
      * For OAuth flows, pass an {@linkcode index.OAuthClientProvider | OAuthClientProvider} implementation
      * directly — the transport adapts it to `AuthProvider` internally. Interactive flows: after
      * {@linkcode UnauthorizedError}, redirect the user, then call
-     * {@linkcode StreamableHTTPClientTransport.finishAuth | finishAuth} with the authorization code before
+     * {@linkcode LegacyStreamableHTTPClientTransport.finishAuth | finishAuth} with the authorization code before
      * reconnecting.
      */
     authProvider?: AuthProvider | OAuthClientProvider;
@@ -161,6 +161,22 @@ export type StreamableHTTPClientTransportOptions = {
      * handshake so the reconnected transport continues sending the required header.
      */
     protocolVersion?: string;
+
+    /**
+     * When `true`, skip the `server/discover` probe and always use the legacy (2025-11)
+     * protocol path. Useful for connecting to known legacy servers or for testing
+     * legacy protocol behavior explicitly.
+     */
+    forceLegacy?: boolean;
+
+    /**
+     * Optional callback to inject extra HTTP headers into every outgoing POST request.
+     * Called after the standard headers are built, so returned headers can override them.
+     *
+     * Used internally by the probing transport to add the `Mcp-Method` header
+     * for modern (2026-06) protocol requests.
+     */
+    getExtraHeaders?: (message: JSONRPCMessage | JSONRPCMessage[]) => Record<string, string>;
 };
 
 /**
@@ -168,7 +184,7 @@ export type StreamableHTTPClientTransportOptions = {
  * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
  */
-export class StreamableHTTPClientTransport implements Transport {
+export class LegacyStreamableHTTPClientTransport implements Transport {
     private _abortController?: AbortController;
     private _url: URL;
     private _resourceMetadataUrl?: URL;
@@ -185,6 +201,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
+    private _getExtraHeaders?: (message: JSONRPCMessage | JSONRPCMessage[]) => Record<string, string>;
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -207,6 +224,7 @@ export class StreamableHTTPClientTransport implements Transport {
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
         this._reconnectionScheduler = opts?.reconnectionScheduler;
+        this._getExtraHeaders = opts?.getExtraHeaders;
     }
 
     private async _commonHeaders(): Promise<Headers> {
@@ -541,6 +559,12 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             const headers = await this._commonHeaders();
+            if (this._getExtraHeaders) {
+                const extra = this._getExtraHeaders(message);
+                for (const [k, v] of Object.entries(extra)) {
+                    headers.set(k, v);
+                }
+            }
             headers.set('content-type', 'application/json');
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
@@ -752,6 +776,26 @@ export class StreamableHTTPClientTransport implements Transport {
     }
     get protocolVersion(): string | undefined {
         return this._protocolVersion;
+    }
+
+    /** @internal Exposes the endpoint URL for use by the probing transport wrapper. */
+    get url(): URL {
+        return this._url;
+    }
+
+    /** @internal Builds common headers. Exposed for wrapping transports to use during probing. */
+    async commonHeaders(): Promise<Headers> {
+        return this._commonHeaders();
+    }
+
+    /** @internal Exposes the fetch function for use by wrapping transports. */
+    get fetchFn(): (url: string | URL, init?: RequestInit) => Promise<Response> {
+        return this._fetch ?? fetch;
+    }
+
+    /** @internal Exposes the base requestInit for use by wrapping transports. */
+    get requestInit(): RequestInit | undefined {
+        return this._requestInit;
     }
 
     /**

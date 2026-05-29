@@ -68,9 +68,16 @@ interface StreamMapping {
 }
 
 /**
- * Configuration options for {@linkcode WebStandardStreamableHTTPServerTransport}
+ * Configuration options for {@linkcode LegacyWebStandardStreamableHTTPServerTransport}
  */
 export interface WebStandardStreamableHTTPServerTransportOptions {
+    /**
+     * When `true`, ignore the `Mcp-Method` header and treat all requests as legacy (2025-11)
+     * protocol. Modern clients that probe with `server/discover` will fail and fall back
+     * to the legacy protocol automatically.
+     */
+    forceLegacy?: boolean;
+
     /**
      * Function that generates a session ID for the transport.
      * The session ID SHOULD be globally unique and cryptographically secure (e.g., a securely generated UUID, a JWT, or a cryptographic hash)
@@ -94,7 +101,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * Useful in cases when you need to clean up resources associated with the session.
      * Note that this is different from the transport closing, if you are handling
      * HTTP requests from multiple nodes you might want to close each
-     * {@linkcode WebStandardStreamableHTTPServerTransport} after a request is completed while still keeping the
+     * {@linkcode LegacyWebStandardStreamableHTTPServerTransport} after a request is completed while still keeping the
      * session open/running.
      * @param sessionId The session ID that was closed
      */
@@ -221,7 +228,7 @@ export interface HandleRequestOptions {
  * };
  * ```
  */
-export class WebStandardStreamableHTTPServerTransport implements Transport {
+export class LegacyWebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
     private sessionIdGenerator: (() => string) | undefined;
     private _started: boolean = false;

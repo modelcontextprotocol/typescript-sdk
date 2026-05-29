@@ -90,7 +90,7 @@ export function getDefaultEnvironment(): Record<string, string> {
  *
  * This transport is only available in Node.js environments.
  */
-export class StdioClientTransport implements Transport {
+export class LegacyStdioClientTransport implements Transport {
     private _process?: ChildProcess;
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _serverParams: StdioServerParameters;
@@ -113,7 +113,7 @@ export class StdioClientTransport implements Transport {
     async start(): Promise<void> {
         if (this._process) {
             throw new Error(
-                'StdioClientTransport already started! If using Client class, note that connect() calls start() automatically.'
+                'LegacyStdioClientTransport already started! If using Client class, note that connect() calls start() automatically.'
             );
         }
 

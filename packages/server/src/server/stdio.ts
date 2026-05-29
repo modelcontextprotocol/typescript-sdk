@@ -10,13 +10,13 @@ import { process } from '@modelcontextprotocol/server/_shims';
  * This transport is only available in Node.js environments.
  *
  * @example
- * ```ts source="./stdio.examples.ts#StdioServerTransport_basicUsage"
+ * ```ts source="./stdio.examples.ts#LegacyStdioServerTransport_basicUsage"
  * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
- * const transport = new StdioServerTransport();
+ * const transport = new LegacyStdioServerTransport();
  * await server.connect(transport);
  * ```
  */
-export class StdioServerTransport implements Transport {
+export class LegacyStdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
     private _closed = false;
@@ -51,7 +51,7 @@ export class StdioServerTransport implements Transport {
     async start(): Promise<void> {
         if (this._started) {
             throw new Error(
-                'StdioServerTransport already started! If using Server class, note that connect() calls start() automatically.'
+                'LegacyStdioServerTransport already started! If using Server class, note that connect() calls start() automatically.'
             );
         }
 
@@ -102,7 +102,7 @@ export class StdioServerTransport implements Transport {
 
     send(message: JSONRPCMessage): Promise<void> {
         if (this._closed) {
-            return Promise.reject(new Error('StdioServerTransport is closed'));
+            return Promise.reject(new Error('LegacyStdioServerTransport is closed'));
         }
         return new Promise((resolve, reject) => {
             const json = serializeMessage(message);

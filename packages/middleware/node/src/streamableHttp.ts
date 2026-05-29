@@ -10,7 +10,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, ProtocolConfig, RequestId, Transport } from '@modelcontextprotocol/core';
 import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
@@ -128,6 +128,10 @@ export class NodeStreamableHTTPServerTransport implements Transport {
 
     get onmessage(): ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined {
         return this._webStandardTransport.onmessage;
+    }
+
+    setProtocolConfig(config: ProtocolConfig): void {
+        this._webStandardTransport.setProtocolConfig!(config);
     }
 
     /**

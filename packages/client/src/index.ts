@@ -53,7 +53,7 @@ export {
     StaticPrivateKeyJwtProvider
 } from './client/authExtensions.js';
 export type { ClientOptions } from './client/client.js';
-export { Client } from './client/client.js';
+export { Client, LegacyClient } from './client/client.js';
 export { getSupportedElicitationModes } from './client/client.js';
 export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, RequestJwtAuthGrantOptions } from './client/crossAppAccess.js';
 export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess.js';
@@ -63,16 +63,17 @@ export type { SSEClientTransportOptions } from './client/sse.js';
 export { SSEClientTransport, SseError } from './client/sse.js';
 // StdioClientTransport, getDefaultEnvironment, DEFAULT_INHERITED_ENV_VARS, StdioServerParameters are exported from
 // the './stdio' subpath to keep the root entry free of process-spawning runtime dependencies (child_process, cross-spawn).
+export type { DiscoverResult } from './client/modernClientImpl.js';
+export { ModernClientImpl } from './client/modernClientImpl.js';
+export { StreamableHTTPClientTransport } from './client/modernStreamableHttp.js';
 export type {
     ReconnectionScheduler,
     StartSSEOptions,
     StreamableHTTPClientTransportOptions,
     StreamableHTTPReconnectionOptions
 } from './client/streamableHttp.js';
-export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
-
-// experimental exports
-export { ExperimentalClientTasks } from './experimental/tasks/client.js';
+export type { VersionProbingTransport } from './client/versionProbing.js';
+export { isVersionProbingTransport } from './client/versionProbing.js';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema.js';
