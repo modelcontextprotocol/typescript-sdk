@@ -20,22 +20,49 @@
         "mcp",
         "core"
     ],
+    "main": "./dist/cjs/index.cjs",
+    "module": "./dist/esm/index.mjs",
+    "types": "./dist/cjs/index.d.cts",
     "exports": {
         ".": {
-            "types": "./dist/index.d.ts",
-            "import": "./dist/index.mjs"
+            "import": {
+                "types": "./dist/esm/index.d.mts",
+                "default": "./dist/esm/index.mjs"
+            },
+            "require": {
+                "types": "./dist/cjs/index.d.cts",
+                "default": "./dist/cjs/index.cjs"
+            }
         },
         "./types": {
-            "types": "./src/exports/types/index.ts",
-            "import": "./src/exports/types/index.ts"
+            "import": {
+                "types": "./src/exports/types/index.ts",
+                "default": "./src/exports/types/index.ts"
+            },
+            "require": {
+                "types": "./src/exports/types/index.ts",
+                "default": "./src/exports/types/index.ts"
+            }
         },
         "./public": {
-            "types": "./src/exports/public/index.ts",
-            "import": "./src/exports/public/index.ts"
+            "import": {
+                "types": "./src/exports/public/index.ts",
+                "default": "./src/exports/public/index.ts"
+            },
+            "require": {
+                "types": "./src/exports/public/index.ts",
+                "default": "./src/exports/public/index.ts"
+            }
         },
         "./validators/cfWorker": {
-            "types": "./src/validators/cfWorkerProvider.ts",
-            "import": "./src/validators/cfWorkerProvider.ts"
+            "import": {
+                "types": "./src/validators/cfWorkerProvider.ts",
+                "default": "./src/validators/cfWorkerProvider.ts"
+            },
+            "require": {
+                "types": "./src/validators/cfWorkerProvider.ts",
+                "default": "./src/validators/cfWorkerProvider.ts"
+            }
         }
     },
     "scripts": {

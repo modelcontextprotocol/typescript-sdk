@@ -7,8 +7,16 @@ export default defineConfig({
     entry: ['src/index.ts'],
 
     // 2. Output Configuration
-    format: ['esm'],
     outDir: 'dist',
+    format: {
+        esm: {
+            outDir: 'dist/esm'
+        },
+        cjs: {
+            outDir: 'dist/cjs'
+        }
+    },
+
     clean: true, // Recommended: Cleans 'dist' before building
     sourcemap: true,
 
@@ -21,6 +29,7 @@ export default defineConfig({
     //    Bundles d.ts files into a single output
     dts: {
         resolver: 'tsc',
+        parallel: true,
         // override just for DTS generation:
         compilerOptions: {
             baseUrl: '.',
