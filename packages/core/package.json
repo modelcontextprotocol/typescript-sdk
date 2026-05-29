@@ -51,8 +51,7 @@
     "dependencies": {
         "ajv": "catalog:runtimeShared",
         "ajv-formats": "catalog:runtimeShared",
-        "json-schema-typed": "catalog:runtimeShared",
-        "zod": "catalog:runtimeShared"
+        "json-schema-typed": "catalog:runtimeShared"
     },
     "peerDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
