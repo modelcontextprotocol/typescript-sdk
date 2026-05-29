@@ -6,12 +6,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import {
-    ACCEPT_LANGUAGE_META,
-    CONTENT_LANGUAGE_META,
-    HEADER_MISMATCH_ERROR_CODE,
-    setErrorContentLanguage
-} from '@modelcontextprotocol/core';
+import { ACCEPT_LANGUAGE_META, CONTENT_LANGUAGE_META, setErrorContentLanguage } from '@modelcontextprotocol/core';
 
 import { ProtocolError } from '../../src/index.js';
 import { Server } from '../../src/server/server.js';
@@ -157,7 +152,9 @@ describe('SEP-2792 i18n HTTP transport integration', () => {
         expect(resp.headers.get('content-language')).toBe('de');
     });
 
-    it('returns 400 with HeaderMismatch error code on header/_meta mismatch', async () => {
+    it('succeeds when header disagrees with _meta (intermediary stripped/rewrote header)', async () => {
+        // Per SEP-2792: _meta is canonical; header mismatch is not an error.
+        // This covers the scenario where a CDN/proxy strips or rewrites Accept-Language.
         const req = createRequest(
             'POST',
             {
@@ -170,10 +167,31 @@ describe('SEP-2792 i18n HTTP transport integration', () => {
         );
 
         const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(400);
-        const body = (await resp.json()) as { error?: { code?: number; message?: string } };
-        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
-        expect(body.error?.message).toMatch(/does not match/);
+        expect(resp.status).toBe(200);
+        // Server honors _meta value (fr), not the header (de)
+        const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } };
+        expect(body.result?.tools?.[0]?.title).toBe('Saluer');
+        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('fr');
+    });
+
+    it('succeeds when header is absent but _meta is present (header stripped by intermediary)', async () => {
+        // No Accept-Language header at all, but _meta carries the preference
+        const req = createRequest(
+            'POST',
+            {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'de' } },
+                id: 'tl-5'
+            } as JSONRPCMessage,
+            { sessionId }
+        );
+
+        const resp = await transport.handleRequest(req);
+        expect(resp.status).toBe(200);
+        const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } };
+        expect(body.result?.tools?.[0]?.title).toBe('Grüßen');
+        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('de');
     });
 
     it('passes through when header and _meta agree', async () => {

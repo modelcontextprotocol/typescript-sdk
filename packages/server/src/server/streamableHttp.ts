@@ -13,7 +13,6 @@ import {
     CONTENT_LANGUAGE_META,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     getErrorContentLanguage,
-    HEADER_MISMATCH_ERROR_CODE,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -703,11 +702,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
 
-            // SEP-2792: Validate Accept-Language header vs _meta and copy header → _meta if needed
-            const langError = this.validateAndCopyAcceptLanguage(req, messages);
-            if (langError) {
-                return langError;
-            }
+            // SEP-2792: Copy Accept-Language header → _meta if _meta is absent
+            this.copyAcceptLanguageFromHeader(req, messages);
 
             // check if it contains requests
             const hasRequests = messages.some(element => isJSONRPCRequest(element));
@@ -908,14 +904,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
-     * SEP-2792: Validates Accept-Language header against _meta fields.
-     * - If header and _meta both present and disagree → HTTP 400
-     * - If header present but _meta absent → copies header value into _meta
+     * SEP-2792: Copies Accept-Language header into _meta when _meta is absent.
+     * If _meta[acceptLanguage] is already set, it takes precedence (the header is ignored).
+     * No mismatch rejection — intermediaries may strip or rewrite the header.
      */
-    private validateAndCopyAcceptLanguage(req: Request, messages: JSONRPCMessage[]): Response | undefined {
+    private copyAcceptLanguageFromHeader(req: Request, messages: JSONRPCMessage[]): void {
         const headerValue = req.headers.get('accept-language');
         if (!headerValue) {
-            return undefined;
+            return;
         }
 
         for (const msg of messages) {
@@ -925,22 +921,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const params = msg.params as { _meta?: Record<string, unknown> };
             const metaValue = params._meta?.[ACCEPT_LANGUAGE_META];
 
-            if (metaValue !== undefined && typeof metaValue === 'string') {
-                // Both present: check for mismatch (SEP-2243 HeaderMismatch)
-                if (metaValue !== headerValue) {
-                    const error = `Bad Request: Accept-Language header "${headerValue}" does not match _meta["${ACCEPT_LANGUAGE_META}"] value "${metaValue}"`;
-                    this.onerror?.(new Error(error));
-                    return this.createJsonErrorResponse(400, HEADER_MISMATCH_ERROR_CODE, error);
-                }
-            } else {
-                // Header present, _meta absent: copy header → _meta
+            if (metaValue === undefined || typeof metaValue !== 'string') {
+                // Header present, _meta absent: fall back to header value
                 if (!params._meta) {
                     params._meta = {};
                 }
                 params._meta[ACCEPT_LANGUAGE_META] = headerValue;
             }
+            // If _meta is already set, it is canonical — ignore header
         }
-        return undefined;
     }
 
     /**

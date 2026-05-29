@@ -5,7 +5,6 @@ import {
     getAcceptLanguage,
     getContentLanguage,
     getErrorContentLanguage,
-    HEADER_MISMATCH_ERROR_CODE,
     negotiateLanguage,
     setAcceptLanguage,
     setContentLanguage,
@@ -118,12 +117,6 @@ describe('i18n helpers', () => {
 
         it('handles multiple subtag matches preferring higher quality', () => {
             expect(negotiateLanguage('de-AT;q=0.8,fr-CA;q=0.9', available)).toBe('fr');
-        });
-    });
-
-    describe('HEADER_MISMATCH_ERROR_CODE', () => {
-        it('equals -32001', () => {
-            expect(HEADER_MISMATCH_ERROR_CODE).toBe(-32_001);
         });
     });
 

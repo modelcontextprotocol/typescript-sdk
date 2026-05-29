@@ -11,12 +11,6 @@
 import { match } from '@formatjs/intl-localematcher';
 
 /**
- * JSON-RPC error code for header/body mismatch (SEP-2243).
- * Used when an HTTP header value disagrees with the corresponding `_meta` field.
- */
-export const HEADER_MISMATCH_ERROR_CODE = -32_001;
-
-/**
  * The `_meta` key for the client's language preference (request direction).
  * Value syntax matches the HTTP `Accept-Language` field (RFC 9110 §12.5.4).
  */

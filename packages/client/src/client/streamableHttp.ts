@@ -4,7 +4,6 @@ import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol
 import {
     ACCEPT_LANGUAGE_META,
     createFetchWithInit,
-    HEADER_MISMATCH_ERROR_CODE,
     isInitializedNotification,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -563,16 +562,10 @@ export class StreamableHTTPClientTransport implements Transport {
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
 
-            // SEP-2792: Mirror acceptLanguage from _meta to Accept-Language header
+            // SEP-2792: Best-effort mirror of acceptLanguage from _meta to Accept-Language header.
+            // If the caller already set Accept-Language manually, _meta takes precedence.
             const metaAcceptLanguage = this._extractAcceptLanguage(message);
             if (metaAcceptLanguage) {
-                const existingHeader = headers.get('accept-language');
-                if (existingHeader && existingHeader !== metaAcceptLanguage) {
-                    throw new SdkError(
-                        SdkErrorCode.SendFailed,
-                        `Accept-Language header "${existingHeader}" conflicts with _meta["${ACCEPT_LANGUAGE_META}"] value "${metaAcceptLanguage}". They must be identical per SEP-2243 (HeaderMismatch code ${HEADER_MISMATCH_ERROR_CODE}).`
-                    );
-                }
                 headers.set('accept-language', metaAcceptLanguage);
             }
 
