@@ -507,8 +507,12 @@ verifies('client-transport:http:concurrent-streams', async (_args: TestArgs) => 
     const started: string[] = [];
     const gates = new Map<string, { promise: Promise<void>; release: () => void }>();
     for (const text of ['first', 'second', 'third']) {
-        const { promise, resolve } = Promise.withResolvers<void>();
-        gates.set(text, { promise, release: resolve });
+        // Promise.withResolvers needs Node 22+; build the gate manually so the suite runs on Node 20.
+        let release: () => void = () => {};
+        const promise = new Promise<void>(resolve => {
+            release = resolve;
+        });
+        gates.set(text, { promise, release });
     }
     const releaseGate = (text: string) => defined(gates.get(text), `gate for ${text}`).release();
 
