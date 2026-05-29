@@ -15,15 +15,77 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const PORT = 8787;
+const READINESS_TIMEOUT_MS = 60_000;
+const READINESS_POLL_INTERVAL_MS = 100;
 
-interface TestEnv {
-    tempDir: string;
-    process: ChildProcess;
-    cleanup: () => Promise<void>;
+/**
+ * Wait until the worker can serve a real MCP `initialize` request.
+ *
+ * Wrangler's "Ready on …" stdout line is unreliable: miniflare can print it before the user
+ * worker is actually wired, and subsequent POSTs come back as `500 Network connection lost` or
+ * `ECONNREFUSED`. The only signal we can trust is "the server returned an MCP-shaped response
+ * to a protocol request".
+ *
+ * Polls the configured port with an MCP `initialize` POST every {@link READINESS_POLL_INTERVAL_MS}ms
+ * until either a JSON-RPC result body comes back, the wrangler process exits, or
+ * {@link READINESS_TIMEOUT_MS} elapses.
+ */
+async function waitForMcpReady(proc: ChildProcess): Promise<void> {
+    let stderrTail = '';
+    proc.stderr?.on('data', d => {
+        stderrTail = (stderrTail + d.toString()).slice(-2048);
+    });
+
+    let processExitedWithCode: number | null = null;
+    proc.on('exit', code => {
+        processExitedWithCode = code ?? -1;
+    });
+
+    const deadline = Date.now() + READINESS_TIMEOUT_MS;
+    let lastFailure = 'no attempts made';
+
+    while (Date.now() < deadline) {
+        if (processExitedWithCode !== null) {
+            throw new Error(`wrangler dev exited with code ${processExitedWithCode} before becoming ready.\nstderr tail:\n${stderrTail}`);
+        }
+
+        try {
+            const response = await fetch(`http://127.0.0.1:${PORT}/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream'
+                },
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: 'readiness-probe',
+                    method: 'initialize',
+                    params: {
+                        protocolVersion: '2025-06-18',
+                        capabilities: {},
+                        clientInfo: { name: 'readiness-probe', version: '0' }
+                    }
+                })
+            });
+            const body = await response.text();
+            if (response.ok && body.includes('"jsonrpc"') && body.includes('"result"')) {
+                return;
+            }
+            lastFailure = `status=${response.status} body=${body.slice(0, 200)}`;
+        } catch (error) {
+            lastFailure = (error as { cause?: { code?: string }; message: string }).cause?.code ?? (error as Error).message;
+        }
+
+        await new Promise(resolve => setTimeout(resolve, READINESS_POLL_INTERVAL_MS));
+    }
+
+    throw new Error(
+        `Worker did not become ready within ${READINESS_TIMEOUT_MS}ms.\nLast probe: ${lastFailure}\nstderr tail:\n${stderrTail}`
+    );
 }
 
 describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
-    let env: TestEnv | null = null;
+    let cleanup: (() => Promise<void>) | null = null;
 
     beforeAll(async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-worker-test-'));
@@ -42,8 +104,7 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
             private: true,
             type: 'module',
             dependencies: {
-                '@modelcontextprotocol/server': `file:./${tarballName}`,
-                '@cfworker/json-schema': '^4.1.1'
+                '@modelcontextprotocol/server': `file:./${tarballName}`
             },
             devDependencies: {
                 wrangler: '^4.14.4'
@@ -84,50 +145,22 @@ export default {
         // Install dependencies
         execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
 
-        // Start wrangler dev server
+        // Start wrangler dev server. Readiness is determined by probing the MCP endpoint, not by
+        // parsing wrangler's stdout — see waitForMcpReady for the reasoning.
         const proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT)], {
             cwd: tempDir,
             shell: true,
             stdio: 'pipe'
         });
 
-        // Wait for server to be ready
-        await new Promise<void>((resolve, reject) => {
-            const timeout = setTimeout(() => reject(new Error('Wrangler startup timeout')), 60_000);
-            let stderrData = '';
+        try {
+            await waitForMcpReady(proc);
+        } catch (error) {
+            proc.kill('SIGTERM');
+            throw error;
+        }
 
-            proc.stdout?.on('data', data => {
-                const output = data.toString();
-                if (/Ready on|Listening on/.test(output)) {
-                    clearTimeout(timeout);
-                    // Extra delay for wrangler to fully initialize
-                    setTimeout(resolve, 1000);
-                }
-            });
-
-            proc.stderr?.on('data', data => {
-                stderrData += data.toString();
-                // Check for fatal errors like missing node: modules
-                if (/No such module "node:/.test(stderrData)) {
-                    clearTimeout(timeout);
-                    reject(new Error(`Wrangler fatal error: ${stderrData}`));
-                }
-            });
-
-            proc.on('error', err => {
-                clearTimeout(timeout);
-                reject(err);
-            });
-
-            proc.on('close', code => {
-                if (code !== 0 && code !== null) {
-                    clearTimeout(timeout);
-                    reject(new Error(`Wrangler exited with code ${code}. stderr: ${stderrData}`));
-                }
-            });
-        });
-
-        const cleanup = async () => {
+        cleanup = async () => {
             proc.kill('SIGTERM');
             await new Promise<void>(resolve => {
                 proc.on('close', () => resolve());
@@ -139,35 +172,16 @@ export default {
                 // Ignore cleanup errors
             }
         };
-
-        env = { tempDir, process: proc, cleanup };
     }, 120_000);
 
     afterAll(async () => {
-        await env?.cleanup();
+        await cleanup?.();
     });
 
     it('should handle MCP requests', async () => {
-        expect(env).not.toBeNull();
-
-        // Retry connection — wrangler may report "Ready" before it can handle requests
-        let client!: Client;
-        let lastError: unknown;
-        for (let attempt = 0; attempt < 5; attempt++) {
-            try {
-                client = new Client({ name: 'test-client', version: '1.0.0' });
-                const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${PORT}/`));
-                await client.connect(transport);
-                lastError = undefined;
-                break;
-            } catch (error) {
-                lastError = error;
-                await new Promise(resolve => setTimeout(resolve, 1000));
-            }
-        }
-        if (lastError) {
-            throw lastError;
-        }
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${PORT}/`));
+        await client.connect(transport);
 
         const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
         expect(result.content).toEqual([{ type: 'text', text: 'Hello, World!' }]);
