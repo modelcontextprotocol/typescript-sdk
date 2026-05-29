@@ -228,7 +228,7 @@ describe('SSEServerTransport', () => {
                 })
             );
 
-            const extra = (transport.onmessage as ReturnType<typeof vi.fn>).mock.calls[0][1];
+            const extra = (transport.onmessage as ReturnType<typeof vi.fn>).mock.calls[0]![1];
             expect(extra.request.url).toBe('http://localhost/messages');
         });
     });

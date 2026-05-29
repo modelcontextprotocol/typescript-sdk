@@ -142,7 +142,7 @@ describe('Authorization Handler', () => {
             });
 
             expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
+            const location = new URL(response.header.location!);
             expect(location.origin + location.pathname).toBe('https://example.com/callback');
         });
 
@@ -179,7 +179,7 @@ describe('Authorization Handler', () => {
             });
 
             expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
+            const location = new URL(response.header.location!);
             expect(location.origin + location.pathname).toBe('https://example.com/callback');
         });
 
@@ -195,7 +195,7 @@ describe('Authorization Handler', () => {
             });
 
             expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
+            const location = new URL(response.header.location!);
             expect(location.hostname).toBe('localhost');
             expect(location.port).toBe('53428');
             expect(location.pathname).toBe('/callback');
@@ -291,7 +291,7 @@ describe('Authorization Handler', () => {
             });
 
             expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
+            const location = new URL(response.header.location!);
             expect(location.searchParams.get('error')).toBe('invalid_request');
         });
 
@@ -305,7 +305,7 @@ describe('Authorization Handler', () => {
             });
 
             expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
+            const location = new URL(response.header.location!);
             expect(location.searchParams.get('error')).toBe('invalid_request');
         });
 
@@ -319,7 +319,7 @@ describe('Authorization Handler', () => {
             });
 
             expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
+            const location = new URL(response.header.location!);
             expect(location.searchParams.get('error')).toBe('invalid_request');
         });
     });
@@ -363,7 +363,7 @@ describe('Authorization Handler', () => {
             });
 
             expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
+            const location = new URL(response.header.location!);
             expect(location.origin + location.pathname).toBe('https://example.com/callback');
             expect(location.searchParams.get('code')).toBe('mock_auth_code');
             expect(location.searchParams.get('state')).toBe('xyz789');
@@ -380,7 +380,7 @@ describe('Authorization Handler', () => {
             });
 
             expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
+            const location = new URL(response.header.location!);
             expect(location.searchParams.get('state')).toBe('state-value-123');
         });
 
@@ -393,7 +393,7 @@ describe('Authorization Handler', () => {
             });
 
             expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
+            const location = new URL(response.header.location!);
             expect(location.searchParams.has('code')).toBe(true);
         });
     });

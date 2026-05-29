@@ -164,7 +164,7 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
                 {
                     state,
                     scopes: requestedScopes,
-                    redirectUri: redirect_uri,
+                    redirectUri: redirect_uri!,
                     codeChallenge: code_challenge,
                     resource: resource ? new URL(resource) : undefined
                 },
@@ -173,10 +173,10 @@ export function authorizationHandler({ provider, rateLimit: rateLimitConfig }: A
         } catch (error) {
             // Post-redirect errors - redirect with error parameters
             if (error instanceof OAuthError) {
-                res.redirect(302, createErrorRedirect(redirect_uri, error, state));
+                res.redirect(302, createErrorRedirect(redirect_uri!, error, state));
             } else {
                 const serverError = new ServerError('Internal Server Error');
-                res.redirect(302, createErrorRedirect(redirect_uri, serverError, state));
+                res.redirect(302, createErrorRedirect(redirect_uri!, serverError, state));
             }
         }
     });

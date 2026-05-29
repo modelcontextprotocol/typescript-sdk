@@ -41,7 +41,7 @@ export class OAuthError extends Error {
  * or is otherwise malformed.
  */
 export class InvalidRequestError extends OAuthError {
-    static errorCode = 'invalid_request';
+    static override errorCode = 'invalid_request';
 }
 
 /**
@@ -49,7 +49,7 @@ export class InvalidRequestError extends OAuthError {
  * authentication included, or unsupported authentication method).
  */
 export class InvalidClientError extends OAuthError {
-    static errorCode = 'invalid_client';
+    static override errorCode = 'invalid_client';
 }
 
 /**
@@ -58,7 +58,7 @@ export class InvalidClientError extends OAuthError {
  * authorization request, or was issued to another client.
  */
 export class InvalidGrantError extends OAuthError {
-    static errorCode = 'invalid_grant';
+    static override errorCode = 'invalid_grant';
 }
 
 /**
@@ -66,7 +66,7 @@ export class InvalidGrantError extends OAuthError {
  * this authorization grant type.
  */
 export class UnauthorizedClientError extends OAuthError {
-    static errorCode = 'unauthorized_client';
+    static override errorCode = 'unauthorized_client';
 }
 
 /**
@@ -74,7 +74,7 @@ export class UnauthorizedClientError extends OAuthError {
  * by the authorization server.
  */
 export class UnsupportedGrantTypeError extends OAuthError {
-    static errorCode = 'unsupported_grant_type';
+    static override errorCode = 'unsupported_grant_type';
 }
 
 /**
@@ -82,14 +82,14 @@ export class UnsupportedGrantTypeError extends OAuthError {
  * exceeds the scope granted by the resource owner.
  */
 export class InvalidScopeError extends OAuthError {
-    static errorCode = 'invalid_scope';
+    static override errorCode = 'invalid_scope';
 }
 
 /**
  * Access denied error - The resource owner or authorization server denied the request.
  */
 export class AccessDeniedError extends OAuthError {
-    static errorCode = 'access_denied';
+    static override errorCode = 'access_denied';
 }
 
 /**
@@ -97,7 +97,7 @@ export class AccessDeniedError extends OAuthError {
  * that prevented it from fulfilling the request.
  */
 export class ServerError extends OAuthError {
-    static errorCode = 'server_error';
+    static override errorCode = 'server_error';
 }
 
 /**
@@ -105,7 +105,7 @@ export class ServerError extends OAuthError {
  * handle the request due to a temporary overloading or maintenance of the server.
  */
 export class TemporarilyUnavailableError extends OAuthError {
-    static errorCode = 'temporarily_unavailable';
+    static override errorCode = 'temporarily_unavailable';
 }
 
 /**
@@ -113,7 +113,7 @@ export class TemporarilyUnavailableError extends OAuthError {
  * obtaining an authorization code using this method.
  */
 export class UnsupportedResponseTypeError extends OAuthError {
-    static errorCode = 'unsupported_response_type';
+    static override errorCode = 'unsupported_response_type';
 }
 
 /**
@@ -121,7 +121,7 @@ export class UnsupportedResponseTypeError extends OAuthError {
  * the requested token type.
  */
 export class UnsupportedTokenTypeError extends OAuthError {
-    static errorCode = 'unsupported_token_type';
+    static override errorCode = 'unsupported_token_type';
 }
 
 /**
@@ -129,7 +129,7 @@ export class UnsupportedTokenTypeError extends OAuthError {
  * or invalid for other reasons.
  */
 export class InvalidTokenError extends OAuthError {
-    static errorCode = 'invalid_token';
+    static override errorCode = 'invalid_token';
 }
 
 /**
@@ -137,7 +137,7 @@ export class InvalidTokenError extends OAuthError {
  * (Custom, non-standard error)
  */
 export class MethodNotAllowedError extends OAuthError {
-    static errorCode = 'method_not_allowed';
+    static override errorCode = 'method_not_allowed';
 }
 
 /**
@@ -145,7 +145,7 @@ export class MethodNotAllowedError extends OAuthError {
  * (Custom, non-standard error based on RFC 6585)
  */
 export class TooManyRequestsError extends OAuthError {
-    static errorCode = 'too_many_requests';
+    static override errorCode = 'too_many_requests';
 }
 
 /**
@@ -153,14 +153,14 @@ export class TooManyRequestsError extends OAuthError {
  * (Custom error for dynamic client registration - RFC 7591)
  */
 export class InvalidClientMetadataError extends OAuthError {
-    static errorCode = 'invalid_client_metadata';
+    static override errorCode = 'invalid_client_metadata';
 }
 
 /**
  * Insufficient scope error - The request requires higher privileges than provided by the access token.
  */
 export class InsufficientScopeError extends OAuthError {
-    static errorCode = 'insufficient_scope';
+    static override errorCode = 'insufficient_scope';
 }
 
 /**
@@ -168,7 +168,7 @@ export class InsufficientScopeError extends OAuthError {
  * (Custom error for resource indicators - RFC 8707)
  */
 export class InvalidTargetError extends OAuthError {
-    static errorCode = 'invalid_target';
+    static override errorCode = 'invalid_target';
 }
 
 /**
@@ -183,7 +183,7 @@ export class CustomOAuthError extends OAuthError {
         super(message, errorUri);
     }
 
-    get errorCode(): string {
+    override get errorCode(): string {
         return this.customErrorCode;
     }
 }

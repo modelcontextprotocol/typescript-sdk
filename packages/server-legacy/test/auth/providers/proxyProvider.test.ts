@@ -184,7 +184,7 @@ describe('Proxy OAuth Server Provider', () => {
             const tokens = await provider.exchangeAuthorizationCode(validClient, 'test-code', 'test-verifier');
 
             const fetchCall = (global.fetch as Mock).mock.calls[0];
-            const body = fetchCall[1].body as string;
+            const body = fetchCall![1].body as string;
             expect(body).not.toContain('resource=');
             expect(tokens).toEqual(mockTokenResponse);
         });

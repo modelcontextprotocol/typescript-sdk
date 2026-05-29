@@ -295,7 +295,7 @@ describe('MCP Auth Router', () => {
             });
 
             expect(response.status).toBe(302);
-            const location = new URL(response.header.location);
+            const location = new URL(response.header.location!);
             expect(location.searchParams.has('code')).toBe(true);
         });
 

@@ -57,8 +57,8 @@ export function requireBearerAuth({ verifier, requiredScopes = [], resourceMetad
                 throw new InvalidTokenError('Missing Authorization header');
             }
 
-            const [type, token] = authHeader.split(' ');
-            if (type.toLowerCase() !== 'bearer' || !token) {
+            const [type, token] = authHeader.split(' ') as [string | undefined, string | undefined];
+            if (!type || type.toLowerCase() !== 'bearer' || !token) {
                 throw new InvalidTokenError("Invalid Authorization header format, expected 'Bearer TOKEN'");
             }
 
