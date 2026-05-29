@@ -7,6 +7,11 @@ export interface ImportMapping {
     removalMessage?: string;
     /** No entries currently set this; scaffolding for when a v1 symbol has no v2 equivalent yet. */
     isV2Gap?: boolean;
+    /**
+     * Subpath suffix appended after `RESOLVE_BY_CONTEXT` resolves the base package (e.g. `/validators/ajv`).
+     * The final target becomes `@modelcontextprotocol/{client,server}<subpathSuffix>`.
+     */
+    subpathSuffix?: string;
 }
 
 export const IMPORT_MAP: Record<string, ImportMapping> = {
@@ -162,6 +167,27 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         status: 'moved'
     }
 };
+
+// v1 `validation/*` paths → v2 `validators/*` subpaths. The canonical `*-provider.js` filename and
+// the short aliases from the v1 README, with and without `.js` suffix.
+const VALIDATOR_V1_VARIANTS: Record<string, readonly string[]> = {
+    '/validators/ajv': ['validation/ajv-provider.js', 'validation/ajv.js', 'validation/ajv'],
+    '/validators/cf-worker': ['validation/cfworker-provider.js', 'validation/cfworker.js', 'validation/cfworker']
+};
+for (const [subpathSuffix, v1Specifiers] of Object.entries(VALIDATOR_V1_VARIANTS)) {
+    for (const v1Specifier of v1Specifiers) {
+        IMPORT_MAP[`@modelcontextprotocol/sdk/${v1Specifier}`] = {
+            target: 'RESOLVE_BY_CONTEXT',
+            status: 'moved',
+            subpathSuffix
+        };
+    }
+}
+
+// `validation/index` / `validation/types` carry only the `jsonSchemaValidator` interface + helpers.
+for (const barrelSpecifier of ['@modelcontextprotocol/sdk/validation/index.js', '@modelcontextprotocol/sdk/validation/types.js']) {
+    IMPORT_MAP[barrelSpecifier] = { target: 'RESOLVE_BY_CONTEXT', status: 'moved' };
+}
 
 export function isAuthImport(specifier: string): boolean {
     return specifier.includes('/server/auth/') || specifier.includes('/server/auth.');
