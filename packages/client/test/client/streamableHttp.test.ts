@@ -295,7 +295,10 @@ describe('StreamableHTTPClientTransport', () => {
             expect(transport.sessionId).toBeUndefined();
         });
 
-        it('treats a 404 on the standalone GET stream as session expiry', async () => {
+        it('does NOT treat a 404 on the standalone GET stream as session expiry', async () => {
+            // The standalone GET stream is the optional notification channel; a 404 there
+            // must not tear down the session. It surfaces as a generic open-stream failure
+            // and leaves the session ID intact so POST requests keep working.
             const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 sessionId: 'existing-session-id'
             });
@@ -319,11 +322,9 @@ describe('StreamableHTTPClientTransport', () => {
             );
 
             expect(error).toBeInstanceOf(SdkHttpError);
-            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpSessionExpired);
-            // The GET path carries `statusText` in its error data rather than the body `text`.
-            expect((error as SdkHttpError).data).toEqual({ status: 404, statusText: 'Not Found' });
-            expect(errorSpy).toHaveBeenCalled();
-            expect(sessionTransport.sessionId).toBeUndefined();
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpFailedToOpenStream);
+            // Session is preserved — the optional stream failing does not expire the session.
+            expect(sessionTransport.sessionId).toBe('existing-session-id');
 
             await sessionTransport.close().catch(() => {});
         });

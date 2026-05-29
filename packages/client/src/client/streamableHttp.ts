@@ -247,12 +247,6 @@ export class StreamableHTTPClientTransport implements Transport {
                 headers.set('last-event-id', resumptionToken);
             }
 
-            // Capture whether this request carried a session ID (see `_send` for the
-            // 404 session-expiry rule). The GET path does not write a response
-            // `mcp-session-id` back into `this._sessionId`, but snapshotting keeps the
-            // two branches symmetric.
-            const requestHadSessionId = this._sessionId !== undefined;
-
             const response = await (this._fetch ?? fetch)(this._url, {
                 ...this._requestInit,
                 method: 'GET',
@@ -296,18 +290,12 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
-                // A 404 on the standalone GET stream for a request that carried a session
-                // ID means the session expired server-side (same spec rule as the POST
-                // path in `_send`). Clear the dead session ID and surface the
-                // session-expired error code.
-                if (response.status === 404 && requestHadSessionId) {
-                    this._sessionId = undefined;
-                    throw new SdkHttpError(SdkErrorCode.ClientHttpSessionExpired, 'Failed to open SSE stream: session expired (HTTP 404)', {
-                        status: 404,
-                        statusText: response.statusText
-                    });
-                }
-
+                // NOTE: a 404 here is deliberately NOT treated as session expiry. The
+                // standalone GET stream is the optional server→client notification
+                // channel; its failure (including a 404) must not tear down the session
+                // — the client keeps the session and continues issuing POST requests.
+                // Genuine session expiry is detected on the POST path in `_send`, where a
+                // 404 to an actual request means the session is gone.
                 throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
                     status: response.status,
                     statusText: response.statusText
