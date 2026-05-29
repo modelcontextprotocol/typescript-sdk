@@ -53,8 +53,8 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server/stdio`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
-| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                               |
-| `@modelcontextprotocol/sdk/server/auth/*`            | RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers removed (use external IdP/OAuth library)                                             |
+| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP); legacy bridge: `@modelcontextprotocol/server-legacy/sse`                                                                                                                     |
+| `@modelcontextprotocol/sdk/server/auth/*`            | RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers removed (use external IdP/OAuth library); legacy bridge: `@modelcontextprotocol/server-legacy/auth` |
 | `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                 |
 
 ### Types / shared imports
@@ -328,11 +328,11 @@ new URL(ctx.http?.req?.url).searchParams.get('debug')
 
 ### SSE server transport
 
-`SSEServerTransport` removed entirely. Migrate to `NodeStreamableHTTPServerTransport` (from `@modelcontextprotocol/node`). Client-side `SSEClientTransport` still available for connecting to legacy servers.
+`SSEServerTransport` removed entirely. Migrate to `NodeStreamableHTTPServerTransport` (from `@modelcontextprotocol/node`). Client-side `SSEClientTransport` still available for connecting to legacy servers. Legacy bridge: `import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse'` (deprecated, frozen v1 copy).
 
 ### Server-side auth
 
-Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) are removed from the core SDK; use an external IdP/OAuth library. See `examples/server/src/` for demos.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) are removed from the core SDK; use an external IdP/OAuth library. See `examples/server/src/` for demos. Legacy bridge: `import { mcpAuthRouter } from '@modelcontextprotocol/server-legacy/auth'` (deprecated, frozen v1 copy).
 
 ### Host header validation (Express)
 

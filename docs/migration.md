@@ -113,6 +113,14 @@ const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: ()
 
 The SSE transport has been removed from the server. Servers should migrate to Streamable HTTP. The client-side SSE transport remains available for connecting to legacy SSE servers.
 
+If you need a temporary bridge during migration, `@modelcontextprotocol/server-legacy/sse` provides a frozen copy of the v1 `SSEServerTransport`:
+
+```typescript
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
+```
+
+This package is deprecated and will not receive new features.
+
 ### `WebSocketClientTransport` removed
 
 `WebSocketClientTransport` has been removed. WebSocket is not a spec-defined MCP transport, and keeping it in the SDK encouraged transport proliferation without a conformance baseline.
@@ -811,6 +819,14 @@ The following individual error classes have been removed in favor of `OAuthError
 | `CustomOAuthError`             | `new OAuthError(customCode, message)`                             |
 
 The `OAUTH_ERRORS` constant has also been removed.
+
+If you need the v1 OAuth error classes and `mcpAuthRouter` during migration, `@modelcontextprotocol/server-legacy/auth` provides a frozen copy:
+
+```typescript
+import { mcpAuthRouter, InvalidClientError } from '@modelcontextprotocol/server-legacy/auth';
+```
+
+This package is deprecated and will not receive new features. Use a dedicated OAuth provider in production.
 
 **Before (v1):**
 
