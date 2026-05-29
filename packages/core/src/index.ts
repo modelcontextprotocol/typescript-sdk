@@ -19,27 +19,9 @@ export * from './util/zodCompat.js';
 
 // experimental exports
 export * from './experimental/index.js';
+// Validator providers are type-only here — import the runtime classes from the explicit
+// `@modelcontextprotocol/{core,client,server}/validators/{ajv,cf-worker}` subpaths to customise.
 export type { AjvJsonSchemaValidator } from './validators/ajvProvider.js';
-// Validator providers are intentionally NOT re-exported as runtime values here: AJV
-// and @cfworker/json-schema are optional peers, and importing either provider from
-// the root barrel would force that backend on all consumers. Internal runtime shims
-// import concrete defaults via explicit core validator subpaths.
 export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from './validators/cfWorkerProvider.js';
 export * from './validators/fromJsonSchema.js';
-/**
- * JSON Schema validation
- *
- * Client and server packages automatically select a JSON Schema validator backend based on the
- * runtime: AJV-backed on Node.js, `@cfworker/json-schema`-backed on browser/workerd. Both backends
- * are bundled into the corresponding shim, so consumers do not need to install or import validator
- * packages for the default behaviour.
- *
- * To override validation, pass an object implementing the {@link jsonSchemaValidator} interface as
- * `jsonSchemaValidator` on the client/server options. See `validators/types.ts` for the contract
- * and a sample implementation.
- *
- * @module validation
- */
-
-// Core types only - implementations are exported via separate entry points
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types.js';

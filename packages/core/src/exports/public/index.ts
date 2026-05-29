@@ -142,9 +142,10 @@ export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/
 export type { SpecTypeName, SpecTypes } from '../../types/specTypeSchema.js';
 export { isSpecType, specTypeSchemas } from '../../types/specTypeSchema.js';
 export type { StandardSchemaV1, StandardSchemaV1Sync, StandardSchemaWithJSON } from '../../util/standardSchema.js';
-// Concrete validator providers (AjvJsonSchemaValidator, CfWorkerJsonSchemaValidator) are
-// intentionally NOT exported: client/server bundle them via the runtime shim and end users
-// cannot reach them. To override validation, implement the `jsonSchemaValidator` interface.
+// Validator providers are type-only here — import the runtime classes from the explicit
+// `@modelcontextprotocol/{client,server}/validators/{ajv,cf-worker}` subpaths to customise.
+export type { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
+export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages
 // provide runtime-aware wrappers that default to the appropriate validator via _shims.
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types.js';

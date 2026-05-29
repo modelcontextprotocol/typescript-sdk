@@ -28,6 +28,14 @@
             "types": "./dist/stdio.d.mts",
             "import": "./dist/stdio.mjs"
         },
+        "./validators/ajv": {
+            "types": "./dist/validators/ajv.d.mts",
+            "import": "./dist/validators/ajv.mjs"
+        },
+        "./validators/cf-worker": {
+            "types": "./dist/validators/cfWorker.d.mts",
+            "import": "./dist/validators/cfWorker.mjs"
+        },
         "./_shims": {
             "workerd": {
                 "types": "./dist/shimsWorkerd.d.mts",
@@ -50,6 +58,12 @@
     "types": "./dist/index.d.mts",
     "typesVersions": {
         "*": {
+            "validators/ajv": [
+                "dist/validators/ajv.d.mts"
+            ],
+            "validators/cf-worker": [
+                "dist/validators/cfWorker.d.mts"
+            ],
             "stdio": [
                 "dist/stdio.d.mts"
             ]

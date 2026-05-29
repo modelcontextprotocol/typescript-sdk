@@ -22,7 +22,6 @@
 
 import { Client } from '@modelcontextprotocol/client';
 import type { JsonSchemaType } from '@modelcontextprotocol/core';
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
 import type {
     CreateMessageRequest,
     CreateMessageResult,
@@ -33,6 +32,7 @@ import type {
     Tool
 } from '@modelcontextprotocol/server';
 import { McpServer, ProtocolError, ProtocolErrorCode, Server, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 

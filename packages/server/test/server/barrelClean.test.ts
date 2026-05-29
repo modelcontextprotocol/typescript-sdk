@@ -8,7 +8,8 @@ import { beforeAll, describe, expect, test } from 'vitest';
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const distDir = join(pkgDir, 'dist');
 const NODE_ONLY = /\b(child_process|cross-spawn|node:stream|node:child_process)\b/;
-const VALIDATOR_BACKEND_IMPORT = /from\s+["'](?:ajv|ajv-formats|@cfworker\/json-schema)["']/;
+// Anchored at start-of-line so JSDoc-example `from 'ajv'` strings in vendored chunks don't match.
+const VALIDATOR_BACKEND_IMPORT = /^import[^\n]*?from\s+["'](?:ajv|ajv-formats|@cfworker\/json-schema)["']/m;
 
 function chunkImportsOf(entryPath: string): string[] {
     const visited = new Set<string>();

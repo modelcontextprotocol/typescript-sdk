@@ -530,9 +530,9 @@ new McpServer({ name: 'server', version: '1.0.0' }, {});
 Validator behavior:
 
 - Do not add validator imports for normal migrations.
-- Do not install `ajv`, `ajv-formats`, or `@cfworker/json-schema`; client/server bundle the runtime-selected defaults.
-- The SDK's built-in validator classes (`AjvJsonSchemaValidator`, `CfWorkerJsonSchemaValidator`) are not exported from `@modelcontextprotocol/{client,server}` (not even as types). The `@modelcontextprotocol/{client,server}/validators/cf-worker` subpath that existed in v2 pre-releases has been removed.
-- Advanced users may pass `jsonSchemaValidator: myCustomValidator` with their own implementation of the `jsonSchemaValidator` interface.
+- Do not install `ajv`, `ajv-formats`, or `@cfworker/json-schema` for the default path; client/server bundle the runtime-selected defaults and the root entry point does not pull either dep in.
+- To customize the built-in backend (e.g. register custom AJV formats, change `@cfworker/json-schema` draft), import the named class from the package subpath: `@modelcontextprotocol/{client,server}/validators/ajv` for `AjvJsonSchemaValidator`, `@modelcontextprotocol/{client,server}/validators/cf-worker` for `CfWorkerJsonSchemaValidator`. Importing from a subpath means the corresponding peer dep must be in your `package.json`.
+- To replace validation entirely, pass `jsonSchemaValidator: myCustomValidator` with your own implementation of the `jsonSchemaValidator` interface.
 
 ## 15. Migration Steps (apply in this order)
 

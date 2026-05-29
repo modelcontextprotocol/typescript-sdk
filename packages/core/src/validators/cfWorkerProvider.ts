@@ -13,20 +13,26 @@ import { Validator } from '@cfworker/json-schema';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types.js';
 
 /**
- * JSON Schema draft version supported by @cfworker/json-schema
- *
- * @internal
+ * JSON Schema draft version supported by `@cfworker/json-schema`.
  */
 export type CfWorkerSchemaDraft = '4' | '7' | '2019-09' | '2020-12';
 
 /**
- * `@cfworker/json-schema`-backed validator used as the default in browser/workerd shims.
+ * `@cfworker/json-schema`-backed JSON Schema validator. See
+ * `@modelcontextprotocol/{client,server}/validators/cf-worker` for the customisation entry point.
  *
- * Not part of the public surface: end users get this automatically via the runtime shim and
- * cannot import it from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`.
- * To override validation, implement the {@link jsonSchemaValidator} interface.
+ * @example Use with default configuration (draft 2020-12, shortcircuit on)
+ * ```ts source="./cfWorkerProvider.examples.ts#CfWorkerJsonSchemaValidator_default"
+ * const validator = new CfWorkerJsonSchemaValidator();
+ * ```
  *
- * @internal
+ * @example Use with custom configuration
+ * ```ts source="./cfWorkerProvider.examples.ts#CfWorkerJsonSchemaValidator_customConfig"
+ * const validator = new CfWorkerJsonSchemaValidator({
+ *     draft: '2020-12',
+ *     shortcircuit: false // Report all errors
+ * });
+ * ```
  */
 export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
     private shortcircuit: boolean;
