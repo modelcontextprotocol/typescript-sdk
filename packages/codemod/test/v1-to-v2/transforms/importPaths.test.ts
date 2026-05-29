@@ -59,14 +59,19 @@ describe('import-paths transform', () => {
         expect(result.diagnostics[0]!.message).toContain('WebSocketClientTransport');
     });
 
-    it('removes SSE server import with warning', () => {
+    it('moves SSE server import to server-legacy/sse with info diagnostic', () => {
         const input = `import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';\n`;
         const ctx: TransformContext = { projectType: 'server' };
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, ctx);
+        const output = sourceFile.getFullText();
+        expect(output).toContain('@modelcontextprotocol/server-legacy/sse');
+        expect(output).toContain('SSEServerTransport');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.changesCount).toBeGreaterThan(0);
         expect(result.diagnostics.length).toBeGreaterThan(0);
-        expect(result.diagnostics[0]!.message).toContain('SSE server transport');
+        expect(result.diagnostics[0]!.message).toContain('SSEServerTransport is deprecated');
     });
 
     it('resolves sdk/types.js based on sibling client imports', () => {
@@ -270,13 +275,79 @@ describe('import-paths transform', () => {
         expect(result).toContain('NodeStreamableHTTPServerTransport as StreamableHTTPServerTransport');
     });
 
-    it('removes auth imports with warning', () => {
+    it('moves auth router import to server-legacy/auth with info diagnostic', () => {
         const input = `import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';\n`;
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const output = sourceFile.getFullText();
+        expect(output).toContain('@modelcontextprotocol/server-legacy/auth');
+        expect(output).toContain('mcpAuthRouter');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.changesCount).toBeGreaterThan(0);
         expect(result.diagnostics.length).toBeGreaterThan(0);
-        expect(result.diagnostics[0]!.message).toContain('auth router removed');
+        expect(result.diagnostics[0]!.message).toContain('Legacy OAuth AS router');
+    });
+
+    it('moves auth provider import to server-legacy/auth', () => {
+        const input = `import type { OAuthServerProvider } from '@modelcontextprotocol/sdk/server/auth/provider.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('@modelcontextprotocol/server-legacy/auth');
+        expect(result).toContain('OAuthServerProvider');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('moves auth middleware import to server-legacy/auth', () => {
+        const input = `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('@modelcontextprotocol/server-legacy/auth');
+        expect(result).toContain('requireBearerAuth');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('moves auth errors import to server-legacy/auth', () => {
+        const input = `import { InvalidTokenError, OAuthError } from '@modelcontextprotocol/sdk/server/auth/errors.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('@modelcontextprotocol/server-legacy/auth');
+        expect(result).toContain('InvalidTokenError');
+        expect(result).toContain('OAuthError');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('consolidates multiple auth subpath imports into single server-legacy/auth import', () => {
+        const input = [
+            `import { mcpAuthRouter } from '@modelcontextprotocol/sdk/server/auth/router.js';`,
+            `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('mcpAuthRouter');
+        expect(result).toContain('requireBearerAuth');
+        expect(result).toContain('@modelcontextprotocol/server-legacy/auth');
+        const importLines = result.split('\n').filter((l: string) => l.includes('@modelcontextprotocol/server-legacy/auth'));
+        expect(importLines.length).toBe(1);
+    });
+
+    it('moves SSE server re-export to server-legacy/sse', () => {
+        const input = `export { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const output = sourceFile.getFullText();
+        expect(output).toContain('@modelcontextprotocol/server-legacy/sse');
+        expect(output).toContain('SSEServerTransport');
+        expect(result.diagnostics.some(d => d.message.includes('SSEServerTransport is deprecated'))).toBe(true);
+    });
+
+    it('includes server-legacy in usedPackages for SSE import', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { SSEServerTransport } from '@modelcontextprotocol/sdk/server/sse.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.usedPackages).toBeDefined();
+        expect(result.usedPackages!.has('@modelcontextprotocol/server-legacy/sse')).toBe(true);
     });
 
     it('handles per-specifier type modifiers', () => {
@@ -373,14 +444,17 @@ describe('import-paths transform', () => {
         expect(result.diagnostics[0]!.message).toContain('removed');
     });
 
-    it('handles unknown auth subpath via catch-all', () => {
+    it('moves unknown auth subpath to server-legacy/auth via catch-all', () => {
         const input = `import { SomeType } from '@modelcontextprotocol/sdk/server/auth/handler.js';\n`;
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
         expect(result.changesCount).toBe(1);
-        expect(sourceFile.getFullText()).not.toContain('@modelcontextprotocol/sdk');
-        expect(result.diagnostics.some(d => d.message.includes('Server auth removed'))).toBe(true);
+        const output = sourceFile.getFullText();
+        expect(output).toContain('@modelcontextprotocol/server-legacy/auth');
+        expect(output).toContain('SomeType');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.some(d => d.message.includes('Legacy auth module'))).toBe(true);
     });
 
     it('rewrites InMemoryTransport to @modelcontextprotocol/server for server projects', () => {

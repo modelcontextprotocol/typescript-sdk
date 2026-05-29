@@ -2,7 +2,7 @@ import type { SourceFile } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { renameAllReferences } from '../../../utils/astUtils.js';
-import { v2Gap, warning } from '../../../utils/diagnostics.js';
+import { info, v2Gap, warning } from '../../../utils/diagnostics.js';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
@@ -75,10 +75,9 @@ export const importPathsTransform: Transform = {
 
             if (!mapping && isAuthImport(specifier)) {
                 mapping = {
-                    target: '',
-                    status: 'removed',
-                    removalMessage:
-                        'Server auth removed in v2. For RS auth, see @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
+                    target: '@modelcontextprotocol/server-legacy/auth',
+                    status: 'moved',
+                    migrationHint: 'Legacy auth module. For RS-only auth, see @modelcontextprotocol/express.'
                 };
             }
 
@@ -153,6 +152,9 @@ export const importPathsTransform: Transform = {
                     }
                 }
                 changesCount++;
+                if (mapping.migrationHint) {
+                    diagnostics.push(info(filePath, line, mapping.migrationHint));
+                }
                 for (const [oldName, newName] of symbolsToRenameInFile) {
                     renameAllReferences(sourceFile, oldName, newName);
                 }
@@ -169,6 +171,9 @@ export const importPathsTransform: Transform = {
             }
             imp.remove();
             changesCount++;
+            if (mapping.migrationHint) {
+                diagnostics.push(info(filePath, line, mapping.migrationHint));
+            }
             for (const [oldName, newName] of symbolsToRenameInFile) {
                 renameAllReferences(sourceFile, oldName, newName);
             }
@@ -219,10 +224,9 @@ function rewriteExportDeclarations(
 
         if (!mapping && isAuthImport(specifier)) {
             mapping = {
-                target: '',
-                status: 'removed',
-                removalMessage:
-                    'Server auth removed in v2. For RS auth, see @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
+                target: '@modelcontextprotocol/server-legacy/auth',
+                status: 'moved',
+                migrationHint: 'Legacy auth module. For RS-only auth, see @modelcontextprotocol/express.'
             };
         }
 
@@ -282,6 +286,9 @@ function rewriteExportDeclarations(
             }
         }
         changesCount++;
+        if (mapping.migrationHint) {
+            diagnostics.push(info(filePath, line, mapping.migrationHint));
+        }
     }
 
     return changesCount;

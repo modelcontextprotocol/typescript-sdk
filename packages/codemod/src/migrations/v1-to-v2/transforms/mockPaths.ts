@@ -49,7 +49,7 @@ function resolveTarget(
     | { removed: true; isV2Gap?: boolean; removalMessage?: string }
     | null {
     const mapping = IMPORT_MAP[specifier];
-    if (!mapping && isAuthImport(specifier)) return { removed: true };
+    if (!mapping && isAuthImport(specifier)) return { target: '@modelcontextprotocol/server-legacy/auth' };
     if (!mapping) return null;
     if (mapping.status === 'removed') return { removed: true, isV2Gap: mapping.isV2Gap, removalMessage: mapping.removalMessage };
 

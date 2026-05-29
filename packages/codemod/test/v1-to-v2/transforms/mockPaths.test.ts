@@ -193,13 +193,22 @@ describe('mock-paths transform', () => {
             expect(result.diagnostics[0]!.message).toContain('Unknown SDK dynamic import path');
         });
 
-        it('emits warning for removed SDK dynamic import path', () => {
+        it('rewrites SSE dynamic import to server-legacy/sse', () => {
             const input = [`const m = await import('@modelcontextprotocol/sdk/server/sse.js');`, ''].join('\n');
             const project = new Project({ useInMemoryFileSystem: true });
             const sourceFile = project.createSourceFile('test.ts', input);
             const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.changesCount).toBeGreaterThan(0);
+            expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/server-legacy/sse');
+        });
+
+        it('emits warning for removed SDK dynamic import path', () => {
+            const input = [`const m = await import('@modelcontextprotocol/sdk/client/websocket.js');`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
             expect(result.diagnostics.length).toBeGreaterThan(0);
-            expect(result.diagnostics[0]!.message).toContain('SSE server transport removed in v2');
+            expect(result.diagnostics[0]!.message).toContain('WebSocketClientTransport removed in v2');
         });
 
         it('emits warning for unknown SDK mock path', () => {
