@@ -1002,14 +1002,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         const stream = this._streamMapping.get(streamId);
 
-        if (!this._enableJsonResponse && stream?.controller && stream?.encoder) {
-            // For SSE responses, generate event ID if event store is provided
-            let eventId: string | undefined;
+        let eventId: string | undefined;
+        if (!this._enableJsonResponse && this._eventStore) {
+            eventId = await this._eventStore.storeEvent(streamId, message);
+        }
 
-            if (this._eventStore) {
-                eventId = await this._eventStore.storeEvent(streamId, message);
-            }
-            // Write the event to the response stream
+        if (!this._enableJsonResponse && stream?.controller && stream?.encoder) {
             this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
         }
 
@@ -1022,6 +1020,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             if (allResponsesReady) {
                 if (!stream) {
+                    if (!this._enableJsonResponse && this._eventStore) {
+                        for (const id of relatedIds) {
+                            this._requestResponseMap.delete(id);
+                            this._requestToStreamMapping.delete(id);
+                        }
+                        return;
+                    }
                     throw new Error(`No connection established for request ID: ${String(requestId)}`);
                 }
                 if (this._enableJsonResponse && stream.resolveJson) {
