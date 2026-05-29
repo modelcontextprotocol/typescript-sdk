@@ -13,12 +13,21 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from '@modelcontextprotocol/core';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, StandardSchemaWithJSON } from '@modelcontextprotocol/core';
 import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
 import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
 import type { Tool } from '@modelcontextprotocol/server';
-import { ProtocolError, ProtocolErrorCode, Server } from '@modelcontextprotocol/server';
+import {
+    fromJsonSchema,
+    isSpecType,
+    McpServer,
+    ProtocolError,
+    ProtocolErrorCode,
+    Server,
+    specTypeSchemas
+} from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
+import { z } from 'zod/v4';
 
 import { wire } from '../helpers/index.js';
 import { verifies } from '../helpers/verifies.js';
@@ -155,4 +164,157 @@ verifies('validation:pluggable-provider', async ({ transport }: TestArgs) => {
         { celsius: 21, summary: 'mild and sunny' },
         { celsius: 'mild', summary: 42 }
     ]);
+});
+
+/** Raw JSON Schema registered via fromJsonSchema(); the `greet` tool both advertises it and validates arguments against it. */
+const GREET_INPUT_SCHEMA: JsonSchemaType = {
+    type: 'object',
+    properties: { name: { type: 'string' } },
+    required: ['name'],
+    additionalProperties: false
+};
+
+/**
+ * McpServer factory-of-factories for the fromJsonSchema tests: registers a single
+ * `greet` tool with the given (already wrapped) inputSchema and pushes every
+ * handler invocation's arguments into `handlerArgs` so tests can prove whether
+ * the handler ran. The recorder lives outside the factory because per-session /
+ * stateless hosting builds a fresh server per session or request.
+ */
+function greetServerFactory(inputSchema: StandardSchemaWithJSON<{ name: string }>, handlerArgs: unknown[]): () => McpServer {
+    return () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('greet', { description: 'Greets the caller by name.', inputSchema }, ({ name }) => {
+            handlerArgs.push({ name });
+            return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+        });
+        return s;
+    };
+}
+
+verifies('validators:from-json-schema:tool-roundtrip', async ({ transport }: TestArgs) => {
+    const handlerArgs: unknown[] = [];
+    const client = new Client({ name: 'c', version: '0' });
+    await using _ = await wire(transport, greetServerFactory(fromJsonSchema<{ name: string }>(GREET_INPUT_SCHEMA), handlerArgs), client);
+
+    // tools/list advertises the wrapped raw JSON Schema as-is.
+    const { tools } = await client.listTools();
+    expect(tools.map(t => t.name)).toEqual(['greet']);
+    expect(tools[0]?.inputSchema).toEqual(GREET_INPUT_SCHEMA);
+
+    // Conforming arguments reach the handler end to end and the call resolves with its result.
+    const result = await client.callTool({ name: 'greet', arguments: { name: 'Ada' } });
+    expect(result.isError).toBeUndefined();
+    expect(result.content).toEqual([{ type: 'text', text: 'Hello, Ada!' }]);
+    expect(handlerArgs).toEqual([{ name: 'Ada' }]);
+});
+
+verifies('validators:from-json-schema:invalid-args-rejected', async ({ transport }: TestArgs) => {
+    const handlerArgs: unknown[] = [];
+    const client = new Client({ name: 'c', version: '0' });
+    await using _ = await wire(transport, greetServerFactory(fromJsonSchema<{ name: string }>(GREET_INPUT_SCHEMA), handlerArgs), client);
+
+    // Arguments violating the wrapped JSON Schema (`name` must be a string) are rejected with JSON-RPC -32602.
+    const rejected = client.callTool({ name: 'greet', arguments: { name: 42 } });
+    await expect(rejected).rejects.toBeInstanceOf(ProtocolError);
+    await expect(rejected).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
+
+    // The handler was never invoked for the rejected call.
+    expect(handlerArgs).toEqual([]);
+});
+
+/**
+ * jsonSchemaValidator for the override test: delegates verdicts to Ajv but
+ * records every compile/validate call and additionally vetoes the
+ * schema-conforming arguments `{ name: 'vetoed' }`, so its decisions are
+ * observably different from the runtime default validator's.
+ */
+class VetoingRecordingValidator implements jsonSchemaValidator {
+    readonly compiledSchemas: JsonSchemaType[] = [];
+    readonly validatedInputs: unknown[] = [];
+    private readonly delegate = new AjvJsonSchemaValidator();
+
+    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
+        this.compiledSchemas.push(schema);
+        const inner = this.delegate.getValidator<T>(schema);
+        return input => {
+            this.validatedInputs.push(input);
+            // Veto a value the JSON Schema accepts so the call outcome provably reflects this validator, not the default.
+            if (z.object({ name: z.literal('vetoed') }).safeParse(input).success) {
+                return { valid: false, data: undefined, errorMessage: 'vetoed name rejected by the custom validator override' };
+            }
+            return inner(input);
+        };
+    }
+}
+
+verifies('validators:custom-validator:override', async ({ transport }: TestArgs) => {
+    const recorder = new VetoingRecordingValidator();
+    const handlerArgs: unknown[] = [];
+    const client = new Client({ name: 'c', version: '0' });
+    await using _ = await wire(
+        transport,
+        greetServerFactory(fromJsonSchema<{ name: string }>(GREET_INPUT_SCHEMA, recorder), handlerArgs),
+        client
+    );
+
+    // The supplied validator (not the runtime default) compiled the registered schema.
+    expect(recorder.compiledSchemas).toEqual([GREET_INPUT_SCHEMA]);
+
+    // The supplied validator is consulted on tools/call and its accept verdict lets the handler run.
+    const accepted = await client.callTool({ name: 'greet', arguments: { name: 'Ada' } });
+    expect(accepted.content).toEqual([{ type: 'text', text: 'Hello, Ada!' }]);
+    expect(recorder.validatedInputs).toEqual([{ name: 'Ada' }]);
+
+    // 'vetoed' conforms to the JSON Schema (the default validator would run the handler), so only the supplied validator can gate it.
+    const vetoOutcome = await client.callTool({ name: 'greet', arguments: { name: 'vetoed' } }).catch((error: unknown) => error);
+    const vetoText = vetoOutcome instanceof Error ? vetoOutcome.message : JSON.stringify(vetoOutcome);
+    expect(vetoText).toContain('vetoed name rejected by the custom validator override');
+    expect(recorder.validatedInputs).toEqual([{ name: 'Ada' }, { name: 'vetoed' }]);
+    expect(handlerArgs).toEqual([{ name: 'Ada' }]);
+});
+
+/** McpServer factory exposing a single `ping-tool` returning a fixed text block — fixture for the spec-type guard tests. */
+function pingToolServer(): McpServer {
+    const s = new McpServer({ name: 's', version: '0' });
+    s.registerTool('ping-tool', { inputSchema: z.object({}) }, () => ({ content: [{ type: 'text', text: 'pong' }] }));
+    return s;
+}
+
+verifies('guards:spec-type:call-tool-result', async ({ transport }: TestArgs) => {
+    const client = new Client({ name: 'c', version: '0' });
+    await using _ = await wire(transport, pingToolServer, client);
+
+    // Hold the live result as `unknown` so the guard is what narrows it for the caller.
+    const result: unknown = await client.callTool({ name: 'ping-tool', arguments: {} });
+
+    expect(isSpecType.CallToolResult(result)).toBe(true);
+    if (isSpecType.CallToolResult(result)) {
+        // Narrowed without casts: the guarded value exposes the spec-typed content array.
+        expect(result.content).toEqual([{ type: 'text', text: 'pong' }]);
+    }
+
+    // Structurally non-conforming values are rejected ({} is avoided here: content has a default, so the input-type guard accepts it).
+    expect(isSpecType.CallToolResult({ content: 'nope' })).toBe(false);
+    expect(isSpecType.CallToolResult(42)).toBe(false);
+});
+
+verifies('guards:spec-type-schemas:sync-validate', async ({ transport }: TestArgs) => {
+    const client = new Client({ name: 'c', version: '0' });
+    await using _ = await wire(transport, pingToolServer, client);
+
+    const result = await client.callTool({ name: 'ping-tool', arguments: {} });
+
+    // Synchronous Standard Schema: validate() hands back the result object directly, never a Promise.
+    const accepted = specTypeSchemas.CallToolResult['~standard'].validate(result);
+    expect(accepted).not.toBeInstanceOf(Promise);
+    expect(accepted.issues).toBeUndefined();
+    if (accepted.issues === undefined) {
+        expect(accepted.value.content).toEqual([{ type: 'text', text: 'pong' }]);
+    }
+
+    const rejected = specTypeSchemas.CallToolResult['~standard'].validate({ content: 'nope' });
+    expect(rejected).not.toBeInstanceOf(Promise);
+    expect(rejected.issues).toBeDefined();
+    expect(rejected.issues?.length).toBeGreaterThan(0);
 });

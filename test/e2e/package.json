@@ -30,10 +30,13 @@
         "test:watch": "vitest"
     },
     "devDependencies": {
+        "@hono/node-server": "catalog:runtimeServerOnly",
         "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
+        "@modelcontextprotocol/fastify": "workspace:^",
+        "@modelcontextprotocol/hono": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",
@@ -41,11 +44,16 @@
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@types/cors": "catalog:devTools",
         "@types/express": "catalog:devTools",
+        "@valibot/to-json-schema": "catalog:devTools",
+        "arktype": "catalog:devTools",
         "cors": "catalog:runtimeServerOnly",
         "express": "catalog:runtimeServerOnly",
+        "fastify": "catalog:runtimeServerOnly",
+        "hono": "catalog:runtimeServerOnly",
         "jose": "catalog:runtimeClientOnly",
         "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
+        "valibot": "catalog:devTools",
         "vitest": "catalog:devTools",
         "zod": "catalog:runtimeShared"
     }

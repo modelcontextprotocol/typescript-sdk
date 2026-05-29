@@ -1415,3 +1415,48 @@ verifies(
     },
     { title: 'raw Server' }
 );
+
+verifies('typescript:method-string-handlers:result-type-inference', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('echo', { description: 'echoes text', inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
+            content: [{ type: 'text', text }]
+        }));
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    // Spec method string, no result schema: the result arrives parsed as ListToolsResult via ResultTypeMap inference.
+    const viaRequest = await client.request({ method: 'tools/list', params: {} });
+
+    // .tools is usable directly — no schema argument and no casts anywhere is the type-inference proof.
+    expect(viaRequest.tools.map(t => t.name)).toEqual(['echo']);
+    expect(viaRequest.tools[0]?.description).toBe('echoes text');
+
+    // The schema-less request agrees with the dedicated typed method for the same call.
+    const viaListTools = await client.listTools();
+    expect(viaRequest.tools).toEqual(viaListTools.tools);
+
+    // Another spec method, again schema-less: ping resolves with its parsed (empty) result.
+    await expect(client.request({ method: 'ping' })).resolves.toEqual({});
+});
+
+verifies('protocol:result-validation:invalid-result-sdkerror', async ({ transport }: TestArgs) => {
+    const WRONG_SHAPE_METHOD = 'x-e2e/wrong-shape';
+    // Handler declares no result schema, so it can legally return a shape the requesting side's schema rejects.
+    const makeServer = () => {
+        const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
+        s.setRequestHandler(WRONG_SHAPE_METHOD, { params: z.object({}) }, () => ({ wrong: true }));
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client, { allowCustomMethods: true });
+
+    const call = client.request({ method: WRONG_SHAPE_METHOD, params: {} }, z.object({ right: z.string() }));
+
+    // The non-conforming result rejects as SdkError InvalidResult — never resolves, and no raw validation error leaks.
+    await expect(call).rejects.toBeInstanceOf(SdkError);
+    await expect(call).rejects.toMatchObject({ code: SdkErrorCode.InvalidResult });
+    await expect(call).rejects.toThrow(/Invalid result for x-e2e\/wrong-shape/);
+});

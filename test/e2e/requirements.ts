@@ -2316,6 +2316,268 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             "A proxy node composing a low-level Server (downstream) with a Client (upstream) forwards tools/list and resources/list; the downstream caller receives the upstream server's tool and resource lists with names, schemas, and _meta intact (mcp-proxy / mcp-remote / firebase-tools shape).",
         note: 'This is a multi-hop proxy flow that should work across transports; restricted to inMemory and streamableHttp to avoid test matrix bloat.'
+    },
+    // v2 features
+    'standardschema:tool:valibot-input': {
+        source: 'sdk',
+        behavior:
+            "registerTool() accepts a valibot object schema wrapped with @valibot/to-json-schema's toStandardJsonSchema() as inputSchema: tools/list advertises the derived JSON Schema and tools/call passes validated, parsed arguments to the handler."
+    },
+    'standardschema:tool:arktype-input': {
+        source: 'sdk',
+        behavior:
+            'registerTool() accepts an arktype type as inputSchema: tools/list advertises the JSON Schema derived from it and tools/call passes validated, parsed arguments to the handler.'
+    },
+    'standardschema:tool:output-schema-validation': {
+        source: 'sdk',
+        behavior:
+            'When a tool declares outputSchema, a handler return whose structuredContent does not conform is rejected by the server with JSON-RPC -32602 instead of being returned to the caller.',
+        knownFailures: [
+            {
+                note: "McpServer's tools/call handler catches the output-validation ProtocolError (-32602) and returns it as an isError result instead of a JSON-RPC error; the nonconforming structuredContent is still withheld from the caller."
+            }
+        ]
+    },
+    'standardschema:prompt:args-schema': {
+        source: 'sdk',
+        behavior:
+            'registerPrompt() accepts any Standard Schema as argsSchema: prompts/list exposes the argument names derived from it and prompts/get arguments are validated against it before the callback runs.'
+    },
+    'standardschema:tool:invalid-args-rejected': {
+        source: 'sdk',
+        behavior:
+            'tools/call arguments that fail the registered Standard Schema validation are rejected with JSON-RPC -32602 (Input validation error) and the tool handler is not invoked.',
+        knownFailures: [
+            {
+                note: "McpServer's tools/call handler catches the input-validation ProtocolError (-32602) and returns it as an isError result, so callTool() resolves instead of rejecting; the handler is still not invoked."
+            }
+        ]
+    },
+    'validators:from-json-schema:tool-roundtrip': {
+        source: 'sdk',
+        behavior:
+            'A tool registered with fromJsonSchema(rawJsonSchema) advertises that JSON Schema in tools/list and accepts conforming arguments end to end.'
+    },
+    'validators:from-json-schema:invalid-args-rejected': {
+        source: 'sdk',
+        behavior:
+            'tools/call arguments violating the JSON Schema wrapped by fromJsonSchema() are rejected with JSON-RPC -32602 and the handler is not invoked.',
+        knownFailures: [
+            {
+                note: "McpServer's tools/call handler catches the input-validation ProtocolError (-32602) and returns it as an isError result, so callTool() resolves instead of rejecting; the handler is still not invoked."
+            }
+        ]
+    },
+    'validators:custom-validator:override': {
+        source: 'sdk',
+        behavior:
+            'fromJsonSchema(schema, validator) uses the supplied jsonSchemaValidator implementation for argument validation instead of the runtime default.'
+    },
+    'guards:spec-type:call-tool-result': {
+        source: 'sdk',
+        behavior:
+            'isSpecType.CallToolResult() returns true for a CallToolResult produced by a real tools/call and false for a structurally non-conforming value, narrowing the type for the caller.'
+    },
+    'guards:spec-type-schemas:sync-validate': {
+        source: 'sdk',
+        behavior:
+            "specTypeSchemas.X['~standard'].validate() validates synchronously: it returns an object (not a Promise) carrying value for conforming input and issues for non-conforming input."
+    },
+    'hosting:hono:basic-flow': {
+        source: 'sdk',
+        behavior:
+            "createMcpHonoApp() hosts an McpServer over real HTTP: a StreamableHTTPClientTransport pointed at the served app completes initialize, tools/list and tools/call against a WebStandardStreamableHTTPServerTransport mounted on the app's /mcp routes.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the Hono hosting adapter over a real HTTP listener; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:hono:host-header-validation': {
+        source: 'sdk',
+        behavior:
+            'A createMcpHonoApp() bound to the default localhost host rejects requests whose Host header is not an allowed localhost name with HTTP 403 (DNS-rebinding protection), while requests with a localhost Host succeed.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the Hono hosting adapter over a real HTTP listener; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:fastify:basic-flow': {
+        source: 'sdk',
+        behavior:
+            'createMcpFastifyApp() hosts an McpServer over real HTTP: a StreamableHTTPClientTransport pointed at the listening Fastify instance completes initialize, tools/list and tools/call against a WebStandardStreamableHTTPServerTransport wired to its /mcp routes.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the Fastify hosting adapter over a real HTTP listener; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:fastify:host-header-validation': {
+        source: 'sdk',
+        behavior:
+            'A createMcpFastifyApp() bound to the default localhost host rejects requests whose Host header is not an allowed localhost name with HTTP 403 (DNS-rebinding protection), while requests with a localhost Host succeed.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the Fastify hosting adapter over a real HTTP listener; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:express:adapter-basic-flow': {
+        source: 'sdk',
+        behavior:
+            'createMcpExpressApp() returns an Express app that, with a streamable HTTP server transport mounted on a POST route, serves a full initialize and tools/call exchange.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:express:adapter-host-header-validation': {
+        source: 'sdk',
+        behavior:
+            'An app created by createMcpExpressApp() with the default localhost host applies DNS-rebinding protection: a request whose Host header is not an allowed local host is rejected with 403 before reaching the MCP transport.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'custom-methods:server-handler:roundtrip': {
+        source: 'sdk',
+        behavior:
+            "A server handler registered with setRequestHandler('<vendor>/method', { params, result }, handler) for a non-spec method receives schema-validated params and its return value is delivered to a client calling request() with the matching result schema."
+    },
+    'custom-methods:client-handler:roundtrip': {
+        source: 'sdk',
+        behavior:
+            "A client handler registered with setRequestHandler('<vendor>/method', { params, result }, handler) for a non-spec method serves requests sent by the server via request() with the matching result schema.",
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+    },
+    'custom-methods:params-validation-error': {
+        source: 'sdk',
+        behavior:
+            'A non-spec request whose params fail the params schema given at setRequestHandler() is answered with JSON-RPC -32602 and the handler is not invoked.'
+    },
+    'custom-methods:notification-handler': {
+        source: 'sdk',
+        behavior:
+            'A notification handler registered for a non-spec method with a params schema receives schema-validated custom notifications sent by the remote side.',
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+    },
+    'typescript:method-string-handlers:result-type-inference': {
+        source: 'sdk',
+        behavior:
+            'client.request() called with a spec method string and no result schema resolves with the result already parsed and validated for that method (ResultTypeMap inference), e.g. tools/list yields a usable tools array without passing a schema.'
+    },
+    'protocol:result-validation:invalid-result-sdkerror': {
+        source: 'sdk',
+        behavior:
+            'A response whose result does not conform to the expected result schema causes the requesting side to reject with SdkError code InvalidResult instead of resolving with the malformed result.'
+    },
+    'mcpserver:context:log-from-handler': {
+        source: 'sdk',
+        behavior:
+            'ctx.mcpReq.log() inside a registered tool handler emits a notifications/message logging notification that the client receives while the call is in flight.',
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+    },
+    'mcpserver:context:elicit-from-handler': {
+        source: 'sdk',
+        behavior:
+            "ctx.mcpReq.elicitInput() inside a tool handler sends elicitation/create to the client and resolves with the client's ElicitResult, which the handler can fold into its tool result.",
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+    },
+    'mcpserver:context:sampling-from-handler': {
+        source: 'sdk',
+        behavior:
+            "ctx.mcpReq.requestSampling() inside a tool handler sends sampling/createMessage to the client and resolves with the client's CreateMessageResult.",
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+    },
+    'hosting:context:web-request-headers': {
+        source: 'sdk',
+        behavior:
+            "Under HTTP hosting, a request handler's ctx.http.req exposes the incoming HTTP request's headers as Fetch Headers, so a custom header sent by the client transport is readable inside the handler.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'errors:timeout:sdkerror-request-timeout': {
+        source: 'sdk',
+        behavior:
+            'A request that exceeds its timeout option rejects with an SdkError whose code is RequestTimeout, and the rejection carries the timeout details rather than a generic Error.'
+    },
+    'errors:capability:sdkerror-capability-not-supported': {
+        source: 'sdk',
+        behavior:
+            'Invoking an operation whose capability the remote side did not declare rejects locally with an SdkError whose code is CapabilityNotSupported (no request is sent).',
+        transports: STATEFUL_TRANSPORTS,
+        note: 'The clearest probe is a server→client operation (createMessage without client sampling capability), which needs a live server instance bound to the session.'
+    },
+    'errors:wire:protocolerror-invalid-params': {
+        source: 'sdk',
+        behavior:
+            'A JSON-RPC error response surfaces on the requesting side as a ProtocolError carrying the wire error code (e.g. -32602) and message, distinguishable from SDK-side SdkErrors.'
+    },
+    'errors:http:sdkhttperror-status': {
+        source: 'sdk',
+        behavior:
+            'An HTTP-level failure from the server endpoint (non-2xx response that is not an auth retry) surfaces on the client as an SdkHttpError exposing the HTTP status code via .status.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:oauth-error:consolidated-class': {
+        source: 'sdk',
+        behavior:
+            'OAuth error responses surface as OAuthError instances carrying a machine-readable OAuthErrorCode (e.g. invalid_grant, invalid_token) instead of the per-code subclasses removed in v2.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP auth layer against a mock authorization server; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:authprovider:token-attached': {
+        source: 'sdk',
+        behavior:
+            'An AuthProvider supplied to StreamableHTTPClientTransport has token() called before each request and the returned token is attached as an Authorization: Bearer header on the HTTP requests.',
+        transports: ['streamableHttp'],
+        note: "This exercises the HTTP client transport's auth hook; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
+    },
+    'client-auth:authprovider:onunauthorized-retry': {
+        source: 'sdk',
+        behavior:
+            'When the server answers 401, the transport awaits AuthProvider.onUnauthorized() and retries the request once with the refreshed token; a second 401 (or a provider without onUnauthorized) surfaces as UnauthorizedError.',
+        transports: ['streamableHttp'],
+        note: "This exercises the HTTP client transport's auth hook; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.",
+        knownFailures: [
+            {
+                test: 'second 401 after retry surfaces as UnauthorizedError',
+                note: 'A second 401 after onUnauthorized() re-authentication surfaces as SdkHttpError (ClientHttpAuthentication) instead of the UnauthorizedError documented on AuthProvider.onUnauthorized().'
+            }
+        ]
+    },
+    'client-auth:authprovider:oauth-provider-adapted': {
+        source: 'sdk',
+        behavior:
+            'Passing a full OAuthClientProvider as authProvider still works: the transport adapts it internally and attaches its access token as the bearer token on requests.',
+        transports: ['streamableHttp'],
+        note: "This exercises the HTTP client transport's auth hook; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
+    },
+    'client-transport:http:reconnection-scheduler': {
+        source: 'sdk',
+        behavior:
+            'A reconnectionScheduler supplied to StreamableHTTPClientTransport is invoked with (reconnect, delay, attemptCount) when an SSE stream drops, and invoking the provided reconnect callback re-establishes the stream (replacing the default backoff timer).',
+        transports: ['streamableHttp'],
+        note: "This exercises the HTTP client transport's reconnection path; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
+    },
+    'lifecycle:version:custom-supported-versions': {
+        source: 'sdk',
+        behavior:
+            'supportedProtocolVersions passed in Client/Server options overrides the negotiation list: a client requesting a version the server supports gets that version back, and both sides report the negotiated version after connect.'
+    },
+    'lifecycle:version:no-overlap-rejects': {
+        source: 'sdk',
+        behavior:
+            "When the server's negotiated protocol version is not in the client's supportedProtocolVersions list, client.connect() rejects and the connection is not established."
+    },
+    'lifecycle:capability:list-empty-when-not-advertised': {
+        source: 'sdk',
+        behavior:
+            'Client.listTools(), listPrompts(), listResources() and listResourceTemplates() resolve with empty result lists, without sending a request, when the server did not advertise the corresponding capability.'
+    },
+    'lifecycle:capability:strict-mode-throws': {
+        source: 'sdk',
+        behavior:
+            'With enforceStrictCapabilities: true, calling a list method for a capability the server did not advertise rejects with a capability error instead of resolving empty.'
+    },
+    'tasks:result:failed-task-stored-result': {
+        source: 'sdk',
+        behavior:
+            'When a task-augmented tool call fails, the failure is stored with status failed and a subsequent tasks/result request for that task returns the stored error result instead of losing it.',
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Task polling and result retrieval need the same server instance across requests, which stateless hosting does not provide.'
     }
 } satisfies Record<string, Requirement>;
 

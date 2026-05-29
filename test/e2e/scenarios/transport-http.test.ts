@@ -1162,3 +1162,107 @@ verifies('client-transport:http:session-404-reinitialize', async (_args: TestArg
         await handle.close();
     }
 });
+
+verifies('client-transport:http:reconnection-scheduler', async (_args: TestArgs) => {
+    const records: RecordedRequest[] = [];
+    const schedulerCalls: Array<{ delay: number; attemptCount: number }> = [];
+    const pendingReconnects: Array<() => void> = [];
+    const notifications: unknown[] = [];
+    const encoder = new TextEncoder();
+    let firstGetController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const handle = hostPerSession(() => echoServer());
+
+    try {
+        vi.useFakeTimers();
+
+        const url = new URL('http://in-process/mcp');
+        const transport = new StreamableHTTPClientTransport(url, {
+            fetch: recordingFetch(records, async req => {
+                if (req.method === 'GET') {
+                    const getCount = records.filter(r => r.method === 'GET').length;
+                    if (getCount === 1) {
+                        return new Response(
+                            new ReadableStream<Uint8Array>({
+                                start(controller) {
+                                    firstGetController = controller;
+                                }
+                            }),
+                            { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+                        );
+                    }
+                    if (getCount === 2) {
+                        // Fail the first scheduler-driven reconnect so the next schedule carries an incremented attemptCount
+                        return new Response(null, { status: 500 });
+                    }
+                    const notification = JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'notifications/message',
+                        params: { level: 'info', logger: 'scheduler', data: 'after reconnect' }
+                    });
+                    // Left open so the re-established stream does not itself end and trigger yet another reconnection
+                    return new Response(
+                        new ReadableStream<Uint8Array>({
+                            start(controller) {
+                                controller.enqueue(encoder.encode(`id: scheduler-evt-1\ndata: ${notification}\n\n`));
+                            }
+                        }),
+                        { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+                    );
+                }
+                return handle.handleRequest(req);
+            }),
+            reconnectionOptions: {
+                initialReconnectionDelay: 50,
+                maxReconnectionDelay: 1000,
+                reconnectionDelayGrowFactor: 2,
+                maxRetries: 5
+            },
+            reconnectionScheduler: (reconnect, delay, attemptCount) => {
+                schedulerCalls.push({ delay, attemptCount });
+                pendingReconnects.push(reconnect);
+            }
+        });
+        const client = newClient();
+        client.setNotificationHandler('notifications/message', n => {
+            notifications.push(n.params);
+        });
+
+        await client.connect(transport);
+
+        await vi.waitFor(() => expect(firstGetController).toBeDefined());
+        expect(records.filter(r => r.method === 'GET')).toHaveLength(1);
+        expect(schedulerCalls).toEqual([]);
+
+        defined(firstGetController, 'first GET stream controller').error(new Error('connection reset'));
+
+        // The dropped stream invokes the scheduler with the configured initial delay and attemptCount 0
+        await vi.waitFor(() => expect(schedulerCalls).toHaveLength(1));
+        expect(schedulerCalls).toEqual([{ delay: 50, attemptCount: 0 }]);
+
+        // Default backoff timer is replaced: no reconnection GET fires from elapsed time, only from the scheduler's reconnect callback
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(records.filter(r => r.method === 'GET')).toHaveLength(1);
+
+        defined(pendingReconnects[0], 'first scheduled reconnect callback')();
+
+        // The 500'd reconnect attempt is rescheduled through the scheduler with attemptCount 1 and the grown delay
+        await vi.waitFor(() => expect(schedulerCalls).toHaveLength(2));
+        expect(schedulerCalls).toEqual([
+            { delay: 50, attemptCount: 0 },
+            { delay: 100, attemptCount: 1 }
+        ]);
+        expect(records.filter(r => r.method === 'GET')).toHaveLength(2);
+
+        defined(pendingReconnects[1], 'second scheduled reconnect callback')();
+
+        await vi.waitFor(() => expect(records.filter(r => r.method === 'GET')).toHaveLength(3));
+        // The re-established stream is live end-to-end: a notification served on it reaches the client
+        await vi.waitFor(() => expect(notifications).toEqual([{ level: 'info', logger: 'scheduler', data: 'after reconnect' }]));
+
+        await client.close();
+        await transport.close();
+    } finally {
+        vi.useRealTimers();
+        await handle.close();
+    }
+});

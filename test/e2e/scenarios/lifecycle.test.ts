@@ -24,6 +24,8 @@ import {
     isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
     McpServer,
+    SdkError,
+    SdkErrorCode,
     Server,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/server';
@@ -467,4 +469,93 @@ verifies('typescript:server:get-client-capabilities', async ({ transport }: Test
     expect(observed?.after?.elicitation).toBeUndefined();
     // Stable reference across calls.
     expect(observed?.second).toBe(observed?.after);
+});
+
+verifies('lifecycle:version:custom-supported-versions', async ({ transport }: TestArgs) => {
+    // The server's first entry is the latest version, so the older negotiated version can only come from honoring the client's request.
+    const makeServer = () =>
+        new McpServer(
+            { name: 'custom-versions-server', version: '0.0.0' },
+            { supportedProtocolVersions: [LATEST_PROTOCOL_VERSION, OLDER_SUPPORTED_VERSION] }
+        );
+    const client = new Client(
+        { name: 'custom-versions-client', version: '0.0.0' },
+        { supportedProtocolVersions: [OLDER_SUPPORTED_VERSION] }
+    );
+    const log = tapHandshake(client);
+
+    await using _ = await wire(transport, makeServer, client);
+
+    const initRequest = log.find(
+        e => e.direction === 'client-to-server' && isJSONRPCRequest(e.message) && e.message.method === 'initialize'
+    );
+    if (!initRequest || !isJSONRPCRequest(initRequest.message)) throw new Error('expected an initialize request on the wire');
+    // The override drives the requested version: a default client would have asked for the latest.
+    expect(initRequest.message.params?.protocolVersion).toBe(OLDER_SUPPORTED_VERSION);
+    const initRequestId = initRequest.message.id;
+
+    const initResponse = log.find(
+        e => e.direction === 'server-to-client' && isJSONRPCResultResponse(e.message) && e.message.id === initRequestId
+    );
+    if (!initResponse || !isJSONRPCResultResponse(initResponse.message)) throw new Error('expected a result for the initialize request');
+    // The server supports the requested version, so it echoes it back instead of falling back to its first entry.
+    expect(initResponse.message.result.protocolVersion).toBe(OLDER_SUPPORTED_VERSION);
+
+    // After connect both sides settled on the older version: the client reports it and the connection is established.
+    expect(client.getNegotiatedProtocolVersion()).toBe(OLDER_SUPPORTED_VERSION);
+    expect(client.getServerVersion()).toEqual({ name: 'custom-versions-server', version: '0.0.0' });
+});
+
+verifies('lifecycle:version:no-overlap-rejects', async ({ transport }: TestArgs) => {
+    // The server only negotiates the latest version while the client only accepts the older one — no overlap.
+    const makeServer = () =>
+        new McpServer({ name: 'no-overlap-server', version: '0.0.0' }, { supportedProtocolVersions: [LATEST_PROTOCOL_VERSION] });
+    const client = new Client({ name: 'no-overlap-client', version: '0.0.0' }, { supportedProtocolVersions: [OLDER_SUPPORTED_VERSION] });
+
+    await expect(wire(transport, makeServer, client)).rejects.toThrow(
+        `Server's protocol version is not supported: ${LATEST_PROTOCOL_VERSION}`
+    );
+
+    // The connection was never established: initialization state stays empty. (Transport closure itself is lifecycle:version:reject-unsupported's contract.)
+    expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
+    expect(client.getServerCapabilities()).toBeUndefined();
+    expect(client.getServerVersion()).toBeUndefined();
+});
+
+verifies('lifecycle:capability:list-empty-when-not-advertised', async ({ transport }: TestArgs) => {
+    // Bare McpServer with no registrations advertises no tools/prompts/resources capabilities.
+    const client = minimalClient();
+
+    await using _ = await wire(transport, minimalServer, client);
+    expect(client.getServerCapabilities()).toEqual({});
+
+    const tap = tapWire(client);
+    await expect(client.listTools()).resolves.toEqual({ tools: [] });
+    await expect(client.listPrompts()).resolves.toEqual({ prompts: [] });
+    await expect(client.listResources()).resolves.toEqual({ resources: [] });
+    await expect(client.listResourceTemplates()).resolves.toEqual({ resourceTemplates: [] });
+
+    // None of the four list calls put a request on the wire.
+    expect(tap.sent).toEqual([]);
+});
+
+verifies('lifecycle:capability:strict-mode-throws', async ({ transport }: TestArgs) => {
+    const client = new Client({ name: 'strict-client', version: '0.0.0' }, { enforceStrictCapabilities: true });
+
+    await using _ = await wire(transport, minimalServer, client);
+    expect(client.getServerCapabilities()).toEqual({});
+
+    const listCalls: Array<[string, () => Promise<unknown>]> = [
+        ['tools', () => client.listTools()],
+        ['prompts', () => client.listPrompts()],
+        ['resources', () => client.listResources()],
+        ['resources', () => client.listResourceTemplates()]
+    ];
+    for (const [cap, call] of listCalls) {
+        const pending = call();
+        // Strict mode restores the v1 behavior: a capability error instead of an empty result.
+        await expect(pending).rejects.toBeInstanceOf(SdkError);
+        await expect(pending).rejects.toMatchObject({ code: SdkErrorCode.CapabilityNotSupported });
+        await expect(pending).rejects.toThrow(new RegExp(`Server does not support ${cap}`));
+    }
 });

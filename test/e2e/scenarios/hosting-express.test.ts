@@ -17,14 +17,18 @@
  * minimal comments, every server closed in finally.
  */
 
+import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { createMcpExpressApp, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { OAuthMetadata } from '@modelcontextprotocol/server';
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
-import type { RequestHandler } from 'express';
+import { McpServer, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
+import type { Express, RequestHandler } from 'express';
 import express from 'express';
 import { expect } from 'vitest';
+import { z } from 'zod/v4';
 
 import { startExpressMinimal, startExpressWithHostValidation } from '../helpers/express.js';
 import { verifies } from '../helpers/verifies.js';
@@ -381,4 +385,107 @@ verifies('hosting:auth:query-token-ignored', async (_args: TestArgs) => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
     });
     expect(headerRes.status).toBe(200);
+});
+
+/** Listen `app` (already fully configured by the adapter under test) on an ephemeral 127.0.0.1 port; callers close() in finally. */
+function listenExpressApp(app: Express): Promise<{ baseUrl: URL; close: () => Promise<void> }> {
+    return new Promise((resolve, reject) => {
+        const server = app.listen(0, '127.0.0.1', () => {
+            const addr = server.address();
+            if (!addr || typeof addr === 'string') {
+                reject(new Error(`listen failed: ${String(addr)}`));
+                return;
+            }
+            resolve({
+                baseUrl: new URL(`http://127.0.0.1:${addr.port}`),
+                close: () =>
+                    new Promise<void>((res, rej) => {
+                        server.close(err => (err ? rej(err) : res()));
+                    })
+            });
+        });
+        server.on('error', reject);
+    });
+}
+
+verifies('hosting:express:adapter-basic-flow', async (_args: TestArgs) => {
+    const mcpServer = new McpServer({ name: 'express-adapter-server', version: '1.0.0' });
+    mcpServer.registerTool(
+        'lookup-order-status',
+        { description: 'Look up the shipping status of an order.', inputSchema: z.object({ orderId: z.string() }) },
+        ({ orderId }) => ({ content: [{ type: 'text', text: `Order ${orderId} is in transit.` }] })
+    );
+
+    const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+    await mcpServer.connect(serverTransport);
+
+    const app = createMcpExpressApp();
+    app.post('/mcp', async (req, res) => {
+        await serverTransport.handleRequest(req, res, req.body);
+    });
+
+    const { baseUrl, close } = await listenExpressApp(app);
+    const client = new Client({ name: 'express-adapter-client', version: '1.0.0' });
+    try {
+        await client.connect(new StreamableHTTPClientTransport(new URL('/mcp', baseUrl)));
+
+        // Initialize completed over the Express-hosted POST route: the negotiated server identity is visible on the client.
+        expect(client.getServerVersion()).toEqual({ name: 'express-adapter-server', version: '1.0.0' });
+
+        const result = await client.callTool({ name: 'lookup-order-status', arguments: { orderId: 'ORD-1042' } });
+        expect(result.content).toEqual([{ type: 'text', text: 'Order ORD-1042 is in transit.' }]);
+    } finally {
+        await client.close();
+        await mcpServer.close();
+        await close();
+    }
+});
+
+verifies('hosting:express:adapter-host-header-validation', async ({ protocolVersion }: TestArgs) => {
+    const mcpServer = new McpServer({ name: 'rebind-protected-server', version: '1.0.0' });
+    // JSON response mode keeps the allowed-host control assertable as a plain JSON initialize result.
+    const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), enableJsonResponse: true });
+    await mcpServer.connect(serverTransport);
+
+    let mcpRouteHits = 0;
+    const app = createMcpExpressApp();
+    app.post('/mcp', async (req, res) => {
+        mcpRouteHits += 1;
+        await serverTransport.handleRequest(req, res, req.body);
+    });
+
+    const { baseUrl, close } = await listenExpressApp(app);
+    try {
+        const initializeBody = JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: { protocolVersion, capabilities: {}, clientInfo: { name: 'rebind-client', version: '1.0.0' } }
+        });
+
+        const spoofed = await postWithHost(new URL('/mcp', baseUrl), 'evil.example.com', initializeBody);
+        expect(spoofed.status).toBe(403);
+        const spoofedJson: unknown = JSON.parse(spoofed.body);
+        expect(spoofedJson).toEqual({
+            jsonrpc: '2.0',
+            error: { code: -32_000, message: 'Invalid Host: evil.example.com' },
+            id: null
+        });
+        // Rejected by the default localhost DNS-rebinding middleware before the MCP transport route ever ran.
+        expect(mcpRouteHits).toBe(0);
+
+        // Control: the identical request with the real localhost Host reaches the transport and initializes normally.
+        const allowed = await postWithHost(new URL('/mcp', baseUrl), `127.0.0.1:${baseUrl.port}`, initializeBody);
+        expect(allowed.status).toBe(200);
+        const allowedJson: unknown = JSON.parse(allowed.body);
+        expect(allowedJson).toMatchObject({
+            jsonrpc: '2.0',
+            id: 1,
+            result: { protocolVersion, serverInfo: { name: 'rebind-protected-server', version: '1.0.0' } }
+        });
+        expect(mcpRouteHits).toBe(1);
+    } finally {
+        await mcpServer.close();
+        await close();
+    }
 });

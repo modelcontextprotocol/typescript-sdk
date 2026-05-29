@@ -8,7 +8,7 @@
 
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 
-import type { OAuthClientProvider } from '@modelcontextprotocol/client';
+import type { AuthProvider, OAuthClientProvider } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     Client,
@@ -17,6 +17,8 @@ import {
     discoverAuthorizationServerMetadata,
     discoverOAuthProtectedResourceMetadata,
     exchangeAuthorization,
+    OAuthError,
+    OAuthErrorCode,
     PrivateKeyJwtProvider,
     SdkError,
     startAuthorization,
@@ -1536,4 +1538,272 @@ verifies('client-auth:middleware:with-oauth', async (_args: TestArgs) => {
     await expect(stubbornAttempt).rejects.toThrow(/Authentication failed for/);
     expect(stubbornAs.tokenCalls).toHaveLength(1);
     expect(stubbornMcpRequests).toBe(2);
+});
+
+verifies('client-auth:oauth-error:consolidated-class', async (_args: TestArgs) => {
+    // Each token-endpoint error response must surface as the single consolidated OAuthError class with a machine-readable code.
+    const cases = [
+        { errorCode: 'invalid_grant', description: 'Authorization code expired', expectedCode: OAuthErrorCode.InvalidGrant },
+        { errorCode: 'invalid_client', description: 'Client authentication failed', expectedCode: OAuthErrorCode.InvalidClient }
+    ];
+
+    for (const { errorCode, description, expectedCode } of cases) {
+        const as = createMockAuthorizationServer({ tokenErrorResponses: [{ error: errorCode, error_description: description }] });
+        const tokenFetch = (url: URL | string, init?: RequestInit) => as.handleRequest(new Request(url, init));
+
+        let failure: unknown;
+        try {
+            await exchangeAuthorization(ISSUER, {
+                metadata: {
+                    issuer: ISSUER,
+                    authorization_endpoint: `${ISSUER}/authorize`,
+                    token_endpoint: `${ISSUER}/token`,
+                    response_types_supported: ['code']
+                },
+                clientInformation: { client_id: 'oauth-error-client' },
+                authorizationCode: 'granted-authorization-code',
+                codeVerifier: 'oauth-error-code-verifier',
+                redirectUri: 'http://localhost:3000/callback',
+                fetchFn: tokenFetch
+            });
+        } catch (error) {
+            failure = error;
+        }
+        expect(failure).toBeInstanceOf(OAuthError);
+        if (!(failure instanceof OAuthError)) throw new Error('Expected exchangeAuthorization to reject with OAuthError');
+
+        // The consolidated class is thrown directly (not a per-code subclass) and carries the wire error code on .code.
+        expect(Object.getPrototypeOf(failure)).toBe(OAuthError.prototype);
+        expect(failure.name).toBe('OAuthError');
+        expect(failure.code).toBe(expectedCode);
+        expect(failure.message).toBe(description);
+        expect(failure.toResponseObject()).toEqual({ error: errorCode, error_description: description });
+
+        // The error came from the single token request the exchange made.
+        expect(as.tokenCalls).toHaveLength(1);
+    }
+});
+
+verifies('client-auth:authprovider:token-attached', async (_args: TestArgs) => {
+    const TOKEN = 'minimal-provider-bearer-token';
+
+    let tokenCalls = 0;
+    // Minimal AuthProvider shape: token() only — no OAuth machinery, no onUnauthorized.
+    const authProvider: AuthProvider = {
+        token: async () => {
+            tokenCalls += 1;
+            return TOKEN;
+        }
+    };
+
+    const authorizationSeenByServer: Array<string | null> = [];
+    const mcpHost = hostPerSession(() => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('probe', { inputSchema: z.object({}) }, (_a, ctx) => {
+            authorizationSeenByServer.push(ctx.http?.req?.headers.get('authorization') ?? null);
+            return { content: [{ type: 'text', text: 'ok' }] };
+        });
+        return s;
+    });
+
+    const requests: Array<{ method: string; authorization: string | null }> = [];
+    const recordingFetch = async (url: URL | string, init?: RequestInit) => {
+        requests.push({ method: init?.method ?? 'GET', authorization: new Headers(init?.headers).get('authorization') });
+        return mcpHost.handleRequest(new Request(url, init));
+    };
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider, fetch: recordingFetch });
+
+    try {
+        await client.connect(transport);
+        const result = await client.callTool({ name: 'probe', arguments: {} });
+        expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+
+        // The standalone SSE GET is opened fire-and-forget after initialize; wait for it so it is checked too.
+        await vi.waitFor(() => expect(requests.some(r => r.method === 'GET')).toBe(true));
+
+        // Exactly three POSTs (initialize, notifications/initialized, tools/call) plus the standalone SSE GET.
+        expect(requests.filter(r => r.method === 'POST')).toHaveLength(3);
+        expect(requests.filter(r => r.method === 'GET')).toHaveLength(1);
+        for (const req of requests) {
+            expect(req.authorization).toBe(`Bearer ${TOKEN}`);
+        }
+
+        // token() was consulted once per HTTP request the transport made.
+        expect(tokenCalls).toBe(requests.length);
+
+        // The bearer header reached the server intact on the tools/call request.
+        expect(authorizationSeenByServer).toEqual([`Bearer ${TOKEN}`]);
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
+});
+
+verifies('client-auth:authprovider:onunauthorized-retry', async (_args: TestArgs) => {
+    const STALE = 'stale-bearer-token';
+    const FRESH = 'fresh-bearer-token';
+
+    // Phase 1: 401 → onUnauthorized refreshes the token → the transport retries once and the request succeeds.
+    let currentToken = STALE;
+    const unauthorizedCalls: Array<{ status: number; serverUrl: string }> = [];
+    const refreshingProvider: AuthProvider = {
+        token: async () => currentToken,
+        onUnauthorized: async ctx => {
+            unauthorizedCalls.push({ status: ctx.response.status, serverUrl: String(ctx.serverUrl) });
+            currentToken = FRESH;
+        }
+    };
+
+    const mcpHost = hostPerSession(() => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('probe', { inputSchema: z.object({}) }, () => ({ content: [{ type: 'text', text: 'ok' }] }));
+        return s;
+    });
+
+    const postBearers: Array<string | null> = [];
+    // Token validity is enforced at the HTTP layer: anything but the fresh token is rejected with 401.
+    const guardedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        const authorization = new Headers(init?.headers).get('authorization');
+        if (init?.method === 'POST') {
+            postBearers.push(authorization);
+        }
+        if (authorization !== `Bearer ${FRESH}`) {
+            return new Response(null, { status: 401 });
+        }
+        return mcpHost.handleRequest(new Request(url, init));
+    };
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: refreshingProvider, fetch: guardedFetch });
+
+    try {
+        await client.connect(transport);
+        const result = await client.callTool({ name: 'probe', arguments: {} });
+        expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+
+        // onUnauthorized was awaited exactly once, with the 401 response and the MCP server URL.
+        expect(unauthorizedCalls).toEqual([{ status: 401, serverUrl: MCP_URL }]);
+
+        // Exactly one retry: the rejected initialize, its retry with the fresh token, notifications/initialized, tools/call.
+        expect(postBearers).toEqual([`Bearer ${STALE}`, `Bearer ${FRESH}`, `Bearer ${FRESH}`, `Bearer ${FRESH}`]);
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
+
+    // Phase 2: a provider without onUnauthorized cannot recover, so the 401 surfaces as UnauthorizedError without a retry.
+    let tokenOnlyPosts = 0;
+    const tokenOnlyProvider: AuthProvider = { token: async () => STALE };
+    const alwaysUnauthorizedFetch = async (_url: URL | string, init?: RequestInit): Promise<Response> => {
+        if (init?.method === 'POST') {
+            tokenOnlyPosts += 1;
+        }
+        return new Response(null, { status: 401 });
+    };
+
+    const tokenOnlyClient = new Client({ name: 'c', version: '0' });
+    const tokenOnlyTransport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+        authProvider: tokenOnlyProvider,
+        fetch: alwaysUnauthorizedFetch
+    });
+
+    try {
+        await expect(tokenOnlyClient.connect(tokenOnlyTransport)).rejects.toThrow(UnauthorizedError);
+        expect(tokenOnlyPosts).toBe(1);
+    } finally {
+        await tokenOnlyClient.close();
+    }
+});
+
+verifies(
+    'client-auth:authprovider:onunauthorized-retry',
+    async (_args: TestArgs) => {
+        const STALE = 'stale-bearer-token';
+        const ROTATED = 'rotated-but-still-rejected-token';
+
+        // The provider refreshes on 401 but the resource keeps rejecting: the retry's 401 must surface as UnauthorizedError.
+        let currentToken = STALE;
+        let unauthorizedCalls = 0;
+        const provider: AuthProvider = {
+            token: async () => currentToken,
+            onUnauthorized: async () => {
+                unauthorizedCalls += 1;
+                currentToken = ROTATED;
+            }
+        };
+
+        const postBearers: Array<string | null> = [];
+        const alwaysUnauthorizedFetch = async (_url: URL | string, init?: RequestInit): Promise<Response> => {
+            if (init?.method === 'POST') {
+                postBearers.push(new Headers(init?.headers).get('authorization'));
+            }
+            return new Response(null, { status: 401 });
+        };
+
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: alwaysUnauthorizedFetch });
+
+        try {
+            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+
+            // onUnauthorized ran once and the transport retried exactly once before giving up.
+            expect(unauthorizedCalls).toBe(1);
+            expect(postBearers).toEqual([`Bearer ${STALE}`, `Bearer ${ROTATED}`]);
+        } finally {
+            await client.close();
+        }
+    },
+    { title: 'second 401 after retry surfaces as UnauthorizedError' }
+);
+
+verifies('client-auth:authprovider:oauth-provider-adapted', async (_args: TestArgs) => {
+    const ACCESS_TOKEN = 'adapted-oauth-access-token';
+    // A full OAuthClientProvider (not the minimal AuthProvider shape) with an access token already stored.
+    const provider = new RecordingOAuthClientProvider({
+        tokens: { access_token: ACCESS_TOKEN, token_type: 'Bearer' },
+        clientInformation: { client_id: 'adapted-oauth-client' }
+    });
+
+    const authorizationSeenByServer: Array<string | null> = [];
+    const mcpHost = hostPerSession(() => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('probe', { inputSchema: z.object({}) }, (_a, ctx) => {
+            authorizationSeenByServer.push(ctx.http?.req?.headers.get('authorization') ?? null);
+            return { content: [{ type: 'text', text: 'ok' }] };
+        });
+        return s;
+    });
+
+    const requests: Array<{ method: string; authorization: string | null }> = [];
+    const recordingFetch = async (url: URL | string, init?: RequestInit) => {
+        requests.push({ method: init?.method ?? 'GET', authorization: new Headers(init?.headers).get('authorization') });
+        return mcpHost.handleRequest(new Request(url, init));
+    };
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: recordingFetch });
+
+    try {
+        await client.connect(transport);
+        const result = await client.callTool({ name: 'probe', arguments: {} });
+        expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+
+        // The standalone SSE GET is opened fire-and-forget after initialize; wait for it so it is checked too.
+        await vi.waitFor(() => expect(requests.some(r => r.method === 'GET')).toBe(true));
+
+        // The provider's stored access_token is the bearer token on every request the transport made.
+        expect(requests.filter(r => r.method === 'POST')).toHaveLength(3);
+        for (const req of requests) {
+            expect(req.authorization).toBe(`Bearer ${ACCESS_TOKEN}`);
+        }
+        expect(authorizationSeenByServer).toEqual([`Bearer ${ACCESS_TOKEN}`]);
+
+        // No interactive auth flow was needed: the stored token was adapted and used as-is.
+        expect(provider.redirectedTo).toHaveLength(0);
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
 });
