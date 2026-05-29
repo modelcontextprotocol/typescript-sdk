@@ -204,6 +204,71 @@ describe('comment insertion', () => {
         expect(result.commentCount).toBe(1);
     });
 
+    it('skips comment insertion when target line is inside a template literal', () => {
+        const dir = createTempDir();
+        const input = [
+            'import { CallToolRequestSchema } from \'@modelcontextprotocol/sdk/types.js\';',
+            'const msg = `',
+            '  Result: ${CallToolRequestSchema.parse(data).method}',
+            '`;',
+            ''
+        ].join('\n');
+        writeFileSync(path.join(dir, 'server.ts'), input);
+
+        const result = run(migration, { targetDir: dir });
+
+        const output = readFileSync(path.join(dir, 'server.ts'), 'utf8');
+        // The diagnostic should still be reported
+        expect(result.diagnostics.some(d => d.insertComment)).toBe(true);
+        // But no comment should be injected inside the template literal
+        expect(result.commentCount).toBe(0);
+        // Verify the template literal is not corrupted
+        expect(output).not.toContain('/* ' + CODEMOD_ERROR_PREFIX);
+    });
+
+    it('skips comment insertion when target line is inside template text after interpolation', () => {
+        const dir = createTempDir();
+        // TemplateMiddle: text between two ${} spans
+        const input = [
+            'import { CallToolRequestSchema, ListToolsRequestSchema } from \'@modelcontextprotocol/sdk/types.js\';',
+            'const msg = `${somePrefix}',
+            '  A: ${CallToolRequestSchema.parse(d1)}',
+            '  B: ${ListToolsRequestSchema.parse(d2)}',
+            '`;',
+            ''
+        ].join('\n');
+        writeFileSync(path.join(dir, 'server.ts'), input);
+
+        const result = run(migration, { targetDir: dir });
+
+        const output = readFileSync(path.join(dir, 'server.ts'), 'utf8');
+        expect(result.diagnostics.filter(d => d.insertComment).length).toBeGreaterThanOrEqual(2);
+        expect(result.commentCount).toBe(0);
+        expect(output).not.toContain('/* ' + CODEMOD_ERROR_PREFIX);
+    });
+
+    it('still inserts comment when diagnostic line merely contains a template literal', () => {
+        const dir = createTempDir();
+        // The .parse() and template are on the same line, but lineStart is at "const",
+        // which is outside the template literal.
+        const input = [
+            'import { CallToolRequestSchema } from \'@modelcontextprotocol/sdk/types.js\';',
+            'const a = CallToolRequestSchema.parse(`template ${data}`);',
+            ''
+        ].join('\n');
+        writeFileSync(path.join(dir, 'server.ts'), input);
+
+        const result = run(migration, { targetDir: dir });
+
+        const output = readFileSync(path.join(dir, 'server.ts'), 'utf8');
+        expect(result.diagnostics.some(d => d.insertComment)).toBe(true);
+        expect(result.commentCount).toBeGreaterThan(0);
+        const lines = output.split('\n');
+        const commentIdx = lines.findIndex(l => l.includes(CODEMOD_ERROR_PREFIX));
+        expect(commentIdx).toBeGreaterThan(-1);
+        expect(lines[commentIdx]!.trim()).toMatch(/^\/\*.*\*\/$/);
+    });
+
     it('handles CRLF line endings without corrupting the file', () => {
         const dir = createTempDir();
         const input = [

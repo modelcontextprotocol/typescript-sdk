@@ -1,9 +1,27 @@
-import { Project } from 'ts-morph';
+import { type Node, Project, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, FileResult, Migration, RunnerOptions, RunnerResult } from './types.js';
 import { CODEMOD_ERROR_PREFIX, error } from './utils/diagnostics.js';
 import { updatePackageJson } from './utils/packageJsonUpdater.js';
 import { analyzeProject } from './utils/projectAnalyzer.js';
+
+const LITERAL_NODE_KINDS = new Set([
+    SyntaxKind.NoSubstitutionTemplateLiteral,
+    SyntaxKind.TemplateHead,
+    SyntaxKind.TemplateMiddle,
+    SyntaxKind.TemplateTail,
+    SyntaxKind.StringLiteral,
+    SyntaxKind.JsxText,
+]);
+
+function isInsideLiteral(node: Node | undefined): boolean {
+    let current = node;
+    while (current) {
+        if (LITERAL_NODE_KINDS.has(current.getKind())) return true;
+        current = current.getParent();
+    }
+    return false;
+}
 
 function insertDiagnosticComments(project: Project, fileResults: FileResult[]): number {
     let insertedCount = 0;
@@ -45,6 +63,9 @@ function insertDiagnosticComments(project: Project, fileResults: FileResult[]): 
             const comment = `${indent}/* ${CODEMOD_ERROR_PREFIX} ${safeMessage} */`;
 
             const lineStart = lines.slice(0, lineIndex).reduce((sum, l) => sum + l.length + 1, 0);
+
+            if (isInsideLiteral(sf.getDescendantAtPos(lineStart))) continue;
+
             sf.insertText(lineStart, comment + lineEnding);
             insertedCount++;
         }
