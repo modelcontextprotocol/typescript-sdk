@@ -8,8 +8,6 @@ It does **not** implement MCP itself. Instead, it helps you:
 
 - create an Express app with sensible defaults for MCP servers
 - add DNS rebinding protection via Host header validation (recommended for localhost servers)
-- protect routes with `requireBearerAuth` (validates `Authorization: Bearer …` via your `OAuthTokenVerifier`)
-- serve OAuth Protected Resource Metadata (RFC 9728) via `mcpAuthMetadataRouter`
 
 ## Install
 
@@ -25,10 +23,6 @@ npm install @modelcontextprotocol/node
 - `createMcpExpressApp(options?)`
 - `hostHeaderValidation(allowedHostnames)`
 - `localhostHostValidation()`
-- `requireBearerAuth(options)`
-- `mcpAuthMetadataRouter(options)`
-- `getOAuthProtectedResourceMetadataUrl(serverUrl)`
-- `OAuthTokenVerifier` (interface)
 
 ## Usage
 

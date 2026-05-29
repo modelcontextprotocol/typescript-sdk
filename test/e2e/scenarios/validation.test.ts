@@ -14,8 +14,6 @@
 
 import { Client } from '@modelcontextprotocol/client';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, StandardSchemaWithJSON } from '@modelcontextprotocol/core';
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
-import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
 import type { Tool } from '@modelcontextprotocol/server';
 import {
     fromJsonSchema,
@@ -26,6 +24,8 @@ import {
     Server,
     specTypeSchemas
 } from '@modelcontextprotocol/server';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 

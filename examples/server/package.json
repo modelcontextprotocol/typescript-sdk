@@ -38,6 +38,7 @@
         "@modelcontextprotocol/hono": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/server-legacy": "workspace:^",
         "@valibot/to-json-schema": "catalog:devTools",
         "arktype": "catalog:devTools",
         "better-auth": "^1.4.17",

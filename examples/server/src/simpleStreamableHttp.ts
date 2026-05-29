@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { createProtectedResourceMetadataRouter, demoTokenVerifier, setupAuthServer } from '@modelcontextprotocol/examples-shared';
-import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/express';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
@@ -12,6 +12,7 @@ import type {
     ResourceLink
 } from '@modelcontextprotocol/server';
 import { InMemoryTaskMessageQueue, InMemoryTaskStore, isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
+import { getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/server-legacy/auth';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';

@@ -522,4 +522,85 @@ describe('import-paths transform', () => {
         expect(result).toContain(`from "@modelcontextprotocol/client"`);
         expect(result).toContain('InMemoryTransport');
     });
+
+    describe('validator subpath rewrites', () => {
+        it('rewrites CfWorkerJsonSchemaValidator from v1 cfworker-provider to client subpath', () => {
+            const input = [
+                `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+                `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker-provider.js';`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input, { projectType: 'client' });
+            expect(result).toContain(`from "@modelcontextprotocol/client/validators/cf-worker"`);
+            expect(result).toContain('CfWorkerJsonSchemaValidator');
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
+
+        it('rewrites CfWorkerJsonSchemaValidator from v1 cfworker short alias to server subpath', () => {
+            const input = [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker';`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input, { projectType: 'server' });
+            expect(result).toContain(`from "@modelcontextprotocol/server/validators/cf-worker"`);
+            expect(result).toContain('CfWorkerJsonSchemaValidator');
+        });
+
+        it('rewrites AjvJsonSchemaValidator from v1 ajv-provider to server subpath', () => {
+            const input = [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv-provider.js';`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input, { projectType: 'server' });
+            expect(result).toContain(`from "@modelcontextprotocol/server/validators/ajv"`);
+            expect(result).toContain('AjvJsonSchemaValidator');
+        });
+
+        it('rewrites AjvJsonSchemaValidator from v1 ajv short alias to server subpath', () => {
+            const input = [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv';`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input, { projectType: 'server' });
+            expect(result).toContain(`from "@modelcontextprotocol/server/validators/ajv"`);
+            expect(result).toContain('AjvJsonSchemaValidator');
+        });
+
+        it('routes validator subpath to client when only client siblings exist', () => {
+            const input = [
+                `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+                `import { AjvJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/ajv-provider.js';`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input, { projectType: 'both' });
+            expect(result).toContain(`from "@modelcontextprotocol/client/validators/ajv"`);
+        });
+
+        it('routes validator subpath via project type when no SDK siblings', () => {
+            const input = `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker-provider.js';\n`;
+            const result = applyTransform(input, { projectType: 'server' });
+            expect(result).toContain(`from "@modelcontextprotocol/server/validators/cf-worker"`);
+        });
+
+        it('includes the validator subpath in usedPackages', () => {
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile(
+                'test.ts',
+                `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/cfworker-provider.js';\n`
+            );
+            const result = importPathsTransform.apply(sourceFile, { projectType: 'client' });
+            expect(result.usedPackages).toBeDefined();
+            expect(result.usedPackages!.has('@modelcontextprotocol/client/validators/cf-worker')).toBe(true);
+        });
+
+        it('rewrites the validation/index type-only import to the resolved base package', () => {
+            const input = `import type { jsonSchemaValidator } from '@modelcontextprotocol/sdk/validation/index.js';\n`;
+            const result = applyTransform(input, { projectType: 'server' });
+            expect(result).toContain(`from "@modelcontextprotocol/server"`);
+            expect(result).toContain('jsonSchemaValidator');
+        });
+    });
 });

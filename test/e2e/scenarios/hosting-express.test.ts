@@ -21,10 +21,11 @@ import { randomUUID } from 'node:crypto';
 import http from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { createMcpExpressApp, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/express';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { OAuthMetadata } from '@modelcontextprotocol/server';
-import { McpServer, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
+import { InvalidTokenError, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/server-legacy/auth';
 import type { Express, RequestHandler } from 'express';
 import express from 'express';
 import { expect } from 'vitest';
@@ -97,7 +98,7 @@ verifies('hosting:auth:missing-401', async (_args: TestArgs) => {
 verifies('hosting:auth:invalid-401', async (_args: TestArgs) => {
     const verifier = {
         verifyAccessToken: async (token: string) => {
-            if (token === MALFORMED_TOKEN) throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token verification failed');
+            if (token === MALFORMED_TOKEN) throw new InvalidTokenError('Token verification failed');
             return { token, clientId: 'test', scopes: [], expiresAt: 1e12 };
         }
     };
@@ -347,7 +348,7 @@ verifies('hosting:auth:query-token-ignored', async (_args: TestArgs) => {
     const verifier = {
         verifyAccessToken: async (token: string) => {
             if (token !== VALID_TOKEN) {
-                throw new OAuthError(OAuthErrorCode.InvalidToken, 'Token verification failed');
+                throw new InvalidTokenError('Token verification failed');
             }
             return { token, clientId: 'analytics-client', scopes: [], expiresAt: Date.now() / 1000 + 3600 };
         }

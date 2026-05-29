@@ -9,7 +9,7 @@
  * See: https://www.better-auth.com/docs/plugins/mcp
  */
 
-import type { OAuthTokenVerifier } from '@modelcontextprotocol/express';
+import type { OAuthTokenVerifier } from '@modelcontextprotocol/server-legacy/auth';
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
 import { toNodeHandler } from 'better-auth/node';

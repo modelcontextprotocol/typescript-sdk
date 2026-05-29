@@ -4,7 +4,7 @@
 
 Provides two pieces of v1 server functionality removed in v2:
 
-- **SSE Transport** (`./sse`) — The `SSEServerTransport` class, replaced in v2 by `StreamableHTTPServerTransport`
+- **SSE Transport** (`./sse`) — The `SSEServerTransport` class, replaced in v2 by `NodeStreamableHTTPServerTransport` (from `@modelcontextprotocol/node`) or `WebStandardStreamableHTTPServerTransport` (from `@modelcontextprotocol/server`)
 - **OAuth Authorization Server** (`./auth`) — The `mcpAuthRouter` and related helpers, removed in v2 because MCP servers should use dedicated OAuth providers
 
 ## Installation
@@ -35,5 +35,5 @@ import { SSEServerTransport, mcpAuthRouter } from '@modelcontextprotocol/server-
 
 ## Migration
 
-- **SSE → StreamableHTTP**: Use `StreamableHTTPServerTransport` from `@modelcontextprotocol/server`
-- **Auth router → Dedicated IdP**: Use a dedicated OAuth provider (Auth0, Keycloak, etc.) with the resource server helpers from `@modelcontextprotocol/express`
+- **SSE → StreamableHTTP**: Use `NodeStreamableHTTPServerTransport` from `@modelcontextprotocol/node` (Node.js) or `WebStandardStreamableHTTPServerTransport` from `@modelcontextprotocol/server` (Web Standard / Cloudflare Workers)
+- **Auth router → Dedicated IdP**: Use a dedicated OAuth provider (Auth0, Keycloak, etc.) instead of the built-in OAuth Authorization Server
