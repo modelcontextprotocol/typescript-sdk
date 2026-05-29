@@ -2,7 +2,7 @@
  * Shared types for the e2e suite.
  */
 
-export const ALL_TRANSPORTS = ['inMemory', 'stdio', 'streamableHttp', 'streamableHttpStateless'] as const;
+export const ALL_TRANSPORTS = ['inMemory', 'stdio', 'streamableHttp', 'streamableHttpStateless', 'sse'] as const;
 export type Transport = (typeof ALL_TRANSPORTS)[number];
 
 export const ALL_SPEC_VERSIONS = ['2025-11-25'] as const;

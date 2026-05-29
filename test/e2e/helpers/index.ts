@@ -4,17 +4,22 @@
  * `wire(transport, makeServer, client)` connects a server (built per call by
  * `makeServer`) and a client over the named transport, returning an
  * `AsyncDisposable` for `await using` teardown. All wiring is in-process —
- * no real sockets, no child processes.
+ * no real sockets, no child processes — except the legacy SSE transport, whose
+ * server half requires Node req/res and therefore runs over a real loopback
+ * HTTP listener on an ephemeral port.
  */
 
 import { randomUUID } from 'node:crypto';
+import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
 import { PassThrough } from 'node:stream';
 
 import type { Client } from '../../../src/client/index.js';
+import { SSEClientTransport } from '../../../src/client/sse.js';
 import { StreamableHTTPClientTransport } from '../../../src/client/streamableHttp.js';
 import { InMemoryTransport } from '../../../src/inMemory.js';
 import type { Server } from '../../../src/server/index.js';
 import type { McpServer } from '../../../src/server/mcp.js';
+import { SSEServerTransport } from '../../../src/server/sse.js';
 import { StdioServerTransport } from '../../../src/server/stdio.js';
 import { WebStandardStreamableHTTPServerTransport, type EventStore } from '../../../src/server/webStandardStreamableHttp.js';
 import { ReadBuffer, serializeMessage } from '../../../src/shared/stdio.js';
@@ -65,6 +70,57 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
                 fetch,
                 url,
                 [Symbol.asyncDispose]: () => Promise.all([client.close(), handle.close()]).then(() => {})
+            };
+        }
+        case 'sse': {
+            // The legacy SSE server transport writes to a Node ServerResponse, so this branch hosts it
+            // on a real loopback listener: GET /sse opens the stream (one server instance per
+            // connection, mirroring hostPerSession) and POST /messages?sessionId=… delivers messages.
+            const sessions = new Map<string, { tx: SSEServerTransport; server: McpServer | Server }>();
+            const handleSseRequest = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
+                const reqUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
+                if (req.method === 'GET' && reqUrl.pathname === '/sse') {
+                    const tx = new SSEServerTransport('/messages', res);
+                    const server = makeServer();
+                    sessions.set(tx.sessionId, { tx, server });
+                    tx.onclose = () => void sessions.delete(tx.sessionId);
+                    await server.connect(tx);
+                    return;
+                }
+                if (req.method === 'POST' && reqUrl.pathname === '/messages') {
+                    const session = sessions.get(reqUrl.searchParams.get('sessionId') ?? '');
+                    if (!session) {
+                        res.writeHead(404, { 'Content-Type': 'text/plain' }).end('Session not found');
+                        return;
+                    }
+                    await session.tx.handlePostMessage(req, res);
+                    return;
+                }
+                res.writeHead(404).end();
+            };
+            const httpServer = createServer((req, res) => {
+                handleSseRequest(req, res).catch(() => {
+                    // Mirror the SDK's own SSE test harness: handler failures become a 500, not an unhandled rejection.
+                    if (!res.headersSent) res.writeHead(500).end();
+                });
+            });
+            await new Promise<void>(resolve => httpServer.listen(0, '127.0.0.1', resolve));
+            const address = httpServer.address();
+            if (address === null || typeof address === 'string') throw new Error('expected the SSE host to listen on a TCP port');
+            const url = new URL(`http://127.0.0.1:${address.port}/sse`);
+            await client.connect(sniffTransport(new SSEClientTransport(url), 'client', sniff));
+            return {
+                url,
+                [Symbol.asyncDispose]: async () => {
+                    await client.close();
+                    for (const { tx, server } of sessions.values()) {
+                        await server.close();
+                        await tx.close();
+                    }
+                    sessions.clear();
+                    httpServer.closeAllConnections();
+                    await new Promise<void>(resolve => httpServer.close(() => resolve()));
+                }
             };
         }
     }
