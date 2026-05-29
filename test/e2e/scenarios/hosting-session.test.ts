@@ -883,3 +883,60 @@ verifies('hosting:session:delete-cancels-inflight', async (_args: TestArgs) => {
         await host.close();
     }
 });
+
+verifies('hosting:session:lifecycle-callbacks', async (_args: TestArgs) => {
+    // Hosts use these two callbacks to maintain a session-id -> transport map, so the test routes through one.
+    const initializedSessions: string[] = [];
+    const closedSessions: string[] = [];
+    const sessions = new Map<string, StreamableHTTPServerTransport>();
+
+    const router = express.Router();
+    router.all('/mcp', async (req, res) => {
+        const sid = req.headers['mcp-session-id'];
+        const existing = typeof sid === 'string' ? sessions.get(sid) : undefined;
+        if (existing) {
+            await existing.handleRequest(req, res, req.body);
+            return;
+        }
+        const tx = new StreamableHTTPServerTransport({
+            sessionIdGenerator: randomUUID,
+            onsessioninitialized: id => {
+                initializedSessions.push(id);
+                sessions.set(id, tx);
+            },
+            onsessionclosed: id => {
+                closedSessions.push(id);
+                sessions.delete(id);
+            }
+        });
+        await echoServer().connect(tx);
+        await tx.handleRequest(req, res, req.body);
+    });
+
+    await using host = await startExpressMinimal(router);
+    const client = newClient();
+    const clientTx = new StreamableHTTPClientTransport(new URL('/mcp', host.baseUrl));
+
+    try {
+        await client.connect(clientTx);
+
+        const sessionId = clientTx.sessionId;
+        if (sessionId === undefined) throw new Error('initialize did not assign a session id');
+        expect(initializedSessions).toEqual([sessionId]);
+        expect(closedSessions).toEqual([]);
+        expect(Array.from(sessions.keys())).toEqual([sessionId]);
+
+        // The map populated by onsessioninitialized routes the follow-up call back to the same transport.
+        const result = await client.callTool({ name: 'echo', arguments: { text: 'lifecycle' } });
+        expect(result.content).toEqual([{ type: 'text', text: 'lifecycle' }]);
+        expect(initializedSessions).toEqual([sessionId]);
+        expect(closedSessions).toEqual([]);
+
+        await clientTx.terminateSession();
+        expect(closedSessions).toEqual([sessionId]);
+        expect(sessions.size).toBe(0);
+    } finally {
+        for (const tx of sessions.values()) await tx.close();
+        await client.close();
+    }
+});

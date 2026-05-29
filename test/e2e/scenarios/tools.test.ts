@@ -1300,3 +1300,90 @@ verifies('mcpserver:tool:variadic-forms', async ({ transport }: TestArgs) => {
         content: [{ type: 'text', text: 'go' }]
     });
 });
+
+verifies('mcpserver:tool:metadata-roundtrip', async ({ transport }: TestArgs) => {
+    // registerTool's public config carries title, description, annotations and _meta (no icons field), so those are asserted verbatim.
+    const annotations = {
+        title: 'Annotated Echo',
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false
+    };
+    const meta = { 'example.com/source': 'metadata-roundtrip-fixture', 'example.com/revision': 3 };
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool(
+            'annotated-echo',
+            {
+                title: 'Annotated Echo',
+                description: 'Echo tool carrying every metadata field registerTool accepts.',
+                inputSchema: z.object({ text: z.string() }),
+                annotations,
+                _meta: meta
+            },
+            ({ text }) => ({ content: [{ type: 'text', text }] })
+        );
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    const { tools } = await client.listTools();
+    expect(tools).toHaveLength(1);
+    const tool = tools[0];
+    expect(tool.name).toBe('annotated-echo');
+    expect(tool.title).toBe('Annotated Echo');
+    expect(tool.description).toBe('Echo tool carrying every metadata field registerTool accepts.');
+    expect(tool.annotations).toEqual(annotations);
+    expect(tool._meta).toEqual(meta);
+});
+
+verifies('client:call-tool:undefined-result-schema', async ({ transport }: TestArgs) => {
+    // Released in finally so the parked handler never outlives the test, even on assertion failure.
+    let releaseHang!: () => void;
+    const hangUntilReleased = new Promise<void>(resolve => {
+        releaseHang = resolve;
+    });
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('progress-once', { inputSchema: z.object({}) }, async (_args, extra) => {
+            const token = extra._meta?.progressToken;
+            if (token !== undefined) {
+                await extra.sendNotification({
+                    method: 'notifications/progress',
+                    params: { progressToken: token, progress: 1, total: 1, message: 'halfway there' }
+                });
+            }
+            return { content: [{ type: 'text', text: 'finished' }] };
+        });
+        s.registerTool('hang', { inputSchema: z.object({}) }, async () => {
+            await hangUntilReleased;
+            return { content: [{ type: 'text', text: 'released' }] };
+        });
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    try {
+        // Explicit 3-argument form: result schema is literally `undefined`, the per-request options must still apply.
+        const progressUpdates: Array<{ progress: number; total?: number; message?: string }> = [];
+        const r = await client.callTool({ name: 'progress-once', arguments: {} }, undefined, {
+            timeout: 10_000,
+            onprogress: p => progressUpdates.push({ progress: p.progress, total: p.total, message: p.message })
+        });
+        expect(r.isError).toBeFalsy();
+        expect(r.content).toEqual([{ type: 'text', text: 'finished' }]);
+        expect(progressUpdates).toEqual([{ progress: 1, total: 1, message: 'halfway there' }]);
+
+        // The timeout option is applied too: a 50ms budget against a parked handler rejects with RequestTimeout.
+        const err = await client.callTool({ name: 'hang', arguments: {} }, undefined, { timeout: 50 }).catch((e: unknown) => e);
+        if (!(err instanceof McpError)) {
+            throw new Error(`expected McpError from the timed-out call, got ${JSON.stringify(err)}`);
+        }
+        expect(err.code).toBe(ErrorCode.RequestTimeout);
+    } finally {
+        releaseHang();
+    }
+});

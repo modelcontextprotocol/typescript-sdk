@@ -13,12 +13,14 @@ import { Client } from '../../../src/client/index.js';
 import { InMemoryTransport } from '../../../src/inMemory.js';
 import { Server } from '../../../src/server/index.js';
 import { McpServer } from '../../../src/server/mcp.js';
+import type { Transport } from '../../../src/shared/transport.js';
 import {
     type CallToolRequest,
     CallToolRequestSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     ErrorCode,
+    isJSONRPCResultResponse,
     type JSONRPCMessage,
     type JSONRPCNotification,
     type JSONRPCRequest,
@@ -34,6 +36,7 @@ import {
     PromptListChangedNotificationSchema,
     type RequestId,
     RequestSchema,
+    type Result,
     ResultSchema,
     ToolListChangedNotificationSchema
 } from '../../../src/types.js';
@@ -1417,3 +1420,215 @@ export async function mcpserverOnerrorReachThroughRaw({ transport }: TestArgs) {
 
     await expect(client.ping()).resolves.toBeDefined();
 }
+
+verifies('typescript:protocol:error:not-connected', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('summarize_document', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
+            content: [{ type: 'text', text: `summary: ${text}` }]
+        }));
+        return s;
+    };
+
+    // Never-connected client: no transport yet, and request methods reject immediately.
+    const client = newClient();
+    expect(client.transport).toBeUndefined();
+    const beforeConnect = client.listTools();
+    await expect(beforeConnect).rejects.toBeInstanceOf(Error);
+    await expect(beforeConnect).rejects.toMatchObject({ message: 'Not connected' });
+
+    // Once connected over the matrix transport, the same client serves requests normally.
+    await using _ = await wire(transport, makeServer, client);
+    expect(client.transport).toBeDefined();
+    const listed = await client.listTools();
+    expect(listed.tools.map(t => t.name)).toEqual(['summarize_document']);
+    const result = await client.callTool({ name: 'summarize_document', arguments: { text: 'Q3 sales were flat.' } });
+    expect(result.content).toEqual([{ type: 'text', text: 'summary: Q3 sales were flat.' }]);
+
+    // Closed-state checks use a direct InMemory pair: the in-process stdio harness never fires the client transport's onclose.
+    const closedClient = newClient();
+    const closedServer = makeServer();
+    const [closedClientTx, closedServerTx] = InMemoryTransport.createLinkedPair();
+    try {
+        await closedServer.connect(closedServerTx);
+        await closedClient.connect(closedClientTx);
+        expect(closedClient.transport).toBe(closedClientTx);
+
+        await closedClient.close();
+
+        expect(closedClient.transport).toBeUndefined();
+        const afterClose = closedClient.listTools();
+        await expect(afterClose).rejects.toBeInstanceOf(Error);
+        await expect(afterClose).rejects.toMatchObject({ message: 'Not connected' });
+    } finally {
+        await closedClient.close();
+        await closedServer.close();
+    }
+});
+
+/** Consumer-implemented Transport: an in-process loopback that answers initialize and tools/list with canned results. */
+class LoopbackTransport implements Transport {
+    onclose?: () => void;
+    onerror?: (error: Error) => void;
+    onmessage?: (message: JSONRPCMessage) => void;
+
+    readonly events: string[] = [];
+    readonly clientRequests: JSONRPCRequest[] = [];
+    callbacksPresentAtStart?: { onmessage: boolean; onclose: boolean; onerror: boolean };
+
+    constructor(private readonly serverProtocolVersion: string) {}
+
+    async start(): Promise<void> {
+        this.callbacksPresentAtStart = {
+            onmessage: this.onmessage !== undefined,
+            onclose: this.onclose !== undefined,
+            onerror: this.onerror !== undefined
+        };
+        this.events.push('start');
+    }
+
+    async send(message: JSONRPCMessage): Promise<void> {
+        this.events.push('method' in message ? `send:${message.method}` : 'send:response');
+        if (!isRequest(message)) return;
+        this.clientRequests.push(message);
+        if (message.method === 'initialize') {
+            this.respond(message.id, {
+                protocolVersion: this.serverProtocolVersion,
+                capabilities: { tools: {} },
+                serverInfo: { name: 'loopback-server', version: '3.1.4' }
+            });
+        } else if (message.method === 'tools/list') {
+            this.respond(message.id, {
+                tools: [{ name: 'lookup_order', description: 'Look up an order by id', inputSchema: { type: 'object' } }]
+            });
+        }
+    }
+
+    async close(): Promise<void> {
+        this.events.push('close');
+        this.onclose?.();
+    }
+
+    private respond(id: RequestId, result: Result): void {
+        queueMicrotask(() => this.onmessage?.({ jsonrpc: '2.0', id, result }));
+    }
+}
+
+verifies('transport:custom:client-connect', async ({ protocolVersion }: TestArgs) => {
+    // The body supplies its own consumer-implemented Transport, so the matrix transport arg is unused by design.
+    const customTransport = new LoopbackTransport(protocolVersion);
+    const client = newClient();
+    const clientOnclose = vi.fn();
+    client.onclose = clientOnclose;
+    try {
+        await client.connect(customTransport);
+
+        // Protocol installed its callbacks on the consumer object before invoking start().
+        expect(customTransport.callbacksPresentAtStart).toEqual({ onmessage: true, onclose: true, onerror: true });
+        // The full handshake ran over the consumer transport, and its canned identity is what the client now reports.
+        expect(customTransport.events).toEqual(['start', 'send:initialize', 'send:notifications/initialized']);
+        expect(client.getServerCapabilities()).toEqual({ tools: {} });
+        expect(client.getServerVersion()).toEqual({ name: 'loopback-server', version: '3.1.4' });
+
+        // A post-handshake request round-trips through the consumer transport's send().
+        const listed = await client.listTools();
+        expect(listed.tools).toEqual([{ name: 'lookup_order', description: 'Look up an order by id', inputSchema: { type: 'object' } }]);
+        expect(customTransport.clientRequests.map(m => m.method)).toEqual(['initialize', 'tools/list']);
+
+        await client.close();
+
+        // close() reached the consumer transport, and its onclose callback fed back into the client's close handling.
+        expect(customTransport.events).toEqual(['start', 'send:initialize', 'send:notifications/initialized', 'send:tools/list', 'close']);
+        expect(clientOnclose).toHaveBeenCalledTimes(1);
+        expect(client.transport).toBeUndefined();
+    } finally {
+        await client.close();
+    }
+});
+
+verifies('protocol:transport-callbacks:wrappable-after-connect', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
+            content: [{ type: 'text', text }]
+        }));
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    const tx = client.transport;
+    if (!tx) throw new Error('client transport not set after connect');
+
+    // Protocol assigned all three handlers at connect time, so a consumer has originals to chain to.
+    const protocolOnMessage = tx.onmessage;
+    const protocolOnClose = tx.onclose;
+    const protocolOnError = tx.onerror;
+    expect(protocolOnMessage).toBeDefined();
+    expect(protocolOnClose).toBeDefined();
+    expect(protocolOnError).toBeDefined();
+
+    // Consumer-style wrapping after connect: record, then delegate to the original handlers.
+    const observedMessages: JSONRPCMessage[] = [];
+    const observedErrors: Error[] = [];
+    tx.onmessage = (message, extra) => {
+        observedMessages.push(message);
+        protocolOnMessage?.(message, extra);
+    };
+    tx.onerror = error => {
+        observedErrors.push(error);
+        protocolOnError?.(error);
+    };
+    tx.onclose = () => {
+        protocolOnClose?.();
+    };
+
+    const outbound = tapOutbound(client);
+
+    const first = await client.callTool({ name: 'echo', arguments: { text: 'wrapped dispatch' } });
+    expect(first.content).toEqual([{ type: 'text', text: 'wrapped dispatch' }]);
+    const second = await client.callTool({ name: 'echo', arguments: { text: 'still wrapped' } });
+    expect(second.content).toEqual([{ type: 'text', text: 'still wrapped' }]);
+
+    // The wrapper observed the exact responses that resolved both calls, and no errors surfaced.
+    const callIds = outbound
+        .filter(isRequest)
+        .filter(m => m.method === 'tools/call')
+        .map(m => m.id);
+    expect(callIds).toHaveLength(2);
+    const observedResponsesFor = (id: RequestId) => observedMessages.filter(isJSONRPCResultResponse).filter(m => m.id === id);
+    expect(observedResponsesFor(callIds[0])).toHaveLength(1);
+    expect(observedResponsesFor(callIds[0])[0].result).toMatchObject({ content: [{ type: 'text', text: 'wrapped dispatch' }] });
+    expect(observedResponsesFor(callIds[1])).toHaveLength(1);
+    expect(observedResponsesFor(callIds[1])[0].result).toMatchObject({ content: [{ type: 'text', text: 'still wrapped' }] });
+    expect(observedErrors).toEqual([]);
+
+    // Close-event chaining is checked on a direct InMemory pair: the in-process stdio harness never fires the client transport's onclose.
+    const closingClient = newClient();
+    const closingServer = makeServer();
+    const [closingClientTx, closingServerTx] = InMemoryTransport.createLinkedPair();
+    const closingClientOnclose = vi.fn();
+    closingClient.onclose = closingClientOnclose;
+    try {
+        await closingServer.connect(closingServerTx);
+        await closingClient.connect(closingClientTx);
+
+        const protocolCloseHandler = closingClientTx.onclose;
+        expect(protocolCloseHandler).toBeDefined();
+        let wrapperObservedClose = 0;
+        closingClientTx.onclose = () => {
+            wrapperObservedClose += 1;
+            protocolCloseHandler?.();
+        };
+
+        // Server-initiated close: the consumer wrapper sees the close event and protocol close handling still runs through it.
+        await closingServer.close();
+
+        expect(wrapperObservedClose).toBe(1);
+        expect(closingClientOnclose).toHaveBeenCalledTimes(1);
+        expect(closingClient.transport).toBeUndefined();
+    } finally {
+        await closingClient.close();
+        await closingServer.close();
+    }
+});

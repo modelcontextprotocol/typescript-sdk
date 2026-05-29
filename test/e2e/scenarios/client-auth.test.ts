@@ -15,17 +15,27 @@ import { z } from 'zod/v4';
 
 import { Client } from '../../../src/client/index.js';
 import {
+    auth,
     discoverAuthorizationServerMetadata,
     discoverOAuthProtectedResourceMetadata,
     exchangeAuthorization,
     OAuthClientProvider,
+    refreshAuthorization,
     startAuthorization,
     UnauthorizedError
 } from '../../../src/client/auth.js';
 import { applyMiddlewares, createMiddleware, withLogging, withOAuth } from '../../../src/client/middleware.js';
 import { StreamableHTTPClientTransport, StreamableHTTPError } from '../../../src/client/streamableHttp.js';
+import { SSEClientTransport, SseError } from '../../../src/client/sse.js';
 import { ClientCredentialsProvider, PrivateKeyJwtProvider, StaticPrivateKeyJwtProvider } from '../../../src/client/auth-extensions.js';
 import { McpServer } from '../../../src/server/mcp.js';
+import {
+    InvalidClientError,
+    InvalidGrantError,
+    OAuthError,
+    ServerError,
+    TemporarilyUnavailableError
+} from '../../../src/server/auth/errors.js';
 import {
     AuthorizationServerMetadata,
     OAuthClientInformationFull,
@@ -1512,4 +1522,226 @@ verifies('client-auth:middleware:with-oauth', async (_args: TestArgs) => {
     await expect(stubbornAttempt).rejects.toThrow(/Authentication failed for/);
     expect(stubbornAs.tokenCalls).toHaveLength(1);
     expect(stubbornMcpRequests).toBe(2);
+});
+
+verifies('client-auth:auth-helper:result-values', async (_args: TestArgs) => {
+    const ISSUED = 'auth-helper-access-token';
+    const as = createMockAuthorizationServer({
+        tokenResponses: [{ access_token: ISSUED, token_type: 'Bearer', refresh_token: 'auth-helper-refresh-token' }]
+    });
+    const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'auth-helper-client' } });
+    const fetchFn = (url: URL | string, init?: RequestInit) => as.handleRequest(new Request(url, init));
+
+    // No tokens and no authorization code: the helper starts the redirect flow and reports it with the literal string.
+    const redirectResult = await auth(provider, { serverUrl: MCP_URL, fetchFn });
+    expect(redirectResult).toBe('REDIRECT');
+    expect(provider.redirectedTo).toHaveLength(1);
+    expect(provider.redirectedTo[0].origin + provider.redirectedTo[0].pathname).toBe(`${ISSUER}/authorize`);
+    expect(provider.saved.codeVerifier).toBeDefined();
+    expect(as.tokenCalls).toHaveLength(0);
+
+    // Completing the code exchange: tokens are persisted and the helper reports success with the literal string.
+    const authorizedResult = await auth(provider, { serverUrl: MCP_URL, authorizationCode: 'granted-authorization-code', fetchFn });
+    expect(authorizedResult).toBe('AUTHORIZED');
+    expect(as.tokenCalls).toHaveLength(1);
+    expect(as.tokenCalls[0].body.get('grant_type')).toBe('authorization_code');
+    expect(as.tokenCalls[0].body.get('code')).toBe('granted-authorization-code');
+    expect(provider.saved.tokens?.access_token).toBe(ISSUED);
+});
+
+verifies('client-auth:refresh:typed-errors', async (_args: TestArgs) => {
+    // Token endpoint that always rejects with the given RFC 6749 error body.
+    const oauthErrorFetch =
+        (error: string) =>
+        async (_url: URL | string, _init?: RequestInit): Promise<Response> =>
+            new Response(JSON.stringify({ error, error_description: `mock ${error} response` }), {
+                status: 400,
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+    const expectTypedRejection = async (attempt: Promise<unknown>, expectedClass: typeof OAuthError, expectedCode: string) => {
+        const rejection: unknown = await attempt.then(
+            () => {
+                throw new Error('token request unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+        expect(rejection).toBeInstanceOf(expectedClass);
+        if (!(rejection instanceof OAuthError)) throw new Error('expected an OAuthError rejection');
+        expect(rejection.errorCode).toBe(expectedCode);
+        expect(rejection.message).toContain(`mock ${expectedCode} response`);
+    };
+
+    const clientInformation = { client_id: 'typed-error-client' };
+
+    const refreshCases: Array<{ error: string; expectedClass: typeof OAuthError }> = [
+        { error: 'invalid_grant', expectedClass: InvalidGrantError },
+        { error: 'invalid_client', expectedClass: InvalidClientError },
+        { error: 'server_error', expectedClass: ServerError },
+        { error: 'temporarily_unavailable', expectedClass: TemporarilyUnavailableError }
+    ];
+    for (const { error, expectedClass } of refreshCases) {
+        await expectTypedRejection(
+            refreshAuthorization(ISSUER, {
+                clientInformation,
+                refreshToken: 'long-lived-refresh-token',
+                fetchFn: oauthErrorFetch(error)
+            }),
+            expectedClass,
+            error
+        );
+    }
+
+    const exchangeCases: Array<{ error: string; expectedClass: typeof OAuthError }> = [
+        { error: 'invalid_grant', expectedClass: InvalidGrantError },
+        { error: 'invalid_client', expectedClass: InvalidClientError }
+    ];
+    for (const { error, expectedClass } of exchangeCases) {
+        await expectTypedRejection(
+            exchangeAuthorization(ISSUER, {
+                clientInformation,
+                authorizationCode: 'granted-authorization-code',
+                codeVerifier: 'a-code-verifier',
+                redirectUri: 'http://localhost:3000/callback',
+                fetchFn: oauthErrorFetch(error)
+            }),
+            expectedClass,
+            error
+        );
+    }
+});
+
+verifies('client-auth:no-tokens:no-auth-header', async (_args: TestArgs) => {
+    // Phase 1: tokens() returns undefined — the request goes out with no Authorization header and the 401 re-enters the auth flow.
+    const noTokensAs = createMockAuthorizationServer();
+    const noTokensProvider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'no-tokens-client' } });
+    const noTokensHost = createAuthenticatedHost('token-never-issued');
+    const noTokensBaseFetch = createCombinedFetch({ as: noTokensAs, mcpHost: noTokensHost, validToken: 'token-never-issued' });
+
+    const noTokensMcpHeaders: Array<Record<string, string>> = [];
+    const noTokensFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        const urlObj = typeof url === 'string' ? new URL(url) : url;
+        if (urlObj.origin !== ISSUER && !urlObj.pathname.includes('/.well-known/') && init?.method === 'POST') {
+            const headers: Record<string, string> = {};
+            new Headers(init?.headers).forEach((v, k) => {
+                headers[k] = v;
+            });
+            noTokensMcpHeaders.push(headers);
+        }
+        return noTokensBaseFetch(url, init);
+    };
+
+    const noTokensClient = new Client({ name: 'c', version: '0' });
+    const noTokensTransport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: noTokensProvider, fetch: noTokensFetch });
+
+    try {
+        await expect(noTokensClient.connect(noTokensTransport)).rejects.toThrow(UnauthorizedError);
+
+        // The single unauthenticated POST carried no Authorization header at all.
+        expect(noTokensMcpHeaders).toHaveLength(1);
+        expect(noTokensMcpHeaders[0]['authorization']).toBeUndefined();
+
+        // The resulting 401 re-entered the auth flow: the user is redirected to the authorization endpoint.
+        expect(noTokensProvider.redirectedTo).toHaveLength(1);
+        expect(noTokensProvider.redirectedTo[0].origin + noTokensProvider.redirectedTo[0].pathname).toBe(`${ISSUER}/authorize`);
+        expect(noTokensProvider.saved.codeVerifier).toBeDefined();
+    } finally {
+        await noTokensClient.close();
+        await noTokensHost.close();
+    }
+
+    // Phase 2: stored tokens lack refresh_token — expiry leads back to the authorization-code flow, never a refresh attempt.
+    const noRefreshAs = createMockAuthorizationServer();
+    const noRefreshProvider = new RecordingOAuthClientProvider({
+        tokens: { access_token: 'expired-access-token', token_type: 'Bearer' },
+        clientInformation: { client_id: 'no-refresh-client' }
+    });
+    const noRefreshHost = createAuthenticatedHost('token-never-issued');
+    const noRefreshBaseFetch = createCombinedFetch({ as: noRefreshAs, mcpHost: noRefreshHost, validToken: 'token-never-issued' });
+
+    const noRefreshMcpAuthHeaders: Array<string | null> = [];
+    const noRefreshFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        const urlObj = typeof url === 'string' ? new URL(url) : url;
+        if (urlObj.origin !== ISSUER && !urlObj.pathname.includes('/.well-known/') && init?.method === 'POST') {
+            noRefreshMcpAuthHeaders.push(new Headers(init?.headers).get('authorization'));
+        }
+        return noRefreshBaseFetch(url, init);
+    };
+
+    const noRefreshClient = new Client({ name: 'c', version: '0' });
+    const noRefreshTransport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+        authProvider: noRefreshProvider,
+        fetch: noRefreshFetch
+    });
+
+    try {
+        await expect(noRefreshClient.connect(noRefreshTransport)).rejects.toThrow(UnauthorizedError);
+
+        // The expired bearer was sent once, but with no refresh_token there is no token-endpoint call at all (no refresh grant).
+        expect(noRefreshMcpAuthHeaders).toEqual(['Bearer expired-access-token']);
+        expect(noRefreshAs.tokenCalls).toHaveLength(0);
+
+        // Instead the full authorization-code flow restarts.
+        expect(noRefreshProvider.redirectedTo).toHaveLength(1);
+        expect(noRefreshProvider.redirectedTo[0].origin + noRefreshProvider.redirectedTo[0].pathname).toBe(`${ISSUER}/authorize`);
+    } finally {
+        await noRefreshClient.close();
+        await noRefreshHost.close();
+    }
+});
+
+verifies('client-transport:sse:401-unauthorized-code', async (_args: TestArgs) => {
+    const wwwAuthenticate = `Bearer resource_metadata="${MCP_URL}/.well-known/oauth-protected-resource"`;
+
+    // Phase 1: no authProvider — the 401 surfaces as an SseError carrying the HTTP status code.
+    const bareFetch = async (_url: URL | string, _init?: RequestInit): Promise<Response> =>
+        new Response(null, { status: 401, headers: { 'WWW-Authenticate': wwwAuthenticate } });
+
+    const bareTransport = new SSEClientTransport(new URL(MCP_URL), { fetch: bareFetch });
+    try {
+        const rejection: unknown = await bareTransport.start().then(
+            () => {
+                throw new Error('start() unexpectedly resolved');
+            },
+            (e: unknown) => e
+        );
+        expect(rejection).toBeInstanceOf(SseError);
+        if (!(rejection instanceof SseError)) throw new Error('expected an SseError rejection');
+        expect(rejection.code).toBe(401);
+    } finally {
+        await bareTransport.close();
+    }
+
+    // Phase 2: with an authProvider the same 401 drives the auth flow (redirect + UnauthorizedError), and finishAuth completes the exchange.
+    const as = createMockAuthorizationServer({
+        tokenResponses: [{ access_token: 'sse-access-token', token_type: 'Bearer' }]
+    });
+    const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'sse-client' } });
+
+    const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        const urlObj = typeof url === 'string' ? new URL(url) : url;
+        if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+            return as.handleRequest(new Request(url, init));
+        }
+        return new Response(null, { status: 401, headers: { 'WWW-Authenticate': wwwAuthenticate } });
+    };
+
+    const authTransport = new SSEClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+    try {
+        await expect(authTransport.start()).rejects.toBeInstanceOf(UnauthorizedError);
+
+        // Same retry semantics as the streamable HTTP transport: the 401 redirected the user to the authorization endpoint.
+        expect(provider.redirectedTo).toHaveLength(1);
+        expect(provider.redirectedTo[0].origin + provider.redirectedTo[0].pathname).toBe(`${ISSUER}/authorize`);
+        expect(provider.saved.codeVerifier).toBeDefined();
+
+        // finishAuth exchanges the callback code for tokens, mirroring the streamable HTTP transport surface.
+        await authTransport.finishAuth('granted-authorization-code');
+        expect(as.tokenCalls).toHaveLength(1);
+        expect(as.tokenCalls[0].body.get('grant_type')).toBe('authorization_code');
+        expect(as.tokenCalls[0].body.get('code')).toBe('granted-authorization-code');
+        expect(provider.saved.tokens?.access_token).toBe('sse-access-token');
+    } finally {
+        await authTransport.close();
+    }
 });
