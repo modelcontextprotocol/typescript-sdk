@@ -652,10 +652,11 @@ These replace the pattern of calling `server.sendLoggingMessage()`, `server.crea
 
 ### Error hierarchy refactoring
 
-The SDK now distinguishes between two types of errors:
+The SDK now distinguishes between three types of errors:
 
 1. **`ProtocolError`** (renamed from `McpError`): Protocol errors that cross the wire as JSON-RPC error responses
 2. **`SdkError`**: Local SDK errors that never cross the wire (timeouts, connection issues, capability checks)
+3. **`SdkHttpError`** (extends `SdkError`): HTTP transport errors with typed `.status` and `.statusText` accessors
 
 #### Renamed exports
 
@@ -726,7 +727,7 @@ The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 
 #### `StreamableHTTPError` removed
 
-The `StreamableHTTPError` class has been removed. HTTP transport errors are now thrown as `SdkError` with specific `SdkErrorCode` values that provide more granular error information:
+The `StreamableHTTPError` class has been removed. HTTP transport errors are now thrown as `SdkHttpError` (a subclass of `SdkError` with typed `.status` and `.statusText` accessors) with specific `SdkErrorCode` values that provide more granular error information:
 
 **Before (v1):**
 
@@ -745,12 +746,14 @@ try {
 **After (v2):**
 
 ```typescript
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
+import { SdkHttpError, SdkErrorCode } from '@modelcontextprotocol/client';
 
 try {
     await transport.send(message);
 } catch (error) {
-    if (error instanceof SdkError) {
+    if (error instanceof SdkHttpError) {
+        console.log('HTTP status:', error.status);     // number — no cast needed
+        console.log('Status text:', error.statusText); // string | undefined
         switch (error.code) {
             case SdkErrorCode.ClientHttpAuthentication:
                 console.log('Auth failed — server rejected token after re-auth');
@@ -771,8 +774,6 @@ try {
                 console.log('HTTP request failed');
                 break;
         }
-        // Access HTTP status code from error.data if needed
-        const httpStatus = (error.data as { status?: number })?.status;
     }
 }
 ```
@@ -788,7 +789,7 @@ inspects the response body, so servers that report expiry with a non-reference b
 (a different JSON-RPC error code, plain text, or HTML) are handled correctly. On such
 a `404` the transport clears its stale session ID (so `transport.sessionId` becomes
 `undefined` and a subsequent `client.connect(transport)` issues a fresh `initialize`)
-and throws `SdkError` with `SdkErrorCode.ClientHttpSessionExpired`.
+and throws `SdkHttpError` with `SdkErrorCode.ClientHttpSessionExpired`.
 
 A `404` for a request that did **not** carry a session ID (for example a wrong URL on
 the initial connection) is unchanged: it still surfaces as `SdkErrorCode.ClientHttpNotImplemented`.

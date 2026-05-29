@@ -1,5 +1,5 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
@@ -259,9 +259,9 @@ describe('StreamableHTTPClientTransport', () => {
                 e => e
             );
 
-            expect(error).toBeInstanceOf(SdkError);
-            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpSessionExpired);
-            expect((error as SdkError).data).toEqual({ status: 404, text: body });
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpSessionExpired);
+            expect((error as SdkHttpError).data).toEqual({ status: 404, statusText: 'Not Found', text: body });
             expect(errorSpy).toHaveBeenCalled();
             // The dead session ID is cleared so a subsequent reconnect issues a fresh `initialize`.
             expect(sessionTransport.sessionId).toBeUndefined();
@@ -289,8 +289,8 @@ describe('StreamableHTTPClientTransport', () => {
                 e => e
             );
 
-            expect(error).toBeInstanceOf(SdkError);
-            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpNotImplemented);
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpNotImplemented);
             expect(errorSpy).toHaveBeenCalled();
             expect(transport.sessionId).toBeUndefined();
         });
@@ -318,10 +318,10 @@ describe('StreamableHTTPClientTransport', () => {
                 e => e
             );
 
-            expect(error).toBeInstanceOf(SdkError);
-            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpSessionExpired);
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpSessionExpired);
             // The GET path carries `statusText` in its error data rather than the body `text`.
-            expect((error as SdkError).data).toEqual({ status: 404, statusText: 'Not Found' });
+            expect((error as SdkHttpError).data).toEqual({ status: 404, statusText: 'Not Found' });
             expect(errorSpy).toHaveBeenCalled();
             expect(sessionTransport.sessionId).toBeUndefined();
 
@@ -1973,8 +1973,9 @@ describe('StreamableHTTPClientTransport', () => {
                 .mockResolvedValueOnce(unauthedResponse);
 
             const error = await transport.send(message).catch(e => e);
-            expect(error).toBeInstanceOf(SdkError);
-            expect((error as SdkError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
+            expect((error as SdkHttpError).status).toBe(401);
             expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
                 access_token: 'new-access-token',
                 token_type: 'Bearer',

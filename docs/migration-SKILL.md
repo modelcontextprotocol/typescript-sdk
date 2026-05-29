@@ -95,7 +95,7 @@ Notes:
 | `ErrorCode`                              | `ProtocolErrorCode`                                                                                             |
 | `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                                                                                   |
 | `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                                                                                 |
-| `StreamableHTTPError`                    | REMOVED (use `SdkError` with `SdkErrorCode.ClientHttp*`)                                                        |
+| `StreamableHTTPError`                    | REMOVED (use `SdkHttpError` with `SdkErrorCode.ClientHttp*`)                                                    |
 | `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                         |
 
 All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are no longer part of the public API — they are internal to the SDK. For runtime validation, use
@@ -103,10 +103,11 @@ All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain thei
 
 ### Error class changes
 
-Two error classes now exist:
+Three error classes now exist:
 
 - **`ProtocolError`** (renamed from `McpError`): Protocol errors that cross the wire as JSON-RPC responses
 - **`SdkError`** (new): Local SDK errors that never cross the wire
+- **`SdkHttpError`** (extends `SdkError`): HTTP transport errors with typed `.status` and `.statusText` accessors
 
 | Error scenario                    | v1 type                                      | v2 type                                                           |
 | --------------------------------- | -------------------------------------------- | ----------------------------------------------------------------- |
@@ -115,13 +116,13 @@ Two error classes now exist:
 | Capability not supported          | `new Error(...)`                             | `SdkError` with `SdkErrorCode.CapabilityNotSupported`             |
 | Not connected                     | `new Error('Not connected')`                 | `SdkError` with `SdkErrorCode.NotConnected`                       |
 | Invalid params (server response)  | `McpError` with `ErrorCode.InvalidParams`    | `ProtocolError` with `ProtocolErrorCode.InvalidParams`            |
-| HTTP transport error              | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttp*`                        |
-| Failed to open SSE stream         | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToOpenStream`       |
-| 401 after re-auth (circuit break) | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpAuthentication`           |
-| 403 after upscoping               | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpForbidden`                |
+| HTTP transport error              | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttp*`                    |
+| Failed to open SSE stream         | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpFailedToOpenStream`   |
+| 401 after re-auth (circuit break) | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpAuthentication`       |
+| 403 after upscoping               | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpForbidden`            |
 | Unexpected content type           | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`        |
-| Session termination failed        | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
-| Session expired (404 w/ session)  | `StreamableHTTPError` (status 404)           | `SdkError` with `SdkErrorCode.ClientHttpSessionExpired`           |
+| Session termination failed        | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
+| Session expired (404 w/ session)  | `StreamableHTTPError` (status 404)           | `SdkHttpError` with `SdkErrorCode.ClientHttpSessionExpired`       |
 | Response result fails schema      | `ZodError` (raw)                             | `SdkError` with `SdkErrorCode.InvalidResult`                      |
 
 New `SdkErrorCode` enum values:
@@ -163,9 +164,17 @@ if (error instanceof StreamableHTTPError) {
 }
 
 // v2
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
-if (error instanceof SdkError && error.code === SdkErrorCode.ClientHttpFailedToOpenStream) {
-    const status = (error.data as { status?: number })?.status;
+import { SdkHttpError, SdkErrorCode } from '@modelcontextprotocol/client';
+if (error instanceof SdkHttpError) {
+    console.log('HTTP status:', error.status);     // number — typed accessor
+    console.log('Status text:', error.statusText); // string | undefined
+    switch (error.code) {
+        case SdkErrorCode.ClientHttpAuthentication:    // 401 after re-auth
+        case SdkErrorCode.ClientHttpForbidden:         // 403 after upscoping
+        case SdkErrorCode.ClientHttpFailedToOpenStream:
+        case SdkErrorCode.ClientHttpNotImplemented:
+            break;
+    }
 }
 ```
 
