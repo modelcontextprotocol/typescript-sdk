@@ -126,7 +126,8 @@ describe('SEP-2792 i18n HTTP transport integration', () => {
         await transport.close();
     });
 
-    it('mirrors Accept-Language header into _meta when only header is present', async () => {
+    it('ignores bare Accept-Language header when _meta is absent (no fallback)', async () => {
+        // Per SEP-2792: bare header without _meta is NOT treated as language preference
         const req = createRequest('POST', { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'tl-1' } as JSONRPCMessage, {
             sessionId,
             extraHeaders: { 'Accept-Language': 'fr' }
@@ -136,8 +137,9 @@ describe('SEP-2792 i18n HTTP transport integration', () => {
         expect(resp.status).toBe(200);
 
         const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } };
-        expect(body.result?.tools?.[0]?.title).toBe('Saluer');
-        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('fr');
+        // Server returns default language (en), not the header value (fr)
+        expect(body.result?.tools?.[0]?.title).toBe('Greet');
+        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('en');
     });
 
     it('sets Content-Language header on JSON response', async () => {

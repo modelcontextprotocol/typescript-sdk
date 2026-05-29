@@ -9,7 +9,6 @@
 
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 import {
-    ACCEPT_LANGUAGE_META,
     CONTENT_LANGUAGE_META,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     getErrorContentLanguage,
@@ -702,9 +701,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
 
-            // SEP-2792: Copy Accept-Language header → _meta if _meta is absent
-            this.copyAcceptLanguageFromHeader(req, messages);
-
             // check if it contains requests
             const hasRequests = messages.some(element => isJSONRPCRequest(element));
 
@@ -901,35 +897,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return this.createJsonErrorResponse(400, -32_000, error);
         }
         return undefined;
-    }
-
-    /**
-     * SEP-2792: Copies Accept-Language header into _meta when _meta is absent.
-     * If _meta[acceptLanguage] is already set, it takes precedence (the header is ignored).
-     * No mismatch rejection — intermediaries may strip or rewrite the header.
-     */
-    private copyAcceptLanguageFromHeader(req: Request, messages: JSONRPCMessage[]): void {
-        const headerValue = req.headers.get('accept-language');
-        if (!headerValue) {
-            return;
-        }
-
-        for (const msg of messages) {
-            if (!('params' in msg) || !msg.params || typeof msg.params !== 'object') {
-                continue;
-            }
-            const params = msg.params as { _meta?: Record<string, unknown> };
-            const metaValue = params._meta?.[ACCEPT_LANGUAGE_META];
-
-            if (metaValue === undefined || typeof metaValue !== 'string') {
-                // Header present, _meta absent: fall back to header value
-                if (!params._meta) {
-                    params._meta = {};
-                }
-                params._meta[ACCEPT_LANGUAGE_META] = headerValue;
-            }
-            // If _meta is already set, it is canonical — ignore header
-        }
     }
 
     /**
