@@ -4,19 +4,22 @@
  * `wire(transport, makeServer, client)` connects a server (built per call by
  * `makeServer`) and a client over the named transport, returning an
  * `AsyncDisposable` for `await using` teardown. All wiring is in-process —
- * no real sockets, no child processes.
+ * no real sockets, no child processes — except the legacy SSE transport,
+ * whose client half opens a real EventSource stream, so it runs over a
+ * loopback HTTP listener backed by the test-only bridge in sse-host.ts.
  */
 
 import { randomUUID } from 'node:crypto';
 import { PassThrough } from 'node:stream';
 
 import type { Client } from '@modelcontextprotocol/client';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { EventStore, JSONRPCMessage, McpServer, Server } from '@modelcontextprotocol/server';
 import { InMemoryTransport, ReadBuffer, serializeMessage, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
 import type { Transport } from '../types.js';
+import { startLegacySseHost } from './sse-host.js';
 import type { SnifferOptions } from './wire-sniffer.js';
 import { sniffTransport } from './wire-sniffer.js';
 
@@ -61,6 +64,19 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
                 fetch,
                 url,
                 [Symbol.asyncDispose]: () => Promise.all([client.close(), handle.close()]).then(() => {})
+            };
+        }
+        case 'sse': {
+            // v2 removed the server-side SSE transport, so the factory's server is hosted behind the
+            // test-only bridge in sse-host.ts and the real shipped SSEClientTransport connects to it.
+            const host = await startLegacySseHost(makeServer);
+            await client.connect(sniffTransport(new SSEClientTransport(host.url), 'client', sniff));
+            return {
+                url: host.url,
+                [Symbol.asyncDispose]: async () => {
+                    await client.close();
+                    await host.close();
+                }
             };
         }
     }
