@@ -2,6 +2,7 @@ import type { ReadableWritablePair } from 'node:stream/web';
 
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
 import {
+    ACCEPT_LANGUAGE_META,
     createFetchWithInit,
     isInitializedNotification,
     isJSONRPCErrorResponse,
@@ -229,6 +230,21 @@ export class StreamableHTTPClientTransport implements Transport {
             ...headers,
             ...extraHeaders
         });
+    }
+
+    /**
+     * Extracts the acceptLanguage value from a message's _meta for header mirroring (SEP-2792).
+     */
+    private _extractAcceptLanguage(message: JSONRPCMessage | JSONRPCMessage[]): string | undefined {
+        const msg = Array.isArray(message) ? message[0] : message;
+        if (!msg) return undefined;
+        if ('params' in msg && msg.params && typeof msg.params === 'object') {
+            const meta = (msg.params as { _meta?: Record<string, unknown> })._meta;
+            if (meta && typeof meta[ACCEPT_LANGUAGE_META] === 'string') {
+                return meta[ACCEPT_LANGUAGE_META] as string;
+            }
+        }
+        return undefined;
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
@@ -545,6 +561,13 @@ export class StreamableHTTPClientTransport implements Transport {
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
+
+            // SEP-2792: Best-effort mirror of acceptLanguage from _meta to Accept-Language header.
+            // If the caller already set Accept-Language manually, _meta takes precedence.
+            const metaAcceptLanguage = this._extractAcceptLanguage(message);
+            if (metaAcceptLanguage) {
+                headers.set('accept-language', metaAcceptLanguage);
+            }
 
             const init = {
                 ...this._requestInit,

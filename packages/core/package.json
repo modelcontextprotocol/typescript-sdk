@@ -49,6 +49,7 @@
         "client": "tsx scripts/cli.ts client"
     },
     "dependencies": {
+        "@formatjs/intl-localematcher": "^0.8.8",
         "ajv": "catalog:runtimeShared",
         "ajv-formats": "catalog:runtimeShared",
         "json-schema-typed": "catalog:runtimeShared",
@@ -67,11 +68,11 @@
         }
     },
     "devDependencies": {
-        "@modelcontextprotocol/tsconfig": "workspace:^",
-        "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^",
         "@cfworker/json-schema": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
+        "@modelcontextprotocol/tsconfig": "workspace:^",
+        "@modelcontextprotocol/vitest-config": "workspace:^",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",

@@ -9,7 +9,9 @@
 
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 import {
+    CONTENT_LANGUAGE_META,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    getErrorContentLanguage,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -897,6 +899,28 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         return undefined;
     }
 
+    /**
+     * SEP-2792: Extracts Content-Language value from response message(s) _meta.
+     * Checks both successful results (_meta) and error responses (error.data._meta).
+     * Returns the first contentLanguage value found, or undefined.
+     */
+    private _extractContentLanguage(responses: JSONRPCMessage[]): string | undefined {
+        for (const msg of responses) {
+            if (isJSONRPCResultResponse(msg)) {
+                const meta = msg.result?._meta;
+                if (meta && typeof meta[CONTENT_LANGUAGE_META] === 'string') {
+                    return meta[CONTENT_LANGUAGE_META] as string;
+                }
+            } else if (isJSONRPCErrorResponse(msg)) {
+                const lang = getErrorContentLanguage(msg.error?.data);
+                if (lang) {
+                    return lang;
+                }
+            }
+        }
+        return undefined;
+    }
+
     async close(): Promise<void> {
         if (this._closed) {
             return;
@@ -1017,6 +1041,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     }
 
                     const responses = relatedIds.map(id => this._requestResponseMap.get(id)!);
+
+                    // SEP-2792: Mirror Content-Language from response _meta to HTTP header
+                    const contentLang = this._extractContentLanguage(responses);
+                    if (contentLang) {
+                        headers['content-language'] = contentLang;
+                    }
 
                     if (responses.length === 1) {
                         stream.resolveJson(Response.json(responses[0], { status: 200, headers }));
