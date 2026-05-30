@@ -1257,6 +1257,28 @@ describe('Zod v4', () => {
             mcpServer.registerTool('tool2', {}, () => ({ content: [] }));
         });
 
+        test('should list registered tools in deterministic name order', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('zeta', {}, () => ({ content: [] }));
+            mcpServer.registerTool('alpha', {}, () => ({ content: [] }));
+            mcpServer.registerTool('middle', {}, () => ({ content: [] }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' });
+
+            expect(result.tools.map(tool => tool.name)).toEqual(['alpha', 'middle', 'zeta']);
+        });
+
         /***
          * Test: Tool with Output Schema and Structured Content
          */

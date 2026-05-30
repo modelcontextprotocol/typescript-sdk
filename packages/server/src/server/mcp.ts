@@ -116,6 +116,8 @@ export class McpServer {
             (): ListToolsResult => ({
                 tools: Object.entries(this._registeredTools)
                     .filter(([, tool]) => tool.enabled)
+                    // eslint-disable-next-line unicorn/no-array-sort -- Object.entries() already gives us a fresh array.
+                    .sort(([left], [right]) => left.localeCompare(right))
                     .map(([name, tool]): Tool => {
                         const toolDefinition: Tool = {
                             name,
