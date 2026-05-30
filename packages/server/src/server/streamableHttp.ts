@@ -142,6 +142,19 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
     retryInterval?: number;
 
     /**
+     * Interval in milliseconds between SSE keepalive comment frames.
+     *
+     * When set, the transport periodically writes an SSE comment (`: keepalive`) on every
+     * open SSE stream (POST response streams and the standalone GET stream) so idle
+     * connections are not torn down by intermediaries — for example while a request handler
+     * is waiting on a nested server→client request such as `elicitation/create`
+     * (human-in-the-loop delays).
+     *
+     * Disabled by default.
+     */
+    keepAliveInterval?: number;
+
+    /**
      * List of protocol versions that this transport will accept.
      * Used to validate the `mcp-protocol-version` header in incoming requests.
      *
@@ -239,6 +252,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _allowedOrigins?: string[];
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
+    private _keepAliveInterval?: number;
     private _supportedProtocolVersions: string[];
 
     sessionId?: string;
@@ -256,6 +270,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._allowedOrigins = options.allowedOrigins;
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
+        this._keepAliveInterval = options.keepAliveInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
     }
 
@@ -461,11 +476,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             headers['mcp-session-id'] = this.sessionId;
         }
 
+        // Keepalive stops via cleanup(); after a client cancel it self-clears on the next write attempt.
+        const stopKeepAlive = this.startKeepAlive(streamController!, encoder);
+
         // Store the stream mapping with the controller for pushing data
         this._streamMapping.set(this._standaloneSseStreamId, {
             controller: streamController!,
             encoder,
             cleanup: () => {
+                stopKeepAlive?.();
                 this._streamMapping.delete(this._standaloneSseStreamId);
                 try {
                     streamController!.close();
@@ -544,10 +563,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
+            const stopKeepAlive = this.startKeepAlive(streamController!, encoder);
+
             this._streamMapping.set(replayedStreamId, {
                 controller: streamController!,
                 encoder,
                 cleanup: () => {
+                    stopKeepAlive?.();
                     this._streamMapping.delete(replayedStreamId);
                     try {
                         streamController!.close();
@@ -562,6 +584,28 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             this.onerror?.(error as Error);
             return this.createJsonErrorResponse(500, -32_000, 'Error replaying events');
         }
+    }
+
+    /**
+     * Starts the SSE keepalive timer for a stream, writing comment frames until stopped.
+     * Returns a stop function, or `undefined` when keepalive is not configured.
+     */
+    private startKeepAlive(
+        controller: ReadableStreamDefaultController<Uint8Array>,
+        encoder: InstanceType<typeof TextEncoder>
+    ): (() => void) | undefined {
+        if (this._keepAliveInterval === undefined) {
+            return undefined;
+        }
+        const timer = setInterval(() => {
+            try {
+                controller.enqueue(encoder.encode(': keepalive\n\n'));
+            } catch {
+                // Stream already closed or cancelled
+                clearInterval(timer);
+            }
+        }, this._keepAliveInterval);
+        return () => clearInterval(timer);
     }
 
     /**
@@ -769,6 +813,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 headers['mcp-session-id'] = this.sessionId;
             }
 
+            // Keepalive stops via cleanup(); after a client cancel it self-clears on the next write attempt.
+            const stopKeepAlive = this.startKeepAlive(streamController!, encoder);
+
             // Store the response for this request to send messages back through this connection
             // We need to track by request ID to maintain the connection
             for (const message of messages) {
@@ -777,6 +824,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         controller: streamController!,
                         encoder,
                         cleanup: () => {
+                            stopKeepAlive?.();
                             this._streamMapping.delete(streamId);
                             try {
                                 streamController!.close();
