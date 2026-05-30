@@ -210,7 +210,7 @@ export class ExperimentalClientTasks {
      * @experimental
      */
     async listTasks(cursor?: string, options?: RequestOptions): Promise<ListTasksResult> {
-        return this._module.listTasks(cursor ? { cursor } : undefined, options);
+        return this._module.listTasks(cursor === undefined ? undefined : { cursor }, options);
     }
 
     /**

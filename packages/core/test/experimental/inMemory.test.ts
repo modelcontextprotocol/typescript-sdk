@@ -628,6 +628,15 @@ describe('InMemoryTaskStore', () => {
             await expect(store.listTasks('non-existent-cursor')).rejects.toThrow('Invalid cursor: non-existent-cursor');
         });
 
+        it('should not treat an empty string cursor as an omitted cursor', async () => {
+            await store.createTask({}, 1, {
+                method: 'tools/call',
+                params: {}
+            });
+
+            await expect(store.listTasks('')).rejects.toThrow('Invalid cursor: ');
+        });
+
         it('should continue from cursor correctly', async () => {
             // Create 5 tasks
             for (let i = 1; i <= 5; i++) {

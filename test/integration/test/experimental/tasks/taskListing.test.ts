@@ -96,6 +96,20 @@ describe('Task Listing with Pagination', () => {
         });
     });
 
+    it('should not treat an empty string cursor as an omitted cursor', async () => {
+        await taskStore.createTask({}, 1, {
+            method: 'tools/call',
+            params: { name: 'test-tool' }
+        });
+
+        await expect(client.experimental.tasks.listTasks('')).rejects.toSatisfy((error: ProtocolError) => {
+            expect(error).toBeInstanceOf(ProtocolError);
+            expect(error.code).toBe(ProtocolErrorCode.InvalidParams);
+            expect(error.message).toContain('Invalid cursor');
+            return true;
+        });
+    });
+
     it('should ensure tasks accessible via tasks/get are also accessible via tasks/list', async () => {
         // Create a task
         const task = await taskStore.createTask({}, 1, {

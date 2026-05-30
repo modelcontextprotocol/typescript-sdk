@@ -197,7 +197,7 @@ export class InMemoryTaskStore implements TaskStore {
             .map(([taskId]) => taskId);
 
         let startIndex = 0;
-        if (cursor) {
+        if (cursor !== undefined) {
             const cursorIndex = filteredTaskIds.indexOf(cursor);
             if (cursorIndex === -1) {
                 // Invalid cursor - throw error
