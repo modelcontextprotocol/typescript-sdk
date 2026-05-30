@@ -70,6 +70,15 @@ export class McpServer {
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
+        if (options?.capabilities?.tools) {
+            this.setToolRequestHandlers();
+        }
+        if (options?.capabilities?.resources) {
+            this.setResourceRequestHandlers();
+        }
+        if (options?.capabilities?.prompts) {
+            this.setPromptRequestHandlers();
+        }
     }
 
     /**

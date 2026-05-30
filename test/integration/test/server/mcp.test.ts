@@ -1257,6 +1257,71 @@ describe('Zod v4', () => {
             mcpServer.registerTool('tool2', {}, () => ({ content: [] }));
         });
 
+        test('should list no tools when the tools capability is declared without registrations', async () => {
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                { capabilities: { tools: {} } }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'tools/list' });
+
+            expect(result.tools).toEqual([]);
+        });
+
+        test('should list no prompts when the prompts capability is declared without registrations', async () => {
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                { capabilities: { prompts: {} } }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({ method: 'prompts/list' });
+
+            expect(result.prompts).toEqual([]);
+        });
+
+        test('should list no resources when the resources capability is declared without registrations', async () => {
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                { capabilities: { resources: {} } }
+            );
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const resources = await client.request({ method: 'resources/list' });
+            const templates = await client.request({ method: 'resources/templates/list' });
+
+            expect(resources.resources).toEqual([]);
+            expect(templates.resourceTemplates).toEqual([]);
+        });
+
         /***
          * Test: Tool with Output Schema and Structured Content
          */
