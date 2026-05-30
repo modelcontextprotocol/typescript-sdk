@@ -759,6 +759,30 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
 
+    // Server-request association (SEP-2260)
+
+    'protocol:assoc:nested-on-originating-stream': {
+        source: 'https://modelcontextprotocol.io/seps/2260-Require-Server-requests-to-be-associated-with-Client-requests#specification-changes',
+        behavior:
+            "[SEP-2260] Server-to-client requests issued while handling a client request (such as roots/list, sampling/createMessage, or elicitation/create from a tool handler) are associated with that originating request — on streamable HTTP they ride that request's SSE response stream, not a separate channel.",
+        transports: ['streamableHttp'],
+        note: 'SHOULD-strength on the published 2025-11-25 spec (the transports page only recommends delivering requests on the originating stream); SEP-2260 is the citation for the association itself. The stream association is observable only on the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'protocol:assoc:keepalive-during-nested': {
+        source: 'https://modelcontextprotocol.io/seps/2260-Require-Server-requests-to-be-associated-with-Client-requests#timeout-considerations',
+        behavior:
+            '[SEP-2260] During a nested server→client wait (e.g. an elicitation pending inside tools/call) the server keeps the originating SSE response stream alive — keepalive frames are observed on that stream when the transport-level SSE keepalive is enabled — and the parent call does not fail.',
+        transports: ['streamableHttp'],
+        note: 'SHOULD-strength transport guidance (SEP Timeout Considerations); doubles as a regression guard against idle-stream drops during human-in-the-loop waits. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'protocol:assoc:ping-exempt': {
+        source: 'https://modelcontextprotocol.io/seps/2260-Require-Server-requests-to-be-associated-with-Client-requests#1-add-warning-blocks-to-feature-documentation',
+        behavior:
+            '[SEP-2260] ping is exempt from the request-association rule: either party MAY send ping at any time on an established connection — including the server with no client request in flight — and receives an empty result.',
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Server→client ping with nothing in flight needs a server→client channel; stateless hosting has none. Ping itself is removed in the 2026 draft, so this entry is 2025-lineage only.'
+    },
+
     // Sampling
 
     'sampling:capability:declare': {

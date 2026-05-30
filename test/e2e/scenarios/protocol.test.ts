@@ -1678,3 +1678,32 @@ verifies('protocol:transport-callbacks:wrappable-after-connect', async ({ transp
         await closingServer.close();
     }
 });
+
+verifies('protocol:assoc:ping-exempt', async ({ transport }: TestArgs) => {
+    let server!: McpServer;
+    const makeServer = () => {
+        server = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} } });
+        return server;
+    };
+    const logs: unknown[] = [];
+    const client = newClient();
+    client.setNotificationHandler('notifications/message', n => {
+        logs.push(n.params);
+    });
+
+    await using _ = await wire(transport, makeServer, client);
+
+    // Wait for the server→client channel to be up (on streamable HTTP the standalone GET
+    // stream opens asynchronously after connect); the probe notification is re-sent until seen.
+    await vi.waitFor(
+        async () => {
+            await server.server.sendLoggingMessage({ level: 'info', data: 'channel-probe' });
+            expect(logs.length).toBeGreaterThan(0);
+        },
+        { timeout: 5000, interval: 50 }
+    );
+
+    // No client request is in flight: ping is exempt from the request-association rule in both directions.
+    await expect(server.server.ping()).resolves.toEqual({});
+    await expect(client.ping()).resolves.toEqual({});
+});

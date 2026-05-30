@@ -1036,3 +1036,254 @@ verifies('hosting:http:send-no-listener-noop', async (_args: TestArgs) => {
         await close();
     }
 });
+
+// ─── Server-request association (SEP-2260) ──────────────────────────────────
+// These pin where the WebStandard server transport puts server→client requests:
+// nested requests ride the originating POST response stream, never the
+// standalone GET stream.
+
+verifies('protocol:assoc:nested-on-originating-stream', async (_args: TestArgs) => {
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('nested', { inputSchema: z.object({}) }, async (_a, ctx) => {
+            const elicited = await ctx.mcpReq.elicitInput({
+                mode: 'form',
+                message: 'Need input',
+                requestedSchema: { type: 'object', properties: { ok: { type: 'boolean' } } }
+            });
+            const sampled = await ctx.mcpReq.requestSampling({
+                messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }],
+                maxTokens: 5
+            });
+            const roots = await ctx.mcpReq.send({ method: 'roots/list' });
+            return { content: [{ type: 'text', text: `${elicited.action}|${sampled.model}|${roots.roots.length}` }] };
+        });
+        return s;
+    };
+    const { handleRequest, close } = hostPerSession(makeServer);
+
+    const base = {
+        'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream'
+    };
+
+    try {
+        const initRes = await handleRequest(
+            new Request('http://in-process/mcp', {
+                method: 'POST',
+                headers: base,
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'initialize',
+                    params: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: { elicitation: { form: {} }, sampling: {}, roots: {} },
+                        clientInfo: { name: 'probe', version: '0' }
+                    }
+                })
+            })
+        );
+        expect(initRes.status).toBe(200);
+        const sessionId = initRes.headers.get('mcp-session-id')!;
+        const sessionHeaders = { ...base, 'mcp-session-id': sessionId };
+
+        // A standalone GET stream is open as the alternative channel the nested requests must NOT use.
+        const sse = await handleRequest(
+            new Request('http://in-process/mcp', {
+                method: 'GET',
+                headers: { accept: 'text/event-stream', 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, 'mcp-session-id': sessionId }
+            })
+        );
+        expect(sse.status).toBe(200);
+        const getTap = sseTap(sse.body!);
+
+        const callRes = await handleRequest(
+            new Request('http://in-process/mcp', {
+                method: 'POST',
+                headers: sessionHeaders,
+                body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'nested', arguments: {} } })
+            })
+        );
+        expect(callRes.status).toBe(200);
+        expect(callRes.headers.get('content-type')).toMatch(/text\/event-stream/);
+        const postTap = sseTap(callRes.body!);
+
+        const answers: Record<string, unknown> = {
+            'elicitation/create': { action: 'accept', content: { ok: true } },
+            'sampling/createMessage': {
+                model: 'stub-model',
+                role: 'assistant',
+                content: { type: 'text', text: 'ok' },
+                stopReason: 'endTurn'
+            },
+            'roots/list': { roots: [] }
+        };
+        const answerServerRequest = async (msg: JSONRPCMessage) => {
+            if (!('method' in msg) || !('id' in msg) || msg.id === undefined) return;
+            const result = answers[msg.method];
+            if (result === undefined) return;
+            const res = await handleRequest(
+                new Request('http://in-process/mcp', {
+                    method: 'POST',
+                    headers: sessionHeaders,
+                    body: JSON.stringify({ jsonrpc: '2.0', id: msg.id, result })
+                })
+            );
+            expect(res.status).toBe(202);
+        };
+
+        const onPostStream: string[] = [];
+        const onGetStream: string[] = [];
+        let toolResponse: JSONRPCMessage | undefined;
+
+        try {
+            for (let i = 0; i < 100 && toolResponse === undefined; i++) {
+                for (const msg of await postTap.poll(50)) {
+                    if ('method' in msg && 'id' in msg) {
+                        onPostStream.push(msg.method);
+                        await answerServerRequest(msg);
+                    } else if ('id' in msg && msg.id === 2) {
+                        toolResponse = msg;
+                    }
+                }
+                for (const msg of await getTap.poll(10)) {
+                    if ('method' in msg && 'id' in msg) {
+                        onGetStream.push(msg.method);
+                        // Answer misrouted requests too, so the loop terminates deterministically either way.
+                        await answerServerRequest(msg);
+                    }
+                }
+            }
+
+            // All nested server→client requests rode the originating request's response stream...
+            expect(onPostStream).toEqual(['elicitation/create', 'sampling/createMessage', 'roots/list']);
+            // ...and none of them used the standalone GET stream.
+            expect(onGetStream).toEqual([]);
+            expect(toolResponse).toMatchObject({
+                jsonrpc: '2.0',
+                id: 2,
+                result: { content: [{ type: 'text', text: 'accept|stub-model|0' }] }
+            });
+        } finally {
+            await getTap.cancel();
+            await postTap.cancel();
+        }
+    } finally {
+        await close();
+    }
+});
+
+verifies('protocol:assoc:keepalive-during-nested', async (_args: TestArgs) => {
+    const server = new McpServer({ name: 's', version: '0' });
+    server.registerTool('ask', { inputSchema: z.object({}) }, async (_a, ctx) => {
+        const ans = await ctx.mcpReq.elicitInput({
+            mode: 'form',
+            message: 'Take your time',
+            requestedSchema: { type: 'object', properties: { ok: { type: 'boolean' } } }
+        });
+        return { content: [{ type: 'text', text: `done:${ans.action}` }] };
+    });
+    const tx = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID(), keepAliveInterval: 25 });
+    await server.connect(tx);
+    const handleRequest = (req: Request) => tx.handleRequest(req);
+
+    const base = {
+        'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+        'content-type': 'application/json',
+        accept: 'application/json, text/event-stream'
+    };
+
+    try {
+        const initRes = await handleRequest(
+            new Request('http://in-process/mcp', {
+                method: 'POST',
+                headers: base,
+                body: JSON.stringify({
+                    jsonrpc: '2.0',
+                    id: 1,
+                    method: 'initialize',
+                    params: {
+                        protocolVersion: LATEST_PROTOCOL_VERSION,
+                        capabilities: { elicitation: { form: {} } },
+                        clientInfo: { name: 'probe', version: '0' }
+                    }
+                })
+            })
+        );
+        expect(initRes.status).toBe(200);
+        const sessionId = initRes.headers.get('mcp-session-id')!;
+        const sessionHeaders = { ...base, 'mcp-session-id': sessionId };
+
+        const callRes = await handleRequest(
+            new Request('http://in-process/mcp', {
+                method: 'POST',
+                headers: sessionHeaders,
+                body: JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'ask', arguments: {} } })
+            })
+        );
+        expect(callRes.status).toBe(200);
+        expect(callRes.headers.get('content-type')).toMatch(/text\/event-stream/);
+
+        // Raw tap (keeps comment frames, which sseTap would discard).
+        const reader = callRes.body!.getReader();
+        const decoder = new TextDecoder();
+        let raw = '';
+        let pending: ReturnType<typeof reader.read> | null = null;
+        const pollRaw = async (timeoutMs: number): Promise<void> => {
+            pending ??= reader.read();
+            const result = await Promise.race([pending, new Promise<null>(resolve => setTimeout(resolve, timeoutMs, null))]);
+            if (result === null) return;
+            pending = null;
+            if (result.done || !result.value) return;
+            raw += decoder.decode(result.value, { stream: true });
+        };
+        const dataMessages = (): JSONRPCMessage[] =>
+            raw
+                .split('\n')
+                .filter(l => l.startsWith('data: '))
+                .map((l): JSONRPCMessage => JSON.parse(l.slice(6)));
+
+        try {
+            // Wait for the nested elicitation/create request to arrive on the originating response stream.
+            let elicitRequest: JSONRPCMessage | undefined;
+            for (let i = 0; i < 100 && elicitRequest === undefined; i++) {
+                await pollRaw(50);
+                elicitRequest = dataMessages().find(m => 'method' in m && m.method === 'elicitation/create' && 'id' in m);
+            }
+            expect(elicitRequest).toBeDefined();
+            if (!elicitRequest || !('id' in elicitRequest)) throw new Error('expected an elicitation/create request');
+
+            // While the handler is parked on the elicitation, keepalive comment frames keep the stream alive.
+            const sizeAtElicit = raw.length;
+            let sawKeepAlive = false;
+            for (let i = 0; i < 40 && !sawKeepAlive; i++) {
+                await pollRaw(50);
+                sawKeepAlive = /^: /m.test(raw.slice(sizeAtElicit));
+            }
+            expect(sawKeepAlive).toBe(true);
+
+            // Answer the elicitation; the parent tools/call completes normally on the same stream.
+            const answerRes = await handleRequest(
+                new Request('http://in-process/mcp', {
+                    method: 'POST',
+                    headers: sessionHeaders,
+                    body: JSON.stringify({ jsonrpc: '2.0', id: elicitRequest.id, result: { action: 'accept', content: { ok: true } } })
+                })
+            );
+            expect(answerRes.status).toBe(202);
+
+            let toolResponse: JSONRPCMessage | undefined;
+            for (let i = 0; i < 100 && toolResponse === undefined; i++) {
+                await pollRaw(50);
+                toolResponse = dataMessages().find(m => 'id' in m && m.id === 2 && !('method' in m));
+            }
+            expect(toolResponse).toMatchObject({ jsonrpc: '2.0', id: 2, result: { content: [{ type: 'text', text: 'done:accept' }] } });
+        } finally {
+            await reader.cancel();
+        }
+    } finally {
+        await server.close();
+    }
+});
