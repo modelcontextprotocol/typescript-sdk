@@ -658,6 +658,37 @@ describe('SSEClientTransport', () => {
             expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
         });
 
+        it('uses auth provider Authorization over requestInit Authorization', async () => {
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'fresh-token',
+                token_type: 'Bearer'
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider: mockAuthProvider,
+                requestInit: {
+                    headers: {
+                        Authorization: 'Bearer stale-token',
+                        'X-Custom-Header': 'custom-value'
+                    }
+                }
+            });
+
+            await transport.start();
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            expect(lastServerRequest.headers.authorization).toBe('Bearer fresh-token');
+            expect(lastServerRequest.headers['x-custom-header']).toBe('custom-value');
+        });
+
         it('refreshes expired token during SSE connection', async () => {
             // Mock tokens() to return expired token until saveTokens is called
             let currentTokens: OAuthTokens = {
