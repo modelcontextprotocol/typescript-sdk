@@ -1035,9 +1035,7 @@ function buildWellKnownPath(
     pathname: string = '',
     options: { prependPathname?: boolean } = {}
 ): string {
-    // Strip trailing slashes from pathname to avoid malformed discovery paths like
-    // "/foo//.well-known/oauth-authorization-server".
-    pathname = pathname.replace(/\/+$/, '');
+    pathname = normalizeDiscoveryPath(pathname);
 
     return options.prependPathname ? `${pathname}/.well-known/${wellKnownPrefix}` : `/.well-known/${wellKnownPrefix}${pathname}`;
 }
@@ -1057,8 +1055,13 @@ async function tryMetadataDiscovery(url: URL, protocolVersion: string, fetchFn: 
  */
 function shouldAttemptFallback(response: Response | undefined, pathname: string): boolean {
     if (!response) return true; // CORS error — always try fallback
-    if (pathname === '/') return false; // Already at root
+    if (pathname === '') return false; // Already at root
     return (response.status >= 400 && response.status < 500) || response.status === 502;
+}
+
+function normalizeDiscoveryPath(pathname: string): string {
+    const normalizedPathname = pathname.replace(/\/+$/, '');
+    return normalizedPathname === '/' ? '' : normalizedPathname;
 }
 
 /**
@@ -1072,6 +1075,7 @@ async function discoverMetadataWithFallback(
 ): Promise<Response | undefined> {
     const issuer = new URL(serverUrl);
     const protocolVersion = opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
+    const normalizedPathname = normalizeDiscoveryPath(issuer.pathname);
 
     let url: URL;
     if (opts?.metadataUrl) {
@@ -1086,7 +1090,7 @@ async function discoverMetadataWithFallback(
     let response = await tryMetadataDiscovery(url, protocolVersion, fetchFn);
 
     // If path-aware discovery fails (4xx or 502 Bad Gateway) and we're not already at root, try fallback to root discovery
-    if (!opts?.metadataUrl && shouldAttemptFallback(response, issuer.pathname)) {
+    if (!opts?.metadataUrl && shouldAttemptFallback(response, normalizedPathname)) {
         const rootUrl = new URL(`/.well-known/${wellKnownType}`, issuer);
         response = await tryMetadataDiscovery(rootUrl, protocolVersion, fetchFn);
     }
@@ -1150,7 +1154,8 @@ export async function discoverOAuthMetadata(
  */
 export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url: URL; type: 'oauth' | 'oidc' }[] {
     const url = typeof authorizationServerUrl === 'string' ? new URL(authorizationServerUrl) : authorizationServerUrl;
-    const hasPath = url.pathname !== '/';
+    const normalizedPathname = normalizeDiscoveryPath(url.pathname);
+    const hasPath = normalizedPathname !== '';
     const urlsToTry: { url: URL; type: 'oauth' | 'oidc' }[] = [];
 
     if (!hasPath) {
@@ -1173,7 +1178,7 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): { url:
     }
 
     // Strip trailing slashes from pathname to avoid malformed discovery paths.
-    let pathname = url.pathname.replace(/\/+$/, '');
+    const pathname = normalizedPathname;
 
     urlsToTry.push(
         // 1. OAuth metadata at the given URL
