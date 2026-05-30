@@ -574,12 +574,6 @@ export class StreamableHTTPClientTransport implements Transport {
                 return;
             }
 
-            const messages = Array.isArray(message) ? message : [message];
-            const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
-            if (hasRequests && this._standaloneSseReconnectError) {
-                throw new Error(`SSE stream reconnection failed: ${this._standaloneSseReconnectError.message}`);
-            }
-
             const headers = await this._commonHeaders();
             headers.set('content-type', 'application/json');
             const userAccept = headers.get('accept');
@@ -682,9 +676,15 @@ export class StreamableHTTPClientTransport implements Transport {
 
             this._lastUpscopingHeader = undefined;
 
+            const messages = Array.isArray(message) ? message : [message];
+            const hasRequests = messages.some(msg => 'method' in msg && 'id' in msg && msg.id !== undefined);
+
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {
                 await response.text?.().catch(() => {});
+                if (hasRequests && this._standaloneSseReconnectError) {
+                    throw new Error(`SSE stream reconnection failed: ${this._standaloneSseReconnectError.message}`);
+                }
                 // if the accepted notification is initialized, we start the SSE stream
                 // if it's supported by the server
                 if (isInitializedNotification(message)) {

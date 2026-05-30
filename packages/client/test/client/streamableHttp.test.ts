@@ -1812,7 +1812,7 @@ describe('StreamableHTTPClientTransport', () => {
             transport['_cancelReconnection']?.();
         });
 
-        it('should fail future requests after standalone SSE reconnect attempts are exhausted', async () => {
+        it('should fail 202 responses after standalone SSE reconnect attempts are exhausted', async () => {
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 reconnectionOptions: {
                     initialReconnectionDelay: 10,
@@ -1831,10 +1831,17 @@ describe('StreamableHTTPClientTransport', () => {
                 id: 'request-after-dead-sse'
             };
 
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers(),
+                text: vi.fn().mockResolvedValue('')
+            });
+
             await expect(transport.send(message)).rejects.toThrow(
                 'SSE stream reconnection failed: Maximum reconnection attempts (0) exceeded.'
             );
-            expect(globalThis.fetch).not.toHaveBeenCalled();
+            expect(globalThis.fetch).toHaveBeenCalledTimes(1);
         });
     });
 
