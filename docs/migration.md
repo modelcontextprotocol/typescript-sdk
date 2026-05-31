@@ -901,8 +901,8 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 
 The SDK now automatically selects the appropriate JSON Schema validator based on your runtime environment:
 
-- **Node.js**: Uses `AjvJsonSchemaValidator` (same as v1 default)
-- **Cloudflare Workers**: Uses `CfWorkerJsonSchemaValidator` (previously required manual configuration)
+- **Node.js**: Uses AJV (same as v1 default)
+- **Cloudflare Workers**: Uses `@cfworker/json-schema` (previously required manual configuration)
 
 This means Cloudflare Workers users no longer need to explicitly pass the validator:
 
@@ -933,16 +933,44 @@ const server = new McpServer(
 );
 ```
 
-You can still explicitly override the validator if needed:
+You do not need to install or import validator packages for the default behavior. The client and server packages bundle the validator backend selected by the runtime shim, so a normal `import { McpServer } from '@modelcontextprotocol/server'` does not pull `ajv` or `@cfworker/json-schema` into your bundle until you choose to customize.
+
+If you want to customize the **built-in** backend (for example, pre-register schemas by `$id`, register custom AJV formats, or change the `@cfworker/json-schema` draft), import the named class from the explicit subpath and pass an instance through `jsonSchemaValidator`:
 
 ```typescript
-// Runtime-aware default (auto-selects AjvJsonSchemaValidator or CfWorkerJsonSchemaValidator)
-import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
+import { Ajv } from 'ajv';
+import addFormats from 'ajv-formats';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 
-// Specific validators
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
-import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
+const ajv = new Ajv({ strict: true, allErrors: true });
+addFormats(ajv);
+
+const server = new McpServer(
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {} },
+        jsonSchemaValidator: new AjvJsonSchemaValidator(ajv)
+    }
+);
 ```
+
+```typescript
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
+
+const server = new McpServer(
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {} },
+        jsonSchemaValidator: new CfWorkerJsonSchemaValidator({ draft: '2020-12', shortcircuit: false })
+    }
+);
+```
+
+(both subpaths are also available on `@modelcontextprotocol/client/validators/...`)
+
+If you import from one of these subpaths in your own code, the corresponding peer dep (`ajv` + `ajv-formats`, or `@cfworker/json-schema`) needs to be installed in your `package.json`. The runtime shim continues to vendor a copy for the default code path, so you can use the subpath in some files and rely on the default in others.
+
+To replace validation wholesale rather than customizing the built-in classes, implement the `jsonSchemaValidator` interface and pass your own implementation through the option above.
 
 ## Unchanged APIs
 

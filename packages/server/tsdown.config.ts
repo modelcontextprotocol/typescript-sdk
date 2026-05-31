@@ -2,39 +2,34 @@ import { defineConfig } from 'tsdown';
 
 export default defineConfig({
     failOnWarn: 'ci-only',
-    // 1. Entry Points
-    //    Directly matches package.json include/exclude globs
-    entry: ['src/index.ts', 'src/stdio.ts', 'src/shimsNode.ts', 'src/shimsWorkerd.ts', 'src/validators/cfWorker.ts'],
-
-    // 2. Output Configuration
+    entry: [
+        'src/index.ts',
+        'src/stdio.ts',
+        'src/shimsNode.ts',
+        'src/shimsWorkerd.ts',
+        'src/validators/ajv.ts',
+        'src/validators/cfWorker.ts'
+    ],
     format: ['esm'],
     outDir: 'dist',
-    clean: true, // Recommended: Cleans 'dist' before building
+    clean: true,
     sourcemap: true,
-
-    // 3. Platform & Target
     target: 'esnext',
     platform: 'node',
-    shims: true, // Polyfills common Node.js shims (__dirname, etc.)
-
-    // 4. Type Definitions
-    //    Bundles d.ts files into a single output
+    shims: true,
     dts: {
         resolver: 'tsc',
-        // override just for DTS generation:
+        resolve: ['ajv', 'ajv-formats'],
         compilerOptions: {
             baseUrl: '.',
             paths: {
                 '@modelcontextprotocol/core': ['../core/src/index.ts'],
                 '@modelcontextprotocol/core/public': ['../core/src/exports/public/index.ts'],
+                '@modelcontextprotocol/core/validators/ajv': ['../core/src/validators/ajvProvider.ts'],
                 '@modelcontextprotocol/core/validators/cfWorker': ['../core/src/validators/cfWorkerProvider.ts']
             }
         }
     },
-    // 5. Vendoring Strategy - Bundle the code for this specific package into the output,
-    //    but treat all other dependencies as external (require/import).
-    noExternal: ['@modelcontextprotocol/core'],
-
-    // 6. External packages - keep self-reference imports external for runtime resolution
+    noExternal: ['@modelcontextprotocol/core', 'ajv', 'ajv-formats', '@cfworker/json-schema'],
     external: ['@modelcontextprotocol/server/_shims']
 });

@@ -315,4 +315,51 @@ describe('mock-paths transform', () => {
             expect(result).toContain('new MyError(');
         });
     });
+
+    describe('validator subpath rewrites', () => {
+        it('rewrites vi.mock of validator provider to the subpath', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/validation/cfworker-provider.js', () => ({`,
+                `    CfWorkerJsonSchemaValidator: vi.fn()`,
+                `}));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/server/validators/cf-worker'`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
+
+        it('rewrites vi.doMock of ajv provider with sibling client import', () => {
+            const input = [
+                `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+                `vi.doMock('@modelcontextprotocol/sdk/validation/ajv-provider.js', () => ({`,
+                `    AjvJsonSchemaValidator: vi.fn()`,
+                `}));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input, { projectType: 'both' });
+            expect(result).toContain(`'@modelcontextprotocol/client/validators/ajv'`);
+        });
+
+        it('rewrites dynamic import of validator provider to the subpath', () => {
+            const input = [
+                `const { AjvJsonSchemaValidator } = await import('@modelcontextprotocol/sdk/validation/ajv-provider.js');`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/server/validators/ajv'`);
+            expect(result).toContain('AjvJsonSchemaValidator');
+        });
+
+        it('rewrites jest.mock of validator short alias to the subpath', () => {
+            const input = [
+                `jest.mock('@modelcontextprotocol/sdk/validation/cfworker', () => ({`,
+                `    CfWorkerJsonSchemaValidator: jest.fn()`,
+                `}));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/server/validators/cf-worker'`);
+        });
+    });
 });

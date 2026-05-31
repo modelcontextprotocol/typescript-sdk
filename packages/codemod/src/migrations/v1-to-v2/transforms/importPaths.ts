@@ -102,6 +102,9 @@ export const importPathsTransform: Transform = {
                     line,
                     diagnostics
                 });
+                if (mapping.subpathSuffix) {
+                    targetPackage = `${targetPackage}${mapping.subpathSuffix}`;
+                }
             }
 
             const symbolsToRenameInFile: Array<[string, string]> = [];
@@ -250,6 +253,9 @@ function rewriteExportDeclarations(
                 return spec.includes('/server/') || spec === '@modelcontextprotocol/server';
             });
             targetPackage = resolveTypesPackage(context, hasClientImport, hasServerImport);
+            if (mapping.subpathSuffix) {
+                targetPackage = `${targetPackage}${mapping.subpathSuffix}`;
+            }
         }
 
         if (mapping.symbolTargetOverrides) {

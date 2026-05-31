@@ -64,6 +64,9 @@ function resolveTarget(
             return s.includes('/server/') || s === '@modelcontextprotocol/server';
         });
         target = resolveTypesPackage(context, hasClient, hasServer, diagnosticSink);
+        if (mapping.subpathSuffix) {
+            target = `${target}${mapping.subpathSuffix}`;
+        }
     }
 
     return { target, renamedSymbols: mapping.renamedSymbols, symbolTargetOverrides: mapping.symbolTargetOverrides };

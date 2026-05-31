@@ -1,0 +1,31 @@
+{
+    "extends": "@modelcontextprotocol/tsconfig",
+    "include": ["./"],
+    "exclude": ["node_modules", "dist"],
+    "compilerOptions": {
+        "paths": {
+            "*": ["./*"],
+            "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/index.ts"],
+            "@modelcontextprotocol/core/public": ["./node_modules/@modelcontextprotocol/core/src/exports/public/index.ts"],
+            "@modelcontextprotocol/core/validators/cfWorker": [
+                "./node_modules/@modelcontextprotocol/core/src/validators/cfWorkerProvider.ts"
+            ],
+            "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
+            "@modelcontextprotocol/client/stdio": ["./node_modules/@modelcontextprotocol/client/src/stdio.ts"],
+            "@modelcontextprotocol/client/_shims": ["./node_modules/@modelcontextprotocol/client/src/shimsNode.ts"],
+            "@modelcontextprotocol/client/validators/ajv": ["./node_modules/@modelcontextprotocol/client/src/validators/ajv.ts"],
+            "@modelcontextprotocol/client/validators/cf-worker": ["./node_modules/@modelcontextprotocol/client/src/validators/cfWorker.ts"],
+            "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
+            "@modelcontextprotocol/server/stdio": ["./node_modules/@modelcontextprotocol/server/src/stdio.ts"],
+            "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],
+            "@modelcontextprotocol/server/validators/ajv": ["./node_modules/@modelcontextprotocol/server/src/validators/ajv.ts"],
+            "@modelcontextprotocol/server/validators/cf-worker": ["./node_modules/@modelcontextprotocol/server/src/validators/cfWorker.ts"],
+            "@modelcontextprotocol/express": ["./node_modules/@modelcontextprotocol/express/src/index.ts"],
+            "@modelcontextprotocol/fastify": ["./node_modules/@modelcontextprotocol/fastify/src/index.ts"],
+            "@modelcontextprotocol/hono": ["./node_modules/@modelcontextprotocol/hono/src/index.ts"],
+            "@modelcontextprotocol/node": ["./node_modules/@modelcontextprotocol/node/src/index.ts"],
+            "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"],
+            "@modelcontextprotocol/test-helpers": ["./node_modules/@modelcontextprotocol/test-helpers/src/index.ts"]
+        }
+    }
+}
