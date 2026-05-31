@@ -1189,26 +1189,21 @@ describe('Zod v4', () => {
 
             await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
 
-            const result = await client.request({
-                method: 'tools/call',
-                params: {
-                    name: 'test',
-                    arguments: {
+            await expect(
+                client.request({
+                    method: 'tools/call',
+                    params: {
                         name: 'test',
-                        value: 'not a number'
+                        arguments: {
+                            name: 'test',
+                            value: 'not a number'
+                        }
                     }
-                }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('Input validation error: Invalid arguments for tool test')
             });
-
-            expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
-                    {
-                        type: 'text',
-                        text: expect.stringContaining('Input validation error: Invalid arguments for tool test')
-                    }
-                ])
-            );
         });
 
         /***
@@ -4986,23 +4981,18 @@ describe('Zod v4', () => {
             await server.connect(serverTransport);
             await client.connect(clientTransport);
 
-            const invalidTypeResult = await client.callTool({
-                name: 'union-test',
-                arguments: {
-                    type: 'a',
-                    value: 123
-                }
+            await expect(
+                client.callTool({
+                    name: 'union-test',
+                    arguments: {
+                        type: 'a',
+                        value: 123
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('Input validation error')
             });
-
-            expect(invalidTypeResult.isError).toBe(true);
-            expect(invalidTypeResult.content).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        type: 'text',
-                        text: expect.stringContaining('Input validation error')
-                    })
-                ])
-            );
         });
     });
 
@@ -6244,41 +6234,31 @@ describe('Zod v4', () => {
             await server.connect(serverTransport);
             await client.connect(clientTransport);
 
-            const invalidTypeResult = await client.callTool({
-                name: 'union-test',
-                arguments: {
-                    type: 'a',
-                    value: 123
-                }
+            await expect(
+                client.callTool({
+                    name: 'union-test',
+                    arguments: {
+                        type: 'a',
+                        value: 123
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('Input validation error')
             });
 
-            expect(invalidTypeResult.isError).toBe(true);
-            expect(invalidTypeResult.content).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        type: 'text',
-                        text: expect.stringContaining('Input validation error')
-                    })
-                ])
-            );
-
-            const invalidDiscriminatorResult = await client.callTool({
-                name: 'union-test',
-                arguments: {
-                    type: 'c',
-                    value: 'test'
-                }
+            await expect(
+                client.callTool({
+                    name: 'union-test',
+                    arguments: {
+                        type: 'c',
+                        value: 'test'
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('Input validation error')
             });
-
-            expect(invalidDiscriminatorResult.isError).toBe(true);
-            expect(invalidDiscriminatorResult.content).toEqual(
-                expect.arrayContaining([
-                    expect.objectContaining({
-                        type: 'text',
-                        text: expect.stringContaining('Input validation error')
-                    })
-                ])
-            );
         });
     });
 

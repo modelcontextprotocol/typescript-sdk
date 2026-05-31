@@ -1064,14 +1064,16 @@ verifies('mcpserver:tool:input-validation', async ({ transport }: TestArgs) => {
     expect(ok.isError).toBeFalsy();
     expect(handlerCalls.n).toBe(1);
 
-    const wrongType = await client.callTool({ name: 'typed', arguments: { prompt: 123 } });
-    expect(wrongType.isError).toBe(true);
-    expect(wrongType.content).toEqual([{ type: 'text', text: expect.stringMatching(/invalid|validation/i) }]);
+    await expect(client.callTool({ name: 'typed', arguments: { prompt: 123 } })).rejects.toMatchObject({
+        code: ProtocolErrorCode.InvalidParams,
+        message: expect.stringMatching(/invalid|validation/i)
+    });
     expect(handlerCalls.n).toBe(1);
 
-    const missing = await client.callTool({ name: 'typed', arguments: {} });
-    expect(missing.isError).toBe(true);
-    expect(missing.content).toEqual([{ type: 'text', text: expect.stringMatching(/invalid|validation|required/i) }]);
+    await expect(client.callTool({ name: 'typed', arguments: {} })).rejects.toMatchObject({
+        code: ProtocolErrorCode.InvalidParams,
+        message: expect.stringMatching(/invalid|validation|required/i)
+    });
     expect(handlerCalls.n).toBe(1);
 });
 
@@ -1200,14 +1202,18 @@ verifies('typescript:mcpserver:tool:schema-variants', async ({ transport }: Test
     expect(coerced.content).toEqual([{ type: 'text', text: 'coerced:7' }]);
 
     // Rejections — proves parse() actually runs for each shape.
-    const unionRejected = await client.callTool({ name: 'zod-union', arguments: { kind: 'a', a: 123 } });
-    expect(unionRejected.isError).toBe(true);
-    const intersectionRejected = await client.callTool({ name: 'zod-intersection', arguments: { left: 'L' } });
-    expect(intersectionRejected.isError).toBe(true);
-    const nestedRejected = await client.callTool({ name: 'zod-nested', arguments: { outer: { inner: { value: 'x' } } } });
-    expect(nestedRejected.isError).toBe(true);
-    const coerceRejected = await client.callTool({ name: 'zod-coerce', arguments: { n: '-3' } });
-    expect(coerceRejected.isError).toBe(true);
+    await expect(client.callTool({ name: 'zod-union', arguments: { kind: 'a', a: 123 } })).rejects.toMatchObject({
+        code: ProtocolErrorCode.InvalidParams
+    });
+    await expect(client.callTool({ name: 'zod-intersection', arguments: { left: 'L' } })).rejects.toMatchObject({
+        code: ProtocolErrorCode.InvalidParams
+    });
+    await expect(client.callTool({ name: 'zod-nested', arguments: { outer: { inner: { value: 'x' } } } })).rejects.toMatchObject({
+        code: ProtocolErrorCode.InvalidParams
+    });
+    await expect(client.callTool({ name: 'zod-coerce', arguments: { n: '-3' } })).rejects.toMatchObject({
+        code: ProtocolErrorCode.InvalidParams
+    });
 });
 
 verifies('typescript:mcpserver:tool:extra', async ({ transport }: TestArgs) => {
