@@ -34,6 +34,28 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
         expect(init.headers.get('Authorization')).toBe('Bearer my-bearer-token');
     });
 
+    it('should let AuthProvider.token() override configured Authorization headers', async () => {
+        const authProvider: AuthProvider = { token: vi.fn(async () => 'fresh-token') };
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            authProvider,
+            requestInit: {
+                headers: {
+                    Authorization: 'Bearer stale-token',
+                    'X-Custom-Header': 'custom-value'
+                }
+            }
+        });
+        vi.spyOn(globalThis, 'fetch');
+
+        (globalThis.fetch as Mock).mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+
+        await transport.send(message);
+
+        const [, init] = (globalThis.fetch as Mock).mock.calls[0]!;
+        expect(init.headers.get('Authorization')).toBe('Bearer fresh-token');
+        expect(init.headers.get('X-Custom-Header')).toBe('custom-value');
+    });
+
     it('should not set Authorization header when token() returns undefined', async () => {
         const authProvider: AuthProvider = { token: vi.fn(async () => undefined) };
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
