@@ -2,7 +2,7 @@ import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core'
 import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import type { Mock, Mocked } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
@@ -571,6 +571,36 @@ describe('StreamableHTTPClientTransport', () => {
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('SecondCustomValue');
 
         expect(globalThis.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should let auth provider headers override custom Authorization headers', async () => {
+        const authProvider: AuthProvider = {
+            token: async () => 'fresh-token'
+        };
+
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            authProvider,
+            requestInit: {
+                headers: {
+                    Authorization: 'Bearer stale-token',
+                    'X-Custom-Header': 'CustomValue'
+                }
+            }
+        });
+
+        let actualReqInit: RequestInit = {};
+
+        (globalThis.fetch as Mock).mockImplementation(async (_url, reqInit) => {
+            actualReqInit = reqInit;
+            return new Response(null, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+        });
+
+        await transport.start();
+
+        await transport['_startOrAuthSse']({});
+
+        expect((actualReqInit.headers as Headers).get('authorization')).toBe('Bearer fresh-token');
+        expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
     });
 
     it('should always send specified custom headers (Headers class)', async () => {
