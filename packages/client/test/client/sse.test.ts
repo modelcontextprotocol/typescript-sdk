@@ -344,6 +344,44 @@ describe('SSEClientTransport', () => {
             }
         });
 
+        it('lets auth provider headers override custom Authorization headers', async () => {
+            const authProvider: AuthProvider = {
+                token: async () => 'fresh-token'
+            };
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                authProvider,
+                requestInit: {
+                    headers: {
+                        Authorization: 'Bearer stale-token',
+                        'X-Custom-Header': 'custom-value'
+                    }
+                }
+            });
+
+            await transport.start();
+
+            const originalFetch = globalThis.fetch;
+            try {
+                globalThis.fetch = vi.fn().mockResolvedValue({ ok: true });
+
+                const message: JSONRPCMessage = {
+                    jsonrpc: '2.0',
+                    id: '1',
+                    method: 'test',
+                    params: {}
+                };
+
+                await transport.send(message);
+
+                const calledHeaders = (globalThis.fetch as Mock).mock.calls[0]![1].headers;
+                expect(calledHeaders.get('Authorization')).toBe('Bearer fresh-token');
+                expect(calledHeaders.get('X-Custom-Header')).toBe('custom-value');
+            } finally {
+                globalThis.fetch = originalFetch;
+            }
+        });
+
         it('passes custom headers to fetch requests (Headers class)', async () => {
             const customHeaders = new Headers({
                 Authorization: 'Bearer test-token',
