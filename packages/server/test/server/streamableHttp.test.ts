@@ -560,7 +560,8 @@ describe('Zod v4', () => {
             });
         });
 
-        it('delivers related server→client requests on the standalone GET stream', async () => {
+        it('rejects server-to-client requests when the response stream cannot carry SSE', async () => {
+            // Case 1: JSON response mode — the originating POST's response is JSON and cannot carry SSE
             let releaseTool!: () => void;
             const toolBlocked = new Promise<void>(resolve => {
                 releaseTool = resolve;
@@ -578,22 +579,6 @@ describe('Zod v4', () => {
 
             sessionId = await initializeServer();
 
-            // Open the standalone GET stream
-            const getResponse = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
-            expect(getResponse.status).toBe(200);
-            const received: string[] = [];
-            const decoder = new TextDecoder();
-            const reader = getResponse.body!.getReader();
-            void (async () => {
-                for (;;) {
-                    const { done, value } = await reader.read();
-                    if (done) {
-                        break;
-                    }
-                    received.push(decoder.decode(value, { stream: true }));
-                }
-            })();
-
             // Hold a tools/call in flight; its JSON-mode response stream cannot carry SSE
             const toolCall: JSONRPCMessage = {
                 jsonrpc: '2.0',
@@ -604,24 +589,72 @@ describe('Zod v4', () => {
             const toolCallPromise = transport.handleRequest(createRequest('POST', toolCall, { sessionId }));
             await toolStarted;
 
-            // A server→client request related to the in-flight call is delivered on the GET stream
             const elicitRequest: JSONRPCMessage = {
                 jsonrpc: '2.0',
                 method: 'elicitation/create',
                 params: { mode: 'form', message: 'Need input', requestedSchema: { type: 'object', properties: {} } },
                 id: 'elicit-1'
             };
-            await transport.send(elicitRequest, { relatedRequestId: 'call-block' });
-
-            await vi.waitFor(() => {
-                expect(received.join('')).toContain('"method":"elicitation/create"');
-            });
+            await expect(transport.send(elicitRequest, { relatedRequestId: 'call-block' })).rejects.toThrow(
+                "Cannot deliver server-to-client request (elicitation/create): the originating request's response cannot carry SSE (JSON response mode)"
+            );
 
             // The tool call still completes as JSON
             releaseTool();
             const toolResponse = await toolCallPromise;
             expect(toolResponse.status).toBe(200);
             expect(toolResponse.headers.get('content-type')).toBe('application/json');
+
+            // Case 2: SSE mode, but the originating request's response stream has closed (client disconnected)
+            let releaseSseTool!: () => void;
+            const sseToolBlocked = new Promise<void>(resolve => {
+                releaseSseTool = resolve;
+            });
+            let signalSseToolStarted!: () => void;
+            const sseToolStarted = new Promise<void>(resolve => {
+                signalSseToolStarted = resolve;
+            });
+
+            const sseServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+            sseServer.registerTool('block', { description: 'Blocks until released', inputSchema: z.object({}) }, async () => {
+                signalSseToolStarted();
+                await sseToolBlocked;
+                return { content: [{ type: 'text', text: 'released' }] };
+            });
+            const sseTransport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID()
+            });
+            await sseServer.connect(sseTransport);
+
+            const initResponse = await sseTransport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            expect(initResponse.status).toBe(200);
+            const sseSessionId = initResponse.headers.get('mcp-session-id') as string;
+
+            const sseToolCall: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'block', arguments: {} },
+                id: 'call-block-sse'
+            };
+            const sseToolResponse = await sseTransport.handleRequest(createRequest('POST', sseToolCall, { sessionId: sseSessionId }));
+            expect(sseToolResponse.status).toBe(200);
+            await sseToolStarted;
+
+            // The client disconnects from the originating request's response stream
+            await sseToolResponse.body!.cancel();
+
+            const sseElicitRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'elicitation/create',
+                params: { mode: 'form', message: 'Need input', requestedSchema: { type: 'object', properties: {} } },
+                id: 'elicit-2'
+            };
+            await expect(sseTransport.send(sseElicitRequest, { relatedRequestId: 'call-block-sse' })).rejects.toThrow(
+                "Cannot deliver server-to-client request (elicitation/create): the originating request's response cannot carry SSE (response stream closed)"
+            );
+
+            releaseSseTool();
+            await sseTransport.close();
         });
     });
 

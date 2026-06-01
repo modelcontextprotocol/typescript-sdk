@@ -1035,19 +1035,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         const stream = this._streamMapping.get(streamId);
 
-        // Server→client requests related to a response stream that cannot carry SSE
-        // (JSON-response mode, or the stream is gone) are delivered on the standalone
-        // SSE stream instead — the same routing they have without a relatedRequestId.
+        // Server→client requests must ride the originating request's response stream (SEP-2260).
+        // When that stream cannot carry SSE — JSON-response mode, or the stream is gone — fail fast
+        // instead of delivering the request unassociated. The standalone GET stream is not a valid
+        // fallback: clients are not required to open one.
         if (isJSONRPCRequest(message) && (this._enableJsonResponse || !stream?.controller)) {
-            let eventId: string | undefined;
-            if (this._eventStore) {
-                eventId = await this._eventStore.storeEvent(this._standaloneSseStreamId, message);
-            }
-            const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
-            if (standaloneSse?.controller && standaloneSse.encoder) {
-                this.writeSSEEvent(standaloneSse.controller, standaloneSse.encoder, message, eventId);
-            }
-            return;
+            throw new Error(
+                `Cannot deliver server-to-client request (${message.method}): the originating request's response cannot carry SSE ` +
+                    (this._enableJsonResponse ? '(JSON response mode)' : '(response stream closed)')
+            );
         }
 
         if (!this._enableJsonResponse && stream?.controller && stream?.encoder) {
