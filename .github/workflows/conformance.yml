@@ -5,9 +5,9 @@ name: Conformance Tests
 # adopted by deliberately bumping that pin (+ pnpm-lock.yaml). This workflow
 # stays as-is across bumps.
 #
-# Both jobs are still continue-on-error: true (advisory). Recommended next
-# step once the expected-failures baseline has proven stable: remove
-# continue-on-error so unexpected failures and stale baseline entries block.
+# Both jobs are gating: the expected-failures baseline determines pass/fail.
+# A scenario failing outside the baseline, or a stale baseline entry (scenario
+# now passing but still listed), fails the job.
 
 on:
     push:
@@ -25,7 +25,6 @@ permissions:
 jobs:
     client-conformance:
         runs-on: ubuntu-latest
-        continue-on-error: true
         steps:
             - uses: actions/checkout@v6
             - name: Install pnpm
@@ -47,7 +46,6 @@ jobs:
 
     server-conformance:
         runs-on: ubuntu-latest
-        continue-on-error: true
         steps:
             - uses: actions/checkout@v6
             - name: Install pnpm
