@@ -38,11 +38,7 @@ jobs:
                   cache-dependency-path: pnpm-lock.yaml
             - run: pnpm install
             - run: pnpm run build:all
-            # --suite all already includes the draft-spec client scenarios
-            # (SEP-2575, SEP-2322, SEP-2243, SEP-2106, draft auth); known gaps
-            # are listed in test/conformance/expected-failures.yaml.
-            - name: Run client conformance (all suites, incl. draft)
-              run: pnpm run test:conformance:client:all
+            - run: pnpm run test:conformance:client:all
 
     server-conformance:
         runs-on: ubuntu-latest
@@ -59,11 +55,5 @@ jobs:
                   cache-dependency-path: pnpm-lock.yaml
             - run: pnpm install
             - run: pnpm run build:all
-            # Dated-spec (active) suite: expected to stay fully green.
-            - name: Run server conformance (active suite)
-              run: pnpm run test:conformance:server
-            # Draft-spec suite (SEP-2575 stateless, SEP-2322 MRTR, SEP-2549,
-            # SEP-2243): known gaps are listed in expected-failures.yaml and
-            # must be removed from the baseline as each milestone lands.
-            - name: Run server conformance (draft suite)
-              run: pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:draft
+            - run: pnpm run test:conformance:server
+            - run: pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:draft
