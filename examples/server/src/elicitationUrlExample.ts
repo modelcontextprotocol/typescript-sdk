@@ -10,11 +10,10 @@
 import { randomUUID } from 'node:crypto';
 
 import { createProtectedResourceMetadataRouter, demoTokenVerifier, setupAuthServer } from '@modelcontextprotocol/examples-shared';
-import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ElicitRequestURLParams, ElicitResult } from '@modelcontextprotocol/server';
 import { isInitializeRequest, McpServer, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
-import { getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/server-legacy/auth';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';

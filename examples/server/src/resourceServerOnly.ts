@@ -11,12 +11,16 @@
  *        curl -H 'Authorization: Bearer demo-token' -X POST http://localhost:3000/mcp ...
  */
 
-import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import type { OAuthTokenVerifier } from '@modelcontextprotocol/express';
+import {
+    createMcpExpressApp,
+    getOAuthProtectedResourceMetadataUrl,
+    mcpAuthMetadataRouter,
+    requireBearerAuth
+} from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { AuthInfo, CallToolResult, OAuthMetadata } from '@modelcontextprotocol/server';
 import { McpServer, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
-import type { OAuthTokenVerifier } from '@modelcontextprotocol/server-legacy/auth';
-import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/server-legacy/auth';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 

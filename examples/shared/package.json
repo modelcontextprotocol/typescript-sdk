@@ -34,7 +34,6 @@
     "dependencies": {
         "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
-        "@modelcontextprotocol/server-legacy": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "better-auth": "^1.4.17",
         "better-sqlite3": "^12.6.2",

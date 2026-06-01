@@ -360,9 +360,6 @@ importers:
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
-      '@modelcontextprotocol/server-legacy':
-        specifier: workspace:^
-        version: link:../../packages/server-legacy
       '@valibot/to-json-schema':
         specifier: catalog:devTools
         version: 1.6.0(valibot@1.3.1(typescript@5.9.3))
@@ -434,9 +431,6 @@ importers:
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
-      '@modelcontextprotocol/server-legacy':
-        specifier: workspace:^
-        version: link:../../packages/server-legacy
       better-auth:
         specifier: ^1.4.17
         version: 1.5.6(@opentelemetry/api@1.9.1)(better-sqlite3@12.8.0)(vitest@4.1.2(@opentelemetry/api@1.9.1)(@types/node@25.5.0)(vite@7.3.0(@types/node@25.5.0)(tsx@4.21.0)(yaml@2.8.3)))
@@ -720,6 +714,9 @@ importers:
 
   packages/middleware/express:
     dependencies:
+      cors:
+        specifier: catalog:runtimeServerOnly
+        version: 2.8.6
       express:
         specifier: ^4.18.0 || ^5.0.0
         version: 5.2.1
@@ -739,12 +736,18 @@ importers:
       '@modelcontextprotocol/vitest-config':
         specifier: workspace:^
         version: link:../../../common/vitest-config
+      '@types/cors':
+        specifier: catalog:devTools
+        version: 2.8.19
       '@types/express':
         specifier: catalog:devTools
         version: 5.0.6
       '@types/express-serve-static-core':
         specifier: catalog:devTools
         version: 5.1.1
+      '@types/supertest':
+        specifier: catalog:devTools
+        version: 6.0.3
       '@typescript/native-preview':
         specifier: catalog:devTools
         version: 7.0.0-dev.20260327.2
@@ -760,6 +763,9 @@ importers:
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
+      supertest:
+        specifier: catalog:devTools
+        version: 7.2.2
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
@@ -1158,9 +1164,6 @@ importers:
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
-      '@modelcontextprotocol/server-legacy':
-        specifier: workspace:^
-        version: link:../../packages/server-legacy
       '@modelcontextprotocol/test-helpers':
         specifier: workspace:^
         version: link:../helpers
