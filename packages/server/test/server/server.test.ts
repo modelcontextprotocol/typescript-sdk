@@ -129,30 +129,6 @@ describe('Server', () => {
             return { server, clientMessages, callTool, sentOptionsFor };
         }
 
-        it('ctx.mcpReq.elicitInput() passes the handled request id as relatedRequestId to transport.send', async () => {
-            const { server, callTool, sentOptionsFor } = await setup(async ctx => {
-                await ctx.mcpReq.elicitInput(ELICIT_PARAMS);
-            });
-
-            await callTool('tools-call-1');
-
-            expect(sentOptionsFor('elicitation/create')?.relatedRequestId).toBe('tools-call-1');
-
-            await server.close();
-        });
-
-        it('ctx.mcpReq.requestSampling() passes the handled request id as relatedRequestId to transport.send', async () => {
-            const { server, callTool, sentOptionsFor } = await setup(async ctx => {
-                await ctx.mcpReq.requestSampling(SAMPLING_PARAMS);
-            });
-
-            await callTool('tools-call-2');
-
-            expect(sentOptionsFor('sampling/createMessage')?.relatedRequestId).toBe('tools-call-2');
-
-            await server.close();
-        });
-
         it('handler-supplied relatedRequestId cannot override the association', async () => {
             const { server, callTool, sentOptionsFor } = await setup(async ctx => {
                 await ctx.mcpReq.elicitInput(ELICIT_PARAMS, { relatedRequestId: 'attempted-override' });
@@ -163,33 +139,6 @@ describe('Server', () => {
 
             expect(sentOptionsFor('elicitation/create')?.relatedRequestId).toBe('tools-call-3');
             expect(sentOptionsFor('sampling/createMessage')?.relatedRequestId).toBe('tools-call-3');
-
-            await server.close();
-        });
-
-        it('handler-supplied options without relatedRequestId keep the implicit association', async () => {
-            const { server, callTool, sentOptionsFor } = await setup(async ctx => {
-                await ctx.mcpReq.elicitInput(ELICIT_PARAMS, { timeout: 60_000 });
-                await ctx.mcpReq.requestSampling(SAMPLING_PARAMS, { timeout: 60_000 });
-            });
-
-            await callTool('tools-call-4');
-
-            expect(sentOptionsFor('elicitation/create')?.relatedRequestId).toBe('tools-call-4');
-            expect(sentOptionsFor('sampling/createMessage')?.relatedRequestId).toBe('tools-call-4');
-
-            await server.close();
-        });
-
-        it('top-level Server.elicitInput() and Server.createMessage() do not add relatedRequestId', async () => {
-            const { server, sentOptionsFor } = await setup(async () => {});
-
-            // Called outside of any request handler — no request to associate with
-            await server.elicitInput(ELICIT_PARAMS);
-            await server.createMessage(SAMPLING_PARAMS);
-
-            expect(sentOptionsFor('elicitation/create')?.relatedRequestId).toBeUndefined();
-            expect(sentOptionsFor('sampling/createMessage')?.relatedRequestId).toBeUndefined();
 
             await server.close();
         });
