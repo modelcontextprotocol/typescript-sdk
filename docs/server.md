@@ -48,7 +48,7 @@ const transport = new NodeStreamableHTTPServerTransport({
 await server.connect(transport);
 ```
 
-**Options:** Set `sessionIdGenerator` to a function (shown above) for stateful sessions. Set it to `undefined` for stateless mode (simpler, but does not support resumability). Set `enableJsonResponse: true` to return plain JSON instead of SSE streams.
+**Options:** Set `sessionIdGenerator` to a function (shown above) for stateful sessions. Set it to `undefined` for stateless mode (simpler, but does not support resumability). Set `enableJsonResponse: true` to return plain JSON instead of SSE streams. Set `keepAliveInterval` (milliseconds) to write periodic SSE keepalive comments on open streams, so proxies and load balancers do not drop idle connections during long-running requests.
 
 For a complete server with sessions, logging, and CORS mounted on Express, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/simpleStreamableHttp.ts).
 
