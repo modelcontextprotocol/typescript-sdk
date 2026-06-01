@@ -8,7 +8,7 @@ import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from 
 // Mock Transport class
 class MockTransport implements Transport {
     id: string;
-    onclose?: () => void;
+    onclose?: () => void | Promise<void>;
     onerror?: (error: Error) => void;
     onmessage?: (message: unknown) => void;
     sentMessages: JSONRPCMessage[] = [];

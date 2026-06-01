@@ -166,3 +166,7 @@ process.on('SIGINT', async () => {
     console.log('Shutting down server...');
     process.exit(0);
 });
+process.on('SIGTERM', async () => {
+    console.log('Shutting down server...');
+    process.exit(0);
+});

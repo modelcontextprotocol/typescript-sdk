@@ -186,7 +186,7 @@ export class StreamableHTTPClientTransport implements Transport {
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
 
-    onclose?: () => void;
+    onclose?: () => void | Promise<void>;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
 
@@ -513,7 +513,7 @@ export class StreamableHTTPClientTransport implements Transport {
         } finally {
             this._cancelReconnection = undefined;
             this._abortController?.abort();
-            this.onclose?.();
+            await this.onclose?.();
         }
     }
 

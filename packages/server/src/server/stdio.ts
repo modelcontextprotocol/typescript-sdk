@@ -26,7 +26,7 @@ export class StdioServerTransport implements Transport {
         private _stdout: Writable = process.stdout
     ) {}
 
-    onclose?: () => void;
+    onclose?: () => void | Promise<void>;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
 
@@ -59,6 +59,9 @@ export class StdioServerTransport implements Transport {
         this._stdin.on('data', this._ondata);
         this._stdin.on('error', this._onerror);
         this._stdout.on('error', this._onstdouterror);
+        this._stdin.on('end', () => {
+            this.close().catch(error => this.onerror?.(error as Error));
+        });
     }
 
     private processReadBuffer() {
@@ -97,7 +100,7 @@ export class StdioServerTransport implements Transport {
 
         // Clear the buffer and notify closure
         this._readBuffer.clear();
-        this.onclose?.();
+        await this.onclose?.();
     }
 
     send(message: JSONRPCMessage): Promise<void> {

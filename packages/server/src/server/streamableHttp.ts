@@ -242,7 +242,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _supportedProtocolVersions: string[];
 
     sessionId?: string;
-    onclose?: () => void;
+    onclose?: () => void | Promise<void>;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
@@ -911,7 +911,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         // Clear any pending responses
         this._requestResponseMap.clear();
-        this.onclose?.();
+        await this.onclose?.();
     }
 
     /**
