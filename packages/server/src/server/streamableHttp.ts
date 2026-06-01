@@ -9,9 +9,11 @@
 
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 import {
+    ACCEPT_LANGUAGE_META,
     CONTENT_LANGUAGE_META,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     getErrorContentLanguage,
+    HEADER_MISMATCH_ERROR_CODE,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -701,6 +703,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
 
+            // SEP-2792: Byte-equality check for Accept-Language header vs _meta.
+            // If both present and not byte-identical, reject with 400.
+            // If _meta present but header absent (CDN-strip tolerance), use _meta.
+            // If header present but _meta absent, ignore header (bare header is not MCP preference).
+            const langMismatchError = this._checkAcceptLanguageMismatch(req, messages);
+            if (langMismatchError) {
+                return langMismatchError;
+            }
+
             // check if it contains requests
             const hasRequests = messages.some(element => isJSONRPCRequest(element));
 
@@ -895,6 +906,34 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const error = `Bad Request: Unsupported protocol version: ${protocolVersion} (supported versions: ${this._supportedProtocolVersions.join(', ')})`;
             this.onerror?.(new Error(error));
             return this.createJsonErrorResponse(400, -32_000, error);
+        }
+        return undefined;
+    }
+
+    /**
+     * SEP-2792: Byte-equality check for Accept-Language header vs _meta[acceptLanguage].
+     * Returns a 400 error response if both are present and not byte-identical.
+     * If only _meta is present (header absent/stripped), the request proceeds normally.
+     * If only the header is present (_meta absent), the header is ignored.
+     */
+    private _checkAcceptLanguageMismatch(req: Request, messages: JSONRPCMessage[]): Response | undefined {
+        const headerValue = req.headers.get('accept-language');
+
+        for (const msg of messages) {
+            if (!('params' in msg) || !msg.params || typeof msg.params !== 'object') {
+                continue;
+            }
+            const params = msg.params as { _meta?: Record<string, unknown> };
+            const metaValue = params._meta?.[ACCEPT_LANGUAGE_META];
+
+            if (metaValue !== undefined && typeof metaValue === 'string' && headerValue !== null && metaValue !== headerValue) {
+                // Both present and not byte-identical: reject (no normalization)
+                const error = `Accept-Language header does not match _meta['${ACCEPT_LANGUAGE_META}']`;
+                this.onerror?.(new Error(error));
+                return this.createJsonErrorResponse(400, HEADER_MISMATCH_ERROR_CODE, error);
+            }
+            // If _meta present + header absent → fine (CDN-strip tolerance)
+            // If header present + _meta absent → ignore header (not MCP preference)
         }
         return undefined;
     }

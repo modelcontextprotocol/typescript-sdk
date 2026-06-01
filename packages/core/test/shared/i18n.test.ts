@@ -5,6 +5,7 @@ import {
     getAcceptLanguage,
     getContentLanguage,
     getErrorContentLanguage,
+    HEADER_MISMATCH_ERROR_CODE,
     negotiateLanguage,
     setAcceptLanguage,
     setContentLanguage,
@@ -16,6 +17,10 @@ describe('i18n helpers', () => {
         it('has correct meta key names', () => {
             expect(ACCEPT_LANGUAGE_META).toBe('io.modelcontextprotocol/acceptLanguage');
             expect(CONTENT_LANGUAGE_META).toBe('io.modelcontextprotocol/contentLanguage');
+        });
+
+        it('HEADER_MISMATCH_ERROR_CODE equals -32005', () => {
+            expect(HEADER_MISMATCH_ERROR_CODE).toBe(-32_005);
         });
     });
 

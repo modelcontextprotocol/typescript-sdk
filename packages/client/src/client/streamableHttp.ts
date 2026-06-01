@@ -3,7 +3,9 @@ import type { ReadableWritablePair } from 'node:stream/web';
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
 import {
     ACCEPT_LANGUAGE_META,
+    CONTENT_LANGUAGE_META,
     createFetchWithInit,
+    HEADER_MISMATCH_ERROR_CODE,
     isInitializedNotification,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -245,6 +247,42 @@ export class StreamableHTTPClientTransport implements Transport {
             }
         }
         return undefined;
+    }
+
+    /**
+     * SEP-2792: Byte-equality check on Content-Language response header vs _meta[contentLanguage].
+     * If both are present on a JSON response and differ, the response is malformed.
+     */
+    private _checkContentLanguageMismatch(response: Response, messages: JSONRPCMessage[]): void {
+        const headerValue = response.headers.get('content-language');
+        if (!headerValue) {
+            return;
+        }
+
+        for (const msg of messages) {
+            let metaValue: string | undefined;
+            if (isJSONRPCResultResponse(msg)) {
+                const meta = msg.result?._meta;
+                if (meta && typeof meta[CONTENT_LANGUAGE_META] === 'string') {
+                    metaValue = meta[CONTENT_LANGUAGE_META] as string;
+                }
+            } else if (isJSONRPCErrorResponse(msg)) {
+                const data = msg.error?.data;
+                if (data && typeof data === 'object' && '_meta' in data) {
+                    const meta = (data as { _meta?: Record<string, unknown> })._meta;
+                    if (meta && typeof meta[CONTENT_LANGUAGE_META] === 'string') {
+                        metaValue = meta[CONTENT_LANGUAGE_META] as string;
+                    }
+                }
+            }
+
+            if (metaValue !== undefined && metaValue !== headerValue) {
+                throw new SdkError(
+                    SdkErrorCode.SendFailed,
+                    `Content-Language header "${headerValue}" does not match _meta['${CONTENT_LANGUAGE_META}'] value "${metaValue}" (HeaderMismatch code ${HEADER_MISMATCH_ERROR_CODE})`
+                );
+            }
+        }
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
@@ -697,6 +735,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     const responseMessages = Array.isArray(data)
                         ? data.map(msg => JSONRPCMessageSchema.parse(msg))
                         : [JSONRPCMessageSchema.parse(data)];
+
+                    // SEP-2792: Byte-equality check on Content-Language header vs _meta[contentLanguage]
+                    this._checkContentLanguageMismatch(response, responseMessages);
 
                     for (const msg of responseMessages) {
                         this.onmessage?.(msg);

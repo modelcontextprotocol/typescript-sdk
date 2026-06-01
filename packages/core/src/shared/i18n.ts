@@ -23,6 +23,16 @@ export const ACCEPT_LANGUAGE_META = 'io.modelcontextprotocol/acceptLanguage';
 export const CONTENT_LANGUAGE_META = 'io.modelcontextprotocol/contentLanguage';
 
 /**
+ * Provisional JSON-RPC error code for HeaderMismatch per SEP-2792.
+ * SEP-2243 originally proposed -32001, but a WG SDK survey showed
+ * -32001 is already in conflicting use across SDKs (REQUEST_TIMEOUT
+ * in Python/Kotlin, HeaderMismatch in Go/C#). The final code will
+ * be assigned by SEP-2243/SEP-2678/PR #2642; this SDK will migrate
+ * once they ratify.
+ */
+export const HEADER_MISMATCH_ERROR_CODE = -32_005;
+
+/**
  * Reads the `acceptLanguage` value from request `params._meta`.
  */
 export function getAcceptLanguage(params: { _meta?: Record<string, unknown> }): string | undefined {

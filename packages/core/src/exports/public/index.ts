@@ -81,6 +81,7 @@ export {
     getAcceptLanguage,
     getContentLanguage,
     getErrorContentLanguage,
+    HEADER_MISMATCH_ERROR_CODE,
     negotiateLanguage,
     setAcceptLanguage,
     setContentLanguage,

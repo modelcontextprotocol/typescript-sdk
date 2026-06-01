@@ -6,7 +6,12 @@
 import { randomUUID } from 'node:crypto';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { ACCEPT_LANGUAGE_META, CONTENT_LANGUAGE_META, setErrorContentLanguage } from '@modelcontextprotocol/core';
+import {
+    ACCEPT_LANGUAGE_META,
+    CONTENT_LANGUAGE_META,
+    HEADER_MISMATCH_ERROR_CODE,
+    setErrorContentLanguage
+} from '@modelcontextprotocol/core';
 
 import { ProtocolError } from '../../src/index.js';
 import { Server } from '../../src/server/server.js';
@@ -126,65 +131,120 @@ describe('SEP-2792 i18n HTTP transport integration', () => {
         await transport.close();
     });
 
-    it('ignores bare Accept-Language header when _meta is absent (no fallback)', async () => {
-        // Per SEP-2792: bare header without _meta is NOT treated as language preference
-        const req = createRequest('POST', { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'tl-1' } as JSONRPCMessage, {
-            sessionId,
-            extraHeaders: { 'Accept-Language': 'fr' }
-        });
-
-        const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(200);
-
-        const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } };
-        // Server returns default language (en), not the header value (fr)
-        expect(body.result?.tools?.[0]?.title).toBe('Greet');
-        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('en');
-    });
-
-    it('sets Content-Language header on JSON response', async () => {
+    it('request: both present, byte-identical — processes normally', async () => {
         const req = createRequest(
             'POST',
-            { jsonrpc: '2.0', method: 'tools/list', params: { _meta: { [ACCEPT_LANGUAGE_META]: 'de' } }, id: 'tl-2' } as JSONRPCMessage,
-            { sessionId, extraHeaders: { 'Accept-Language': 'de' } }
+            { jsonrpc: '2.0', method: 'tools/list', params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr' } }, id: 'tl-1' } as JSONRPCMessage,
+            { sessionId, extraHeaders: { 'Accept-Language': 'fr' } }
         );
 
         const resp = await transport.handleRequest(req);
         expect(resp.status).toBe(200);
-        expect(resp.headers.get('content-language')).toBe('de');
+        const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } };
+        expect(body.result?.tools?.[0]?.title).toBe('Saluer');
+        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('fr');
     });
 
-    it('succeeds when header disagrees with _meta (intermediary stripped/rewrote header)', async () => {
-        // Per SEP-2792: _meta is canonical; header mismatch is not an error.
-        // This covers the scenario where a CDN/proxy strips or rewrites Accept-Language.
+    it('request: both present, byte-mismatch (different tag) — rejects 400 with -32005', async () => {
         const req = createRequest(
             'POST',
             {
                 jsonrpc: '2.0',
                 method: 'tools/list',
                 params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr' } },
-                id: 'tl-3'
+                id: 'tl-2'
             } as JSONRPCMessage,
             { sessionId, extraHeaders: { 'Accept-Language': 'de' } }
         );
 
         const resp = await transport.handleRequest(req);
-        expect(resp.status).toBe(200);
-        // Server honors _meta value (fr), not the header (de)
-        const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } };
-        expect(body.result?.tools?.[0]?.title).toBe('Saluer');
-        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('fr');
+        expect(resp.status).toBe(400);
+        const body = (await resp.json()) as { error?: { code?: number; message?: string } };
+        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
+        expect(body.error?.message).toMatch(/Accept-Language/);
     });
 
-    it('succeeds when header is absent but _meta is present (header stripped by intermediary)', async () => {
-        // No Accept-Language header at all, but _meta carries the preference
+    it('request: both present, byte-mismatch (extra space in value) — rejects', async () => {
+        // "fr, en;q=0.5" vs "fr,en;q=0.5" — semantically equivalent but not byte-equal
+        const req = createRequest(
+            'POST',
+            {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr,en;q=0.5' } },
+                id: 'tl-3'
+            } as JSONRPCMessage,
+            { sessionId, extraHeaders: { 'Accept-Language': 'fr, en;q=0.5' } }
+        );
+
+        const resp = await transport.handleRequest(req);
+        expect(resp.status).toBe(400);
+        const body = (await resp.json()) as { error?: { code?: number } };
+        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
+    });
+
+    it('request: both present, byte-mismatch (lowercased tag) — rejects', async () => {
+        const req = createRequest(
+            'POST',
+            {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr-CA' } },
+                id: 'tl-4'
+            } as JSONRPCMessage,
+            { sessionId, extraHeaders: { 'Accept-Language': 'fr-ca' } }
+        );
+
+        const resp = await transport.handleRequest(req);
+        expect(resp.status).toBe(400);
+        const body = (await resp.json()) as { error?: { code?: number } };
+        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
+    });
+
+    it('request: both present, byte-mismatch (reordered ranges) — rejects', async () => {
+        const req = createRequest(
+            'POST',
+            {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr,en;q=0.5' } },
+                id: 'tl-5'
+            } as JSONRPCMessage,
+            { sessionId, extraHeaders: { 'Accept-Language': 'en;q=0.5,fr' } }
+        );
+
+        const resp = await transport.handleRequest(req);
+        expect(resp.status).toBe(400);
+        const body = (await resp.json()) as { error?: { code?: number } };
+        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
+    });
+
+    it('request: both present, byte-mismatch (q=1.0 vs q=1) — rejects', async () => {
+        const req = createRequest(
+            'POST',
+            {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr;q=1.0' } },
+                id: 'tl-6'
+            } as JSONRPCMessage,
+            { sessionId, extraHeaders: { 'Accept-Language': 'fr;q=1' } }
+        );
+
+        const resp = await transport.handleRequest(req);
+        expect(resp.status).toBe(400);
+        const body = (await resp.json()) as { error?: { code?: number } };
+        expect(body.error?.code).toBe(HEADER_MISMATCH_ERROR_CODE);
+    });
+
+    it('request: _meta present, header absent (CDN-strip tolerance) — honors _meta', async () => {
         const req = createRequest(
             'POST',
             {
                 jsonrpc: '2.0',
                 method: 'tools/list',
                 params: { _meta: { [ACCEPT_LANGUAGE_META]: 'de' } },
-                id: 'tl-5'
+                id: 'tl-7'
             } as JSONRPCMessage,
             { sessionId }
         );
@@ -196,25 +256,33 @@ describe('SEP-2792 i18n HTTP transport integration', () => {
         expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('de');
     });
 
-    it('passes through when header and _meta agree', async () => {
+    it('request: header present, _meta absent — ignores header (no MCP preference)', async () => {
+        const req = createRequest('POST', { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'tl-8' } as JSONRPCMessage, {
+            sessionId,
+            extraHeaders: { 'Accept-Language': 'fr' }
+        });
+
+        const resp = await transport.handleRequest(req);
+        expect(resp.status).toBe(200);
+        const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }>; _meta?: Record<string, unknown> } };
+        // Server returns default (en), ignoring the bare header
+        expect(body.result?.tools?.[0]?.title).toBe('Greet');
+        expect(body.result?._meta?.[CONTENT_LANGUAGE_META]).toBe('en');
+    });
+
+    it('response: JSON, Content-Language header mirrors _meta[contentLanguage]', async () => {
         const req = createRequest(
             'POST',
-            {
-                jsonrpc: '2.0',
-                method: 'tools/list',
-                params: { _meta: { [ACCEPT_LANGUAGE_META]: 'fr' } },
-                id: 'tl-4'
-            } as JSONRPCMessage,
-            { sessionId, extraHeaders: { 'Accept-Language': 'fr' } }
+            { jsonrpc: '2.0', method: 'tools/list', params: { _meta: { [ACCEPT_LANGUAGE_META]: 'de' } }, id: 'tl-9' } as JSONRPCMessage,
+            { sessionId, extraHeaders: { 'Accept-Language': 'de' } }
         );
 
         const resp = await transport.handleRequest(req);
         expect(resp.status).toBe(200);
-        const body = (await resp.json()) as { result?: { tools?: Array<{ title?: string }> } };
-        expect(body.result?.tools?.[0]?.title).toBe('Saluer');
+        expect(resp.headers.get('content-language')).toBe('de');
     });
 
-    it('mirrors Content-Language header from error response data._meta', async () => {
+    it('response: Content-Language header from error response data._meta', async () => {
         // Create a server that throws a localized error
         const errorServer = new Server({ name: 'i18n-error-test', version: '1.0.0' }, { capabilities: { tools: {} } });
         errorServer.setRequestHandler('tools/call', (_request, ctx) => {
