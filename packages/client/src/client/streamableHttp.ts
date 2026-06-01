@@ -290,6 +290,12 @@ export class StreamableHTTPClientTransport implements Transport {
                     return;
                 }
 
+                // NOTE: a 404 here is deliberately NOT treated as session expiry. The
+                // standalone GET stream is the optional server→client notification
+                // channel; its failure (including a 404) must not tear down the session
+                // — the client keeps the session and continues issuing POST requests.
+                // Genuine session expiry is detected on the POST path in `_send`, where a
+                // 404 to an actual request means the session is gone.
                 throw new SdkHttpError(SdkErrorCode.ClientHttpFailedToOpenStream, `Failed to open SSE stream: ${response.statusText}`, {
                     status: response.status,
                     statusText: response.statusText
@@ -554,6 +560,12 @@ export class StreamableHTTPClientTransport implements Transport {
                 signal: this._abortController?.signal
             };
 
+            // Capture whether *this request* carried a session ID before processing the
+            // response — the response handling below may write a new `mcp-session-id`
+            // into `this._sessionId`, and the 404 session-expiry rule is defined in terms
+            // of the request, not the post-response state.
+            const requestHadSessionId = this._sessionId !== undefined;
+
             const response = await (this._fetch ?? fetch)(this._url, init);
 
             // Handle session ID received during initialization
@@ -631,6 +643,23 @@ export class StreamableHTTPClientTransport implements Transport {
 
                         return this._send(message, options, isAuthRetry);
                     }
+                }
+
+                // Per the MCP spec (Streamable HTTP, Session Management): a 404 in
+                // response to a request that carried an `Mcp-Session-Id` means the
+                // session has expired or been terminated server-side, and the client
+                // must start a new session. Detect this by the status code alone —
+                // not the response body — since non-reference servers report it with
+                // varying bodies (different JSON-RPC error codes, plain text, HTML).
+                // Clear the dead session ID so a subsequent reconnect issues a fresh
+                // `initialize`, and surface a distinct, body-agnostic error code.
+                if (response.status === 404 && requestHadSessionId) {
+                    this._sessionId = undefined;
+                    throw new SdkHttpError(SdkErrorCode.ClientHttpSessionExpired, `Session expired (HTTP 404): ${text}`, {
+                        status: 404,
+                        statusText: response.statusText,
+                        text
+                    });
                 }
 
                 throw new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, `Error POSTing to endpoint: ${text}`, {
@@ -727,9 +756,12 @@ export class StreamableHTTPClientTransport implements Transport {
             const response = await (this._fetch ?? fetch)(this._url, init);
             await response.text?.().catch(() => {});
 
-            // We specifically handle 405 as a valid response according to the spec,
-            // meaning the server does not support explicit session termination
-            if (!response.ok && response.status !== 405) {
+            // 405 Method Not Allowed: per the spec the server does not support explicit
+            // session termination — treat as success.
+            // 404 Not Found: the session is already gone server-side, which is exactly
+            // what the caller asked for — treat as success rather than a failure. In both
+            // cases fall through to clear the local session ID.
+            if (!response.ok && response.status !== 405 && response.status !== 404) {
                 throw new SdkHttpError(
                     SdkErrorCode.ClientHttpFailedToTerminateSession,
                     `Failed to terminate session: ${response.statusText}`,

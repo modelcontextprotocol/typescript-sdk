@@ -35,7 +35,15 @@ export enum SdkErrorCode {
     ClientHttpForbidden = 'CLIENT_HTTP_FORBIDDEN',
     ClientHttpUnexpectedContent = 'CLIENT_HTTP_UNEXPECTED_CONTENT',
     ClientHttpFailedToOpenStream = 'CLIENT_HTTP_FAILED_TO_OPEN_STREAM',
-    ClientHttpFailedToTerminateSession = 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'
+    ClientHttpFailedToTerminateSession = 'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION',
+    /**
+     * Server returned HTTP 404 for a request that carried an `Mcp-Session-Id`.
+     * Per the MCP spec (Streamable HTTP, Session Management), this means the
+     * session has expired or been terminated server-side and the client must
+     * start a new session. The transport clears its stale session ID before
+     * throwing this, so reconnecting issues a fresh `initialize`.
+     */
+    ClientHttpSessionExpired = 'CLIENT_HTTP_SESSION_EXPIRED'
 }
 
 /**

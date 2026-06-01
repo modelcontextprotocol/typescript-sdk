@@ -220,7 +220,7 @@ describe('StreamableHTTPClientTransport', () => {
         await expect(transport.terminateSession()).resolves.not.toThrow();
     });
 
-    it('should handle 404 response when session expires', async () => {
+    describe('session expiry (HTTP 404)', () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -228,25 +228,127 @@ describe('StreamableHTTPClientTransport', () => {
             id: 'test-id'
         };
 
-        (globalThis.fetch as Mock).mockResolvedValueOnce({
-            ok: false,
-            status: 404,
-            statusText: 'Not Found',
-            text: () => Promise.resolve('Session not found'),
-            headers: new Headers()
-        });
+        // Per the MCP spec (Streamable HTTP, Session Management): a 404 in response
+        // to a request that carried an `Mcp-Session-Id` means the session expired and
+        // a new one must be started. Detection is by status code alone — non-reference
+        // servers report it with varying bodies, so we must not require a body shape.
+        it.each([
+            ['plain text', 'Session not found'],
+            ['JSON-RPC -32002 (Figma Desktop)', '{"jsonrpc":"2.0","error":{"code":-32002,"message":"Session not found"},"id":null}'],
+            ['JSON-RPC -32001 (reference server)', '{"jsonrpc":"2.0","error":{"code":-32001,"message":"Session not found"},"id":null}'],
+            ['arbitrary HTML', '<html><body>404 page not found</body></html>'],
+            ['empty body', '']
+        ])('treats 404 with a session ID as session expiry regardless of body (%s)', async (_label, body) => {
+            const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                sessionId: 'existing-session-id'
+            });
 
-        const errorSpy = vi.fn();
-        transport.onerror = errorSpy;
-
-        await expect(transport.send(message)).rejects.toThrow(
-            new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented, 'Error POSTing to endpoint: Session not found', {
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
                 status: 404,
                 statusText: 'Not Found',
-                text: 'Session not found'
-            })
-        );
-        expect(errorSpy).toHaveBeenCalled();
+                text: () => Promise.resolve(body),
+                headers: new Headers()
+            });
+
+            const errorSpy = vi.fn();
+            sessionTransport.onerror = errorSpy;
+
+            const error = await sessionTransport.send(message).then(
+                () => null,
+                e => e
+            );
+
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpSessionExpired);
+            expect((error as SdkHttpError).data).toEqual({ status: 404, statusText: 'Not Found', text: body });
+            expect(errorSpy).toHaveBeenCalled();
+            // The dead session ID is cleared so a subsequent reconnect issues a fresh `initialize`.
+            expect(sessionTransport.sessionId).toBeUndefined();
+
+            await sessionTransport.close().catch(() => {});
+        });
+
+        it('treats a 404 without a session ID as a generic HTTP error, not session expiry', async () => {
+            // No session ID was ever established (e.g. a 404 on the initial connect, or a
+            // wrong URL). The spec rule only applies to requests carrying an Mcp-Session-Id,
+            // so this must remain a generic error rather than triggering a session reset.
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+                text: () => Promise.resolve('Not Found'),
+                headers: new Headers()
+            });
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            const error = await transport.send(message).then(
+                () => null,
+                e => e
+            );
+
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpNotImplemented);
+            expect(errorSpy).toHaveBeenCalled();
+            expect(transport.sessionId).toBeUndefined();
+        });
+
+        it('does NOT treat a 404 on the standalone GET stream as session expiry', async () => {
+            // The standalone GET stream is the optional notification channel; a 404 there
+            // must not tear down the session. It surfaces as a generic open-stream failure
+            // and leaves the session ID intact so POST requests keep working.
+            const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                sessionId: 'existing-session-id'
+            });
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+                text: () => Promise.resolve('Session not found'),
+                headers: new Headers()
+            });
+
+            const errorSpy = vi.fn();
+            sessionTransport.onerror = errorSpy;
+
+            await sessionTransport.start();
+            // Trigger the GET stream directly using the internal method for a clean test.
+            const error = await sessionTransport['_startOrAuthSse']({}).then(
+                () => null,
+                e => e
+            );
+
+            expect(error).toBeInstanceOf(SdkHttpError);
+            expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpFailedToOpenStream);
+            // Session is preserved — the optional stream failing does not expire the session.
+            expect(sessionTransport.sessionId).toBe('existing-session-id');
+
+            await sessionTransport.close().catch(() => {});
+        });
+
+        it('treats a 404 from terminateSession as already-terminated (clears session, no throw)', async () => {
+            const sessionTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                sessionId: 'existing-session-id'
+            });
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: false,
+                status: 404,
+                statusText: 'Not Found',
+                text: () => Promise.resolve('Session not found'),
+                headers: new Headers()
+            });
+
+            // The session is already gone server-side — terminating it is exactly the
+            // caller's intent, so this must resolve rather than throw, and clear the ID.
+            await expect(sessionTransport.terminateSession()).resolves.toBeUndefined();
+            expect(sessionTransport.sessionId).toBeUndefined();
+
+            await sessionTransport.close().catch(() => {});
+        });
     });
 
     it('should handle non-streaming JSON response', async () => {

@@ -122,6 +122,7 @@ Three error classes now exist:
 | 403 after upscoping               | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpForbidden`            |
 | Unexpected content type           | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`        |
 | Session termination failed        | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
+| Session expired (404 w/ session)  | `StreamableHTTPError` (status 404)           | `SdkHttpError` with `SdkErrorCode.ClientHttpSessionExpired`       |
 | Response result fails schema      | `ZodError` (raw)                             | `SdkError` with `SdkErrorCode.InvalidResult`                      |
 
 New `SdkErrorCode` enum values:
@@ -140,6 +141,7 @@ New `SdkErrorCode` enum values:
 - `SdkErrorCode.ClientHttpUnexpectedContent` = `'CLIENT_HTTP_UNEXPECTED_CONTENT'`
 - `SdkErrorCode.ClientHttpFailedToOpenStream` = `'CLIENT_HTTP_FAILED_TO_OPEN_STREAM'`
 - `SdkErrorCode.ClientHttpFailedToTerminateSession` = `'CLIENT_HTTP_FAILED_TO_TERMINATE_SESSION'`
+- `SdkErrorCode.ClientHttpSessionExpired` = `'CLIENT_HTTP_SESSION_EXPIRED'` (thrown on HTTP 404 when a session ID was set; transport clears `sessionId` so reconnect re-`initialize`s; detection is status-only, body-agnostic)
 
 Update error handling:
 

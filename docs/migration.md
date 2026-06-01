@@ -723,6 +723,7 @@ The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 | `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response    |
 | `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                   |
 | `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                 |
+| `SdkErrorCode.ClientHttpSessionExpired`           | Server returned 404 for a request carrying a session ID — the session expired, start a new one |
 
 #### `StreamableHTTPError` removed
 
@@ -763,6 +764,12 @@ try {
             case SdkErrorCode.ClientHttpFailedToOpenStream:
                 console.log('Failed to open SSE stream');
                 break;
+            case SdkErrorCode.ClientHttpSessionExpired:
+                // Server returned 404 for a request carrying a session ID.
+                // The transport already cleared its session ID; reconnect to
+                // start a fresh session (per the MCP spec, Session Management).
+                console.log('Session expired — reconnecting');
+                break;
             case SdkErrorCode.ClientHttpNotImplemented:
                 console.log('HTTP request failed');
                 break;
@@ -770,6 +777,27 @@ try {
     }
 }
 ```
+
+#### Session expiry now surfaces as `ClientHttpSessionExpired`
+
+Per the MCP spec (Streamable HTTP, Session Management): when a client receives an
+HTTP `404` in response to a request that carried an `Mcp-Session-Id`, the session
+has expired or been terminated server-side and the client must start a new session.
+
+`StreamableHTTPClientTransport` now detects this by status code alone — it no longer
+inspects the response body, so servers that report expiry with a non-reference body
+(a different JSON-RPC error code, plain text, or HTML) are handled correctly. On such
+a `404` the transport clears its stale session ID (so `transport.sessionId` becomes
+`undefined` and a subsequent `client.connect(transport)` issues a fresh `initialize`)
+and throws `SdkHttpError` with `SdkErrorCode.ClientHttpSessionExpired`.
+
+A `404` for a request that did **not** carry a session ID (for example a wrong URL on
+the initial connection) is unchanged: it still surfaces as `SdkErrorCode.ClientHttpNotImplemented`.
+
+`terminateSession()` follows the same rule: a `404` to the `DELETE` means the session is
+already gone server-side — which is what the caller asked for — so it now resolves and clears
+the session ID instead of throwing `ClientHttpFailedToTerminateSession` (mirroring the existing
+`405 Method Not Allowed` handling).
 
 #### Why this change?
 
