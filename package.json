@@ -74,10 +74,14 @@
         "typedoc": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
+        "vite": "7.3.2",
         "vitest": "catalog:devTools",
         "zod": "catalog:runtimeShared"
     },
     "resolutions": {
+        "defu": "6.1.5",
+        "fast-uri": "3.1.2",
+        "kysely": "0.28.17",
         "strip-ansi": "6.0.1"
     }
 }
