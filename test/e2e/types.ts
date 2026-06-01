@@ -5,8 +5,16 @@
 export const ALL_TRANSPORTS = ['inMemory', 'stdio', 'streamableHttp', 'streamableHttpStateless', 'sse'] as const;
 export type Transport = (typeof ALL_TRANSPORTS)[number];
 
-export const ALL_SPEC_VERSIONS = ['2025-11-25'] as const;
-export type SpecVersion = (typeof ALL_SPEC_VERSIONS)[number];
+/**
+ * Every spec version the manifest may reference — used for typing
+ * `addedInSpecVersion` / `removedInSpecVersion` bounds and knownFailure
+ * scoping. Includes versions that are not yet part of the active matrix.
+ */
+export const KNOWN_SPEC_VERSIONS = ['2025-11-25', '2026-07-28'] as const;
+export type SpecVersion = (typeof KNOWN_SPEC_VERSIONS)[number];
+
+/** The spec versions cells are registered for (the active matrix axis). */
+export const ALL_SPEC_VERSIONS = ['2025-11-25'] as const satisfies readonly SpecVersion[];
 
 /**
  * Arguments every test body receives. Expand with new matrix axes here so
