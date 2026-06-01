@@ -12,7 +12,9 @@ import type {
     Implementation,
     InitializeRequest,
     InitializeResult,
+    JSONRPCErrorResponse,
     JSONRPCRequest,
+    JSONRPCResponse,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
@@ -28,9 +30,11 @@ import type {
     Result,
     ServerCapabilities,
     ServerContext,
+    StatelessDispatchContext,
     TaskManagerOptions,
     ToolResultContent,
-    ToolUseContent
+    ToolUseContent,
+    Transport
 } from '@modelcontextprotocol/core';
 import {
     assertClientRequestTaskCapability,
@@ -48,6 +52,7 @@ import {
     ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
+    NotImplementedYetError,
     parseSchema,
     Protocol,
     ProtocolError,
@@ -151,6 +156,35 @@ export class Server extends Protocol<ServerContext> {
             }
             return {};
         });
+    }
+
+    /**
+     * Attaches to the given transport, starts it, and starts listening for messages.
+     *
+     * Installs the stateless dispatch handlers on transports that support
+     * per-request routing (the seam is optional on the {@linkcode Transport}
+     * contract) before `super.connect()` starts the transport, so the first
+     * message cannot arrive before the router is wired.
+     */
+    override async connect(transport: Transport): Promise<void> {
+        transport.setStatelessHandlers?.({
+            dispatch: (request, ctx) => this._dispatchStateless(request, ctx)
+        });
+        await super.connect(transport);
+    }
+
+    /**
+     * Serves one stateless (draft-protocol-version) request routed here by the
+     * transport, outside the `onmessage` / session flow.
+     */
+    private async _dispatchStateless(
+        _request: JSONRPCRequest,
+        _ctx: StatelessDispatchContext
+    ): Promise<JSONRPCResponse | JSONRPCErrorResponse> {
+        // TODO(M5, envelope acceptance): validate the per-request envelope and
+        // dispatch to the registered request handlers. Until then this seam is
+        // deliberately open and answers with a wire-safe NotImplementedYetError.
+        throw new NotImplementedYetError('stateless request dispatch is not implemented yet');
     }
 
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {

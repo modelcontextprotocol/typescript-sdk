@@ -1,4 +1,4 @@
-import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, StatelessHandlers, Transport } from '@modelcontextprotocol/core';
 import type { ClientCapabilities, Implementation, ServerContext } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
@@ -238,6 +238,42 @@ describe('Server', () => {
             expect(captured?.client.capabilities).toEqual({});
             expect(captured?.client.info).toBeUndefined();
             expect(captured?.mcpReq.protocolVersion).toBe(DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
+
+            await server.close();
+        });
+    });
+
+    describe('connect() installs the stateless dispatch seam', () => {
+        /** Minimal transport double offering the `setStatelessHandlers` seam. */
+        function transportDouble(): {
+            transport: Transport;
+            calls: string[];
+            handlers: () => StatelessHandlers | undefined;
+        } {
+            const calls: string[] = [];
+            let installed: StatelessHandlers | undefined;
+            const transport: Transport = {
+                start: async () => {
+                    calls.push('start');
+                },
+                send: async () => {},
+                close: async () => {},
+                setStatelessHandlers: handlers => {
+                    calls.push('setStatelessHandlers');
+                    installed = handlers;
+                }
+            };
+            return { transport, calls, handlers: () => installed };
+        }
+
+        it('installs the dispatch handler before starting the transport', async () => {
+            const { transport, calls, handlers } = transportDouble();
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+
+            await server.connect(transport);
+
+            expect(calls).toEqual(['setStatelessHandlers', 'start']);
+            expect(handlers()).toBeDefined();
 
             await server.close();
         });
