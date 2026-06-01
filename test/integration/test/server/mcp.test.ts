@@ -6775,6 +6775,105 @@ describe('Zod v4', () => {
             taskStore.cleanup();
         });
 
+        test('should surface input validation errors for task-augmented tool calls', async () => {
+            const taskStore = new InMemoryTaskStore();
+
+            const mcpServer = new McpServer(
+                {
+                    name: 'test server',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tools: {},
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    },
+                    taskStore
+                }
+            );
+
+            const client = new Client(
+                {
+                    name: 'test client',
+                    version: '1.0'
+                },
+                {
+                    capabilities: {
+                        tasks: {
+                            requests: {
+                                tools: {
+                                    call: {}
+                                }
+                            }
+                        }
+                    }
+                }
+            );
+
+            mcpServer.experimental.tasks.registerToolTask(
+                'task-tool-validation',
+                {
+                    description: 'A task tool with validated input',
+                    inputSchema: z.object({
+                        duration: z.number().min(500)
+                    }),
+                    execution: {
+                        taskSupport: 'required'
+                    }
+                },
+                {
+                    createTask: async ({ duration }, ctx) => {
+                        const task = await ctx.task.store.createTask({ ttl: duration, pollInterval: 100 });
+                        return { task };
+                    },
+                    getTask: async (_args, ctx) => {
+                        const task = await ctx.task.store.getTask(ctx.task.id);
+                        if (!task) {
+                            throw new Error('Task not found');
+                        }
+                        return task;
+                    },
+                    getTaskResult: async (_data, ctx) => {
+                        const result = await ctx.task.store.getTaskResult(ctx.task.id);
+                        return result as CallToolResult;
+                    }
+                }
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            try {
+                await client.request({
+                    method: 'tools/call',
+                    params: {
+                        name: 'task-tool-validation',
+                        arguments: { duration: 100 },
+                        task: { ttl: 60_000 }
+                    }
+                });
+
+                expect.unreachable('Expected task-augmented validation error to be thrown');
+            } catch (error) {
+                expect(error).toMatchObject({
+                    code: ProtocolErrorCode.InvalidParams,
+                    message: expect.stringContaining('Too small: expected number to be >=500')
+                });
+                expect(error).not.toMatchObject({
+                    message: expect.stringContaining('Invalid task creation result')
+                });
+            } finally {
+                taskStore.cleanup();
+            }
+        });
+
         test('should handle task failures during automatic polling', async () => {
             const taskStore = new InMemoryTaskStore();
             const { releaseLatch, waitForLatch } = createLatch();

@@ -211,6 +211,14 @@ export class McpServer {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
                 }
+                if (
+                    request.params.task &&
+                    error instanceof ProtocolError &&
+                    error.code === ProtocolErrorCode.InvalidParams &&
+                    error.message.startsWith(`MCP error ${ProtocolErrorCode.InvalidParams}: Input validation error:`)
+                ) {
+                    throw error; // Propagate input schema validation failures as protocol errors for task-augmented calls
+                }
                 return this.createToolError(error instanceof Error ? error.message : String(error));
             }
         });
