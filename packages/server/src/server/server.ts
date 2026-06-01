@@ -98,6 +98,7 @@ export type ServerOptions = ProtocolOptions & {
 export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
+    private _negotiatedProtocolVersion?: string;
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
@@ -428,6 +429,7 @@ export class Server extends Protocol<ServerContext> {
             ? requestedVersion
             : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
+        this._negotiatedProtocolVersion = protocolVersion;
         this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
@@ -450,6 +452,15 @@ export class Server extends Protocol<ServerContext> {
      */
     getClientVersion(): Implementation | undefined {
         return this._clientVersion;
+    }
+
+    /**
+     * After initialization has completed, this will be populated with the protocol version negotiated
+     * with the client (the version the server responded with during the initialize handshake), or
+     * `undefined` before initialization.
+     */
+    getNegotiatedProtocolVersion(): string | undefined {
+        return this._negotiatedProtocolVersion;
     }
 
     /**

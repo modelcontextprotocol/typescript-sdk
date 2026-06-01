@@ -471,6 +471,28 @@ verifies('typescript:server:get-client-capabilities', async ({ transport }: Test
     expect(observed?.second).toBe(observed?.after);
 });
 
+verifies('typescript:server:get-negotiated-protocol-version', async ({ transport }: TestArgs) => {
+    let observed: { before: string | undefined; after: string | undefined } | undefined;
+    const makeServer = () => {
+        const s = minimalServer();
+        const before = s.server.getNegotiatedProtocolVersion();
+        s.server.oninitialized = () => {
+            observed = { before, after: s.server.getNegotiatedProtocolVersion() };
+        };
+        return s;
+    };
+    // Pin the client to an older supported version so the negotiated version differs from the
+    // server's default — proving the getter reports the actually-negotiated version, not a constant.
+    const client = new Client({ name: 'version-probe-client', version: '0.0.0' }, { supportedProtocolVersions: [OLDER_SUPPORTED_VERSION] });
+
+    await using _ = await wire(transport, makeServer, client);
+
+    expect(observed?.before).toBeUndefined();
+    expect(observed?.after).toBe(OLDER_SUPPORTED_VERSION);
+    // Parity with the client-side getter: both ends agree on the negotiated version.
+    expect(client.getNegotiatedProtocolVersion()).toBe(OLDER_SUPPORTED_VERSION);
+});
+
 verifies('lifecycle:version:custom-supported-versions', async ({ transport }: TestArgs) => {
     // The server's first entry is the latest version, so the older negotiated version can only come from honoring the client's request.
     const makeServer = () =>
