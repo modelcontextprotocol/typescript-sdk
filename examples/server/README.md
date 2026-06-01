@@ -39,6 +39,8 @@ pnpm tsx src/simpleStreamableHttp.ts
 | Task interactive server                   | Task-based execution with interactive server→client requests.                                   | [`src/simpleTaskInteractive.ts`](src/simpleTaskInteractive.ts)                           |
 | Hono Streamable HTTP server               | Streamable HTTP server built with Hono instead of Express.                                      | [`src/honoWebStandardStreamableHttp.ts`](src/honoWebStandardStreamableHttp.ts)           |
 | SSE polling demo server                   | Legacy SSE server intended for polling demos.                                                   | [`src/ssePollingExample.ts`](src/ssePollingExample.ts)                                   |
+| Multi-server chatbot — weather server     | Stateless Streamable HTTP server on :3001 with `get_weather` and `get_forecast` tools.          | [`src/weatherServer.ts`](src/weatherServer.ts)                                           |
+| Multi-server chatbot — math server        | Stateless Streamable HTTP server on :3002 with `add`, `multiply`, and `convert_temperature`.    | [`src/mathServer.ts`](src/mathServer.ts)                                                 |
 
 ## OAuth demo flags (Streamable HTTP server)
 

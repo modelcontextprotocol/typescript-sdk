@@ -289,6 +289,9 @@ importers:
 
   examples/client:
     dependencies:
+      '@anthropic-ai/sdk':
+        specifier: ^0.74.0
+        version: 0.74.0(zod@4.3.6)
       '@modelcontextprotocol/client':
         specifier: workspace:^
         version: link:../../packages/client
