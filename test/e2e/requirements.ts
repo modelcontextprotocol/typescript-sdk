@@ -780,7 +780,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             '[SEP-2260] ping is exempt from the request-association rule: either party MAY send ping at any time on an established connection — including the server with no client request in flight — and receives an empty result.',
         transports: STATEFUL_TRANSPORTS,
-        note: 'Server→client ping with nothing in flight needs a server→client channel; stateless hosting has none. Ping itself is removed in the 2026 draft, so this entry is 2025-lineage only.'
+        note: 'Server→client ping with nothing in flight needs a server→client channel; stateless hosting has none.'
     },
 
     // Sampling
