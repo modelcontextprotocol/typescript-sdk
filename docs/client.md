@@ -111,6 +111,12 @@ const systemPrompt = ['You are a helpful assistant.', instructions].filter(Boole
 console.log(systemPrompt);
 ```
 
+### Protocol versions
+
+During initialization the client requests the first entry of its supported version list and accepts whichever entry of that list the server responds with — by default the released versions in {@linkcode @modelcontextprotocol/client!index.SUPPORTED_PROTOCOL_VERSIONS | SUPPORTED_PROTOCOL_VERSIONS}. Pass `supportedProtocolVersions` in the client options to restrict or reorder that list; every entry must be a released version or a known draft version, otherwise the constructor throws.
+
+Draft (unreleased) protocol revisions, listed in {@linkcode @modelcontextprotocol/client!index.DRAFT_PROTOCOL_VERSIONS | DRAFT_PROTOCOL_VERSIONS}, never appear in the default set and require a two-key opt-in: list the draft version in `supportedProtocolVersions` **and** set `allowDraftVersions: true`. With only one of the two keys, construction throws. The opt-in only makes the configuration constructible — the SDK does not yet negotiate draft protocol versions, so an opted-in client still connects with the released protocol.
+
 ## Authentication
 
 MCP servers can require authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an {@linkcode @modelcontextprotocol/client!client/auth.AuthProvider | AuthProvider} to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport}. The transport calls `token()` before every request and `onUnauthorized()` (if provided) on 401, then retries once.

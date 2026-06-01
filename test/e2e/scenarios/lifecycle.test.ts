@@ -19,6 +19,8 @@ import type {
     ServerCapabilities
 } from '@modelcontextprotocol/server';
 import {
+    DRAFT_PROTOCOL_VERSION_2026,
+    DRAFT_PROTOCOL_VERSIONS,
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -542,6 +544,42 @@ verifies('lifecycle:version:no-overlap-rejects', async ({ transport }: TestArgs)
     expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
     expect(client.getServerCapabilities()).toBeUndefined();
     expect(client.getServerVersion()).toBeUndefined();
+});
+
+verifies('lifecycle:version:draft-pin-requires-opt-in', async ({ transport }: TestArgs) => {
+    // Draft versions are a separate set and never appear in the default supported versions.
+    for (const draft of DRAFT_PROTOCOL_VERSIONS) {
+        expect(SUPPORTED_PROTOCOL_VERSIONS).not.toContain(draft);
+    }
+
+    // One key is not enough: listing a draft version without allowDraftVersions throws at construction, for both roles.
+    const constructClient = () =>
+        new Client({ name: 'draft-pin-client', version: '0.0.0' }, { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION_2026] });
+    const constructServer = () =>
+        new McpServer({ name: 'draft-pin-server', version: '0.0.0' }, { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION_2026] });
+    expect(constructClient).toThrow(DRAFT_PROTOCOL_VERSION_2026);
+    expect(constructClient).toThrow('allowDraftVersions');
+    expect(constructServer).toThrow(DRAFT_PROTOCOL_VERSION_2026);
+    expect(constructServer).toThrow('allowDraftVersions');
+
+    // The flag alone (no draft version listed) is a no-op: construction succeeds with the default supported set.
+    expect(() => new Client({ name: 'flag-only-client', version: '0.0.0' }, { allowDraftVersions: true })).not.toThrow();
+
+    // Both keys turned: construction succeeds for both roles, and the connection still negotiates the
+    // released version — opting in does not make the draft version negotiable.
+    const makeServer = () =>
+        new McpServer(
+            { name: 'draft-optin-server', version: '0.0.0' },
+            { supportedProtocolVersions: [LATEST_PROTOCOL_VERSION, DRAFT_PROTOCOL_VERSION_2026], allowDraftVersions: true }
+        );
+    const client = new Client(
+        { name: 'draft-optin-client', version: '0.0.0' },
+        { supportedProtocolVersions: [LATEST_PROTOCOL_VERSION, DRAFT_PROTOCOL_VERSION_2026], allowDraftVersions: true }
+    );
+
+    await using _ = await wire(transport, makeServer, client);
+
+    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
 });
 
 verifies('lifecycle:capability:list-empty-when-not-advertised', async ({ transport }: TestArgs) => {

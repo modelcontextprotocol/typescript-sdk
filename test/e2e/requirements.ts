@@ -2605,6 +2605,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             "When the server's negotiated protocol version is not in the client's supportedProtocolVersions list, client.connect() rejects and the connection is not established."
     },
+    'lifecycle:version:draft-pin-requires-opt-in': {
+        source: 'sdk',
+        behavior:
+            'Constructing a client or server whose supportedProtocolVersions includes a draft protocol version requires allowDraftVersions: true; construction throws otherwise. Draft versions never appear in the default supported set.',
+        transports: ['inMemory'],
+        note: 'Construction-time validation is transport-independent, so it runs as a single inMemory-labelled cell to avoid duplicate runs. This entry covers only the two-key construction opt-in; refusing to *negotiate* a version outside the configured list is the canonical requirement lifecycle:version:2026-pin-per-instance (not yet in this manifest — it lands with the unsupported-version error surface).'
+    },
     'lifecycle:capability:list-empty-when-not-advertised': {
         source: 'sdk',
         behavior:

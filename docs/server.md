@@ -62,6 +62,12 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
 
+### Protocol versions
+
+A server negotiates the protocol version per connection from its supported list — by default the released versions in {@linkcode @modelcontextprotocol/server!index.SUPPORTED_PROTOCOL_VERSIONS | SUPPORTED_PROTOCOL_VERSIONS}. Pass `supportedProtocolVersions` in the server options to restrict or reorder that list; every entry must be a released version or a known draft version, otherwise the constructor throws.
+
+Draft (unreleased) protocol revisions, listed in {@linkcode @modelcontextprotocol/server!index.DRAFT_PROTOCOL_VERSIONS | DRAFT_PROTOCOL_VERSIONS}, never appear in the default set and require a two-key opt-in: list the draft version in `supportedProtocolVersions` **and** set `allowDraftVersions: true`. With only one of the two keys, construction throws. The opt-in only makes the configuration constructible — the SDK does not yet negotiate or serve draft protocol versions, so an opted-in server still serves released-protocol traffic.
+
 ## Server instructions
 
 Instructions describe how to use the server and its features — cross-tool relationships, workflow patterns, and constraints (see [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP specification). Clients may add them to the system prompt. Instructions should not duplicate information already in tool descriptions.
