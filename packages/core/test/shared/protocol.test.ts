@@ -34,7 +34,16 @@ import type {
     Task,
     TaskCreationParams
 } from '../../src/types/index.js';
-import { DEFAULT_NEGOTIATED_PROTOCOL_VERSION, ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY } from '../../src/types/index.js';
+import {
+    DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    DRAFT_PROTOCOL_VERSION_2026,
+    DRAFT_PROTOCOL_VERSIONS,
+    LATEST_PROTOCOL_VERSION,
+    ProtocolError,
+    ProtocolErrorCode,
+    RELATED_TASK_META_KEY,
+    SUPPORTED_PROTOCOL_VERSIONS
+} from '../../src/types/index.js';
 import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
 
 // Test Protocol subclass for testing
@@ -5727,5 +5736,82 @@ describe('ctx.mcpReq.protocolVersion population', () => {
         });
         t.onmessage?.({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} });
         expect(await captured).toBe(DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
+    });
+});
+
+describe('draft protocol version opt-in (allowDraftVersions)', () => {
+    /** Reads the protected supported-versions list a Protocol instance settled on. */
+    function supportedVersionsOf(p: Protocol<BaseContext>): string[] {
+        return (p as unknown as { _supportedProtocolVersions: string[] })._supportedProtocolVersions;
+    }
+
+    test('draft versions never appear in the default supported set', () => {
+        for (const draft of DRAFT_PROTOCOL_VERSIONS) {
+            expect(SUPPORTED_PROTOCOL_VERSIONS).not.toContain(draft);
+        }
+        expect(DRAFT_PROTOCOL_VERSIONS).toContain(DRAFT_PROTOCOL_VERSION_2026);
+    });
+
+    test('default construction is unchanged: the supported set is the released versions', () => {
+        const p = new TestProtocolImpl();
+        expect(supportedVersionsOf(p)).toEqual(SUPPORTED_PROTOCOL_VERSIONS);
+    });
+
+    test('construction succeeds when a draft version is listed and allowDraftVersions is true', () => {
+        const p = new TestProtocolImpl({
+            supportedProtocolVersions: [LATEST_PROTOCOL_VERSION, DRAFT_PROTOCOL_VERSION_2026],
+            allowDraftVersions: true
+        });
+        expect(supportedVersionsOf(p)).toEqual([LATEST_PROTOCOL_VERSION, DRAFT_PROTOCOL_VERSION_2026]);
+    });
+
+    test('construction succeeds for a draft-only list when allowDraftVersions is true', () => {
+        const p = new TestProtocolImpl({
+            supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION_2026],
+            allowDraftVersions: true
+        });
+        expect(supportedVersionsOf(p)).toEqual([DRAFT_PROTOCOL_VERSION_2026]);
+    });
+
+    test('construction throws when a draft version is listed without the flag, naming the version and the flag', () => {
+        const construct = () => new TestProtocolImpl({ supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION_2026] });
+        expect(construct).toThrow(DRAFT_PROTOCOL_VERSION_2026);
+        expect(construct).toThrow('allowDraftVersions');
+    });
+
+    test('allowDraftVersions: false behaves exactly like omitting the flag', () => {
+        expect(
+            () =>
+                new TestProtocolImpl({
+                    supportedProtocolVersions: [LATEST_PROTOCOL_VERSION, DRAFT_PROTOCOL_VERSION_2026],
+                    allowDraftVersions: false
+                })
+        ).toThrow('allowDraftVersions');
+    });
+
+    test('construction throws on unknown protocol version strings', () => {
+        const construct = () => new TestProtocolImpl({ supportedProtocolVersions: ['2099-12-31'] });
+        expect(construct).toThrow("Unknown protocol version '2099-12-31'");
+    });
+
+    test('the flag does not bypass unknown-version validation', () => {
+        expect(() => new TestProtocolImpl({ supportedProtocolVersions: ['2099-12-31'], allowDraftVersions: true })).toThrow(
+            "Unknown protocol version '2099-12-31'"
+        );
+    });
+
+    test('the flag alone (no supportedProtocolVersions) is a no-op', () => {
+        const p = new TestProtocolImpl({ allowDraftVersions: true });
+        expect(supportedVersionsOf(p)).toEqual(SUPPORTED_PROTOCOL_VERSIONS);
+    });
+
+    test('the flag alone (released versions listed, no draft) is a no-op', () => {
+        const p = new TestProtocolImpl({ supportedProtocolVersions: [LATEST_PROTOCOL_VERSION], allowDraftVersions: true });
+        expect(supportedVersionsOf(p)).toEqual([LATEST_PROTOCOL_VERSION]);
+    });
+
+    test('released versions continue to be accepted without the flag', () => {
+        const p = new TestProtocolImpl({ supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS] });
+        expect(supportedVersionsOf(p)).toEqual(SUPPORTED_PROTOCOL_VERSIONS);
     });
 });

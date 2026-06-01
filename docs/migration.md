@@ -535,6 +535,33 @@ const client = new Client(
 );
 ```
 
+### `supportedProtocolVersions` is validated at construction
+
+In v1, the `supportedProtocolVersions` option (on `ClientOptions`/`ServerOptions`) accepted arbitrary version strings. In v2, the constructor validates the list: every entry must be a released protocol version (one of `SUPPORTED_PROTOCOL_VERSIONS`) or a known draft version (one of `DRAFT_PROTOCOL_VERSIONS`). Unknown strings throw. Draft versions additionally
+require the explicit `allowDraftVersions: true` opt-in — and even then they are never negotiated by default; the opt-in only makes the configuration constructible.
+
+**Before (v1):**
+
+```typescript
+// Any version string was accepted
+const server = new Server({ name: 'my-server', version: '1.0.0' }, { supportedProtocolVersions: ['2099-01-01'] });
+```
+
+**After (v2):**
+
+```typescript
+import { DRAFT_PROTOCOL_VERSION_2026, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/server';
+
+// Released versions work as before; draft versions require the two-key opt-in
+const server = new Server(
+    { name: 'my-server', version: '1.0.0' },
+    {
+        supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION_2026],
+        allowDraftVersions: true
+    }
+);
+```
+
 ### `InMemoryTransport` moved
 
 `InMemoryTransport` is now exported from `@modelcontextprotocol/client` and `@modelcontextprotocol/server` (both re-export it). It is still intended for in-process client-server connections and testing.

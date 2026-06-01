@@ -2,6 +2,7 @@ import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core'
 import type { ClientCapabilities, Implementation, ServerContext } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    DRAFT_PROTOCOL_VERSION_2026,
     InitializeResultSchema,
     InMemoryTransport,
     isJSONRPCResultResponse,
@@ -130,6 +131,34 @@ describe('Server', () => {
             expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
 
             await server.close();
+        });
+    });
+
+    // The validation itself lives in the shared Protocol constructor (covered in depth by the core
+    // package's protocol.test.ts); these are smoke tests that ServerOptions passes both keys through.
+    describe('draft protocol version opt-in (allowDraftVersions)', () => {
+        it('throws at construction when a draft version is listed without allowDraftVersions', () => {
+            const construct = () =>
+                new Server(
+                    { name: 'test', version: '1.0.0' },
+                    { capabilities: {}, supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION_2026] }
+                );
+
+            expect(construct).toThrow(DRAFT_PROTOCOL_VERSION_2026);
+            expect(construct).toThrow('allowDraftVersions');
+        });
+
+        it('constructs when a draft version is listed and allowDraftVersions is true', () => {
+            const server = new Server(
+                { name: 'test', version: '1.0.0' },
+                {
+                    capabilities: {},
+                    supportedProtocolVersions: [LATEST_PROTOCOL_VERSION, DRAFT_PROTOCOL_VERSION_2026],
+                    allowDraftVersions: true
+                }
+            );
+
+            expect(server).toBeInstanceOf(Server);
         });
     });
 

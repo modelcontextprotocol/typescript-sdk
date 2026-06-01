@@ -35,6 +35,7 @@ import type {
 } from '../types/index.js';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    DRAFT_PROTOCOL_VERSIONS,
     getNotificationSchema,
     getRequestSchema,
     getResultSchema,
@@ -65,9 +66,30 @@ export type ProtocolOptions = {
      * Protocol versions supported. First version is preferred (sent by client,
      * used as fallback by server). Passed to transport during {@linkcode Protocol.connect | connect()}.
      *
+     * Every listed version must be either a released protocol version (one of
+     * {@linkcode SUPPORTED_PROTOCOL_VERSIONS}) or a known draft version (one of
+     * {@linkcode DRAFT_PROTOCOL_VERSIONS}); an unknown version string makes the constructor throw.
+     * Listing a draft version additionally requires {@linkcode ProtocolOptions.allowDraftVersions | allowDraftVersions}.
+     *
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
+
+    /**
+     * Opt-in for draft (unreleased) protocol versions.
+     *
+     * Draft versions use a two-key model: a draft version (one of {@linkcode DRAFT_PROTOCOL_VERSIONS})
+     * must be listed explicitly in {@linkcode ProtocolOptions.supportedProtocolVersions | supportedProtocolVersions}
+     * AND this flag must be `true`. Listing a draft version without this flag makes the constructor
+     * throw; setting this flag without listing a draft version has no effect.
+     *
+     * Opting in only makes the configuration constructible. Draft versions are never part of the
+     * default supported set, and the SDK does not yet negotiate or serve draft protocol versions —
+     * an opted-in client or server still speaks the released protocol.
+     *
+     * @default false
+     */
+    allowDraftVersions?: boolean;
 
     /**
      * Whether to restrict emitted requests to only those that the remote side has indicated that they can handle, through their advertised capabilities.
@@ -342,6 +364,29 @@ type TimeoutInfo = {
 };
 
 /**
+ * Validates a user-supplied `supportedProtocolVersions` list: every entry must be a released
+ * protocol version or a known draft version, and draft versions require the `allowDraftVersions`
+ * opt-in (the two-key model — see {@linkcode ProtocolOptions.allowDraftVersions}).
+ */
+function validateSupportedProtocolVersions(versions: string[], allowDraftVersions: boolean): void {
+    for (const version of versions) {
+        if (DRAFT_PROTOCOL_VERSIONS.includes(version)) {
+            if (!allowDraftVersions) {
+                throw new Error(
+                    `Protocol version '${version}' is a draft version: listing it in supportedProtocolVersions additionally requires the allowDraftVersions option to be true`
+                );
+            }
+        } else if (!SUPPORTED_PROTOCOL_VERSIONS.includes(version)) {
+            throw new Error(
+                `Unknown protocol version '${version}' in supportedProtocolVersions: it is neither a released protocol version (${SUPPORTED_PROTOCOL_VERSIONS.join(
+                    ', '
+                )}) nor a known draft version (${DRAFT_PROTOCOL_VERSIONS.join(', ')})`
+            );
+        }
+    }
+}
+
+/**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
  *
@@ -395,6 +440,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
     fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
+        if (_options?.supportedProtocolVersions) {
+            validateSupportedProtocolVersions(_options.supportedProtocolVersions, _options.allowDraftVersions === true);
+        }
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
 
         // Create TaskManager from protocol options

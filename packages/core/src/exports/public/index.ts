@@ -86,6 +86,8 @@ export * from '../../types/types.js';
 // Constants
 export {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    DRAFT_PROTOCOL_VERSION_2026,
+    DRAFT_PROTOCOL_VERSIONS,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,

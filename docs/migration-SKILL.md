@@ -501,9 +501,16 @@ Type changes in handler context:
 
 > These task APIs are `@experimental` and may change without notice.
 
-## 13. Client Behavioral Changes
+## 13. Client / Server Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
+
+`supportedProtocolVersions` (in `ClientOptions`/`ServerOptions`) is validated at construction. Every entry must be in `SUPPORTED_PROTOCOL_VERSIONS` (released versions) or `DRAFT_PROTOCOL_VERSIONS` (draft versions); unknown strings throw. Listing a draft version additionally requires `allowDraftVersions: true`.
+
+| v1                                                              | v2                                                                                                              |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `supportedProtocolVersions: ['<any string>']` (accepted)        | Released or known draft versions only; unknown strings throw at construction                                      |
+| — (draft versions did not exist as a concept)                   | `supportedProtocolVersions: [..., DRAFT_PROTOCOL_VERSION_2026], allowDraftVersions: true` (two-key opt-in)        |
 
 ## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
