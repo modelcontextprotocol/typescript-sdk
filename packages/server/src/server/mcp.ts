@@ -351,16 +351,16 @@ export class McpServer {
             completions: {}
         });
 
-        this.server.setRequestHandler('completion/complete', async (request): Promise<CompleteResult> => {
+        this.server.setRequestHandler('completion/complete', async (request, ctx): Promise<CompleteResult> => {
             switch (request.params.ref.type) {
                 case 'ref/prompt': {
                     assertCompleteRequestPrompt(request);
-                    return this.handlePromptCompletion(request, request.params.ref);
+                    return this.handlePromptCompletion(request, request.params.ref, ctx);
                 }
 
                 case 'ref/resource': {
                     assertCompleteRequestResourceTemplate(request);
-                    return this.handleResourceCompletion(request, request.params.ref);
+                    return this.handleResourceCompletion(request, request.params.ref, ctx);
                 }
 
                 default: {
@@ -372,7 +372,11 @@ export class McpServer {
         this._completionHandlerInitialized = true;
     }
 
-    private async handlePromptCompletion(request: CompleteRequestPrompt, ref: PromptReference): Promise<CompleteResult> {
+    private async handlePromptCompletion(
+        request: CompleteRequestPrompt,
+        ref: PromptReference,
+        ctx: ServerContext
+    ): Promise<CompleteResult> {
         const prompt = this._registeredPrompts[ref.name];
         if (!prompt) {
             throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Prompt ${ref.name} not found`);
@@ -397,13 +401,14 @@ export class McpServer {
             return EMPTY_COMPLETION_RESULT;
         }
 
-        const suggestions = await completer(request.params.argument.value, request.params.context);
+        const suggestions = await completer(request.params.argument.value, request.params.context, ctx);
         return createCompletionResult(suggestions);
     }
 
     private async handleResourceCompletion(
         request: CompleteRequestResourceTemplate,
-        ref: ResourceTemplateReference
+        ref: ResourceTemplateReference,
+        ctx: ServerContext
     ): Promise<CompleteResult> {
         const template = Object.values(this._registeredResourceTemplates).find(t => t.resourceTemplate.uriTemplate.toString() === ref.uri);
 
@@ -421,7 +426,7 @@ export class McpServer {
             return EMPTY_COMPLETION_RESULT;
         }
 
-        const suggestions = await completer(request.params.argument.value, request.params.context);
+        const suggestions = await completer(request.params.argument.value, request.params.context, ctx);
         return createCompletionResult(suggestions);
     }
 
@@ -1059,7 +1064,8 @@ export type CompleteResourceTemplateCallback = (
     value: string,
     context?: {
         arguments?: Record<string, string>;
-    }
+    },
+    ctx?: ServerContext
 ) => string[] | Promise<string[]>;
 
 /**
