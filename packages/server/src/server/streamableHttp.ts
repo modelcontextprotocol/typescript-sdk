@@ -150,7 +150,7 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * is waiting on a nested server→client request such as `elicitation/create`
      * (human-in-the-loop delays).
      *
-     * Disabled by default.
+     * Disabled by default. Non-positive values (`<= 0`) are treated as disabled.
      */
     keepAliveInterval?: number;
 
@@ -588,13 +588,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     /**
      * Starts the SSE keepalive timer for a stream, writing comment frames until stopped.
-     * Returns a stop function, or `undefined` when keepalive is not configured.
+     * Returns a stop function, or `undefined` when keepalive is not configured or disabled
+     * (non-positive interval).
      */
     private startKeepAlive(
         controller: ReadableStreamDefaultController<Uint8Array>,
         encoder: InstanceType<typeof TextEncoder>
     ): (() => void) | undefined {
-        if (this._keepAliveInterval === undefined) {
+        if (this._keepAliveInterval === undefined || this._keepAliveInterval <= 0) {
             return undefined;
         }
         const timer = setInterval(() => {

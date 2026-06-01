@@ -1,4 +1,4 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, ServerContext } from '@modelcontextprotocol/core';
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
 import { Server } from '../../src/server/server.js';
 
@@ -35,6 +35,161 @@ describe('Server', () => {
             await responsePromise;
 
             expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+
+            await server.close();
+        });
+    });
+
+    describe('ctx-scoped request association', () => {
+        const ELICIT_PARAMS = {
+            message: 'Need input',
+            requestedSchema: { type: 'object' as const, properties: { ok: { type: 'boolean' as const } } }
+        };
+
+        const SAMPLING_PARAMS = {
+            messages: [{ role: 'user' as const, content: { type: 'text' as const, text: 'hi' } }],
+            maxTokens: 5
+        };
+
+        /**
+         * Connects a Server (with a tools/call handler) to an in-memory transport pair, runs the
+         * initialize handshake declaring elicitation + sampling client capabilities, and records
+         * every transport-level send so tests can assert on the options passed to transport.send().
+         *
+         * The fake client auto-responds to elicitation/create and sampling/createMessage requests
+         * so handlers can run to completion.
+         */
+        async function setup(onToolCall: (ctx: ServerContext) => Promise<void>) {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
+
+            server.setRequestHandler('tools/call', async (_request, ctx) => {
+                await onToolCall(ctx);
+                return { content: [{ type: 'text' as const, text: 'done' }] };
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            // Records every [message, options] pair the server passes to transport.send()
+            const sendSpy = vi.spyOn(serverTransport, 'send');
+
+            const clientMessages: JSONRPCMessage[] = [];
+            clientTransport.onmessage = message => {
+                clientMessages.push(message);
+                if ('method' in message && 'id' in message) {
+                    const request = message as JSONRPCRequest;
+                    if (request.method === 'elicitation/create') {
+                        void clientTransport.send({ jsonrpc: '2.0', id: request.id, result: { action: 'decline' } });
+                    } else if (request.method === 'sampling/createMessage') {
+                        void clientTransport.send({
+                            jsonrpc: '2.0',
+                            id: request.id,
+                            result: { role: 'assistant', content: { type: 'text', text: 'ok' }, model: 'test-model' }
+                        });
+                    }
+                }
+            };
+
+            await server.connect(serverTransport);
+            await clientTransport.start();
+
+            // Initialize handshake declaring elicitation + sampling client capabilities
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 'init-1',
+                method: 'initialize',
+                params: {
+                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    capabilities: { elicitation: { form: {} }, sampling: {} },
+                    clientInfo: { name: 'test-client', version: '1.0.0' }
+                }
+            } as JSONRPCMessage);
+            await vi.waitFor(() => expect(clientMessages.some(m => 'id' in m && m.id === 'init-1')).toBe(true));
+            await clientTransport.send({ jsonrpc: '2.0', method: 'notifications/initialized' } as JSONRPCMessage);
+
+            /** Sends a tools/call request and waits for its response to come back to the client. */
+            async function callTool(id: string): Promise<void> {
+                await clientTransport.send({
+                    jsonrpc: '2.0',
+                    id,
+                    method: 'tools/call',
+                    params: { name: 'test-tool', arguments: {} }
+                } as JSONRPCMessage);
+                await vi.waitFor(() =>
+                    expect(clientMessages.some(m => 'id' in m && m.id === id && ('result' in m || 'error' in m))).toBe(true)
+                );
+            }
+
+            /** Returns the transport.send() options for the first sent request with the given method. */
+            function sentOptionsFor(method: string) {
+                const call = sendSpy.mock.calls.find(([message]) => 'method' in message && message.method === method);
+                expect(call).toBeDefined();
+                return call![1];
+            }
+
+            return { server, clientMessages, callTool, sentOptionsFor };
+        }
+
+        it('ctx.mcpReq.elicitInput() passes the handled request id as relatedRequestId to transport.send', async () => {
+            const { server, callTool, sentOptionsFor } = await setup(async ctx => {
+                await ctx.mcpReq.elicitInput(ELICIT_PARAMS);
+            });
+
+            await callTool('tools-call-1');
+
+            expect(sentOptionsFor('elicitation/create')?.relatedRequestId).toBe('tools-call-1');
+
+            await server.close();
+        });
+
+        it('ctx.mcpReq.requestSampling() passes the handled request id as relatedRequestId to transport.send', async () => {
+            const { server, callTool, sentOptionsFor } = await setup(async ctx => {
+                await ctx.mcpReq.requestSampling(SAMPLING_PARAMS);
+            });
+
+            await callTool('tools-call-2');
+
+            expect(sentOptionsFor('sampling/createMessage')?.relatedRequestId).toBe('tools-call-2');
+
+            await server.close();
+        });
+
+        it('handler-supplied explicit relatedRequestId overrides the implicit association', async () => {
+            const { server, callTool, sentOptionsFor } = await setup(async ctx => {
+                await ctx.mcpReq.elicitInput(ELICIT_PARAMS, { relatedRequestId: 'explicit-override' });
+                await ctx.mcpReq.requestSampling(SAMPLING_PARAMS, { relatedRequestId: 'explicit-override' });
+            });
+
+            await callTool('tools-call-3');
+
+            expect(sentOptionsFor('elicitation/create')?.relatedRequestId).toBe('explicit-override');
+            expect(sentOptionsFor('sampling/createMessage')?.relatedRequestId).toBe('explicit-override');
+
+            await server.close();
+        });
+
+        it('handler-supplied options without relatedRequestId keep the implicit association', async () => {
+            const { server, callTool, sentOptionsFor } = await setup(async ctx => {
+                await ctx.mcpReq.elicitInput(ELICIT_PARAMS, { timeout: 60_000 });
+                await ctx.mcpReq.requestSampling(SAMPLING_PARAMS, { timeout: 60_000 });
+            });
+
+            await callTool('tools-call-4');
+
+            expect(sentOptionsFor('elicitation/create')?.relatedRequestId).toBe('tools-call-4');
+            expect(sentOptionsFor('sampling/createMessage')?.relatedRequestId).toBe('tools-call-4');
+
+            await server.close();
+        });
+
+        it('top-level Server.elicitInput() and Server.createMessage() do not add relatedRequestId', async () => {
+            const { server, sentOptionsFor } = await setup(async () => {});
+
+            // Called outside of any request handler — no request to associate with
+            await server.elicitInput(ELICIT_PARAMS);
+            await server.createMessage(SAMPLING_PARAMS);
+
+            expect(sentOptionsFor('elicitation/create')?.relatedRequestId).toBeUndefined();
+            expect(sentOptionsFor('sampling/createMessage')?.relatedRequestId).toBeUndefined();
 
             await server.close();
         });

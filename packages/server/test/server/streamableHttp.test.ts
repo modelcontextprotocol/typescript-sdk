@@ -4,7 +4,7 @@ import type { CallToolResult, JSONRPCErrorResponse, JSONRPCMessage } from '@mode
 import * as z from 'zod/v4';
 
 import { McpServer } from '../../src/server/mcp.js';
-import type { EventId, EventStore, StreamId } from '../../src/server/streamableHttp.js';
+import type { EventId, EventStore, StreamId, WebStandardStreamableHTTPServerTransportOptions } from '../../src/server/streamableHttp.js';
 import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
 
 /**
@@ -954,6 +954,266 @@ describe('Zod v4', () => {
             const error = errors[0];
             expect(error).toBeDefined();
             expect(error?.message).toContain('Unsupported protocol version');
+        });
+    });
+
+    describe('HTTPServerTransport - SSE Keepalive', () => {
+        let transport: WebStandardStreamableHTTPServerTransport;
+        let mcpServer: McpServer;
+
+        beforeEach(() => {
+            // Only fake interval timers (what keepalive uses) so promise/stream plumbing,
+            // request parsing, and real-time waits keep working.
+            vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
+        });
+
+        afterEach(async () => {
+            await transport?.close();
+            vi.useRealTimers();
+        });
+
+        /**
+         * Creates a transport + server, registers a 'greet' tool, runs initialization,
+         * and drains the initialization response stream so it completes and cleans up.
+         */
+        async function setupTransport(
+            options: Partial<WebStandardStreamableHTTPServerTransportOptions> = {},
+            configureServer?: (server: McpServer) => void
+        ): Promise<string> {
+            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+
+            mcpServer.registerTool(
+                'greet',
+                { description: 'Greeting tool', inputSchema: z.object({ name: z.string() }) },
+                async ({ name }): Promise<CallToolResult> => {
+                    return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+                }
+            );
+            configureServer?.(mcpServer);
+
+            transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                ...options
+            });
+
+            await mcpServer.connect(transport);
+
+            const initResponse = await transport.handleRequest(createRequest('POST', TEST_MESSAGES.initialize));
+            expect(initResponse.status).toBe(200);
+            const newSessionId = initResponse.headers.get('mcp-session-id') as string;
+            // Drain the initialize response so its POST stream completes (and stops any keepalive)
+            await readSSEEvent(initResponse);
+            return newSessionId;
+        }
+
+        /** Starts a background reader that collects decoded chunks from an SSE response body. */
+        function collectChunks(response: Response): string[] {
+            const received: string[] = [];
+            const decoder = new TextDecoder();
+            const reader = response.body!.getReader();
+            void (async () => {
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+                    received.push(decoder.decode(value));
+                }
+            })();
+            return received;
+        }
+
+        /** Counts keepalive comment frames across collected chunks (robust to chunk boundaries). */
+        function keepaliveCount(chunks: string[]): number {
+            return chunks.join('').split(': keepalive\n\n').length - 1;
+        }
+
+        /** Yields real time so background stream readers observe chunks enqueued by fake timers. */
+        function drainStream(): Promise<void> {
+            return new Promise<void>(resolve => setTimeout(resolve, 10));
+        }
+
+        /** Polls (in real time) until the predicate holds. */
+        async function waitForCondition(predicate: () => boolean, timeoutMs = 2000): Promise<void> {
+            const start = Date.now();
+            while (!predicate()) {
+                if (Date.now() - start > timeoutMs) {
+                    throw new Error('Timed out waiting for condition');
+                }
+                await new Promise<void>(resolve => setTimeout(resolve, 5));
+            }
+        }
+
+        it('does not schedule a keepalive timer when keepAliveInterval is not set', async () => {
+            const sessionId = await setupTransport();
+
+            const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+            expect(response.status).toBe(200);
+            const chunks = collectChunks(response);
+
+            // Default off: no timer scheduled for the open standalone stream
+            expect(vi.getTimerCount()).toBe(0);
+
+            // ... and nothing is ever written to the stream
+            vi.advanceTimersByTime(60_000);
+            await drainStream();
+            expect(chunks).toHaveLength(0);
+        });
+
+        it.each([0, -1000])('treats keepAliveInterval=%d as disabled', async interval => {
+            const sessionId = await setupTransport({ keepAliveInterval: interval });
+
+            const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+            expect(response.status).toBe(200);
+            const chunks = collectChunks(response);
+
+            expect(vi.getTimerCount()).toBe(0);
+
+            vi.advanceTimersByTime(60_000);
+            await drainStream();
+            expect(chunks).toHaveLength(0);
+        });
+
+        it('writes keepalive comments at the configured interval while a stream is open', async () => {
+            const sessionId = await setupTransport({ keepAliveInterval: 1000 });
+
+            const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+            expect(response.status).toBe(200);
+            const chunks = collectChunks(response);
+
+            // Nothing before the interval elapses
+            vi.advanceTimersByTime(999);
+            await drainStream();
+            expect(keepaliveCount(chunks)).toBe(0);
+
+            // First interval elapses
+            vi.advanceTimersByTime(1);
+            await drainStream();
+            expect(keepaliveCount(chunks)).toBe(1);
+
+            // Two more intervals
+            vi.advanceTimersByTime(2000);
+            await drainStream();
+            expect(keepaliveCount(chunks)).toBe(3);
+
+            // Frames are pure SSE comments — nothing else is written
+            expect(chunks.join('')).toBe(': keepalive\n\n'.repeat(3));
+        });
+
+        it('stops the keepalive timer when a request response stream completes', async () => {
+            let releaseTool!: () => void;
+            const toolBlocked = new Promise<void>(resolve => {
+                releaseTool = resolve;
+            });
+
+            const sessionId = await setupTransport({ keepAliveInterval: 1000 }, server => {
+                server.registerTool('block', { description: 'Blocks until released', inputSchema: z.object({}) }, async () => {
+                    await toolBlocked;
+                    return { content: [{ type: 'text', text: 'released' }] };
+                });
+            });
+
+            // The initialization response stream has already completed — its keepalive must be gone
+            expect(vi.getTimerCount()).toBe(0);
+
+            const toolCall: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'block', arguments: {} },
+                id: 'call-block'
+            };
+            const response = await transport.handleRequest(createRequest('POST', toolCall, { sessionId }));
+            expect(response.status).toBe(200);
+            const chunks = collectChunks(response);
+
+            // While the handler is in flight, the keepalive timer is active and writes frames
+            expect(vi.getTimerCount()).toBe(1);
+            vi.advanceTimersByTime(2000);
+            await drainStream();
+            expect(keepaliveCount(chunks)).toBe(2);
+
+            // Complete the handler: the response is written and the stream completes
+            releaseTool();
+            await waitForCondition(() => chunks.some(chunk => chunk.includes('call-block')));
+
+            // No timer leak after stream completion
+            expect(vi.getTimerCount()).toBe(0);
+
+            // No further keepalives are written after completion
+            vi.advanceTimersByTime(10_000);
+            await drainStream();
+            expect(keepaliveCount(chunks)).toBe(2);
+        });
+
+        it('stops keepalive timers when the transport is closed mid-stream', async () => {
+            const sessionId = await setupTransport({ keepAliveInterval: 1000 });
+
+            const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+            expect(response.status).toBe(200);
+            const chunks = collectChunks(response);
+
+            expect(vi.getTimerCount()).toBe(1);
+            vi.advanceTimersByTime(1000);
+            await drainStream();
+            expect(keepaliveCount(chunks)).toBe(1);
+
+            await transport.close();
+
+            // Closing the transport mid-stream clears the timer and writes nothing further
+            expect(vi.getTimerCount()).toBe(0);
+            vi.advanceTimersByTime(10_000);
+            await drainStream();
+            expect(keepaliveCount(chunks)).toBe(1);
+        });
+
+        it('runs independent keepalives for concurrent streams and cleans each up independently', async () => {
+            let releaseTool!: () => void;
+            const toolBlocked = new Promise<void>(resolve => {
+                releaseTool = resolve;
+            });
+
+            const sessionId = await setupTransport({ keepAliveInterval: 1000 }, server => {
+                server.registerTool('block', { description: 'Blocks until released', inputSchema: z.object({}) }, async () => {
+                    await toolBlocked;
+                    return { content: [{ type: 'text', text: 'released' }] };
+                });
+            });
+
+            // Stream A: standalone GET stream
+            const getResponse = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+            expect(getResponse.status).toBe(200);
+            const getChunks = collectChunks(getResponse);
+
+            // Stream B: POST response stream held open by the blocked tool
+            const toolCall: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'block', arguments: {} },
+                id: 'call-block'
+            };
+            const postResponse = await transport.handleRequest(createRequest('POST', toolCall, { sessionId }));
+            expect(postResponse.status).toBe(200);
+            const postChunks = collectChunks(postResponse);
+
+            // Each open stream has its own keepalive timer
+            expect(vi.getTimerCount()).toBe(2);
+
+            // Both streams receive keepalives
+            vi.advanceTimersByTime(1000);
+            await drainStream();
+            expect(keepaliveCount(getChunks)).toBe(1);
+            expect(keepaliveCount(postChunks)).toBe(1);
+
+            // Completing the tool call cleans up only the POST stream's keepalive
+            releaseTool();
+            await waitForCondition(() => postChunks.some(chunk => chunk.includes('call-block')));
+            expect(vi.getTimerCount()).toBe(1);
+
+            // The GET stream keepalive continues; the completed POST stream gets nothing further
+            vi.advanceTimersByTime(1000);
+            await drainStream();
+            expect(keepaliveCount(getChunks)).toBe(2);
+            expect(keepaliveCount(postChunks)).toBe(1);
         });
     });
 
