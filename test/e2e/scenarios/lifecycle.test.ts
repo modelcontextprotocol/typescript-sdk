@@ -19,6 +19,7 @@ import type {
     ServerCapabilities
 } from '@modelcontextprotocol/server';
 import {
+    DRAFT_PROTOCOL_VERSION_2026,
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -542,6 +543,42 @@ verifies('lifecycle:version:no-overlap-rejects', async ({ transport }: TestArgs)
     expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
     expect(client.getServerCapabilities()).toBeUndefined();
     expect(client.getServerVersion()).toBeUndefined();
+});
+
+verifies('lifecycle:version:initialize-stateful-versions-only', async ({ transport }: TestArgs) => {
+    // The draft revision sits at a different position on each side: the outcome is order-agnostic.
+    const makeServer = () =>
+        new McpServer(
+            { name: 'stateful-only-server', version: '0.0.0' },
+            { supportedProtocolVersions: [LATEST_PROTOCOL_VERSION, DRAFT_PROTOCOL_VERSION_2026] }
+        );
+    const client = new Client(
+        { name: 'stateful-only-client', version: '0.0.0' },
+        { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION_2026, LATEST_PROTOCOL_VERSION] }
+    );
+    const log = tapHandshake(client);
+
+    await using _ = await wire(transport, makeServer, client);
+
+    const initRequest = log.find(
+        e => e.direction === 'client-to-server' && isJSONRPCRequest(e.message) && e.message.method === 'initialize'
+    );
+    if (!initRequest || !isJSONRPCRequest(initRequest.message)) throw new Error('expected an initialize request on the wire');
+    expect(initRequest.message.params?.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+    const initRequestId = initRequest.message.id;
+
+    const initResponse = log.find(
+        e => e.direction === 'server-to-client' && isJSONRPCResultResponse(e.message) && e.message.id === initRequestId
+    );
+    if (!initResponse || !isJSONRPCResultResponse(initResponse.message)) throw new Error('expected a result for the initialize request');
+    expect(initResponse.message.result.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+
+    for (const entry of log) {
+        expect(JSON.stringify(entry.message)).not.toContain(DRAFT_PROTOCOL_VERSION_2026);
+    }
+
+    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+    expect(client.getServerVersion()).toEqual({ name: 'stateful-only-server', version: '0.0.0' });
 });
 
 verifies('lifecycle:capability:list-empty-when-not-advertised', async ({ transport }: TestArgs) => {

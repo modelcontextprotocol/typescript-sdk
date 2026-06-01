@@ -145,7 +145,8 @@ const transport = new StreamableHTTPClientTransport(new URL('http://localhost:30
 
 Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`.
 
-Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) have been removed from the core SDK; new code should use a dedicated IdP/OAuth library. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
+Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) have been removed from the core SDK; new code should use a dedicated IdP/OAuth library. See the [examples](../examples/server/src/) for
+a working demo with `better-auth`.
 
 Note: `AuthInfo` has moved from `server/auth/types.ts` to the core types and is now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
 
@@ -387,7 +388,11 @@ const AcmeSearch = z.object({
     params: z.object({ query: z.string(), limit: z.number().int() })
 });
 server.setRequestHandler(AcmeSearch, async request => {
-    return { items: [/* ... */] };
+    return {
+        items: [
+            /* ... */
+        ]
+    };
 });
 ```
 
@@ -398,7 +403,11 @@ const SearchParams = z.object({ query: z.string(), limit: z.number().int() });
 const SearchResult = z.object({ items: z.array(z.string()) });
 
 server.setRequestHandler('acme/search', { params: SearchParams, result: SearchResult }, async (params, ctx) => {
-    return { items: [/* ... */] };
+    return {
+        items: [
+            /* ... */
+        ]
+    };
 });
 ```
 
@@ -437,8 +446,8 @@ Common method string replacements:
 
 ### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer require a schema parameter for spec methods
 
-For **spec** methods, the public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer require a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
-like `CallToolResultSchema` or `ElicitResultSchema` when making spec-method requests.
+For **spec** methods, the public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer require a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to
+import result schemas like `CallToolResultSchema` or `ElicitResultSchema` when making spec-method requests.
 
 **`client.request()` — Before (v1):**
 
@@ -518,7 +527,8 @@ import { specTypeSchemas } from '@modelcontextprotocol/client';
 const result = specTypeSchemas.CallToolResult['~standard'].validate(value);
 ```
 
-`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1Sync<In, Out>` — `validate()` returns the result synchronously, so you can access `.issues` / `.value` without `await`. It composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
+`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1Sync<In, Out>` — `validate()` returns the result synchronously,
+so you can access `.issues` / `.value` without `await`. It composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
 
 ### Client list methods return empty results for missing capabilities
 
@@ -718,22 +728,22 @@ try {
 
 The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 
-| Code                                              | Description                                 |
-| ------------------------------------------------- | ------------------------------------------- |
-| `SdkErrorCode.NotConnected`                       | Transport is not connected                  |
-| `SdkErrorCode.AlreadyConnected`                   | Transport is already connected              |
-| `SdkErrorCode.NotInitialized`                     | Protocol is not initialized                 |
-| `SdkErrorCode.CapabilityNotSupported`             | Required capability is not supported        |
-| `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response      |
-| `SdkErrorCode.ConnectionClosed`                   | Connection was closed                       |
-| `SdkErrorCode.SendFailed`                         | Failed to send message                      |
+| Code                                              | Description                                    |
+| ------------------------------------------------- | ---------------------------------------------- |
+| `SdkErrorCode.NotConnected`                       | Transport is not connected                     |
+| `SdkErrorCode.AlreadyConnected`                   | Transport is already connected                 |
+| `SdkErrorCode.NotInitialized`                     | Protocol is not initialized                    |
+| `SdkErrorCode.CapabilityNotSupported`             | Required capability is not supported           |
+| `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response         |
+| `SdkErrorCode.ConnectionClosed`                   | Connection was closed                          |
+| `SdkErrorCode.SendFailed`                         | Failed to send message                         |
 | `SdkErrorCode.InvalidResult`                      | Response result failed local schema validation |
-| `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                    |
-| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication |
-| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping  |
-| `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response    |
-| `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                   |
-| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                 |
+| `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                       |
+| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication    |
+| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping     |
+| `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response       |
+| `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                      |
+| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                    |
 
 #### `StreamableHTTPError` removed
 
@@ -762,7 +772,7 @@ try {
     await transport.send(message);
 } catch (error) {
     if (error instanceof SdkHttpError) {
-        console.log('HTTP status:', error.status);     // number — no cast needed
+        console.log('HTTP status:', error.status); // number — no cast needed
         console.log('Status text:', error.statusText); // string | undefined
         switch (error.code) {
             case SdkErrorCode.ClientHttpAuthentication:
@@ -914,6 +924,11 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 
 > **Note:** These task APIs are marked `@experimental` and may change without notice.
 
+### `initialize` negotiates only known stateful protocol versions
+
+`supportedProtocolVersions` entries outside `STATEFUL_PROTOCOL_VERSIONS` (the released versions up to 2025-11-25) no longer participate in the `initialize` handshake: clients request, and servers accept and fall back to, the first known stateful version in the list. A list
+containing no stateful version makes `connect()` throw. Custom or future version strings were previously sent as-is; revisions after 2025-11-25 negotiate per-request instead (arriving in a later release), and newly released stateful versions require an SDK update.
+
 ## Enhancements
 
 ### Automatic JSON Schema validator selection by runtime
@@ -952,7 +967,8 @@ const server = new McpServer(
 );
 ```
 
-You do not need to install or import validator packages for the default behavior. The client and server packages bundle the validator backend selected by the runtime shim, so a normal `import { McpServer } from '@modelcontextprotocol/server'` does not pull `ajv` or `@cfworker/json-schema` into your bundle until you choose to customize.
+You do not need to install or import validator packages for the default behavior. The client and server packages bundle the validator backend selected by the runtime shim, so a normal `import { McpServer } from '@modelcontextprotocol/server'` does not pull `ajv` or
+`@cfworker/json-schema` into your bundle until you choose to customize.
 
 If you want to customize the **built-in** backend (for example, pre-register schemas by `$id`, register custom AJV formats, or change the `@cfworker/json-schema` draft), import the named class from the explicit subpath and pass an instance through `jsonSchemaValidator`:
 
@@ -987,7 +1003,8 @@ const server = new McpServer(
 
 (both subpaths are also available on `@modelcontextprotocol/client/validators/...`)
 
-If you import from one of these subpaths in your own code, the corresponding peer dep (`ajv` + `ajv-formats`, or `@cfworker/json-schema`) needs to be installed in your `package.json`. The runtime shim continues to vendor a copy for the default code path, so you can use the subpath in some files and rely on the default in others.
+If you import from one of these subpaths in your own code, the corresponding peer dep (`ajv` + `ajv-formats`, or `@cfworker/json-schema`) needs to be installed in your `package.json`. The runtime shim continues to vendor a copy for the default code path, so you can use the
+subpath in some files and rely on the default in others.
 
 To replace validation wholesale rather than customizing the built-in classes, implement the `jsonSchemaValidator` interface and pass your own implementation through the option above.
 

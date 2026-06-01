@@ -43,6 +43,7 @@ import {
     ElicitResultSchema,
     EmptyResultSchema,
     extractTaskManagerOptions,
+    isStatefulProtocolVersion,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -430,9 +431,11 @@ export class Server extends Protocol<ServerContext> {
         this._clientCapabilities = request.params.capabilities;
         this._clientVersion = request.params.clientInfo;
 
-        const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
+        const statefulVersions = this._supportedProtocolVersions.filter(version => isStatefulProtocolVersion(version));
+        // TODO: respond with -32004 (unsupported protocol version) when statefulVersions is empty.
+        const protocolVersion = statefulVersions.includes(requestedVersion)
             ? requestedVersion
-            : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
+            : (statefulVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
         this._negotiatedProtocolVersion = protocolVersion;
         this.transport?.setProtocolVersion?.(protocolVersion);

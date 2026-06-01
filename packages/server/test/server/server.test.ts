@@ -2,6 +2,7 @@ import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core'
 import type { ClientCapabilities, Implementation, ServerContext } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    DRAFT_PROTOCOL_VERSION_2026,
     InitializeResultSchema,
     InMemoryTransport,
     isJSONRPCResultResponse,
@@ -126,6 +127,42 @@ describe('Server', () => {
 
             // The server falls back to its latest supported version and the getter reflects
             // the version it actually responded with, not the one the client asked for.
+            expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+
+            await server.close();
+        });
+    });
+
+    describe('initialize negotiates stateful protocol versions only', () => {
+        it('treats a requested stateless version as unsupported and responds with its first stateful version', async () => {
+            const server = new Server(
+                { name: 'test', version: '1.0.0' },
+                {
+                    capabilities: {},
+                    supportedProtocolVersions: [LATEST_PROTOCOL_VERSION, DRAFT_PROTOCOL_VERSION_2026]
+                }
+            );
+
+            const respondedVersion = await initializeServer(server, DRAFT_PROTOCOL_VERSION_2026);
+
+            expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+
+            await server.close();
+        });
+
+        it('falls back to its first stateful supported version regardless of list order', async () => {
+            const server = new Server(
+                { name: 'test', version: '1.0.0' },
+                {
+                    capabilities: {},
+                    supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION_2026, LATEST_PROTOCOL_VERSION]
+                }
+            );
+
+            const respondedVersion = await initializeServer(server, UNSUPPORTED_VERSION);
+
             expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
             expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
 

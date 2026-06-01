@@ -1,9 +1,12 @@
 /**
- * Example: Custom Protocol Version Support
+ * Example: Restricting Protocol Versions
  *
- * This demonstrates how to support protocol versions not yet in the SDK.
- * First version in the list is used as fallback when client requests
- * an unsupported version.
+ * Demonstrates pinning `supportedProtocolVersions` to a subset of the SDK's
+ * stateful versions (e.g. for compatibility testing against older clients).
+ *
+ * Only versions in STATEFUL_PROTOCOL_VERSIONS negotiate via the `initialize`
+ * handshake; revisions after 2025-11-25 negotiate per-request and are ignored
+ * by the handshake.
  *
  * Run with: pnpm tsx src/customProtocolVersion.ts
  */
@@ -13,15 +16,15 @@ import { createServer } from 'node:http';
 
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { McpServer, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/server';
+import { McpServer, STATEFUL_PROTOCOL_VERSIONS } from '@modelcontextprotocol/server';
 
-// Add support for a newer protocol version (first in list is fallback)
-const CUSTOM_VERSIONS = ['2026-01-01', ...SUPPORTED_PROTOCOL_VERSIONS];
+// Pin to the two most recent stateful versions (newest first is preferred).
+const PINNED_VERSIONS = STATEFUL_PROTOCOL_VERSIONS.slice(0, 2);
 
 const server = new McpServer(
-    { name: 'custom-protocol-server', version: '1.0.0' },
+    { name: 'pinned-protocol-server', version: '1.0.0' },
     {
-        supportedProtocolVersions: CUSTOM_VERSIONS,
+        supportedProtocolVersions: PINNED_VERSIONS,
         capabilities: { tools: {} }
     }
 );
@@ -37,7 +40,7 @@ server.registerTool(
         content: [
             {
                 type: 'text',
-                text: JSON.stringify({ supportedVersions: CUSTOM_VERSIONS }, null, 2)
+                text: JSON.stringify({ supportedVersions: PINNED_VERSIONS }, null, 2)
             }
         ]
     })
@@ -60,6 +63,6 @@ createServer(async (req, res) => {
         res.writeHead(404).end('Not Found');
     }
 }).listen(PORT, () => {
-    console.log(`MCP server with custom protocol versions on port ${PORT}`);
-    console.log(`Supported versions: ${CUSTOM_VERSIONS.join(', ')}`);
+    console.log(`MCP server with pinned protocol versions on port ${PORT}`);
+    console.log(`Supported versions: ${PINNED_VERSIONS.join(', ')}`);
 });

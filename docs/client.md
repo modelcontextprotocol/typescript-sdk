@@ -111,6 +111,12 @@ const systemPrompt = ['You are a helpful assistant.', instructions].filter(Boole
 console.log(systemPrompt);
 ```
 
+### Protocol versions
+
+During initialization the client requests the first stateful entry of its supported version list and accepts a response within that stateful subset — by default the versions in {@linkcode @modelcontextprotocol/client!index.SUPPORTED_PROTOCOL_VERSIONS | SUPPORTED_PROTOCOL_VERSIONS}. Pass `supportedProtocolVersions` in the client options to restrict or reorder that list.
+
+Only the stateful protocol versions in {@linkcode @modelcontextprotocol/client!index.STATEFUL_PROTOCOL_VERSIONS | STATEFUL_PROTOCOL_VERSIONS} negotiate via the initialize handshake. Every revision after 2025-11-25 — including the draft revision in {@linkcode @modelcontextprotocol/client!index.DRAFT_PROTOCOL_VERSIONS | DRAFT_PROTOCOL_VERSIONS} — is stateless and negotiates per-request, which arrives with a later release.
+
 ## Authentication
 
 MCP servers can require authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an {@linkcode @modelcontextprotocol/client!client/auth.AuthProvider | AuthProvider} to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport}. The transport calls `token()` before every request and `onUnauthorized()` (if provided) on 401, then retries once.
