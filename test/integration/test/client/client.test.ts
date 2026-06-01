@@ -1,5 +1,5 @@
 import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/client';
-import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core';
+import type { CallToolResult, Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
     ElicitResultSchema,
@@ -2278,6 +2278,72 @@ describe('outputSchema validation', () => {
             /Structured content does not match the tool's output schema/
         );
     });
+
+    /***
+     * Test: Skip outputSchema validation when result is an error (mirrors server-side behavior)
+     */
+    test('should not validate structuredContent against outputSchema when isError is true', async () => {
+        const server = new Server(
+            {
+                name: 'test-server',
+                version: '1.0.0'
+            },
+            {
+                capabilities: {
+                    tools: {}
+                }
+            }
+        );
+
+        server.setRequestHandler('tools/list', async () => ({
+            tools: [
+                {
+                    name: 'test-tool',
+                    description: 'A test tool',
+                    inputSchema: {
+                        type: 'object',
+                        properties: {}
+                    },
+                    outputSchema: {
+                        type: 'object',
+                        properties: {
+                            result: { type: 'string' },
+                            count: { type: 'number' }
+                        },
+                        required: ['result', 'count']
+                    }
+                }
+            ]
+        }));
+
+        server.setRequestHandler('tools/call', async () => {
+            // Error envelope carrying a structuredContent shape that does NOT match outputSchema.
+            // Server-side validateToolOutput short-circuits on isError; client must behave the same.
+            return {
+                isError: true,
+                content: [{ type: 'text', text: 'NOT_FOUND' }],
+                structuredContent: { error: { code: 'NOT_FOUND', message: 'nope' } }
+            };
+        });
+
+        const client = new Client(
+            {
+                name: 'test-client',
+                version: '1.0.0'
+            },
+            { capabilities: { tasks: { requests: { tools: { call: {} } } } } }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        await client.listTools();
+
+        const result = await client.callTool({ name: 'test-tool' });
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toEqual({ error: { code: 'NOT_FOUND', message: 'nope' } });
+    });
 });
 
 describe('Task-based execution', () => {
@@ -4081,6 +4147,85 @@ test('callToolStream() should not validate structuredContent when isError is tru
     if (messages[0]!.type === 'result') {
         expect(messages[0]!.result.isError).toBe(true);
         expect(messages[0]!.result.content).toEqual([{ type: 'text', text: 'Something went wrong' }]);
+    }
+
+    await client.close();
+    await server.close();
+});
+
+test('callToolStream() should not validate structuredContent when isError is true', async () => {
+    const server = new Server(
+        {
+            name: 'test-server',
+            version: '1.0.0'
+        },
+        {
+            capabilities: {
+                tools: {}
+            }
+        }
+    );
+
+    server.setRequestHandler('tools/list', async () => ({
+        tools: [
+            {
+                name: 'test-tool',
+                description: 'A test tool',
+                inputSchema: {
+                    type: 'object',
+                    properties: {}
+                },
+                outputSchema: {
+                    type: 'object',
+                    properties: {
+                        result: { type: 'string' }
+                    },
+                    required: ['result']
+                }
+            }
+        ]
+    }));
+
+    server.setRequestHandler('tools/call', async () => {
+        // Error envelope carrying a structuredContent shape that does NOT match outputSchema.
+        // Server-side validateToolOutput short-circuits on isError; client must behave the same.
+        return {
+            isError: true,
+            content: [{ type: 'text', text: 'NOT_FOUND' }],
+            structuredContent: { error: { code: 'NOT_FOUND', message: 'nope' } }
+        };
+    });
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+    const client = new Client(
+        {
+            name: 'test-client',
+            version: '1.0.0'
+        },
+        {
+            capabilities: { tasks: { requests: { tools: { call: {} } } } }
+        }
+    );
+
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await client.listTools();
+
+    const stream = client.experimental.tasks.callToolStream({ name: 'test-tool', arguments: {} });
+
+    const messages = [];
+    for await (const message of stream) {
+        messages.push(message);
+    }
+
+    // Should have received result (not error), with isError flag set and structuredContent preserved
+    expect(messages.length).toBe(1);
+    expect(messages[0]!.type).toBe('result');
+    if (messages[0]!.type === 'result') {
+        const result = messages[0]!.result as CallToolResult;
+        expect(result.isError).toBe(true);
+        expect(result.structuredContent).toEqual({ error: { code: 'NOT_FOUND', message: 'nope' } });
     }
 
     await client.close();
