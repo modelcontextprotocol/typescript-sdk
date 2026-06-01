@@ -1164,6 +1164,9 @@ importers:
       '@modelcontextprotocol/server':
         specifier: workspace:^
         version: link:../../packages/server
+      '@modelcontextprotocol/server-legacy':
+        specifier: workspace:^
+        version: link:../../packages/server-legacy
       '@modelcontextprotocol/test-helpers':
         specifier: workspace:^
         version: link:../helpers

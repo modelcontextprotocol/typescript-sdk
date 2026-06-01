@@ -2268,16 +2268,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'A single server instance can serve streamable HTTP and the legacy SSE transport concurrently; clients on either transport can call the same tools.',
         transports: ['streamableHttp'],
-        note: 'Deferred flows test legacy SSE; transport restriction reflects test infrastructure, not behavioral exclusion.',
-        deferred: 'Legacy SSE transport is deprecated in the spec. Back-compat flows that require an SSE server are deferred.'
+        note: 'This is an HTTP-specific compatibility flow; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. The SSE half is hosted with SSEServerTransport from @modelcontextprotocol/server-legacy/sse.'
     },
     'flow:compat:streamable-then-sse-fallback': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#backwards-compatibility',
         behavior:
             'When a streamable HTTP initialize fails with 400, 404, or 405, falling back to the legacy SSE client transport against the same server connects successfully.',
         transports: ['streamableHttp'],
-        note: 'This is an HTTP-specific compatibility flow; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        deferred: 'Legacy SSE transport is deprecated in the spec. Back-compat flows that require an SSE server are deferred.'
+        note: 'This is an HTTP-specific compatibility flow; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'flow:elicitation:multi-step-form': {
         transports: STATEFUL_TRANSPORTS,
@@ -2717,12 +2715,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'The SDK provides a server-side legacy HTTP+SSE transport so existing SSE deployments can be hosted on SDK components alone.',
         transports: ['sse'],
-        note: 'This asserts the availability of the server half of the legacy SSE transport; the matrix transport arg is ignored, so it runs as a single sse-labelled cell.',
-        knownFailures: [
-            {
-                note: 'changed in v2: the server-side SSE transport was removed from the SDK; only the client-side SSEClientTransport remains, so the e2e sse column is hosted by a test-only bridge.'
-            }
-        ]
+        note: 'This asserts the availability of the server half of the legacy SSE transport (SSEServerTransport from @modelcontextprotocol/server-legacy/sse); the matrix transport arg is ignored, so it runs as a single sse-labelled cell.'
     }
 } satisfies Record<string, Requirement>;
 
