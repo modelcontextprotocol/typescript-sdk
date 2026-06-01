@@ -1,4 +1,12 @@
-import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
+import type {
+    AuthInfo,
+    JSONRPCErrorResponse,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    MessageExtraInfo,
+    RequestId
+} from '../types/index.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -69,6 +77,30 @@ export type TransportSendOptions = {
     onresumptiontoken?: ((token: string) => void) | undefined;
 };
 /**
+ * Per-request context a transport supplies when dispatching a stateless
+ * (draft-protocol-version) request. Everything in it is request-scoped —
+ * nothing is sourced from connection or session state.
+ *
+ * @internal
+ */
+export interface StatelessDispatchContext {
+    /** Validated authorization info from the transport layer (HTTP only). */
+    authInfo?: AuthInfo;
+}
+
+/**
+ * The handler shape a server installs on a transport to serve stateless
+ * (draft-protocol-version) requests: `dispatch` is request→response, always
+ * short-lived. Installed on the transport via
+ * {@linkcode Transport.setStatelessHandlers}.
+ *
+ * @internal
+ */
+export interface StatelessHandlers {
+    dispatch(request: JSONRPCRequest, ctx: StatelessDispatchContext): Promise<JSONRPCResponse | JSONRPCErrorResponse>;
+}
+
+/**
  * Describes the minimal contract for an MCP transport that a client or server can communicate over.
  */
 export interface Transport {
@@ -131,4 +163,14 @@ export interface Transport {
      * This allows the server to pass its supported versions to the transport.
      */
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
+
+    /**
+     * Server-side. Installs the stateless dispatch handlers on this transport.
+     * Called by `Server.connect()` before the transport is started. Transports
+     * that implement this route stateless (draft-protocol-version) requests via
+     * `StatelessHandlers` instead of the `onmessage` path.
+     *
+     * @internal
+     */
+    setStatelessHandlers?(handlers: StatelessHandlers): void;
 }
