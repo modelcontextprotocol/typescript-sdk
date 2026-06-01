@@ -559,6 +559,70 @@ describe('Zod v4', () => {
                 id: 'call-1'
             });
         });
+
+        it('delivers related server→client requests on the standalone GET stream', async () => {
+            let releaseTool!: () => void;
+            const toolBlocked = new Promise<void>(resolve => {
+                releaseTool = resolve;
+            });
+            let signalToolStarted!: () => void;
+            const toolStarted = new Promise<void>(resolve => {
+                signalToolStarted = resolve;
+            });
+
+            mcpServer.registerTool('block', { description: 'Blocks until released', inputSchema: z.object({}) }, async () => {
+                signalToolStarted();
+                await toolBlocked;
+                return { content: [{ type: 'text', text: 'released' }] };
+            });
+
+            sessionId = await initializeServer();
+
+            // Open the standalone GET stream
+            const getResponse = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
+            expect(getResponse.status).toBe(200);
+            const received: string[] = [];
+            const decoder = new TextDecoder();
+            const reader = getResponse.body!.getReader();
+            void (async () => {
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        break;
+                    }
+                    received.push(decoder.decode(value, { stream: true }));
+                }
+            })();
+
+            // Hold a tools/call in flight; its JSON-mode response stream cannot carry SSE
+            const toolCall: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: { name: 'block', arguments: {} },
+                id: 'call-block'
+            };
+            const toolCallPromise = transport.handleRequest(createRequest('POST', toolCall, { sessionId }));
+            await toolStarted;
+
+            // A server→client request related to the in-flight call is delivered on the GET stream
+            const elicitRequest: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'elicitation/create',
+                params: { mode: 'form', message: 'Need input', requestedSchema: { type: 'object', properties: {} } },
+                id: 'elicit-1'
+            };
+            await transport.send(elicitRequest, { relatedRequestId: 'call-block' });
+
+            await vi.waitFor(() => {
+                expect(received.join('')).toContain('"method":"elicitation/create"');
+            });
+
+            // The tool call still completes as JSON
+            releaseTool();
+            const toolResponse = await toolCallPromise;
+            expect(toolResponse.status).toBe(200);
+            expect(toolResponse.headers.get('content-type')).toBe('application/json');
+        });
     });
 
     describe('HTTPServerTransport - Session Callbacks', () => {
@@ -1060,7 +1124,7 @@ describe('Zod v4', () => {
             expect(chunks).toHaveLength(0);
         });
 
-        it.each([0, -1000])('treats keepAliveInterval=%d as disabled', async interval => {
+        it.each([0, -1000, NaN, Infinity])('treats keepAliveInterval=%d as disabled', async interval => {
             const sessionId = await setupTransport({ keepAliveInterval: interval });
 
             const response = await transport.handleRequest(createRequest('GET', undefined, { sessionId }));
@@ -1214,6 +1278,26 @@ describe('Zod v4', () => {
             await drainStream();
             expect(keepaliveCount(getChunks)).toBe(2);
             expect(keepaliveCount(postChunks)).toBe(1);
+        });
+
+        it('stops the keepalive timer when event replay fails', async () => {
+            const failingEventStore: EventStore = {
+                async storeEvent(): Promise<EventId> {
+                    return 'stored-event';
+                },
+                async replayEventsAfter(): Promise<StreamId> {
+                    throw new Error('unknown event id');
+                }
+            };
+            const sessionId = await setupTransport({ keepAliveInterval: 1000, eventStore: failingEventStore });
+
+            const response = await transport.handleRequest(
+                createRequest('GET', undefined, { sessionId, extraHeaders: { 'last-event-id': 'unknown-event' } })
+            );
+            expect(response.status).toBe(500);
+
+            // The keepalive armed when the replay stream was constructed must not outlive the failed replay
+            expect(vi.getTimerCount()).toBe(0);
         });
     });
 

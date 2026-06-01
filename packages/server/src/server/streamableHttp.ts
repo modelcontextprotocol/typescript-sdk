@@ -509,6 +509,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             return this.createJsonErrorResponse(400, -32_000, 'Event store not configured');
         }
 
+        let stopKeepAlive: () => void = noKeepAlive;
         try {
             // If getStreamIdForEventId is available, use it for conflict checking
             let streamId: string | undefined;
@@ -540,7 +541,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Create a ReadableStream with controller for SSE
             const encoder = new TextEncoder();
             let streamController: ReadableStreamDefaultController<Uint8Array>;
-            let stopKeepAlive: () => void = noKeepAlive;
 
             const readable = new ReadableStream<Uint8Array>({
                 start: controller => {
@@ -583,6 +583,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             return new Response(readable, { headers });
         } catch (error) {
+            // The keepalive was armed when the stream was constructed; without a mapping entry
+            // there is no cleanup() to stop it, so stop it here.
+            stopKeepAlive();
             this.onerror?.(error as Error);
             return this.createJsonErrorResponse(500, -32_000, 'Error replaying events');
         }
@@ -590,12 +593,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
     /**
      * Starts the SSE keepalive timer for a stream, writing comment frames until stopped.
-     * Returns a stop function, or `undefined` when keepalive is not configured or disabled
-     * (non-positive interval).
+     * Returns a stop function (a no-op when keepalive is not configured or disabled).
      */
     private startKeepAlive(controller: ReadableStreamDefaultController<Uint8Array>, encoder: InstanceType<typeof TextEncoder>): () => void {
-        if (this._keepAliveInterval === undefined || this._keepAliveInterval <= 0) {
-            return () => {};
+        const interval = this._keepAliveInterval;
+        if (interval === undefined || !Number.isFinite(interval) || interval <= 0) {
+            return noKeepAlive;
         }
         const timer = setInterval(() => {
             try {
@@ -604,7 +607,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 // Stream already closed or cancelled
                 clearInterval(timer);
             }
-        }, this._keepAliveInterval);
+        }, interval);
         return () => clearInterval(timer);
     }
 
@@ -1031,6 +1034,21 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
 
         const stream = this._streamMapping.get(streamId);
+
+        // Server→client requests related to a response stream that cannot carry SSE
+        // (JSON-response mode, or the stream is gone) are delivered on the standalone
+        // SSE stream instead — the same routing they have without a relatedRequestId.
+        if (isJSONRPCRequest(message) && (this._enableJsonResponse || !stream?.controller)) {
+            let eventId: string | undefined;
+            if (this._eventStore) {
+                eventId = await this._eventStore.storeEvent(this._standaloneSseStreamId, message);
+            }
+            const standaloneSse = this._streamMapping.get(this._standaloneSseStreamId);
+            if (standaloneSse?.controller && standaloneSse.encoder) {
+                this.writeSSEEvent(standaloneSse.controller, standaloneSse.encoder, message, eventId);
+            }
+            return;
+        }
 
         if (!this._enableJsonResponse && stream?.controller && stream?.encoder) {
             // For SSE responses, generate event ID if event store is provided
