@@ -66,7 +66,7 @@ await server.connect(transport);
 
 A server negotiates the protocol version per connection from the stateful subset of its supported list — by default the versions in {@linkcode @modelcontextprotocol/server!index.SUPPORTED_PROTOCOL_VERSIONS | SUPPORTED_PROTOCOL_VERSIONS}. Pass `supportedProtocolVersions` in the server options to restrict or reorder that list.
 
-Only the stateful protocol versions in {@linkcode @modelcontextprotocol/server!index.STATEFUL_PROTOCOL_VERSIONS | STATEFUL_PROTOCOL_VERSIONS} negotiate via the initialize handshake — the server neither accepts a newer revision nor falls back to one. Every revision after 2025-11-25, including the draft revision in {@linkcode @modelcontextprotocol/server!index.DRAFT_PROTOCOL_VERSIONS | DRAFT_PROTOCOL_VERSIONS}, is stateless and negotiates per-request, which arrives with a later release.
+Only the stateful protocol versions in {@linkcode @modelcontextprotocol/server!index.STATEFUL_PROTOCOL_VERSIONS | STATEFUL_PROTOCOL_VERSIONS} negotiate via the initialize handshake — the server neither accepts a newer revision nor falls back to one. Every revision after 2025-11-25, including the draft revision in {@linkcode @modelcontextprotocol/server!index.DRAFT_PROTOCOL_VERSIONS | DRAFT_PROTOCOL_VERSIONS}, is stateless and negotiates per-request, which arrives with a later release. On a Streamable HTTP server that lists such a revision, sessionless requests claiming it are routed to a stateless dispatch path (not yet implemented; they are answered with a clear error), while requests carrying a session ID and all stateful-version traffic behave exactly as before.
 
 ## Server instructions
 

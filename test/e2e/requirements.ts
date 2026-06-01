@@ -1828,6 +1828,30 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    // Hosting: stateless routing (draft protocol revisions)
+
+    'hosting:routing:session-id-never-stateless': {
+        source: 'sdk',
+        behavior:
+            'A request carrying an Mcp-Session-Id header always takes the session path, regardless of the protocol version it claims: session validation still applies (valid session served as today, unknown session 404) and the request is never routed to the stateless dispatch path.',
+        transports: ['streamableHttp'],
+        note: 'Routing rule: the session header is checked before any version logic — sessions are version-locked at initialize, so a claimed draft version never bypasses session validation. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:routing:stateless-only-configured': {
+        source: 'sdk',
+        behavior:
+            'A sessionless request claiming a draft protocol version is routed to the stateless dispatch path only when the server lists that draft version in supportedProtocolVersions and a server is connected; otherwise existing behavior applies byte-identically (today: the unsupported-version 400).',
+        transports: ['streamableHttp'],
+        note: 'Routing rule: the stateless path is reachable only for versions the server is configured to support — draft versions stay out of the default supported list, so existing deployments see no behavior change. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:routing:gap-is-self-describing': {
+        source: 'sdk',
+        behavior:
+            'A request routed to the stateless dispatch path is answered (until dispatch is implemented) with HTTP 501 and a JSON-RPC -32603 error whose message names the unimplemented stateless dispatch, with the request id echoed — observably distinct from the session-required 400 the session path produces for sessionless requests.',
+        transports: ['streamableHttp'],
+        note: 'Routing rule: the routed gap must be self-describing on the wire rather than falling through to a misleading session error. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+
     'hosting:express-app-helper': {
         transports: ['streamableHttp'],
         source: 'sdk',
