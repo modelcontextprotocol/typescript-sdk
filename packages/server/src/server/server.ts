@@ -160,8 +160,8 @@ export class Server extends Protocol<ServerContext> {
             mcpReq: {
                 ...ctx.mcpReq,
                 log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
-                elicitInput: (params, options) => this.elicitInput(params, { relatedRequestId: ctx.mcpReq.id, ...options }),
-                requestSampling: (params, options) => this.createMessage(params, { relatedRequestId: ctx.mcpReq.id, ...options })
+                elicitInput: (params, options) => this.elicitInput(params, { ...options, relatedRequestId: ctx.mcpReq.id }),
+                requestSampling: (params, options) => this.createMessage(params, { ...options, relatedRequestId: ctx.mcpReq.id })
             },
             http: hasHttpInfo
                 ? {

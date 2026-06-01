@@ -153,16 +153,16 @@ describe('Server', () => {
             await server.close();
         });
 
-        it('handler-supplied explicit relatedRequestId overrides the implicit association', async () => {
+        it('handler-supplied relatedRequestId cannot override the association', async () => {
             const { server, callTool, sentOptionsFor } = await setup(async ctx => {
-                await ctx.mcpReq.elicitInput(ELICIT_PARAMS, { relatedRequestId: 'explicit-override' });
-                await ctx.mcpReq.requestSampling(SAMPLING_PARAMS, { relatedRequestId: 'explicit-override' });
+                await ctx.mcpReq.elicitInput(ELICIT_PARAMS, { relatedRequestId: 'attempted-override' });
+                await ctx.mcpReq.requestSampling(SAMPLING_PARAMS, { relatedRequestId: 'attempted-override' });
             });
 
             await callTool('tools-call-3');
 
-            expect(sentOptionsFor('elicitation/create')?.relatedRequestId).toBe('explicit-override');
-            expect(sentOptionsFor('sampling/createMessage')?.relatedRequestId).toBe('explicit-override');
+            expect(sentOptionsFor('elicitation/create')?.relatedRequestId).toBe('tools-call-3');
+            expect(sentOptionsFor('sampling/createMessage')?.relatedRequestId).toBe('tools-call-3');
 
             await server.close();
         });
