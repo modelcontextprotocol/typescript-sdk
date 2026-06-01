@@ -1,14 +1,5 @@
 name: Conformance Tests
 
-# The conformance framework (@modelcontextprotocol/conformance) is pinned to an
-# exact version in test/conformance/package.json; new conformance releases are
-# adopted by deliberately bumping that pin (+ pnpm-lock.yaml). This workflow
-# stays as-is across bumps.
-#
-# Both jobs are gating: the expected-failures baseline determines pass/fail.
-# A scenario failing outside the baseline, or a stale baseline entry (scenario
-# now passing but still listed), fails the job.
-
 on:
     push:
         branches: [main]
@@ -56,4 +47,4 @@ jobs:
             - run: pnpm install
             - run: pnpm run build:all
             - run: pnpm run test:conformance:server
-            - run: pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:draft
+            - run: pnpm run test:conformance:server:draft
