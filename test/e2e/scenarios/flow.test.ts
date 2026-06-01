@@ -9,7 +9,7 @@
  */
 
 import type { OAuthClientProvider } from '@modelcontextprotocol/client';
-import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
+import { Client, SdkHttpError, SSEClientTransport, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 import type {
     ElicitRequest,
     ElicitResult,
@@ -25,8 +25,83 @@ import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
 import { hostPerSession, hostResumable, wire } from '../helpers/index.js';
+import { startLegacySseHost } from '../helpers/sse-host.js';
 import { verifies } from '../helpers/verifies.js';
 import type { TestArgs } from '../types.js';
+
+verifies('flow:compat:dual-transport-server', async (_args: TestArgs) => {
+    // One deployment, one server factory, both transports: the modern Streamable HTTP
+    // endpoint and the legacy SSE endpoint serve the same tools to concurrent clients.
+    const makeServer = () => {
+        const s = new McpServer({ name: 'dual-transport', version: '1.0.0' });
+        s.registerTool('add', { inputSchema: z.object({ a: z.number(), b: z.number() }) }, ({ a, b }) => ({
+            content: [{ type: 'text', text: String(a + b) }]
+        }));
+        return s;
+    };
+
+    const streamableHost = hostPerSession(makeServer);
+    const sseHost = await startLegacySseHost(makeServer);
+    try {
+        const httpClient = new Client({ name: 'streamable-client', version: '1.0.0' });
+        const fetch = (u: URL | string, init?: RequestInit) => streamableHost.handleRequest(new Request(u, init));
+        await httpClient.connect(new StreamableHTTPClientTransport(new URL('http://in-process/mcp'), { fetch }));
+
+        const sseClient = new Client({ name: 'sse-client', version: '1.0.0' });
+        await sseClient.connect(new SSEClientTransport(sseHost.url));
+
+        // Both clients are connected at the same time and reach the same tool surface.
+        const [httpResult, sseResult] = await Promise.all([
+            httpClient.callTool({ name: 'add', arguments: { a: 1, b: 2 } }),
+            sseClient.callTool({ name: 'add', arguments: { a: 3, b: 4 } })
+        ]);
+        expect(httpResult.content).toEqual([{ type: 'text', text: '3' }]);
+        expect(sseResult.content).toEqual([{ type: 'text', text: '7' }]);
+
+        await httpClient.close();
+        await sseClient.close();
+    } finally {
+        await streamableHost.close();
+        await sseHost.close();
+    }
+});
+
+verifies('flow:compat:streamable-then-sse-fallback', async (_args: TestArgs) => {
+    // An SSE-only deployment (a pre-Streamable-HTTP server). A client that prefers
+    // Streamable HTTP gets a 4xx on initialize and falls back to the legacy SSE
+    // client transport against the same URL, per the spec's backwards-compatibility
+    // guidance for clients.
+    const makeServer = () => {
+        const s = new McpServer({ name: 'sse-only', version: '1.0.0' });
+        s.registerTool('greet', { inputSchema: z.object({}) }, () => ({ content: [{ type: 'text', text: 'hello' }] }));
+        return s;
+    };
+
+    const host = await startLegacySseHost(makeServer);
+    try {
+        // 1. Streamable HTTP attempt: POSTing initialize to the legacy SSE endpoint fails with a 4xx.
+        const streamableClient = new Client({ name: 'fallback-client', version: '1.0.0' });
+        let rejection: unknown;
+        try {
+            await streamableClient.connect(new StreamableHTTPClientTransport(host.url));
+        } catch (error) {
+            rejection = error;
+        }
+        expect(rejection).toBeInstanceOf(SdkHttpError);
+        if (!(rejection instanceof SdkHttpError)) throw new Error('rejection is not an SdkHttpError');
+        // 400/404/405 is the signal to fall back to the legacy transport.
+        expect([400, 404, 405]).toContain(rejection.status);
+
+        // 2. Fall back to the legacy SSE client transport against the same server.
+        const sseClient = new Client({ name: 'fallback-client', version: '1.0.0' });
+        await sseClient.connect(new SSEClientTransport(host.url));
+        const result = await sseClient.callTool({ name: 'greet', arguments: {} });
+        expect(result.content).toEqual([{ type: 'text', text: 'hello' }]);
+        await sseClient.close();
+    } finally {
+        await host.close();
+    }
+});
 
 verifies('flow:elicitation:multi-step-form', async ({ transport }: TestArgs) => {
     // Server: tool that issues three sequential elicitation/create requests
