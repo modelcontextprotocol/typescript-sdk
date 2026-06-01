@@ -18,14 +18,17 @@ import type {
     RequestMethod,
     RequestOptions,
     ResponseMessage,
-    ResultTypeMap
+    ResultTypeMap,
+    TaskPartialNotification,
+    TaskPartialNotificationParams
 } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
     getResultSchema,
     GetTaskPayloadResultSchema,
     ProtocolError,
-    ProtocolErrorCode
+    ProtocolErrorCode,
+    TaskPartialNotificationParamsSchema
 } from '@modelcontextprotocol/core';
 
 import type { Client } from '../../client/client.js';
@@ -51,7 +54,20 @@ interface ClientInternal {
  * @experimental
  */
 export class ExperimentalClientTasks {
-    constructor(private readonly _client: Client) {}
+    private _partialSubscriptions = new Map<
+        string,
+        {
+            handler: (params: TaskPartialNotificationParams) => void;
+            lastSeq: number;
+        }
+    >();
+
+    constructor(private readonly _client: Client) {
+        // Register notification handler for notifications/tasks/partial
+        this._client.setNotificationHandler('notifications/tasks/partial', (notification: TaskPartialNotification) => {
+            this._handlePartialNotification(notification);
+        });
+    }
 
     private get _module() {
         return this._client.taskManager;
@@ -223,6 +239,80 @@ export class ExperimentalClientTasks {
      */
     async cancelTask(taskId: string, options?: RequestOptions): Promise<CancelTaskResult> {
         return this._module.cancelTask({ taskId }, options);
+    }
+
+    /**
+     * Subscribes to partial result notifications for a specific task.
+     *
+     * Registers a callback that receives `notifications/tasks/partial` notifications
+     * matching the given taskId. Notifications are delivered with automatic seq-based
+     * ordering and duplicate detection:
+     * - Sequential notifications (seq === lastSeq + 1) are delivered normally
+     * - Duplicate notifications (seq <= lastSeq) are silently discarded
+     * - Gap notifications (seq > lastSeq + 1) are delivered with a warning logged
+     *
+     * @param taskId - The task identifier to subscribe to
+     * @param handler - Callback receiving parsed {@linkcode TaskPartialNotificationParams} for each matching notification
+     * @returns Cleanup function that, when called, removes the subscription and stops delivery
+     *
+     * @experimental
+     */
+    subscribeTaskPartials(taskId: string, handler: (params: TaskPartialNotificationParams) => void): () => void {
+        this._partialSubscriptions.set(taskId, { handler, lastSeq: -1 });
+        return () => {
+            this._partialSubscriptions.delete(taskId);
+        };
+    }
+
+    /**
+     * Handles incoming `notifications/tasks/partial` notifications.
+     *
+     * Parses the notification params, routes by taskId, and applies seq-based
+     * ordering and deduplication before delivering to the subscription handler.
+     */
+    private _handlePartialNotification(notification: TaskPartialNotification): void {
+        // 1. Parse params via TaskPartialNotificationParamsSchema
+        const parseResult = TaskPartialNotificationParamsSchema.safeParse(notification.params);
+        if (!parseResult.success) {
+            this._client.onerror?.(new Error(`Invalid notifications/tasks/partial params: ${parseResult.error}`));
+            return;
+        }
+
+        const params = parseResult.data as TaskPartialNotificationParams;
+
+        // 2. Look up subscription by taskId; discard silently if no subscription
+        const subscription = this._partialSubscriptions.get(params.taskId);
+        if (!subscription) {
+            return;
+        }
+
+        // 3. Apply seq-based ordering and deduplication
+        const { seq } = params;
+        const { lastSeq } = subscription;
+
+        if (seq <= lastSeq) {
+            // Duplicate — discard silently
+            return;
+        }
+
+        if (lastSeq === -1 && seq > 0) {
+            // First notification with seq > 0 — warn about missed initial partials
+            this._client.onerror?.(
+                new Error(
+                    `Task "${params.taskId}": first partial notification has seq=${seq}, expected 0. ` +
+                        'Potential missed initial partials.'
+                )
+            );
+        } else if (seq > lastSeq + 1) {
+            // Gap detected — warn about potential data loss
+            this._client.onerror?.(
+                new Error(`Task "${params.taskId}": seq gap detected (expected ${lastSeq + 1}, got ${seq}). ` + 'Potential data loss.')
+            );
+        }
+
+        // Deliver to handler and update lastSeq
+        subscription.lastSeq = seq;
+        subscription.handler(params);
     }
 
     /**

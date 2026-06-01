@@ -137,6 +137,8 @@ import type {
     TaskAugmentedRequestParamsSchema,
     TaskCreationParamsSchema,
     TaskMetadataSchema,
+    TaskPartialNotificationParamsSchema,
+    TaskPartialNotificationSchema,
     TaskSchema,
     TaskStatusNotificationParamsSchema,
     TaskStatusNotificationSchema,
@@ -241,6 +243,8 @@ export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
 export type CreateTaskResult = Infer<typeof CreateTaskResultSchema>;
 export type TaskStatusNotificationParams = Infer<typeof TaskStatusNotificationParamsSchema>;
 export type TaskStatusNotification = Infer<typeof TaskStatusNotificationSchema>;
+export type TaskPartialNotificationParams = Infer<typeof TaskPartialNotificationParamsSchema>;
+export type TaskPartialNotification = Infer<typeof TaskPartialNotificationSchema>;
 export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
 export type GetTaskResult = Infer<typeof GetTaskResultSchema>;
 export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;

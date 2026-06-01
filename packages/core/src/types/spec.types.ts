@@ -577,6 +577,15 @@ export interface ClientCapabilities {
                 create?: JSONObject;
             };
         };
+        /**
+         * Present if the client supports streaming partial results for tasks.
+         */
+        streaming?: {
+            /**
+             * Present if the client supports receiving partial result notifications.
+             */
+            partial?: JSONObject;
+        };
     };
     /**
      * Optional MCP extensions that the client supports. Keys are extension identifiers
@@ -693,6 +702,15 @@ export interface ServerCapabilities {
                  */
                 call?: JSONObject;
             };
+        };
+        /**
+         * Present if the server supports streaming partial results for tasks.
+         */
+        streaming?: {
+            /**
+             * Present if the server supports sending partial result notifications.
+             */
+            partial?: JSONObject;
         };
     };
     /**
@@ -1705,6 +1723,12 @@ export interface ToolExecution {
      * Default: `"forbidden"`
      */
     taskSupport?: 'forbidden' | 'optional' | 'required';
+
+    /**
+     * Indicates that this tool intends to produce partial results when invoked as a task.
+     * This is informational only — clients MUST NOT treat it as a guarantee that partials will be sent.
+     */
+    streamPartial?: boolean;
 }
 
 /**
@@ -2015,6 +2039,27 @@ export type TaskStatusNotificationParams = NotificationParams & Task;
 export interface TaskStatusNotification extends JSONRPCNotification {
     method: 'notifications/tasks/status';
     params: TaskStatusNotificationParams;
+}
+
+/**
+ * Parameters for a `notifications/tasks/partial` notification.
+ *
+ * @category `notifications/tasks/partial`
+ */
+export type TaskPartialNotificationParams = NotificationParams & {
+    taskId: string;
+    content: ContentBlock[];
+    seq: number;
+};
+
+/**
+ * A notification sent when a task produces incremental content.
+ *
+ * @category `notifications/tasks/partial`
+ */
+export interface TaskPartialNotification extends JSONRPCNotification {
+    method: 'notifications/tasks/partial';
+    params: TaskPartialNotificationParams;
 }
 
 /* Logging */
@@ -3229,7 +3274,8 @@ export type ServerNotification =
     | ToolListChangedNotification
     | PromptListChangedNotification
     | ElicitationCompleteNotification
-    | TaskStatusNotification;
+    | TaskStatusNotification
+    | TaskPartialNotification;
 
 /** @internal */
 export type ServerResult =
