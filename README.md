@@ -4,9 +4,15 @@
 > [!IMPORTANT]
 > **This is the `main` branch which contains v2 of the SDK (currently in development, pre-alpha).**
 >
-> We anticipate a stable v2 release in Q1 2026. Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
+> We anticipate a stable v2 release in Q3 2026 along with the [updated MCP spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/). Until then, **v1.x remains the recommended version** for production use. v1.x will continue to receive bug fixes and security updates for at least 6 months after v2 ships to give people time to upgrade.
 >
 > For v1 documentation, see the [V1 API docs](https://ts.sdk.modelcontextprotocol.io/). For v2 API docs, see [`/v2/`](https://ts.sdk.modelcontextprotocol.io/v2/).
+
+<!-- prettier-ignore -->
+> [!WARNING]
+> **We're temporarily restricting PRs to contributors only to manage reviewer capacity while implementation work for the [new spec](https://blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate/) is ongoing**
+>
+> Please continue to submit issues as your main source of feedback. We anticipate reopening once we have a stable release for the new spec, currently slated to launch on July 28, 2026.
 
 [![NPM Version - Server](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fserver?label=%40modelcontextprotocol%2Fserver)](https://www.npmjs.com/package/@modelcontextprotocol/server)
 [![NPM Version - Client](https://img.shields.io/npm/v/%40modelcontextprotocol%2Fclient?label=%40modelcontextprotocol%2Fclient)](https://www.npmjs.com/package/@modelcontextprotocol/client) ![MIT licensed](https://img.shields.io/npm/l/%40modelcontextprotocol%2Fserver)
