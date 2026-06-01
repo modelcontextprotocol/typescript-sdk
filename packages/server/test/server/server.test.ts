@@ -1,5 +1,7 @@
 import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
+import type { ClientCapabilities, Implementation, ServerContext } from '@modelcontextprotocol/core';
 import {
+    DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     InitializeResultSchema,
     InMemoryTransport,
     isJSONRPCResultResponse,
@@ -126,6 +128,79 @@ describe('Server', () => {
             // the version it actually responded with, not the one the client asked for.
             expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
             expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+
+            await server.close();
+        });
+    });
+
+    describe('ctx.client / ctx.mcpReq.protocolVersion on the handler context', () => {
+        /**
+         * Connects the server, registers a ping handler that captures its ServerContext, drives the
+         * initialize handshake (with the given client capabilities/info), then sends a ping so the
+         * handler runs. Returns the captured context.
+         */
+        async function captureContextAfterInitialize(
+            server: Server,
+            requestedVersion: string,
+            clientCapabilities: ClientCapabilities,
+            clientInfo: Implementation
+        ): Promise<ServerContext> {
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+
+            let captured: ServerContext | undefined;
+            server.setRequestHandler('ping', async (_request, ctx) => {
+                captured = ctx;
+                return {};
+            });
+
+            await clientTransport.start();
+
+            const initResponse = new Promise<void>(resolve => {
+                clientTransport.onmessage = () => resolve();
+            });
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: { protocolVersion: requestedVersion, capabilities: clientCapabilities, clientInfo }
+            } as JSONRPCMessage);
+            await initResponse;
+
+            const pingResponse = new Promise<void>(resolve => {
+                clientTransport.onmessage = () => resolve();
+            });
+            await clientTransport.send({ jsonrpc: '2.0', id: 2, method: 'ping', params: {} } as JSONRPCMessage);
+            await pingResponse;
+
+            if (!captured) {
+                throw new Error('ping handler did not run');
+            }
+            return captured;
+        }
+
+        it('pre-initialize: ping before the handshake gets {} capabilities, undefined info, and the default version', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+
+            let captured: ServerContext | undefined;
+            server.setRequestHandler('ping', async (_request, ctx) => {
+                captured = ctx;
+                return {};
+            });
+
+            await clientTransport.start();
+            const pingResponse = new Promise<void>(resolve => {
+                clientTransport.onmessage = () => resolve();
+            });
+            // No initialize handshake first - only ping is legal pre-initialize.
+            await clientTransport.send({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} } as JSONRPCMessage);
+            await pingResponse;
+
+            expect(captured?.client.capabilities).toEqual({});
+            expect(captured?.client.info).toBeUndefined();
+            expect(captured?.mcpReq.protocolVersion).toBe(DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
 
             await server.close();
         });

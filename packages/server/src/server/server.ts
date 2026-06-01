@@ -98,7 +98,6 @@ export type ServerOptions = ProtocolOptions & {
 export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
-    private _negotiatedProtocolVersion?: string;
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
@@ -163,6 +162,12 @@ export class Server extends Protocol<ServerContext> {
                 log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
                 elicitInput: (params, options) => this.elicitInput(params, options),
                 requestSampling: (params, options) => this.createMessage(params, options)
+            },
+            // Sourced from the handshake state retained at initialize - the only source that exists today.
+            // Before the handshake completes (only `ping` is legal there), capabilities is `{}` and info undefined.
+            client: {
+                capabilities: this._clientCapabilities ?? {},
+                info: this._clientVersion
             },
             http: hasHttpInfo
                 ? {
@@ -442,6 +447,8 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * After initialization has completed, this will be populated with the client's reported capabilities.
+     *
+     * Inside a request handler, prefer `ctx.client.capabilities`, which reads the same facts per request.
      */
     getClientCapabilities(): ClientCapabilities | undefined {
         return this._clientCapabilities;
@@ -449,18 +456,11 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * After initialization has completed, this will be populated with information about the client's name and version.
+     *
+     * Inside a request handler, prefer `ctx.client.info`, which reads the same facts per request.
      */
     getClientVersion(): Implementation | undefined {
         return this._clientVersion;
-    }
-
-    /**
-     * After initialization has completed, this will be populated with the protocol version negotiated
-     * with the client (the version the server responded with during the initialize handshake), or
-     * `undefined` before initialization.
-     */
-    getNegotiatedProtocolVersion(): string | undefined {
-        return this._negotiatedProtocolVersion;
     }
 
     /**
