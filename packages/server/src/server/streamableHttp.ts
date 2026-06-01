@@ -19,26 +19,20 @@ import type {
 import {
     INTERNAL_ERROR,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
-    isStatefulProtocolVersion,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
+    isStatefulProtocolVersion,
     JSONRPCMessageSchema,
     JSONRPCRequestSchema,
     NotImplementedYetError,
+    PROTOCOL_VERSION_META_KEY,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
 export type StreamId = string;
 export type EventId = string;
-
-/**
- * The `_meta` key carrying the protocol version a request claims
- * (`io.modelcontextprotocol/protocolVersion`). Used as a routing fallback when
- * the `MCP-Protocol-Version` header is absent.
- */
-const PROTOCOL_VERSION_META_KEY = 'io.modelcontextprotocol/protocolVersion';
 
 /**
  * Extracts the protocol version claimed by a pre-parsed POST body's first

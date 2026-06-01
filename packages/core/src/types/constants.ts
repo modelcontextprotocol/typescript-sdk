@@ -28,6 +28,13 @@ export const DRAFT_PROTOCOL_VERSIONS = [DRAFT_PROTOCOL_VERSION_2026];
 
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
+/**
+ * The `_meta` key carrying the protocol version a request claims
+ * (`io.modelcontextprotocol/protocolVersion`). Stateless protocol revisions negotiate
+ * per-request through this claim; server transports read it as a routing signal.
+ */
+export const PROTOCOL_VERSION_META_KEY = 'io.modelcontextprotocol/protocolVersion';
+
 /* JSON-RPC types */
 export const JSONRPC_VERSION = '2.0';
 

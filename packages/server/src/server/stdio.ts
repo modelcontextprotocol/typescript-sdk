@@ -1,7 +1,16 @@
 import type { Readable, Writable } from 'node:stream';
 
-import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, StatelessHandlers, Transport } from '@modelcontextprotocol/core';
+import {
+    INTERNAL_ERROR,
+    isJSONRPCRequest,
+    isStatefulProtocolVersion,
+    NotImplementedYetError,
+    PROTOCOL_VERSION_META_KEY,
+    ReadBuffer,
+    serializeMessage,
+    SUPPORTED_PROTOCOL_VERSIONS
+} from '@modelcontextprotocol/core';
 import { process } from '@modelcontextprotocol/server/_shims';
 
 /**
@@ -20,11 +29,35 @@ export class StdioServerTransport implements Transport {
     private _readBuffer: ReadBuffer = new ReadBuffer();
     private _started = false;
     private _closed = false;
+    private _supportedProtocolVersions: string[] = SUPPORTED_PROTOCOL_VERSIONS;
+
+    /**
+     * Hook for the stateless (draft-protocol-version) request path. Set
+     * internally by `Server.connect()` so this transport can route requests
+     * claiming a draft protocol version to the server's stateless dispatch
+     * instead of the `onmessage` path. Optional on the {@linkcode Transport}
+     * contract; only concrete server transports read it.
+     * @internal
+     */
+    private _statelessHandlers?: StatelessHandlers;
 
     constructor(
         private _stdin: Readable = process.stdin,
         private _stdout: Writable = process.stdout
     ) {}
+
+    /**
+     * Sets the supported protocol versions for stateless routing.
+     * Called by the server during {@linkcode server/server.Server.connect | connect()} to pass its supported versions.
+     */
+    setSupportedProtocolVersions(versions: string[]): void {
+        this._supportedProtocolVersions = versions;
+    }
+
+    /** @internal */
+    setStatelessHandlers(handlers: StatelessHandlers): void {
+        this._statelessHandlers = handlers;
+    }
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -69,9 +102,54 @@ export class StdioServerTransport implements Transport {
                     break;
                 }
 
-                this.onmessage?.(message);
+                // stdio has no session header: a request's _meta version claim is the routing
+                // signal, dual-keyed on the server listing that version. Requests only.
+                const handlers = this._statelessHandlers;
+                if (handlers && isJSONRPCRequest(message) && this.claimsRoutableStatelessVersion(message)) {
+                    void this.dispatchStatelessRequest(message, handlers);
+                } else {
+                    this.onmessage?.(message);
+                }
             } catch (error) {
                 this.onerror?.(error as Error);
+            }
+        }
+    }
+
+    /**
+     * Whether `request` claims (via `params._meta`, see
+     * {@linkcode PROTOCOL_VERSION_META_KEY}) a stateless protocol version this
+     * transport lists as supported — the same dual-key rule the Streamable
+     * HTTP transport applies to sessionless requests.
+     */
+    private claimsRoutableStatelessVersion(request: JSONRPCRequest): boolean {
+        const version = request.params?._meta?.[PROTOCOL_VERSION_META_KEY];
+        return typeof version === 'string' && !isStatefulProtocolVersion(version) && this._supportedProtocolVersions.includes(version);
+    }
+
+    /**
+     * Serves one request routed to the stateless dispatch path: forwards it to
+     * the installed dispatch handler and writes the returned response to
+     * stdout. Detached from the read loop (request→response, never blocks
+     * `onmessage` traffic); never throws — failures map to a JSON-RPC error
+     * response with the request id echoed, mirroring the HTTP path.
+     */
+    private async dispatchStatelessRequest(request: JSONRPCRequest, handlers: StatelessHandlers): Promise<void> {
+        try {
+            const response = await handlers.dispatch(request, {});
+            await this.send(response);
+        } catch (error) {
+            // Deliberately-open seam: dispatch is filled in by the server side
+            // (see Server._dispatchStateless). Until then the gap is
+            // self-describing on the wire: a -32603 error carrying the
+            // wire-safe NotImplementedYetError message; anything else stays a
+            // generic internal error.
+            this.onerror?.(error as Error);
+            const message = error instanceof NotImplementedYetError ? error.message : 'Internal error';
+            try {
+                await this.send({ jsonrpc: '2.0', id: request.id, error: { code: INTERNAL_ERROR, message } });
+            } catch (sendError) {
+                this.onerror?.(sendError as Error);
             }
         }
     }

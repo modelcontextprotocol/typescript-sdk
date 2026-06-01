@@ -1840,16 +1840,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'hosting:routing:stateless-only-configured': {
         source: 'sdk',
         behavior:
-            'A sessionless request claiming a draft protocol version is routed to the stateless dispatch path only when the server lists that draft version in supportedProtocolVersions and a server is connected; otherwise existing behavior applies byte-identically (today: the unsupported-version 400).',
-        transports: ['streamableHttp'],
-        note: 'Routing rule: the stateless path is reachable only for versions the server is configured to support — draft versions stay out of the default supported list, so existing deployments see no behavior change. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+            'A sessionless request claiming a draft protocol version is routed to the stateless dispatch path only when the server lists that draft version in supportedProtocolVersions and a server is connected; otherwise existing behavior applies byte-identically (today: the unsupported-version 400 over HTTP, normal onmessage delivery over stdio).',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'Routing rule: the stateless path is reachable only for versions the server is configured to support — draft versions stay out of the default supported list, so existing deployments see no behavior change. The streamableHttp cell exercises both halves against the WebStandard transport; the stdio cell proves the not-listed half against a spawned fixture server (a draft _meta claim the server does not list is served on the existing path), with the routed half on stdio carried by gap-is-self-describing. Version resolution reads the first request of a batch body; batch semantics on the stateless path are settled with the no-batching rule in a later release.'
     },
     'hosting:routing:gap-is-self-describing': {
         source: 'sdk',
         behavior:
-            'A request routed to the stateless dispatch path is answered (until dispatch is implemented) with HTTP 501 and a JSON-RPC -32603 error whose message names the unimplemented stateless dispatch, with the request id echoed — observably distinct from the session-required 400 the session path produces for sessionless requests.',
-        transports: ['streamableHttp'],
-        note: 'Routing rule: the routed gap must be self-describing on the wire rather than falling through to a misleading session error. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+            'A request routed to the stateless dispatch path is answered (until dispatch is implemented) with a JSON-RPC -32603 error whose message names the unimplemented stateless dispatch, with the request id echoed (over HTTP: status 501) — observably distinct from what the existing path produces for the same traffic.',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'Routing rule: the routed gap must be self-describing on the wire rather than falling through to a misleading session error. The streamableHttp cell drives the WebStandard transport directly; the stdio cell spawns the fixture server with the draft version listed and routes via the request _meta claim (stdio has no session header, so the dual-keyed _meta claim is the routing signal).'
     },
 
     'hosting:express-app-helper': {
