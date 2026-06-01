@@ -225,7 +225,6 @@ export type ClientOptions = ProtocolOptions & {
 export class Client extends Protocol<ClientContext> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
-    private _negotiatedProtocolVersion?: string;
     private _capabilities: ClientCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
@@ -552,15 +551,6 @@ export class Client extends Protocol<ClientContext> {
      */
     getServerVersion(): Implementation | undefined {
         return this._serverVersion;
-    }
-
-    /**
-     * After initialization has completed, this will be populated with the protocol version negotiated
-     * during the initialize handshake. When manually reconstructing a transport for reconnection, pass this
-     * value to the new transport so it continues sending the required `mcp-protocol-version` header.
-     */
-    getNegotiatedProtocolVersion(): string | undefined {
-        return this._negotiatedProtocolVersion;
     }
 
     /**

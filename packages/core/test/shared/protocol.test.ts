@@ -34,7 +34,7 @@ import type {
     Task,
     TaskCreationParams
 } from '../../src/types/index.js';
-import { ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY } from '../../src/types/index.js';
+import { DEFAULT_NEGOTIATED_PROTOCOL_VERSION, ProtocolError, ProtocolErrorCode, RELATED_TASK_META_KEY } from '../../src/types/index.js';
 import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
 
 // Test Protocol subclass for testing
@@ -5676,5 +5676,56 @@ describe('TaskManager always present (NullTaskManager pattern)', () => {
         const mockTaskModule = { getTask: vi.fn() };
         const mockClient = { taskManager: mockTaskModule } as any;
         expect(mockClient.taskManager).toBe(mockTaskModule);
+    });
+});
+
+describe('ctx.mcpReq.protocolVersion population', () => {
+    // Protocol subclass with a settable negotiated version, mirroring how Server/Client
+    // assign the inherited protected field at their negotiation points.
+    class NegotiatedVersionProtocol extends Protocol<BaseContext> {
+        set negotiated(version: string | undefined) {
+            this._negotiatedProtocolVersion = version;
+        }
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+        protected assertTaskCapability(): void {}
+        protected assertTaskHandlerCapability(): void {}
+        protected buildContext(ctx: BaseContext): BaseContext {
+            return ctx;
+        }
+    }
+
+    async function captureProtocolVersion(p: NegotiatedVersionProtocol, t: MockTransport): Promise<string> {
+        await p.connect(t);
+        const captured = new Promise<string>(resolve => {
+            p.setRequestHandler('ping', async (_request, ctx) => {
+                resolve(ctx.mcpReq.protocolVersion);
+                return {};
+            });
+        });
+        t.onmessage?.({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} });
+        return captured;
+    }
+
+    test('falls back to the SDK default before the handshake completes', async () => {
+        const p = new NegotiatedVersionProtocol();
+        // negotiated is undefined: this models a request (only ping is legal) arriving pre-initialize.
+        const version = await captureProtocolVersion(p, new MockTransport());
+        expect(version).toBe(DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
+    });
+
+    test('the base Protocol getter returns undefined so role-less subclasses get the default', async () => {
+        const p = createTestProtocol();
+        const t = new MockTransport();
+        await p.connect(t);
+        const captured = new Promise<string>(resolve => {
+            p.setRequestHandler('ping', async (_request, ctx) => {
+                resolve(ctx.mcpReq.protocolVersion);
+                return {};
+            });
+        });
+        t.onmessage?.({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} });
+        expect(await captured).toBe(DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
     });
 });
