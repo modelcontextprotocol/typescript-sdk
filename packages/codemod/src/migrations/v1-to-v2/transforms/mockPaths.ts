@@ -49,7 +49,7 @@ function resolveTarget(
     | { removed: true; isV2Gap?: boolean; removalMessage?: string }
     | null {
     const mapping = IMPORT_MAP[specifier];
-    if (!mapping && isAuthImport(specifier)) return { removed: true };
+    if (!mapping && isAuthImport(specifier)) return { target: '@modelcontextprotocol/server-legacy/auth' };
     if (!mapping) return null;
     if (mapping.status === 'removed') return { removed: true, isV2Gap: mapping.isV2Gap, removalMessage: mapping.removalMessage };
 
@@ -64,6 +64,9 @@ function resolveTarget(
             return s.includes('/server/') || s === '@modelcontextprotocol/server';
         });
         target = resolveTypesPackage(context, hasClient, hasServer, diagnosticSink);
+        if (mapping.subpathSuffix) {
+            target = `${target}${mapping.subpathSuffix}`;
+        }
     }
 
     return { target, renamedSymbols: mapping.renamedSymbols, symbolTargetOverrides: mapping.symbolTargetOverrides };
