@@ -114,6 +114,20 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed.'
     },
+    'protocol:envelope:ctx-version-readable': {
+        source: 'sdk',
+        behavior:
+            'A request handler can read the protocol version governing the current request from its context (ctx.mcpReq.protocolVersion); on a 2025 connection it equals the initialize-negotiated version.',
+        transports: STATEFUL_TRANSPORTS,
+        note: "Groundwork for SEP-2575's per-request envelope. Today the version is sourced from the initialize handshake, so a stateless host (fresh server per request, no retained handshake) would read the pre-initialize default rather than the negotiated version."
+    },
+    'protocol:envelope:ctx-capabilities-readable': {
+        source: 'sdk',
+        behavior:
+            "A server request handler can read the calling client's declared capabilities and implementation info from its context (ctx.client.capabilities / ctx.client.info); on a 2025 connection these equal what the client sent at initialize.",
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Per-request counterpart of Server.getClientCapabilities()/getClientVersion(); under the 2026 revision (no handshake) the per-request form becomes the only way to read these. The structural supersession is recorded when 2026 connections become possible. Stateless hosting serves each request from a fresh server that never processed initialize, so the handshake-sourced facts are not observable there.'
+    },
 
     // Protocol primitives: cancellation, timeout, progress, errors, _meta
 
