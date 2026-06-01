@@ -316,6 +316,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
+    private _progressValues: Map<number, number> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
@@ -383,7 +384,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             request: (request, resultSchema, options) => this._requestWithSchema(request, resultSchema, options),
             notification: (notification, options) => this.notification(notification, options),
             reportError: error => this._onerror(error),
-            removeProgressHandler: token => this._progressHandlers.delete(token),
+            removeProgressHandler: token => this._removeProgressHandler(token),
             registerHandler: (method, handler) => {
                 const schema = getRequestSchema(method as RequestMethod);
                 this._requestHandlers.set(method, (request, ctx) => {
@@ -460,6 +461,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
         }
     }
 
+    private _removeProgressHandler(messageId: number): void {
+        this._progressHandlers.delete(messageId);
+        this._progressValues.delete(messageId);
+    }
+
     /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
@@ -506,6 +512,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
+        this._progressValues.clear();
         this._taskManager.onClose();
         this._pendingDebouncedNotifications.clear();
 
@@ -702,6 +709,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const responseHandler = this._responseHandlers.get(messageId);
         const timeoutInfo = this._timeoutInfo.get(messageId);
+        const lastProgress = this._progressValues.get(messageId);
+        if (lastProgress !== undefined && params.progress <= lastProgress) {
+            this._onerror(
+                new Error(
+                    `Received a non-increasing progress notification for token ${progressToken}: ${params.progress} <= ${lastProgress}`
+                )
+            );
+            return;
+        }
+        this._progressValues.set(messageId, params.progress);
 
         if (timeoutInfo && responseHandler && timeoutInfo.resetTimeoutOnProgress) {
             try {
@@ -709,7 +726,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             } catch (error) {
                 // Clean up if maxTotalTimeout was exceeded
                 this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
+                this._removeProgressHandler(messageId);
                 this._cleanupTimeout(messageId);
                 responseHandler(error as Error);
                 return;
@@ -738,7 +755,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         // Keep progress handler alive for CreateTaskResult responses
         if (!preserveProgress) {
-            this._progressHandlers.delete(messageId);
+            this._removeProgressHandler(messageId);
         }
 
         if (isJSONRPCResultResponse(response)) {
@@ -890,7 +907,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 if (responseReceived) {
                     return;
                 }
-                this._progressHandlers.delete(messageId);
+                this._removeProgressHandler(messageId);
 
                 this._transport
                     ?.send(
@@ -951,14 +968,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
             let outboundQueued = false;
             try {
                 const taskResult = this._taskManager.processOutboundRequest(jsonrpcRequest, options, messageId, responseHandler, error => {
-                    this._progressHandlers.delete(messageId);
+                    this._removeProgressHandler(messageId);
                     reject(error);
                 });
                 if (taskResult.queued) {
                     outboundQueued = true;
                 }
             } catch (error) {
-                this._progressHandlers.delete(messageId);
+                this._removeProgressHandler(messageId);
                 reject(error);
                 return;
             }
@@ -966,7 +983,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             if (!outboundQueued) {
                 // No related task or no module - send through transport normally
                 this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
-                    this._progressHandlers.delete(messageId);
+                    this._removeProgressHandler(messageId);
                     reject(error);
                 });
             }
