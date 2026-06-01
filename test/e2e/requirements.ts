@@ -107,6 +107,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed.'
     },
+    'typescript:server:get-negotiated-protocol-version': {
+        source: 'sdk',
+        behavior:
+            'After initialize, Server.getNegotiatedProtocolVersion() returns the protocol version the server responded with; before initialize it returns undefined. Matches the Client-side getter.',
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed.'
+    },
 
     // Protocol primitives: cancellation, timeout, progress, errors, _meta
 
