@@ -16,7 +16,8 @@ verifies('transport:sse:server-transport', async (_args: TestArgs) => {
     const surfaces = await Promise.all([
         import('@modelcontextprotocol/server'),
         import('@modelcontextprotocol/node'),
-        import('@modelcontextprotocol/express')
+        import('@modelcontextprotocol/express'),
+        import('@modelcontextprotocol/server-legacy/sse')
     ]);
     const exported = surfaces.flatMap(surface => Object.keys(surface));
     const sseServerExports = exported.filter(name => /sse/i.test(name) && /server/i.test(name));
