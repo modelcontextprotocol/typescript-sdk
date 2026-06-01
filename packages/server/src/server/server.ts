@@ -160,9 +160,6 @@ export class Server extends Protocol<ServerContext> {
             mcpReq: {
                 ...ctx.mcpReq,
                 log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
-                // Associate the nested server→client request with the request being handled so
-                // transports can route it onto the originating request's response stream
-                // (servers must only send these requests in association with a client request).
                 elicitInput: (params, options) => this.elicitInput(params, { relatedRequestId: ctx.mcpReq.id, ...options }),
                 requestSampling: (params, options) => this.createMessage(params, { relatedRequestId: ctx.mcpReq.id, ...options })
             },

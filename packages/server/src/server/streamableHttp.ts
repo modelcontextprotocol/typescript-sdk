@@ -18,6 +18,9 @@ import {
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
+/** Placeholder stop-function used until a stream's keepalive is started (or when keepalive is disabled). */
+const noKeepAlive = (): void => {};
+
 export type StreamId = string;
 export type EventId = string;
 
@@ -453,11 +456,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         const encoder = new TextEncoder();
         let streamController: ReadableStreamDefaultController<Uint8Array>;
+        let stopKeepAlive: () => void = noKeepAlive;
 
         // Create a ReadableStream with a controller we can use to push SSE events
         const readable = new ReadableStream<Uint8Array>({
             start: controller => {
                 streamController = controller;
+                stopKeepAlive = this.startKeepAlive(controller, encoder);
             },
             cancel: () => {
                 // Stream was cancelled by client
@@ -476,15 +481,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             headers['mcp-session-id'] = this.sessionId;
         }
 
-        // Keepalive stops via cleanup(); after a client cancel it self-clears on the next write attempt.
-        const stopKeepAlive = this.startKeepAlive(streamController!, encoder);
-
         // Store the stream mapping with the controller for pushing data
         this._streamMapping.set(this._standaloneSseStreamId, {
             controller: streamController!,
             encoder,
             cleanup: () => {
-                stopKeepAlive?.();
+                stopKeepAlive();
                 this._streamMapping.delete(this._standaloneSseStreamId);
                 try {
                     streamController!.close();
@@ -538,10 +540,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Create a ReadableStream with controller for SSE
             const encoder = new TextEncoder();
             let streamController: ReadableStreamDefaultController<Uint8Array>;
+            let stopKeepAlive: () => void = noKeepAlive;
 
             const readable = new ReadableStream<Uint8Array>({
                 start: controller => {
                     streamController = controller;
+                    stopKeepAlive = this.startKeepAlive(controller, encoder);
                 },
                 cancel: () => {
                     // Stream was cancelled by client
@@ -563,13 +567,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             });
 
-            const stopKeepAlive = this.startKeepAlive(streamController!, encoder);
-
             this._streamMapping.set(replayedStreamId, {
                 controller: streamController!,
                 encoder,
                 cleanup: () => {
-                    stopKeepAlive?.();
+                    stopKeepAlive();
                     this._streamMapping.delete(replayedStreamId);
                     try {
                         streamController!.close();
@@ -591,12 +593,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      * Returns a stop function, or `undefined` when keepalive is not configured or disabled
      * (non-positive interval).
      */
-    private startKeepAlive(
-        controller: ReadableStreamDefaultController<Uint8Array>,
-        encoder: InstanceType<typeof TextEncoder>
-    ): (() => void) | undefined {
+    private startKeepAlive(controller: ReadableStreamDefaultController<Uint8Array>, encoder: InstanceType<typeof TextEncoder>): () => void {
         if (this._keepAliveInterval === undefined || this._keepAliveInterval <= 0) {
-            return undefined;
+            return () => {};
         }
         const timer = setInterval(() => {
             try {
@@ -792,10 +791,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // SSE streaming mode - use ReadableStream with controller for more reliable data pushing
             const encoder = new TextEncoder();
             let streamController: ReadableStreamDefaultController<Uint8Array>;
+            let stopKeepAlive: () => void = noKeepAlive;
 
             const readable = new ReadableStream<Uint8Array>({
                 start: controller => {
                     streamController = controller;
+                    stopKeepAlive = this.startKeepAlive(controller, encoder);
                 },
                 cancel: () => {
                     // Stream was cancelled by client
@@ -814,9 +815,6 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 headers['mcp-session-id'] = this.sessionId;
             }
 
-            // Keepalive stops via cleanup(); after a client cancel it self-clears on the next write attempt.
-            const stopKeepAlive = this.startKeepAlive(streamController!, encoder);
-
             // Store the response for this request to send messages back through this connection
             // We need to track by request ID to maintain the connection
             for (const message of messages) {
@@ -825,7 +823,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         controller: streamController!,
                         encoder,
                         cleanup: () => {
-                            stopKeepAlive?.();
+                            stopKeepAlive();
                             this._streamMapping.delete(streamId);
                             try {
                                 streamController!.close();
