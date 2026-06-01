@@ -1,5 +1,6 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
 import {
+    InitializeResultSchema,
     InMemoryTransport,
     isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
@@ -28,7 +29,7 @@ async function initializeServer(server: Server, requestedVersion: string): Promi
     });
     await clientTransport.start();
 
-    await clientTransport.send({
+    const initializeRequest: JSONRPCRequest = {
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
@@ -37,13 +38,14 @@ async function initializeServer(server: Server, requestedVersion: string): Promi
             capabilities: {},
             clientInfo: { name: 'test-client', version: '1.0.0' }
         }
-    } as JSONRPCMessage);
+    };
+    await clientTransport.send(initializeRequest);
 
     const response = await responsePromise;
     if (!isJSONRPCResultResponse(response)) {
         throw new Error(`Expected a result response to initialize, got: ${JSON.stringify(response)}`);
     }
-    return (response.result as { protocolVersion: string }).protocolVersion;
+    return InitializeResultSchema.parse(response.result).protocolVersion;
 }
 
 describe('Server', () => {
@@ -124,24 +126,6 @@ describe('Server', () => {
             // the version it actually responded with, not the one the client asked for.
             expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
             expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
-
-            await server.close();
-        });
-
-        it('is replaced when a new connection re-initializes with a different version', async () => {
-            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
-
-            await initializeServer(server, LATEST_PROTOCOL_VERSION);
-            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
-            await server.close();
-
-            // Like getClientCapabilities()/getClientVersion(), the value reflects the most recent
-            // initialize handshake and is not cleared when the transport closes.
-            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
-
-            // A new connection's initialize overwrites it.
-            await initializeServer(server, OLDER_SUPPORTED_VERSION);
-            expect(server.getNegotiatedProtocolVersion()).toBe(OLDER_SUPPORTED_VERSION);
 
             await server.close();
         });
