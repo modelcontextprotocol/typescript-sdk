@@ -487,6 +487,23 @@ client.setRequestHandler('roots/list', async () => {
 
 When the available roots change, notify the server with {@linkcode @modelcontextprotocol/client!client/client.Client#sendRootsListChanged | client.sendRootsListChanged()}.
 
+### Request context
+
+Handlers receive the request context (`ctx`) as their second argument. `ctx.mcpReq.protocolVersion` (from {@linkcode @modelcontextprotocol/client!index.BaseContext | BaseContext}) is the protocol version governing the request:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#requestContext_handler"
+client.setRequestHandler('sampling/createMessage', async (request, ctx) => {
+    console.log(`Sampling request under MCP ${ctx.mcpReq.protocolVersion}:`, request.params.messages.at(-1));
+
+    // In production, send messages to your LLM here
+    return {
+        model: 'my-model',
+        role: 'assistant' as const,
+        content: { type: 'text' as const, text: 'Response from the model' }
+    };
+});
+```
+
 ## Error handling
 
 ### Tool errors vs protocol errors
