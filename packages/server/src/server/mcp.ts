@@ -48,6 +48,21 @@ import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
 /**
+ * Error class for tool handlers to throw when they want to send a
+ * user-visible error message to the client. Unlike regular errors,
+ * ToolError messages are passed through to the client as-is.
+ *
+ * Regular errors thrown from tool handlers are sanitized to "Internal
+ * error" to prevent leaking sensitive server internals.
+ */
+export class ToolError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'ToolError';
+    }
+}
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
@@ -211,7 +226,16 @@ export class McpServer {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
                 }
-                return this.createToolError(error instanceof Error ? error.message : String(error));
+                if (error instanceof ProtocolError) {
+                    // SDK-generated validation errors are safe to expose
+                    return this.createToolError(error.message);
+                }
+                if (error instanceof ToolError) {
+                    // Developer intentionally wants this message shown to client
+                    return this.createToolError(error.message);
+                }
+                // All other errors: sanitize to prevent leaking internals
+                return this.createToolError('Internal error');
             }
         });
 
