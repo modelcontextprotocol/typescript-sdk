@@ -39,12 +39,21 @@ export interface Requirement {
     /** Free-form rationale for how the entry is set up (e.g. why certain transports are excluded). */
     note?: string;
 
-    /** First / last spec versions a requirement applies to; changed behaviors are sibling entries linked via `supersedes`. */
+    /** First / last spec versions a requirement applies to; changed behaviors are sibling entries linked via `supersedes`/`supersededBy`. */
     addedInSpecVersion?: SpecVersion;
     removedInSpecVersion?: SpecVersion;
-    /** Requirement id this entry replaces (for behaviors changed by a spec release). */
-
-    supersedes?: string;
+    /**
+     * Requirement ids this (new) entry replaces. The structural link from a superseding entry to the
+     * retired entries it covers: each listed id's `supersededBy` points back at this entry. Semantic
+     * context about how/why the behavior changed belongs in `note`, not here.
+     */
+    supersedes?: readonly string[];
+    /**
+     * Requirement id of the entry that replaces this (retired) one. The structural link from a retired
+     * entry to its successor: that entry's `supersedes` array includes this id. Semantic context about
+     * how/why the behavior changed belongs in `note`, not here.
+     */
+    supersededBy?: string;
     knownFailures?: readonly KnownFailure[];
 
     deferred?: string;
