@@ -556,6 +556,52 @@ describe('protocol tests', () => {
             await expect(requestPromise).resolves.toEqual({ result: 'success' });
         });
 
+        test('should reset timeout on progress when resetTimeoutOnProgress is set without an onprogress handler (#2076)', async () => {
+            await protocol.connect(transport);
+            const request = { method: 'example', params: {} };
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            const onErrorMock = vi.fn();
+            protocol.onerror = onErrorMock;
+
+            // resetTimeoutOnProgress requested WITHOUT an onprogress callback.
+            const requestPromise = testRequest(protocol, request, mockSchema, {
+                timeout: 1000,
+                resetTimeoutOnProgress: true
+            });
+
+            // Just before the original deadline, a progress notification arrives.
+            vi.advanceTimersByTime(800);
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: {
+                        progressToken: 0,
+                        progress: 50,
+                        total: 100
+                    }
+                });
+            }
+            await Promise.resolve();
+
+            // A known request with no progress handler must NOT raise "unknown token".
+            expect(onErrorMock).not.toHaveBeenCalled();
+
+            // The timer was reset: advancing past the ORIGINAL deadline must not time out.
+            vi.advanceTimersByTime(800);
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: 0,
+                    result: { result: 'success' }
+                });
+            }
+            await Promise.resolve();
+            await expect(requestPromise).resolves.toEqual({ result: 'success' });
+        });
+
         test('should respect maxTotalTimeout', async () => {
             await protocol.connect(transport);
             const request = { method: 'example', params: {} };
