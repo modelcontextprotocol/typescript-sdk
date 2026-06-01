@@ -78,7 +78,7 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     '@modelcontextprotocol/sdk/server/sse.js': {
         target: '@modelcontextprotocol/server-legacy/sse',
         status: 'moved',
-        migrationHint: 'SSEServerTransport is deprecated. Migrate to StreamableHTTPServerTransport from @modelcontextprotocol/server.'
+        migrationHint: 'SSEServerTransport is deprecated. Migrate to NodeStreamableHTTPServerTransport from @modelcontextprotocol/node or WebStandardStreamableHTTPServerTransport from @modelcontextprotocol/server.'
     },
     '@modelcontextprotocol/sdk/server/middleware.js': {
         target: '@modelcontextprotocol/express',
@@ -99,19 +99,19 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     '@modelcontextprotocol/sdk/server/auth/provider.js': {
         target: '@modelcontextprotocol/server-legacy/auth',
         status: 'moved',
-        migrationHint: 'Legacy OAuth AS provider. For RS-only auth, see @modelcontextprotocol/server-legacy/auth.'
+        migrationHint: 'Legacy OAuth AS provider. For RS-only auth, see requireBearerAuth from @modelcontextprotocol/express.'
     },
     '@modelcontextprotocol/sdk/server/auth/router.js': {
         target: '@modelcontextprotocol/server-legacy/auth',
         status: 'moved',
         migrationHint:
-            'Legacy OAuth AS router. For metadata-only endpoints, see mcpAuthMetadataRouter from @modelcontextprotocol/server-legacy/auth.'
+            'Legacy OAuth AS router. For metadata-only endpoints, see mcpAuthMetadataRouter from @modelcontextprotocol/express.'
     },
     '@modelcontextprotocol/sdk/server/auth/middleware.js': {
         target: '@modelcontextprotocol/server-legacy/auth',
         status: 'moved',
         migrationHint:
-            'Legacy OAuth AS middleware. For bearer-only auth, see requireBearerAuth from @modelcontextprotocol/server-legacy/auth.'
+            'Legacy OAuth AS middleware. For bearer-only auth, see requireBearerAuth from @modelcontextprotocol/express.'
     },
     '@modelcontextprotocol/sdk/server/auth/errors.js': {
         target: '@modelcontextprotocol/server-legacy/auth',
