@@ -1037,11 +1037,6 @@ verifies('hosting:http:send-no-listener-noop', async (_args: TestArgs) => {
     }
 });
 
-// ─── Server-request association (SEP-2260) ──────────────────────────────────
-// These pin where the WebStandard server transport puts server→client requests:
-// nested requests ride the originating POST response stream, never the
-// standalone GET stream.
-
 verifies('protocol:assoc:nested-on-originating-stream', async (_args: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
