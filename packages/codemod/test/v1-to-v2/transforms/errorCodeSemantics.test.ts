@@ -189,6 +189,61 @@ describe('error-code-semantics transform', () => {
         expect(diag).toBeDefined();
     });
 
+    it('removes the import specifier when the rewritten guard was its last usage', () => {
+        const input = [
+            `import { ProtocolError, SdkErrorCode } from '@modelcontextprotocol/client';`,
+            `function handle(e: unknown) {`,
+            `    if (e instanceof ProtocolError && e.code === SdkErrorCode.RequestTimeout) {`,
+            `        retry();`,
+            `    }`,
+            `}`,
+            ''
+        ].join('\n');
+        const { text } = applyTransform(input);
+        expect(text).not.toContain('ProtocolError');
+        expect(text).toMatch(/import \{[^}]*\bSdkErrorCode\b[^}]*\} from '@modelcontextprotocol\/client'/);
+        expect(text).toMatch(/import \{[^}]*\bSdkError\b[^}]*\} from '@modelcontextprotocol\/client'/);
+    });
+
+    it('keeps the import when other usages of the error class remain', () => {
+        const input = [
+            `import { ProtocolError, ProtocolErrorCode, SdkErrorCode } from '@modelcontextprotocol/client';`,
+            `function handle(e: unknown) {`,
+            `    if (e instanceof ProtocolError && e.code === SdkErrorCode.RequestTimeout) {`,
+            `        retry();`,
+            `    }`,
+            `    throw new ProtocolError(ProtocolErrorCode.InternalError, 'failed');`,
+            `}`,
+            ''
+        ].join('\n');
+        const { text } = applyTransform(input);
+        expect(text).toContain('e instanceof SdkError');
+        expect(text).toMatch(/import \{[^}]*\bProtocolError\b[^}]*\} from '@modelcontextprotocol\/client'/);
+        expect(text).toContain(`new ProtocolError(ProtocolErrorCode.InternalError, 'failed')`);
+    });
+
+    it('preserves the file header when removing an emptied first-statement import', () => {
+        const input = [
+            `#!/usr/bin/env node`,
+            `// Acme retry helper.`,
+            `import { McpError } from '@modelcontextprotocol/sdk/types.js';`,
+            `import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `function handle(e: unknown) {`,
+            `    if (e instanceof McpError && e.code === ErrorCode.RequestTimeout) {`,
+            `        retry();`,
+            `    }`,
+            `}`,
+            ''
+        ].join('\n');
+        const { text } = applyTransform(input);
+        expect(text.startsWith('#!/usr/bin/env node')).toBe(true);
+        expect(text).toContain('// Acme retry helper.');
+        expect(text).not.toContain('McpError');
+        expect(text).toContain('e instanceof SdkError');
+        // The enum reference itself is the symbols transform's job and stays.
+        expect(text).toContain('ErrorCode.RequestTimeout');
+    });
+
     it('ignores unrelated SdkErrorCode members', () => {
         const input = [
             `import { SdkErrorCode } from '@modelcontextprotocol/client';`,

@@ -320,11 +320,12 @@ describe('integration', () => {
         expect(output).not.toContain('McpError');
         expect(output).not.toContain('instanceof ProtocolError');
 
-        // SdkError import added alongside the rewritten client import. (The
-        // renamed-but-now-unused ProtocolError specifier is tolerated here:
-        // the symbols transform renames the import before error-code-semantics
-        // retargets the usages. Linters flag it; nothing breaks at runtime.)
+        // SdkError import added alongside the rewritten client import, and the
+        // renamed-but-now-unused ProtocolError specifier is cleaned up once its
+        // last usage has been retargeted — migrated output carries no
+        // unused-import lint debt.
         expect(output).toMatch(/import \{[^}]*\bSdkError\b[^}]*\} from ["']@modelcontextprotocol\/client["']/);
+        expect(output).not.toContain('ProtocolError');
         expect(output).not.toContain('@modelcontextprotocol/sdk');
     });
 

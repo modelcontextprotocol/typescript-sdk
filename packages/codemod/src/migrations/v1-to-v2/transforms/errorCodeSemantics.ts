@@ -3,7 +3,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { error, warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, isImportedFromMcp } from '../../../utils/importUtils.js';
+import { addOrMergeImport, isImportedFromMcp, removeUnusedImport } from '../../../utils/importUtils.js';
 import { ERROR_CODE_SDK_MEMBERS } from '../mappings/symbolMap.js';
 
 /**
@@ -156,7 +156,9 @@ export const errorCodeSemanticsTransform: Transform = {
             }
         }
 
+        const rewrittenGuardClasses = new Set<string>();
         for (const guard of guardsToRewrite) {
+            rewrittenGuardClasses.add(guard.getRight().getText());
             guard.getRight().replaceWithText('SdkError');
             needsSdkErrorImport = true;
             changesCount++;
@@ -166,6 +168,15 @@ export const errorCodeSemanticsTransform: Transform = {
             const targetModule = resolveTargetModule(sourceFile, context);
             addOrMergeImport(sourceFile, targetModule, ['SdkError'], false, sourceFile.getImportDeclarations().length);
             changesCount++;
+        }
+
+        // Retargeting a guard may have removed the last usage of the v1 error
+        // class — drop the now-unused import specifier so migrated output does
+        // not carry unused-import lint debt.
+        for (const className of rewrittenGuardClasses) {
+            if (removeUnusedImport(sourceFile, className, true)) {
+                changesCount++;
+            }
         }
 
         return { changesCount, diagnostics };

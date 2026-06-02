@@ -113,7 +113,7 @@ export function resolveOriginalImportName(sourceFile: SourceFile, localName: str
     return undefined;
 }
 
-export function removeUnusedImport(sourceFile: SourceFile, symbolName: string, onlyMcpImports?: boolean): void {
+export function removeUnusedImport(sourceFile: SourceFile, symbolName: string, onlyMcpImports?: boolean): boolean {
     let referenceCount = 0;
     sourceFile.forEachDescendant(node => {
         if (Node.isIdentifier(node) && node.getText() === symbolName) {
@@ -131,13 +131,18 @@ export function removeUnusedImport(sourceFile: SourceFile, symbolName: string, o
                 if ((namedImport.getAliasNode()?.getText() ?? namedImport.getName()) === symbolName) {
                     namedImport.remove();
                     if (imp.getNamedImports().length === 0 && !imp.getDefaultImport() && !imp.getNamespaceImport()) {
+                        // Removing a first-statement import takes its leading trivia
+                        // (shebang/file banner) with it — capture and restore.
+                        const trivia = captureLeadingFileTrivia(imp);
                         imp.remove();
+                        restoreLeadingFileTrivia(sourceFile, trivia);
                     }
-                    return;
+                    return true;
                 }
             }
         }
     }
+    return false;
 }
 
 /**
