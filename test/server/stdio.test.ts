@@ -101,6 +101,29 @@ test('should read multiple messages', async () => {
     expect(readMessages).toEqual(messages);
 });
 
+test('should respect custom maxBufferSize option', async () => {
+    const server = new StdioServerTransport(input, output, { maxBufferSize: 100 });
+
+    let receivedError: Error | undefined;
+    server.onerror = err => {
+        receivedError = err;
+    };
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+
+    // Push 101 bytes without a newline — exceeds the 100-byte limit
+    input.push(Buffer.alloc(101, 0x41));
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(receivedError?.message).toMatch(/ReadBuffer exceeded maximum size/);
+    expect(closeCount).toBe(1);
+});
+
 test('should fire onerror and close when ReadBuffer overflows', async () => {
     const server = new StdioServerTransport(input, output);
 

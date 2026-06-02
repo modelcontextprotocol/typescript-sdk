@@ -10,13 +10,24 @@ import { Transport } from '../shared/transport.js';
  * This transport is only available in Node.js environments.
  */
 export class StdioServerTransport implements Transport {
-    private _readBuffer: ReadBuffer = new ReadBuffer();
+    private _readBuffer: ReadBuffer;
     private _started = false;
 
     constructor(
         private _stdin: Readable = process.stdin,
-        private _stdout: Writable = process.stdout
-    ) {}
+        private _stdout: Writable = process.stdout,
+        options?: {
+            /**
+             * Maximum size of the read buffer in bytes. If a single message exceeds
+             * this size the transport will emit an error and close.
+             *
+             * Defaults to 10 MB.
+             */
+            maxBufferSize?: number;
+        }
+    ) {
+        this._readBuffer = new ReadBuffer({ maxBufferSize: options?.maxBufferSize });
+    }
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
