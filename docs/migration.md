@@ -313,6 +313,34 @@ This applies to:
 | `SchemaInput<T>`                                                                     | `StandardSchemaWithJSON.InferInput<T>`                            |
 | `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema` | No replacement — these are now internal Zod introspection helpers |
 
+#### Using zod 4.0 / 4.1 (or the zod@3.25.x `zod/v4` subpath)
+
+`~standard.jsonSchema` was added in zod 4.2.0. Older zod 4 lineages implement Standard Schema validation but not JSON Schema conversion, so the SDK falls back to converting your schema with its own bundled zod. Because zod stores `.describe()` text in a per-instance metadata
+registry, the bundled converter cannot see metadata attached through your zod instance — the SDK recovers `.describe()` descriptions on a best-effort basis (top level, object properties, array elements, and `.optional()`/`.nullable()`/`.default()` wrappers), but other registry
+metadata attached via `.meta()` may be lost.
+
+The fallback logs a one-time warning. Silence it with `MCP_SUPPRESS_ZOD_FALLBACK_WARNING=1`, or upgrade to zod >=4.2.0 for full fidelity. If upgrading isn't an option, you can supply the converter from your own zod instance, which preserves all metadata:
+
+```typescript
+import * as z from 'zod/v4'; // your zod, any 4.x lineage
+
+function withJsonSchema<T extends z.ZodType>(schema: T) {
+    return {
+        '~standard': {
+            ...schema['~standard'],
+            jsonSchema: {
+                input: () => z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'input' }),
+                output: () => z.toJSONSchema(schema, { target: 'draft-2020-12', io: 'output' })
+            }
+        }
+    };
+}
+
+server.registerTool('greet', { inputSchema: withJsonSchema(z.object({ name: z.string().describe('who to greet') })) }, handler);
+```
+
+zod 3 schemas (the classic `zod` import from zod@3.x) cannot be converted at all and produce a clear error at `tools/list` time — upgrade to zod 4, or describe your input with `fromJsonSchema()` instead.
+
 ### Host header validation moved
 
 Express-specific middleware (`hostHeaderValidation()`, `localhostHostValidation()`) moved from the server package to `@modelcontextprotocol/express`. The server package now exports framework-agnostic functions instead: `validateHostHeader()`, `localhostAllowedHostnames()`,

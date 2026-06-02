@@ -225,6 +225,14 @@ The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the 
 **IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with
 `fromJsonSchema(schema)` from `@modelcontextprotocol/server` (validator defaults automatically; pass an explicit validator for custom configurations). Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
 
+**Zod version matrix** for `inputSchema`/`outputSchema`/`argsSchema` values:
+
+| Schema's zod lineage                       | Behavior in v2                                                                                                                                             |
+| ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| zod >=4.2 (`~standard.jsonSchema` present) | Native conversion, full fidelity                                                                                                                           |
+| zod 4.0 / 4.1, zod@3.25.x `zod/v4` subpath | Bundled-converter fallback + one-time warning (silence: `MCP_SUPPRESS_ZOD_FALLBACK_WARNING=1`); `.describe()` recovered best-effort, `.meta()` may be lost |
+| zod 3 classic (`zod` import from zod@3.x)  | Error at `tools/list` — upgrade to zod 4 or use `fromJsonSchema()`                                                                                         |
+
 ### Tools
 
 ```typescript
