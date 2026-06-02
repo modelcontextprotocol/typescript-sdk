@@ -1733,6 +1733,7 @@ export const StringSchemaSchema = z.object({
     description: z.string().optional(),
     minLength: z.number().optional(),
     maxLength: z.number().optional(),
+    pattern: z.string().optional(),
     format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
     default: z.string().optional()
 });
