@@ -1005,8 +1005,8 @@ The following APIs are unchanged between v1 and v2 (only the import paths change
 - `Client` constructor and most client methods (`connect`, `listTools`, `listPrompts`, `listResources`, `readResource`, etc.) — note: `callTool()` signature changed (schema parameter removed)
 - `McpServer` constructor, `server.connect(transport)`, `server.close()`
 - `Server` (low-level) constructor and all methods
-- `StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport` constructors and options
-- `StdioServerTransport` constructor and options
+- `StreamableHTTPClientTransport` and `SSEClientTransport` constructors and options
+- `StdioClientTransport` and `StdioServerTransport` constructors — note: both accept a new optional `maxMessageBytes` option in v2 (see the stdio transport notes above)
 - All Zod schemas and type definitions from `types.ts` (except the aliases listed above)
 - Tool, prompt, and resource callback return types
 

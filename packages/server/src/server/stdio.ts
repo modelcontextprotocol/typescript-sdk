@@ -31,16 +31,35 @@ export type StdioServerTransportOptions = {
     maxMessageBytes?: number;
 };
 
+/**
+ * Distinguishes a stream argument from an options object in the overloaded
+ * {@linkcode StdioServerTransport} constructor. Every Node.js readable stream
+ * implements `pipe()`; an options literal does not.
+ */
+function isReadableStream(value: Readable | StdioServerTransportOptions): value is Readable {
+    return typeof (value as Readable).pipe === 'function';
+}
+
 export class StdioServerTransport implements Transport {
+    private _stdin: Readable;
+    private _stdout: Writable;
     private _readBuffer: ReadBuffer;
     private _started = false;
     private _closed = false;
 
-    constructor(
-        private _stdin: Readable = process.stdin,
-        private _stdout: Writable = process.stdout,
-        options?: StdioServerTransportOptions
-    ) {
+    /** Communicate over the current process' `stdin` and `stdout`. */
+    constructor(options?: StdioServerTransportOptions);
+    /** Communicate over the given streams, defaulting to the current process' `stdin` and `stdout`. */
+    constructor(stdin?: Readable, stdout?: Writable, options?: StdioServerTransportOptions);
+    constructor(stdinOrOptions?: Readable | StdioServerTransportOptions, stdout?: Writable, options?: StdioServerTransportOptions) {
+        let stdin: Readable | undefined;
+        if (stdinOrOptions !== undefined && isReadableStream(stdinOrOptions)) {
+            stdin = stdinOrOptions;
+        } else if (stdinOrOptions !== undefined) {
+            options = stdinOrOptions;
+        }
+        this._stdin = stdin ?? process.stdin;
+        this._stdout = stdout ?? process.stdout;
         this._readBuffer = new ReadBuffer({ maxMessageBytes: options?.maxMessageBytes });
     }
 

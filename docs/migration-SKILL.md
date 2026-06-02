@@ -216,7 +216,7 @@ if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) 
 ```
 
 **Unchanged APIs** (only import paths changed): `Client` constructor and most methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all
-Zod schemas, all callback return types. Note: `callTool()` and `request()` signatures changed (schema parameter removed, see section 11).
+Zod schemas, all callback return types. Note: `callTool()` and `request()` signatures changed (schema parameter removed, see section 11). The stdio transports additionally accept a new optional `maxMessageBytes` option in v2 (see the stdio transport notes).
 
 ## 6. McpServer API Changes
 

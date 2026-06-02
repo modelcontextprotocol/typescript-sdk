@@ -3,6 +3,8 @@ import { Readable, Writable } from 'node:stream';
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import { ReadBuffer, SdkError, SdkErrorCode, serializeMessage } from '@modelcontextprotocol/core';
 
+import { process as shimProcess } from '@modelcontextprotocol/server/_shims';
+
 import { StdioServerTransport } from '../../src/server/stdio.js';
 
 let input: Readable;
@@ -211,4 +213,42 @@ test('should surface MessageTooLarge via onerror and keep running when maxMessag
     expect(errors).toHaveLength(1);
 
     await server.close();
+});
+
+test('options-only constructor uses the process streams and applies maxMessageBytes', async () => {
+    const server = new StdioServerTransport({ maxMessageBytes: 64 });
+
+    const errors: Error[] = [];
+    const messages: JSONRPCMessage[] = [];
+    server.onerror = error => errors.push(error);
+    server.onmessage = message => messages.push(message);
+
+    const listenersBefore = shimProcess.stdin.listenerCount('data');
+    await server.start();
+    expect(shimProcess.stdin.listenerCount('data')).toBe(listenersBefore + 1);
+
+    // Drive the read path directly: an oversized line, then a valid message.
+    server._ondata(Buffer.from(`${'x'.repeat(200)}\n`));
+    const valid: JSONRPCMessage = { jsonrpc: '2.0', method: 'notifications/initialized' };
+    server._ondata(Buffer.from(serializeMessage(valid)));
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(SdkError);
+    expect((errors[0] as SdkError).code).toBe(SdkErrorCode.MessageTooLarge);
+    expect(messages).toEqual([valid]);
+
+    await server.close();
+    expect(shimProcess.stdin.listenerCount('data')).toBe(listenersBefore);
+});
+
+test('three-argument form with undefined stream placeholders still applies maxMessageBytes', () => {
+    const server = new StdioServerTransport(undefined, undefined, { maxMessageBytes: 64 });
+
+    const errors: Error[] = [];
+    server.onerror = error => errors.push(error);
+    server._ondata(Buffer.from(`${'x'.repeat(200)}\n`));
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(SdkError);
+    expect((errors[0] as SdkError).code).toBe(SdkErrorCode.MessageTooLarge);
 });

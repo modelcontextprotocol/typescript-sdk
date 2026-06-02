@@ -54,6 +54,7 @@ export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
 
 // stdio message framing utilities (for custom transport authors)
 export { deserializeMessage, ReadBuffer, serializeMessage } from '../../shared/stdio.js';
+export type { ReadBufferOptions } from '../../shared/stdio.js';
 
 // Transport types (NOT normalizeHeaders)
 export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
