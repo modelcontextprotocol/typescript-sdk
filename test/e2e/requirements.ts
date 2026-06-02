@@ -1613,6 +1613,20 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp', 'stdio'],
         note: 'Lifecycle rule: servers MUST NOT rely on prior requests to establish context (capabilities, protocol version, client identity). The streamableHttp body proves non-inheritance on a session-mode transport whose handshake state is populated by a real initialize before the stateless request arrives.'
     },
+    'protocol:stateless:per-request-loglevel': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/utilities/logging#per-request-log-level',
+        behavior:
+            'Under a per-request protocol revision, a request carrying io.modelcontextprotocol/logLevel in _meta receives notifications/message for handler log emissions at or above the claimed level on the originating response stream, in order, before the final response; emissions below the claimed level are not delivered. A request claiming an unrecognized logLevel value is rejected with -32602 (Invalid params), the request id echoed.',
+        transports: ['streamableHttp', 'stdio'],
+        note: "The logLevel _meta claim replaces logging/setLevel (a removed RPC on this path). The -32602 for unrecognized levels is the logging spec's Error Handling SHOULD, enforced by the same envelope acceptance that rejects malformed _meta. Conformance covers only the no-claim case (sep-2575-server-no-log-without-loglevel); the unrecognized-level rejection has no check — gap recorded in the build log."
+    },
+    'protocol:stateless:no-log-without-loglevel': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/utilities/logging#per-request-log-level',
+        behavior:
+            'Under a per-request protocol revision, a request whose _meta carries no io.modelcontextprotocol/logLevel claim produces no notifications/message even when the handler emits log messages — including immediately after another request on the same connection claimed a level: the claim governs exactly its own request and is never stored.',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'Conformance: sep-2575-server-no-log-without-loglevel (server-stateless scenario). Per-request isolation is pinned by claiming debug on a preceding request: over HTTP the unclaimed request is answered as plain application/json (the lazy SSE stream never opens because nothing was emitted); on stdio the message after the unclaimed request is its response directly.'
+    },
     'hosting:http:version-header-meta-mismatch': {
         source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#protocol-version-header',
         behavior:

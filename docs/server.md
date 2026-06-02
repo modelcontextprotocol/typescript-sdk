@@ -362,6 +362,8 @@ server.registerTool(
 );
 ```
 
+How messages are filtered depends on the protocol revision governing the request. Under initialize-based revisions (2025-11-25 and earlier), the client sets a session-wide threshold via the `logging/setLevel` request. Under per-request revisions (2026-07-28), `logging/setLevel` is removed: the client opts in per request by putting `io.modelcontextprotocol/logLevel` in the request's `_meta`, and `ctx.mcpReq.log()` delivers only messages at or above that level, on the response stream of that request. A request without the claim produces no log notifications at all — the claim governs exactly its own request and is never carried over.
+
 ## Progress
 
 Progress notifications let a tool report incremental status updates during long-running operations (see [Progress](https://modelcontextprotocol.io/specification/latest/basic/utilities/progress) in the MCP specification).

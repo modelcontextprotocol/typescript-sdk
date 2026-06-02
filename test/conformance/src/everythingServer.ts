@@ -639,6 +639,27 @@ function createMcpServer() {
         }
     );
 
+    // SEP-2575: per-request logging diagnostic tool. Emits log messages through
+    // ctx.mcpReq.log at several severities; on the per-request path the SDK
+    // delivers them only when the request carried an
+    // io.modelcontextprotocol/logLevel _meta claim, so a call without one must
+    // produce no notifications/message frames.
+    mcpServer.registerTool(
+        'test_logging_tool',
+        {
+            description: 'Emits log messages at several severities via the per-request logging API (SEP-2575)',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult> => {
+            await ctx.mcpReq.log('debug', 'debug-severity diagnostic message', 'test_logging_tool');
+            await ctx.mcpReq.log('info', 'info-severity diagnostic message', 'test_logging_tool');
+            await ctx.mcpReq.log('error', 'error-severity diagnostic message', 'test_logging_tool');
+            return {
+                content: [{ type: 'text', text: 'Logging complete: emitted 3 log messages' }]
+            };
+        }
+    );
+
     // SEP-1613: JSON Schema 2020-12 conformance test tool
     mcpServer.registerTool(
         'json_schema_2020_12_tool',

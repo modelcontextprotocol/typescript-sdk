@@ -227,7 +227,13 @@ export type ServerContext = BaseContext & {
     mcpReq: {
         /**
          * Send a log message notification to the client.
-         * Respects the client's log level filter set via logging/setLevel.
+         *
+         * Delivery follows the protocol revision governing the request: under
+         * initialize-based revisions it respects the client's log level filter set via
+         * logging/setLevel; under per-request revisions the request's
+         * `io.modelcontextprotocol/logLevel` `_meta` claim is the opt-in — only messages
+         * at or above the claimed level are delivered, on the response stream of the
+         * originating request, and without a claim nothing is emitted for the request.
          */
         log: (level: LoggingLevel, data: unknown, logger?: string) => Promise<void>;
 

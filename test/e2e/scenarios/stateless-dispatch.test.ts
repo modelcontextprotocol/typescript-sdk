@@ -2,9 +2,9 @@
  * Self-contained test bodies for the stateless dispatch path (per-request
  * protocol revisions, SEP-2575 + SEP-2567): envelope acceptance, version
  * negotiation errors, the removed-RPC gate, end-to-end service without an
- * initialize handshake, the `_meta`-sourced handler context, and the HTTP
- * response shaping (JSON vs SSE, 202 for notifications, header/`_meta`
- * version mismatch).
+ * initialize handshake, the `_meta`-sourced handler context, per-request
+ * logging (the `logLevel` `_meta` claim), and the HTTP response shaping
+ * (JSON vs SSE, 202 for notifications, header/`_meta` version mismatch).
  *
  * The streamableHttp cells drive raw Request/Response against WebStandard
  * transports connected directly (matching how the conformance harness drives
@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url';
 
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { CallToolResultSchema, JSONRPCResultResponseSchema } from '@modelcontextprotocol/core';
-import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/server';
+import type { JSONRPCMessage, JSONRPCRequest, LoggingLevel } from '@modelcontextprotocol/server';
 import {
     DRAFT_PROTOCOL_VERSION,
     LATEST_PROTOCOL_VERSION,
@@ -60,7 +60,10 @@ const envelope = (overrides?: Record<string, unknown>) => ({
     ...overrides
 });
 
-/** A server that has opted in to the draft revision, with an echo tool and a ctx-reporting tool. */
+/** Every RFC 5424 severity, lowest to highest. */
+const ALL_LEVELS: LoggingLevel[] = ['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency'];
+
+/** A server that has opted in to the draft revision, with an echo tool, a ctx-reporting tool, and a log-emitting tool. */
 function statelessServer(): McpServer {
     const s = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} }, supportedProtocolVersions: DRAFT_LISTED });
     s.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
@@ -79,6 +82,12 @@ function statelessServer(): McpServer {
             }
         ]
     }));
+    s.registerTool('log-sweep', { inputSchema: z.object({}) }, async (_args, ctx) => {
+        for (const level of ALL_LEVELS) {
+            await ctx.mcpReq.log(level, `level-${level}`, 'sweep');
+        }
+        return { content: [{ type: 'text', text: 'swept' }] };
+    });
     return s;
 }
 
@@ -91,6 +100,21 @@ async function connectHttp(): Promise<WebStandardStreamableHTTPServerTransport> 
 
 const post = (tx: WebStandardStreamableHTTPServerTransport, body: unknown, headers: Record<string, string> = draftHeaders) =>
     tx.handleRequest(new Request('http://in-process/mcp', { method: 'POST', headers, body: JSON.stringify(body) }));
+
+/** Parses the data lines of a complete SSE body into JSON-RPC messages. */
+const parseSseEvents = (sseBody: string): JSONRPCMessage[] =>
+    sseBody
+        .split('\n\n')
+        .filter(Boolean)
+        .map(
+            event =>
+                JSON.parse(
+                    event
+                        .split('\n')
+                        .find(line => line.startsWith('data: '))!
+                        .slice('data: '.length)
+                ) as JSONRPCMessage
+        );
 
 /**
  * In-process stdio wiring: a real server connected to a StdioServerTransport
@@ -372,6 +396,114 @@ verifies('protocol:stateless:ctx-meta-sourced', async ({ transport }: TestArgs) 
     }
 });
 
+/** A tools/call of the log-sweep tool, optionally claiming a per-request log level. */
+const sweepCall = (id: number, logLevel?: string): JSONRPCRequest => ({
+    jsonrpc: '2.0',
+    id,
+    method: 'tools/call',
+    params: {
+        name: 'log-sweep',
+        arguments: {},
+        _meta: envelope(logLevel === undefined ? {} : { 'io.modelcontextprotocol/logLevel': logLevel })
+    }
+});
+
+verifies('protocol:stateless:per-request-loglevel', async ({ transport }: TestArgs) => {
+    // The handler emits all eight severities; a 'warning' claim must deliver
+    // exactly the five at or above it, in order, before the final response.
+    const atOrAboveWarning = ALL_LEVELS.slice(ALL_LEVELS.indexOf('warning'));
+
+    if (transport === 'stdio') {
+        const stdio = await connectStdio();
+        try {
+            stdio.send(sweepCall(801, 'warning'));
+            for (const level of atOrAboveWarning) {
+                expect(await stdio.next()).toMatchObject({
+                    method: 'notifications/message',
+                    params: { level, logger: 'sweep', data: `level-${level}` }
+                });
+            }
+            expect(await stdio.next()).toMatchObject({ jsonrpc: '2.0', id: 801 });
+
+            // An unrecognized level value is an envelope violation: -32602, id echoed.
+            stdio.send(sweepCall(802, 'verbose'));
+            expect(await stdio.next()).toMatchObject({ jsonrpc: '2.0', id: 802, error: { code: -32_602 } });
+        } finally {
+            await stdio.close();
+        }
+        return;
+    }
+
+    const tx = await connectHttp();
+    try {
+        const res = await post(tx, sweepCall(801, 'warning'));
+        expect(res.status).toBe(200);
+        expect(res.headers.get('content-type')).toBe('text/event-stream');
+        const events = parseSseEvents(await res.text());
+        expect(events).toHaveLength(atOrAboveWarning.length + 1);
+        for (const [index, level] of atOrAboveWarning.entries()) {
+            expect(events[index]).toMatchObject({
+                method: 'notifications/message',
+                params: { level, logger: 'sweep', data: `level-${level}` }
+            });
+        }
+        expect(events.at(-1)).toMatchObject({ jsonrpc: '2.0', id: 801 });
+
+        // An unrecognized level value is an envelope violation: -32602, id echoed.
+        const invalid = await post(tx, sweepCall(802, 'verbose'));
+        expect(invalid.status).toBe(400);
+        expect(await invalid.json()).toMatchObject({ jsonrpc: '2.0', id: 802, error: { code: -32_602 } });
+    } finally {
+        await tx.close();
+    }
+});
+
+verifies('protocol:stateless:no-log-without-loglevel', async ({ transport }: TestArgs) => {
+    if (transport === 'stdio') {
+        const stdio = await connectStdio();
+        try {
+            // A preceding request claims debug — every severity is delivered for IT...
+            stdio.send(sweepCall(901, 'debug'));
+            for (const level of ALL_LEVELS) {
+                expect(await stdio.next()).toMatchObject({ method: 'notifications/message', params: { level } });
+            }
+            expect(await stdio.next()).toMatchObject({ jsonrpc: '2.0', id: 901 });
+
+            // ...and is never stored: the unclaimed request's next frame is its
+            // result directly — no notifications/message leaked from the claim.
+            stdio.send(sweepCall(902));
+            const response = JSONRPCResultResponseSchema.parse(await stdio.next());
+            expect(response.id).toBe(902);
+        } finally {
+            await stdio.close();
+        }
+        return;
+    }
+
+    const tx = await connectHttp();
+    try {
+        // A preceding request claims debug — every severity is delivered for IT...
+        const claimed = await post(tx, sweepCall(901, 'debug'));
+        expect(claimed.status).toBe(200);
+        expect(claimed.headers.get('content-type')).toBe('text/event-stream');
+        const claimedEvents = parseSseEvents(await claimed.text());
+        expect(claimedEvents.filter(message => 'method' in message && message.method === 'notifications/message')).toHaveLength(
+            ALL_LEVELS.length
+        );
+
+        // ...and is never stored: with no claim nothing is emitted, so the lazy
+        // SSE stream never opens and the answer is a single application/json
+        // object — no notifications/message anywhere.
+        const bare = await post(tx, sweepCall(902));
+        expect(bare.status).toBe(200);
+        expect(bare.headers.get('content-type')).toContain('application/json');
+        const body = JSONRPCResultResponseSchema.parse(await bare.json());
+        expect(body.id).toBe(902);
+    } finally {
+        await tx.close();
+    }
+});
+
 verifies('hosting:http:version-header-meta-mismatch', async (_args: TestArgs) => {
     const tx = await connectHttp();
     try {
@@ -433,19 +565,7 @@ verifies('hosting:http:stateless-response-stream', async (_args: TestArgs) => {
         expect(sse.headers.get('content-type')).toBe('text/event-stream');
         expect(sse.headers.get('mcp-session-id')).toBeNull();
 
-        const sseBody = await sse.text();
-        const events = sseBody
-            .split('\n\n')
-            .filter(Boolean)
-            .map(
-                event =>
-                    JSON.parse(
-                        event
-                            .split('\n')
-                            .find(line => line.startsWith('data: '))!
-                            .slice('data: '.length)
-                    ) as JSONRPCMessage
-            );
+        const events = parseSseEvents(await sse.text());
         expect(events).toHaveLength(3);
         expect(events[0]).toMatchObject({ method: 'notifications/progress', params: { progress: 1 } });
         expect(events[1]).toMatchObject({ method: 'notifications/progress', params: { progress: 2 } });

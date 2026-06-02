@@ -48,6 +48,7 @@ import {
     isStatefulProtocolVersion,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
+    LOG_LEVEL_META_KEY,
     LoggingLevelSchema,
     mergeCapabilities,
     NotImplementedYetError,
@@ -266,11 +267,24 @@ export class Server extends Protocol<ServerContext> {
                     // Request-scoped notifications ride the originating response stream.
                     await dispatchCtx.sendNotification?.({ jsonrpc: '2.0', ...notification });
                 },
-                log: async () => {
-                    // TODO(per-request logging commit): emission is gated on the request's
-                    // logLevel _meta claim. Without a claim this revision forbids
-                    // notifications/message for the request, so nothing is emitted until
-                    // the per-request filter lands.
+                log: async (level, data, logger) => {
+                    // Per-request logging: the request's logLevel _meta claim is the
+                    // opt-in (replacing the removed logging/setLevel RPC). Without a
+                    // claim this revision forbids notifications/message for the request;
+                    // with one, only messages at or above the claimed level are
+                    // delivered, riding the originating response stream like every
+                    // request-scoped notification. The claim is read from this request's
+                    // own envelope and never stored, so it cannot leak into any other
+                    // request's dispatch.
+                    const claimedLevel = envelope[LOG_LEVEL_META_KEY];
+                    if (!this._capabilities.logging || claimedLevel === undefined || this._isBelowLevel(level, claimedLevel)) {
+                        return;
+                    }
+                    await dispatchCtx.sendNotification?.({
+                        jsonrpc: '2.0',
+                        method: 'notifications/message',
+                        params: { level, data, logger }
+                    });
                 },
                 elicitInput: () => {
                     // TODO(SEP-2322 MRTR PR): elicitation becomes an input request
@@ -325,10 +339,14 @@ export class Server extends Protocol<ServerContext> {
     // Map LogLevelSchema to severity index
     private readonly LOG_LEVEL_SEVERITY = new Map(LoggingLevelSchema.options.map((level, index) => [level, index]));
 
+    // Is `level` strictly below `threshold` in RFC 5424 severity order?
+    private _isBelowLevel = (level: LoggingLevel, threshold: LoggingLevel): boolean =>
+        this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(threshold)!;
+
     // Is a message with the given level ignored in the log level set for the given session id?
     private isMessageIgnored = (level: LoggingLevel, sessionId?: string): boolean => {
         const currentLevel = this._loggingLevels.get(sessionId);
-        return currentLevel ? this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(currentLevel)! : false;
+        return currentLevel ? this._isBelowLevel(level, currentLevel) : false;
     };
 
     /**
