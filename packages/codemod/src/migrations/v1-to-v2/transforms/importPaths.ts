@@ -2,7 +2,7 @@ import type { SourceFile } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { renameAllReferences } from '../../../utils/astUtils.js';
-import { v2Gap, warning } from '../../../utils/diagnostics.js';
+import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics.js';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
@@ -75,15 +75,14 @@ export const importPathsTransform: Transform = {
 
             if (!mapping && isAuthImport(specifier)) {
                 mapping = {
-                    target: '',
-                    status: 'removed',
-                    removalMessage:
-                        'Server auth removed in v2. For RS auth, see @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
+                    target: '@modelcontextprotocol/server-legacy/auth',
+                    status: 'moved',
+                    migrationHint: 'Legacy auth module. For RS-only auth, see @modelcontextprotocol/express.'
                 };
             }
 
             if (!mapping) {
-                diagnostics.push(warning(filePath, line, `Unknown SDK import path: ${specifier}. Manual migration required.`));
+                diagnostics.push(actionRequired(filePath, imp, `Unknown SDK import path: ${specifier}. Manual migration required.`));
                 continue;
             }
 
@@ -126,9 +125,9 @@ export const importPathsTransform: Transform = {
                         effectiveTarget = mapping.symbolTargetOverrides[namedImports[0]!.getName()]!;
                     } else if (namedImports.some(n => n.getName() in mapping.symbolTargetOverrides!)) {
                         diagnostics.push(
-                            warning(
+                            actionRequired(
                                 filePath,
-                                line,
+                                imp,
                                 `Aliased import from ${specifier} mixes symbols that belong to different v2 packages. ` +
                                     `Split the import manually so each symbol targets the correct package.`
                             )
@@ -146,9 +145,9 @@ export const importPathsTransform: Transform = {
                     }
                     if (namespaceImport) {
                         diagnostics.push(
-                            warning(
+                            actionRequired(
                                 filePath,
-                                line,
+                                imp,
                                 `Namespace import of ${specifier}: exported symbol(s) ${Object.keys(mapping.renamedSymbols).join(', ')} ` +
                                     `were renamed in ${effectiveTarget}. Update qualified accesses manually.`
                             )
@@ -156,6 +155,9 @@ export const importPathsTransform: Transform = {
                     }
                 }
                 changesCount++;
+                if (mapping.migrationHint) {
+                    diagnostics.push(info(filePath, line, mapping.migrationHint));
+                }
                 for (const [oldName, newName] of symbolsToRenameInFile) {
                     renameAllReferences(sourceFile, oldName, newName);
                 }
@@ -172,6 +174,9 @@ export const importPathsTransform: Transform = {
             }
             imp.remove();
             changesCount++;
+            if (mapping.migrationHint) {
+                diagnostics.push(info(filePath, line, mapping.migrationHint));
+            }
             for (const [oldName, newName] of symbolsToRenameInFile) {
                 renameAllReferences(sourceFile, oldName, newName);
             }
@@ -222,15 +227,14 @@ function rewriteExportDeclarations(
 
         if (!mapping && isAuthImport(specifier)) {
             mapping = {
-                target: '',
-                status: 'removed',
-                removalMessage:
-                    'Server auth removed in v2. For RS auth, see @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
+                target: '@modelcontextprotocol/server-legacy/auth',
+                status: 'moved',
+                migrationHint: 'Legacy auth module. For RS-only auth, see @modelcontextprotocol/express.'
             };
         }
 
         if (!mapping) {
-            diagnostics.push(warning(filePath, line, `Unknown SDK export path: ${specifier}. Manual migration required.`));
+            diagnostics.push(actionRequired(filePath, exp, `Unknown SDK export path: ${specifier}. Manual migration required.`));
             continue;
         }
 
@@ -265,9 +269,9 @@ function rewriteExportDeclarations(
                 targetPackage = mapping.symbolTargetOverrides[namedExports[0]!.getName()]!;
             } else if (namedExports.some(s => s.getName() in mapping.symbolTargetOverrides!)) {
                 diagnostics.push(
-                    warning(
+                    actionRequired(
                         filePath,
-                        line,
+                        exp,
                         `Re-export from ${specifier} mixes symbols that belong to different v2 packages. ` +
                             `Split the export manually so each symbol targets the correct package.`
                     )
@@ -284,10 +288,13 @@ function rewriteExportDeclarations(
                 spec.setName(newName);
             }
             if (REEXPORT_WARNINGS[name]) {
-                diagnostics.push(warning(filePath, line, REEXPORT_WARNINGS[name]!));
+                diagnostics.push(actionRequired(filePath, exp, REEXPORT_WARNINGS[name]!));
             }
         }
         changesCount++;
+        if (mapping.migrationHint) {
+            diagnostics.push(info(filePath, line, mapping.migrationHint));
+        }
     }
 
     return changesCount;

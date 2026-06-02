@@ -1,22 +1,18 @@
 /**
- * Test-only legacy HTTP+SSE host bridge.
+ * Legacy HTTP+SSE host.
  *
- * v2 removed the server-side SSE transport, but the client-side
- * SSEClientTransport is still shipped for talking to legacy servers. This
- * bridge stands in for the removed server half so the e2e matrix can exercise
- * the real client transport end to end: it speaks the legacy wire protocol
- * (an `endpoint` SSE event carrying the POST URL with the sessionId,
- * `message` SSE events for server→client JSON-RPC, plain POSTs for
- * client→server JSON-RPC) over a real loopback listener and bridges to a real
- * v2 server through the Transport interface.
+ * Hosts the SDK's shipped server-side SSE transport (`SSEServerTransport` from
+ * `@modelcontextprotocol/server-legacy/sse`) on a real loopback listener so the
+ * e2e matrix exercises both shipped halves of the legacy transport end to end:
+ * GET opens the SSE stream (an `endpoint` event carries the POST URL with the
+ * sessionId), POSTs deliver client→server JSON-RPC to the owning session.
  */
 
-import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 
-import { JSONRPCMessageSchema } from '@modelcontextprotocol/core';
-import type { JSONRPCMessage, McpServer, Server, Transport } from '@modelcontextprotocol/server';
+import type { McpServer, Server } from '@modelcontextprotocol/server';
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
 
 const SSE_PATH = '/sse';
 const POST_PATH = '/messages';
@@ -25,74 +21,6 @@ type AnyServer = McpServer | Server;
 
 function toError(value: unknown): Error {
     return value instanceof Error ? value : new Error(String(value));
-}
-
-/** Test-only server half of the legacy HTTP+SSE transport (v2 ships only the client half). */
-export class LegacySseServerTransport implements Transport {
-    private _response?: ServerResponse;
-    readonly sessionId: string = randomUUID();
-
-    onclose?: () => void;
-    onerror?: (error: Error) => void;
-    onmessage?: (message: JSONRPCMessage) => void;
-
-    constructor(private readonly _res: ServerResponse) {}
-
-    async start(): Promise<void> {
-        if (this._response) throw new Error('LegacySseServerTransport already started');
-        this._res.writeHead(200, {
-            'content-type': 'text/event-stream',
-            'cache-control': 'no-cache, no-transform',
-            connection: 'keep-alive'
-        });
-        // The legacy protocol's first event tells the client where to POST its messages.
-        this._res.write(`event: endpoint\ndata: ${POST_PATH}?sessionId=${this.sessionId}\n\n`);
-        this._response = this._res;
-        this._res.on('close', () => {
-            this._response = undefined;
-            this.onclose?.();
-        });
-    }
-
-    async send(message: JSONRPCMessage): Promise<void> {
-        if (!this._response) throw new Error('SSE stream not established');
-        this._response.write(`event: message\ndata: ${JSON.stringify(message)}\n\n`);
-    }
-
-    async close(): Promise<void> {
-        this._response?.end();
-        this._response = undefined;
-        this.onclose?.();
-    }
-
-    /** Delivers a client→server POST to the server side and answers the HTTP request (202 on success). */
-    async handlePostMessage(req: IncomingMessage, res: ServerResponse): Promise<void> {
-        if (!this._response) {
-            res.writeHead(500).end('SSE connection not established');
-            return;
-        }
-        const contentTypeHeader = req.headers['content-type'] ?? '';
-        if (!contentTypeHeader.includes('application/json')) {
-            res.writeHead(400).end(`Unsupported content-type: ${contentTypeHeader}`);
-            return;
-        }
-        const chunks: Buffer[] = [];
-        for await (const chunk of req) {
-            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
-        }
-        const raw = Buffer.concat(chunks).toString('utf8');
-
-        let message: JSONRPCMessage;
-        try {
-            message = JSONRPCMessageSchema.parse(JSON.parse(raw));
-        } catch (error) {
-            res.writeHead(400).end(`Invalid message: ${raw}`);
-            this.onerror?.(toError(error));
-            return;
-        }
-        res.writeHead(202).end('Accepted');
-        this.onmessage?.(message);
-    }
 }
 
 export interface LegacySseHost {
@@ -108,12 +36,12 @@ export interface LegacySseHost {
  * become 500.
  */
 export async function startLegacySseHost(makeServer: () => AnyServer): Promise<LegacySseHost> {
-    const sessions = new Map<string, { tx: LegacySseServerTransport; server: AnyServer }>();
+    const sessions = new Map<string, { tx: SSEServerTransport; server: AnyServer }>();
 
     const handle = async (req: IncomingMessage, res: ServerResponse): Promise<void> => {
         const requestUrl = new URL(req.url ?? '/', 'http://127.0.0.1');
         if (req.method === 'GET' && requestUrl.pathname === SSE_PATH) {
-            const tx = new LegacySseServerTransport(res);
+            const tx = new SSEServerTransport(POST_PATH, res);
             const server = makeServer();
             sessions.set(tx.sessionId, { tx, server });
             // connect() starts the transport, which writes the SSE headers and the endpoint event.

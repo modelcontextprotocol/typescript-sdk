@@ -40,6 +40,7 @@
         "test:conformance:client:all": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client:all",
         "test:conformance:client:run": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client:run",
         "test:conformance:server": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server",
+        "test:conformance:server:draft": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:draft",
         "test:conformance:server:all": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:all",
         "test:conformance:server:run": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:server:run",
         "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"

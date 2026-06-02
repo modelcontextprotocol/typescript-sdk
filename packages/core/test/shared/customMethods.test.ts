@@ -14,8 +14,6 @@ class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}
     protected assertNotificationCapability(): void {}
     protected assertRequestHandlerCapability(): void {}
-    protected assertTaskCapability(): void {}
-    protected assertTaskHandlerCapability(): void {}
 }
 
 async function pair(): Promise<[TestProtocol, TestProtocol]> {

@@ -88,10 +88,25 @@ test('every transport-restricted requirement explains why in note', () => {
     expect(missing).toEqual([]);
 });
 
-test('every supersedes reference points at an existing requirement id', () => {
+test('supersedes/supersededBy links are symmetric and resolve', () => {
+    const bad: string[] = [];
     for (const [id, req] of Object.entries(REQUIREMENTS)) {
-        if (req.supersedes !== undefined) {
-            expect(REQUIREMENTS[req.supersedes], `${id} supersedes unknown id '${req.supersedes}'`).toBeDefined();
+        for (const oldId of req.supersedes ?? []) {
+            const old = REQUIREMENTS[oldId];
+            if (!old) bad.push(`${id}: supersedes unknown id '${oldId}'`);
+            else if (old.supersededBy !== id)
+                bad.push(`${id}: supersedes '${oldId}', but that entry's supersededBy is '${old.supersededBy}'`);
         }
+        if (req.supersededBy !== undefined) {
+            const successor = REQUIREMENTS[req.supersededBy];
+            if (!successor) bad.push(`${id}: supersededBy unknown id '${req.supersededBy}'`);
+            else if (!successor.supersedes?.includes(id))
+                bad.push(`${id}: supersededBy '${req.supersededBy}', but that entry's supersedes array does not include '${id}'`);
+            if (req.removedInSpecVersion === undefined)
+                bad.push(`${id}: has supersededBy but no removedInSpecVersion (only a retired entry can be superseded)`);
+        }
+        if (req.supersedes !== undefined && req.addedInSpecVersion === undefined)
+            bad.push(`${id}: has supersedes but no addedInSpecVersion (a superseding entry is by definition new)`);
     }
+    expect(bad).toEqual([]);
 });

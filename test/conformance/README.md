@@ -2,6 +2,8 @@
 
 This directory contains conformance test implementations for the TypeScript MCP SDK.
 
+> `@modelcontextprotocol/conformance` is pinned to an exact version (no `^` range) in `package.json`. New conformance releases are adopted by deliberately bumping the pin and updating `expected-failures.yaml` for any new scenarios/checks in the same change.
+
 ## Client Conformance Tests
 
 Tests the SDK's client implementation against a conformance test server.

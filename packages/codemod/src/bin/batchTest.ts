@@ -353,7 +353,7 @@ function main(): void {
                 codemodResult = run(migration, { targetDir: fullSourceDir, verbose: true });
             } catch (error) {
                 console.log(`    ERROR: codemod threw: ${error}`);
-                codemodResult = { filesChanged: 0, totalChanges: 0, diagnostics: [], fileResults: [] };
+                codemodResult = { filesChanged: 0, totalChanges: 0, diagnostics: [], fileResults: [], commentCount: 0 };
             }
             console.log(
                 `    Codemod: files=${codemodResult.filesChanged} changes=${codemodResult.totalChanges} diags=${codemodResult.diagnostics.length}`

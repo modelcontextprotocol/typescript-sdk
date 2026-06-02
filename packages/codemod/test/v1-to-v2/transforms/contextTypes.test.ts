@@ -85,18 +85,6 @@ describe('context-types transform', () => {
         expect(result).toContain('ctx.http?.authInfo');
     });
 
-    it('rewrites extra.taskStore to ctx.task?.store', () => {
-        const input = [
-            `server.setRequestHandler('tools/call', async (request, extra) => {`,
-            `    const store = extra.taskStore;`,
-            `    return { content: [] };`,
-            `});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain('ctx.task?.store');
-    });
-
     it('does not touch non-extra parameters', () => {
         const input = [
             `server.setRequestHandler('tools/call', async (request, context) => {`,
@@ -304,53 +292,6 @@ describe('context-types transform', () => {
         expect(sourceFile.getFullText()).toContain('extra');
     });
 
-    it('renames extra to ctx and remaps properties in registerToolTask handler object', () => {
-        const input = [
-            `server.experimental.tasks.registerToolTask('my-task', { schema: {} }, {`,
-            `    createTask: async (args, extra) => {`,
-            `        const s = extra.signal;`,
-            `        const store = extra.taskStore;`,
-            `        return { content: [] };`,
-            `    },`,
-            `    getTask: async (args, extra) => {`,
-            `        const auth = extra.authInfo;`,
-            `        return { content: [] };`,
-            `    },`,
-            `    getTaskResult: async (args, extra) => {`,
-            `        await extra.sendNotification({ method: 'test', params: {} });`,
-            `        return { content: [] };`,
-            `    },`,
-            `});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).not.toContain('extra');
-        expect(result).toContain('(args, ctx)');
-        expect(result).toContain('ctx.mcpReq.signal');
-        expect(result).toContain('ctx.task?.store');
-        expect(result).toContain('ctx.http?.authInfo');
-        expect(result).toContain('ctx.mcpReq.notify(');
-    });
-
-    it('handles registerToolTask with shorthand method syntax', () => {
-        const input = [
-            `server.registerToolTask('my-task', {}, {`,
-            `    async createTask(args, extra) {`,
-            `        const s = extra.signal;`,
-            `        return { content: [] };`,
-            `    },`,
-            `    async getTask(args, extra) {`,
-            `        return { content: [] };`,
-            `    },`,
-            `});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).not.toContain('extra');
-        expect(result).toContain('(args, ctx)');
-        expect(result).toContain('ctx.mcpReq.signal');
-    });
-
     it('does not rename "extra" inside string literals', () => {
         const input = [
             `server.setRequestHandler('tools/call', async (request, extra) => {`,
@@ -384,7 +325,7 @@ describe('context-types transform', () => {
         expect(result).not.toContain('meta.ctx');
     });
 
-    it('does not rename "extra" in shorthand property assignment', () => {
+    it('expands shorthand property assignment when renaming extra to ctx', () => {
         const input = [
             `server.setRequestHandler('tools/call', async (request, extra) => {`,
             `    helper({ request, extra });`,
@@ -393,8 +334,8 @@ describe('context-types transform', () => {
             ''
         ].join('\n');
         const result = applyTransform(input);
-        expect(result).toContain('{ request, extra }');
-        expect(result).not.toContain('{ request, ctx }');
+        expect(result).toContain('extra: ctx');
+        expect(result).not.toContain('{ request, extra }');
         expect(result).toContain('(request, ctx)');
     });
 
