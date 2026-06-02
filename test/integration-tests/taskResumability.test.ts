@@ -9,6 +9,37 @@ import { InMemoryEventStore } from '../../src/examples/shared/inMemoryEventStore
 import { zodTestMatrix, type ZodMatrixEntry } from '../../src/__fixtures__/zodTestMatrix.js';
 import { listenOnRandomPort } from '../helpers/http.js';
 
+describe('InMemoryEventStore', () => {
+    it('replays events for stream IDs that contain underscores', async () => {
+        const dateNow = vi.spyOn(Date, 'now');
+        dateNow.mockReturnValueOnce(1000).mockReturnValueOnce(1001);
+        const random = vi.spyOn(Math, 'random');
+        random.mockReturnValueOnce(0.1).mockReturnValueOnce(0.2);
+
+        try {
+            const eventStore = new InMemoryEventStore();
+            const streamId = '_GET_stream';
+            const firstMessage = { jsonrpc: '2.0' as const, method: 'first' };
+            const secondMessage = { jsonrpc: '2.0' as const, method: 'second' };
+            const firstEventId = await eventStore.storeEvent(streamId, firstMessage);
+            const secondEventId = await eventStore.storeEvent(streamId, secondMessage);
+            const replayed: Array<{ eventId: string; message: unknown }> = [];
+
+            const replayedStreamId = await eventStore.replayEventsAfter(firstEventId, {
+                send: async (eventId, message) => {
+                    replayed.push({ eventId, message });
+                }
+            });
+
+            expect(replayedStreamId).toBe(streamId);
+            expect(replayed).toEqual([{ eventId: secondEventId, message: secondMessage }]);
+        } finally {
+            dateNow.mockRestore();
+            random.mockRestore();
+        }
+    });
+});
+
 describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
     const { z } = entry;
     describe('Transport resumability', () => {
