@@ -1,7 +1,7 @@
 [
     {
-        "repo": "KKonstantinov/mcp-servers-fork",
-        "ref": "feature/upgrade-zod-v4",
+        "repo": "modelcontextprotocol/servers",
+        "ref": "main",
         "packages": [
             {
                 "dir": "src/everything",
