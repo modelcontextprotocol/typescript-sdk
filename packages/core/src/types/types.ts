@@ -317,6 +317,20 @@ export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
 export type CallToolRequestParams = Infer<typeof CallToolRequestParamsSchema>;
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
+/**
+ * A {@link CallToolResult} whose `structuredContent` is narrowed to a specific type.
+ *
+ * Per SEP-2106 `structuredContent` may be any JSON value (object, array, string, number,
+ * boolean, or null), so the wire-level type is intentionally wide. This helper produces a
+ * precise view of a result — used by {@link CallToolResult}-returning APIs such as
+ * `client.callTool<T>()` and by tool handlers whose `outputSchema` is known — so consumers
+ * get a typed `structuredContent` instead of writing narrowing guards by hand.
+ *
+ * @typeParam StructuredContent - the expected type of `structuredContent` (defaults to any JSON value).
+ */
+export type CallToolResultWithStructuredContent<StructuredContent = JSONValue> = CallToolResult & {
+    structuredContent?: StructuredContent;
+};
 export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;

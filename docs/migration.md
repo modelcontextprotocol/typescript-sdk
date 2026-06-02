@@ -977,6 +977,37 @@ subpath in some files and rely on the default in others.
 
 To replace validation wholesale rather than customizing the built-in classes, implement the `jsonSchemaValidator` interface and pass your own implementation through the option above.
 
+### Tool schemas conform to JSON Schema 2020-12; `structuredContent` may be any JSON value (SEP-2106)
+
+Per [SEP-2106](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/seps/2106-json-schema-2020-12.md), tool schemas are no longer restricted to the `type`/`properties`/`required` subset, and a tool's structured output may be any JSON value:
+
+- **`inputSchema`** still requires `type: "object"` at the root (tool arguments are always objects), but may now use any JSON Schema 2020-12 keyword alongside it — composition (`oneOf`/`anyOf`/`allOf`/`not`), conditional (`if`/`then`/`else`), references (`$ref`/`$defs`/`$anchor`), etc.
+- **`outputSchema`** may now be **any** valid JSON Schema 2020-12 — objects, arrays, primitives, or compositions. It is no longer restricted to `type: "object"`.
+- **`structuredContent`** may now be any JSON value (object, array, string, number, boolean, or null), not just an object.
+
+**Source-breaking type change.** `CallToolResult.structuredContent` widened from `{ [key: string]: unknown }` to `unknown`. Property access without a narrowing guard no longer type-checks (the previous type was inaccurate whenever a tool returned a non-object):
+
+```typescript
+// Before (v1): compiled, but was a lie for non-object output
+const temp = result.structuredContent?.temperature;
+
+// After (v2), option A — narrow yourself:
+const sc = result.structuredContent;
+if (sc && typeof sc === 'object' && !Array.isArray(sc)) {
+    const temp = (sc as Record<string, unknown>).temperature;
+}
+
+// After (v2), option B — pass the expected shape to callTool (recommended):
+const result = await client.callTool<{ temperature: number }>({ name: 'get_weather', arguments: { city: 'SF' } });
+const temp = result.structuredContent?.temperature; // typed as number
+```
+
+**Stronger server-side typing.** When a tool declares an `outputSchema`, `registerTool` now type-checks the handler's returned `structuredContent` against the schema's inferred output type at compile time — a mismatch is a type error rather than a runtime-only failure.
+
+**Old-client interoperability.** A server that returns array or primitive `structuredContent` will automatically also emit a `TextContent` block containing the serialized JSON, so pre-SEP clients that only understand object-typed `structuredContent` can fall back to the text content. Object `structuredContent` (and results that already include a text block) are left unchanged.
+
+**Security.** The built-in validators never dereference non-same-document `$ref`/`$dynamicRef` (anything not beginning with `#`) — such schemas are rejected rather than fetched, preventing SSRF. Schemas exceeding a generous depth / subschema-count bound are also rejected to prevent composition-based validation DoS. Supply your own `jsonSchemaValidator` implementation if you need different behavior.
+
 ## Unchanged APIs
 
 The following APIs are unchanged between v1 and v2 (only the import paths changed):

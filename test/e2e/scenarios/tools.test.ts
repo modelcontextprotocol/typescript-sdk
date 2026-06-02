@@ -88,12 +88,13 @@ function schemaServer(): McpServer {
         { inputSchema: z.object({ n: z.number() }), outputSchema: z.object({ doubled: z.number().int() }) },
         ({ n }) => ({ structuredContent: { doubled: n * 2 }, content: [{ type: 'text', text: JSON.stringify({ doubled: n * 2 }) }] })
     );
-    s.registerTool(
-        'structured-mismatch',
-        { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) },
-        // intentionally invalid structuredContent (tests server-side validation rejects it)
-        () => ({ structuredContent: { value: 'not-a-number' }, content: [] })
-    );
+    // Intentionally invalid structuredContent: the typed callback correctly rejects this at compile
+    // time, so suppress the error to exercise the server's runtime output validation.
+    // @ts-expect-error structuredContent does not match outputSchema — that is the point of this test
+    s.registerTool('structured-mismatch', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
+        structuredContent: { value: 'not-a-number' },
+        content: []
+    }));
     s.registerTool('structured-missing', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
         content: [{ type: 'text', text: 'handler-body-no-structured' }]
     }));

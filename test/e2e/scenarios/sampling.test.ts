@@ -20,6 +20,9 @@ import { tapWire, wire } from '../helpers/index.js';
 import { verifies } from '../helpers/verifies.js';
 import type { TestArgs } from '../types.js';
 
+/** Shape of the `structuredContent` returned by the `sampling-passthrough` test tool. */
+type SamplingPassthroughResult = { ok: boolean; code?: number; message?: string };
+
 const newClient = (capabilities?: ClientCapabilities) =>
     new Client({ name: 'c', version: '0' }, { capabilities: capabilities ?? { sampling: {} } });
 
@@ -199,7 +202,10 @@ verifies('sampling:error:user-rejected', async ({ transport }: TestArgs) => {
 
     await using _ = await wire(transport, passthroughServer, client);
 
-    const r = await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10 } });
+    const r = await client.callTool<SamplingPassthroughResult>({
+        name: 'sampling-passthrough',
+        arguments: { messages: [], maxTokens: 10 }
+    });
 
     expect(r.structuredContent).toMatchObject({ ok: false, code: -1 });
     expect(r.structuredContent?.message).toMatch(/User rejected sampling request/);
@@ -322,7 +328,7 @@ verifies('sampling:tool-result:no-mixed-content', async ({ transport }: TestArgs
 
     await using _ = await wire(transport, passthroughServer, client);
 
-    const r = await client.callTool({
+    const r = await client.callTool<SamplingPassthroughResult>({
         name: 'sampling-passthrough',
         arguments: {
             messages: [
@@ -419,7 +425,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
 
     await using _ = await wire(transport, passthroughServer, client);
 
-    const withTools = await client.callTool({
+    const withTools = await client.callTool<SamplingPassthroughResult>({
         name: 'sampling-passthrough',
         arguments: { messages: [], maxTokens: 10, tools: [{ name: 'n', inputSchema: { type: 'object' as const } }] }
     });
@@ -428,7 +434,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     expect(withTools.structuredContent?.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 
-    const withChoice = await client.callTool({
+    const withChoice = await client.callTool<SamplingPassthroughResult>({
         name: 'sampling-passthrough',
         arguments: { messages: [], maxTokens: 10, toolChoice: { mode: 'auto' } }
     });
@@ -437,7 +443,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     expect(withChoice.structuredContent?.message).toMatch(/sampling.*tools/i);
     expect(received).toHaveLength(0);
 
-    const empty = await client.callTool({
+    const empty = await client.callTool<SamplingPassthroughResult>({
         name: 'sampling-passthrough',
         arguments: { messages: [], maxTokens: 10, tools: [], toolChoice: { mode: 'required' } }
     });

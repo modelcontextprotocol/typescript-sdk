@@ -5,6 +5,7 @@
 import { Ajv } from 'ajv';
 import _addFormats from 'ajv-formats';
 
+import { assertSchemaSafeToCompile } from './schemaBounds.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types.js';
 
 /** Structural subset of the AJV interface used by {@link AjvJsonSchemaValidator}. */
@@ -71,6 +72,9 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     }
 
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
+        // SEP-2106: reject non-local $refs (SSRF) and over-budget schemas (composition DoS) before compiling.
+        assertSchemaSafeToCompile(schema);
+
         const ajvValidator =
             '$id' in schema && typeof schema.$id === 'string'
                 ? (this._ajv.getSchema(schema.$id) ?? this._ajv.compile(schema))

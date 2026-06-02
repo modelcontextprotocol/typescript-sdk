@@ -1,6 +1,7 @@
 import type {
     BaseMetadata,
     CallToolResult,
+    CallToolResultWithStructuredContent,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
     CompleteResult,
@@ -27,6 +28,7 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    isCallToolResult,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
@@ -151,6 +153,13 @@ export class McpServer {
                 const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
                 const result = await this.executeToolHandler(tool, args, ctx);
                 await this.validateToolOutput(tool, result, request.params.name);
+
+                // Per SEP-2106, a server returning array or primitive structuredContent MUST also emit a
+                // TextContent block with the serialized JSON, so pre-SEP clients that only understand
+                // object-typed structuredContent can fall back to the text content.
+                if (isCallToolResult(result)) {
+                    ensureStructuredContentTextFallback(result);
+                }
                 return result;
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
@@ -219,7 +228,10 @@ export class McpServer {
             return;
         }
 
-        if (!result.structuredContent) {
+        // Per SEP-2106 structuredContent may be any JSON value, including falsy ones (0, false, "",
+        // null). Check explicitly for `undefined` rather than truthiness so a valid falsy value is
+        // not mistaken for "no structured content".
+        if (result.structuredContent === undefined) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
                 `Output validation error: Tool ${toolName} has an output schema but no structured content was provided`
@@ -770,7 +782,10 @@ export class McpServer {
      * );
      * ```
      */
-    registerTool<OutputArgs extends StandardSchemaWithJSON, InputArgs extends StandardSchemaWithJSON | undefined = undefined>(
+    registerTool<
+        OutputArgs extends StandardSchemaWithJSON | undefined = undefined,
+        InputArgs extends StandardSchemaWithJSON | undefined = undefined
+    >(
         name: string,
         config: {
             title?: string;
@@ -780,7 +795,7 @@ export class McpServer {
             annotations?: ToolAnnotations;
             _meta?: Record<string, unknown>;
         },
-        cb: ToolCallback<InputArgs>
+        cb: ToolCallback<InputArgs, OutputArgs>
     ): RegisteredTool;
     /** @deprecated Wrap with `z.object({...})` instead. Raw-shape form: `inputSchema`/`outputSchema` may be a plain `{ field: z.string() }` record; it is auto-wrapped with `z.object()`. */
     registerTool<InputArgs extends ZodRawShape, OutputArgs extends ZodRawShape | StandardSchemaWithJSON | undefined = undefined>(
@@ -793,7 +808,7 @@ export class McpServer {
             annotations?: ToolAnnotations;
             _meta?: Record<string, unknown>;
         },
-        cb: LegacyToolCallback<InputArgs>
+        cb: LegacyToolCallback<InputArgs, OutputArgs>
     ): RegisteredTool;
     registerTool(
         name: string,
@@ -1026,10 +1041,29 @@ export type ZodRawShape = Record<string, z.ZodType>;
 /** Infers the parsed-output type of a {@linkcode ZodRawShape}. */
 export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
 
+/**
+ * Maps a tool's declared `outputSchema` to the precise {@link CallToolResult} its handler returns.
+ *
+ * When an `outputSchema` is present, `structuredContent` is typed to the schema's inferred output, so
+ * the value the handler returns is checked against the schema at compile time. Tools without an
+ * `outputSchema` return a plain {@link CallToolResult} whose `structuredContent` may be any JSON value
+ * (per SEP-2106).
+ *
+ * @typeParam Output - the tool's `outputSchema`: a Standard Schema, a {@linkcode ZodRawShape}, or `undefined`.
+ */
+export type ToolResultFor<Output extends StandardSchemaWithJSON | ZodRawShape | undefined> = Output extends StandardSchemaWithJSON
+    ? CallToolResultWithStructuredContent<StandardSchemaWithJSON.InferOutput<Output>>
+    : Output extends ZodRawShape
+      ? CallToolResultWithStructuredContent<InferRawShape<Output>>
+      : CallToolResult;
+
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
-export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
-    ? (args: InferRawShape<Args>, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>
-    : (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+export type LegacyToolCallback<
+    Args extends ZodRawShape | undefined,
+    Output extends ZodRawShape | StandardSchemaWithJSON | undefined = undefined
+> = Args extends ZodRawShape
+    ? (args: InferRawShape<Args>, ctx: ServerContext) => ToolResultFor<Output> | Promise<ToolResultFor<Output>>
+    : (ctx: ServerContext) => ToolResultFor<Output> | Promise<ToolResultFor<Output>>;
 
 /** {@linkcode PromptCallback} variant used when `argsSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
@@ -1046,12 +1080,14 @@ export type BaseToolCallback<
 
 /**
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
+ *
+ * When the tool declares an `outputSchema`, pass it as `Output` so the handler's returned
+ * `structuredContent` is checked against the schema's inferred output type at compile time.
  */
-export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
-    CallToolResult,
-    ServerContext,
-    Args
->;
+export type ToolCallback<
+    Args extends StandardSchemaWithJSON | undefined = undefined,
+    Output extends StandardSchemaWithJSON | undefined = undefined
+> = BaseToolCallback<ToolResultFor<Output>, ServerContext, Args>;
 
 /**
  * Tool handler callback type.
@@ -1090,6 +1126,30 @@ export type RegisteredTool = {
     }): void;
     remove(): void;
 };
+
+/**
+ * Ensures backward compatibility for non-object `structuredContent` (SEP-2106).
+ *
+ * Servers that return array or primitive `structuredContent` MUST also include a {@link TextContent}
+ * block with the serialized JSON, so pre-SEP clients that only understand object-typed
+ * `structuredContent` can fall back to the text content. Object `structuredContent` (the only shape
+ * pre-SEP clients accept) needs no fallback, and a result that already carries a text block is left
+ * untouched — the handler is assumed to have provided its own representation.
+ */
+function ensureStructuredContentTextFallback(result: CallToolResult): void {
+    const structuredContent = result.structuredContent;
+    if (structuredContent === undefined) {
+        return;
+    }
+    const isPlainObject = structuredContent !== null && typeof structuredContent === 'object' && !Array.isArray(structuredContent);
+    if (isPlainObject) {
+        return;
+    }
+    if (result.content.some(block => block.type === 'text')) {
+        return;
+    }
+    result.content = [...result.content, { type: 'text', text: JSON.stringify(structuredContent) }];
+}
 
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.

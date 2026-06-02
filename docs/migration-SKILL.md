@@ -537,7 +537,36 @@ Validator behavior:
   `@modelcontextprotocol/{client,server}/validators/cf-worker` for `CfWorkerJsonSchemaValidator`. Importing from a subpath means the corresponding peer dep must be in your `package.json`.
 - To replace validation entirely, pass `jsonSchemaValidator: myCustomValidator` with your own implementation of the `jsonSchemaValidator` interface.
 
-## 15. Migration Steps (apply in this order)
+## 15. JSON Schema 2020-12 Tool Schemas & `structuredContent` (SEP-2106)
+
+Tool schemas conform to full JSON Schema 2020-12, and `structuredContent` may be any JSON value.
+
+| Aspect | v1 / pre-SEP | v2 / SEP-2106 |
+| --- | --- | --- |
+| `inputSchema` root | `type: "object"` + `properties`/`required` only | `type: "object"` required, **plus** any 2020-12 keyword (`oneOf`/`anyOf`/`allOf`/`not`, `if`/`then`/`else`, `$ref`/`$defs`/`$anchor`) |
+| `outputSchema` root | `type: "object"` only | **any** valid JSON Schema 2020-12 (object, array, primitive, composition) |
+| `CallToolResult.structuredContent` type | `{ [key: string]: unknown }` | `unknown` (**source-breaking**) |
+| `client.callTool(...)` | returns `structuredContent` as object | generic `client.callTool<T>(...)`; `structuredContent` typed as `T` (defaults to `JSONValue`) |
+| `registerTool` handler return | `structuredContent` untyped | type-checked against the tool's `outputSchema` inferred output |
+
+Source-breaking fix — property access on `structuredContent` needs a type or a guard:
+
+```typescript
+// Before: result.structuredContent?.temperature  (compiled, but unsound for non-object output)
+// After, recommended:
+const result = await client.callTool<{ temperature: number }>({ name: 'get_weather', arguments: { city: 'SF' } });
+const temp = result.structuredContent?.temperature; // typed
+// After, manual narrowing:
+const sc = result.structuredContent;
+const temp = sc && typeof sc === 'object' && !Array.isArray(sc) ? (sc as Record<string, unknown>).temperature : undefined;
+```
+
+Behavior notes:
+
+- A server returning array/primitive `structuredContent` automatically also emits a serialized `TextContent` block (old-client interop). No action required.
+- Built-in validators reject non-same-document `$ref`/`$dynamicRef` (SSRF) and over-budget schemas (composition DoS). Use a custom `jsonSchemaValidator` to change this.
+
+## 16. Migration Steps (apply in this order)
 
 1. Update `package.json`: `npm uninstall @modelcontextprotocol/sdk`, install the appropriate v2 packages
 2. Replace all imports from `@modelcontextprotocol/sdk/...` using the import mapping tables (sections 3-4), including `StreamableHTTPServerTransport` → `NodeStreamableHTTPServerTransport`
@@ -549,4 +578,5 @@ Validator behavior:
 8. If using server SSE transport, migrate to Streamable HTTP
 9. If using server auth from the SDK: RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers → `@modelcontextprotocol/server-legacy/auth` (deprecated); migrate AS to external IdP/OAuth library
 10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
-11. Verify: build with `tsc` / run tests
+11. If you read properties off `result.structuredContent`, add a type argument to `callTool<T>()` or a narrowing guard — it is now typed `unknown` (section 15)
+12. Verify: build with `tsc` / run tests

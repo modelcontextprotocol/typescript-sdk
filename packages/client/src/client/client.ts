@@ -2,6 +2,8 @@ import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/client/_shims'
 import type {
     BaseContext,
     CallToolRequest,
+    CallToolResult,
+    CallToolResultWithStructuredContent,
     ClientCapabilities,
     ClientContext,
     ClientNotification,
@@ -13,6 +15,7 @@ import type {
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
+    JSONValue,
     ListChangedHandlers,
     ListChangedOptions,
     ListPromptsRequest,
@@ -763,27 +766,37 @@ export class Client extends Protocol<ClientContext> {
      * console.log(result.content);
      * ```
      *
+     * Per SEP-2106 `structuredContent` may be any JSON value (object, array, string, number,
+     * boolean, or null). The return type's `structuredContent` defaults to {@linkcode JSONValue};
+     * pass a type argument to get a precise type for a tool whose output shape you know:
+     *
      * @example Structured output
      * ```ts source="./client.examples.ts#Client_callTool_structuredOutput"
-     * const result = await client.callTool({
+     * const result = await client.callTool<{ bmi: number }>({
      *     name: 'calculate-bmi',
      *     arguments: { weightKg: 70, heightM: 1.75 }
      * });
      *
      * // Machine-readable output for the client application
-     * if (result.structuredContent) {
-     *     console.log(result.structuredContent); // e.g. { bmi: 22.86 }
+     * if (result.structuredContent !== undefined) {
+     *     console.log(result.structuredContent.bmi); // typed as number
      * }
      * ```
      */
-    async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
+    callTool<StructuredContent = JSONValue>(
+        params: CallToolRequest['params'],
+        options?: RequestOptions
+    ): Promise<CallToolResultWithStructuredContent<StructuredContent>>;
+    async callTool(params: CallToolRequest['params'], options?: RequestOptions): Promise<CallToolResult> {
         const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
         if (validator) {
-            // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
-            if (!result.structuredContent && !result.isError) {
+            // If tool has outputSchema, it MUST return structuredContent (unless it's an error).
+            // Per SEP-2106 structuredContent may be a falsy JSON value (0, false, "", null), so
+            // check explicitly for `undefined` rather than truthiness.
+            if (result.structuredContent === undefined && !result.isError) {
                 throw new ProtocolError(
                     ProtocolErrorCode.InvalidRequest,
                     `Tool ${params.name} has an output schema but did not return structured content`
@@ -791,7 +804,7 @@ export class Client extends Protocol<ClientContext> {
             }
 
             // Only validate structured content if present (not when there's an error)
-            if (result.structuredContent) {
+            if (result.structuredContent !== undefined) {
                 try {
                     // Validate the structured content against the schema
                     const validationResult = validator(result.structuredContent);

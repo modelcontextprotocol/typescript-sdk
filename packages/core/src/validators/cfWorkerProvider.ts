@@ -10,6 +10,7 @@
 
 import { Validator } from '@cfworker/json-schema';
 
+import { assertSchemaSafeToCompile } from './schemaBounds.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types.js';
 
 /**
@@ -59,6 +60,9 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
      * @returns A validator function that validates input data
      */
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
+        // SEP-2106: reject non-local $refs (SSRF) and over-budget schemas (composition DoS) before compiling.
+        assertSchemaSafeToCompile(schema);
+
         // Cast to the cfworker Schema type - our JsonSchemaType is structurally compatible
         const validator = new Validator(schema as ConstructorParameters<typeof Validator>[0], this.draft, this.shortcircuit);
 

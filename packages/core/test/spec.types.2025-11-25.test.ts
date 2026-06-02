@@ -245,9 +245,10 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     Tool: (sdk: SDKTypes.Tool, spec: SpecTypes.Tool) => {
-        // @ts-expect-error 2025-11-25 types inputSchema/outputSchema properties as `object`; the SDK follows the 2026-07-28 schema's JSONValue
         sdk = spec;
-        // @ts-expect-error the SDK's JSONValue-typed inputSchema/outputSchema properties are not assignable to 2025-11-25's `object`
+        // @ts-expect-error SEP-2106 (2026-07-28) opens inputSchema to any keyword and drops the
+        // outputSchema `type: 'object'` requirement; the SDK's open schema is not assignable to
+        // 2025-11-25's narrower `{ type; properties?: object; required? }` shape.
         spec = sdk;
     },
     ListToolsRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListToolsRequest>, spec: SpecTypes.ListToolsRequest) => {
@@ -255,13 +256,14 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     ListToolsResult: (sdk: SDKTypes.ListToolsResult, spec: SpecTypes.ListToolsResult) => {
-        // @ts-expect-error 2025-11-25 vs 2026-07-28 Tool typing; see the Tool check above
         sdk = spec;
         // @ts-expect-error 2025-11-25 vs 2026-07-28 Tool typing; see the Tool check above
         spec = sdk;
     },
     CallToolResult: (sdk: SDKTypes.CallToolResult, spec: SpecTypes.CallToolResult) => {
         sdk = spec;
+        // @ts-expect-error SEP-2106 (2026-07-28) widens structuredContent to any JSON value (`unknown`);
+        // the SDK type is not assignable to 2025-11-25's `{ [key: string]: unknown }`.
         spec = sdk;
     },
     CallToolRequest: (sdk: WithJSONRPCRequest<SDKTypes.CallToolRequest>, spec: SpecTypes.CallToolRequest) => {
@@ -299,10 +301,14 @@ const sdkTypeChecks = {
     },
     SamplingMessage: (sdk: SDKTypes.SamplingMessage, spec: SpecTypes.SamplingMessage) => {
         sdk = spec;
+        // @ts-expect-error SamplingMessage content includes ToolResultContent, whose structuredContent
+        // SEP-2106 (2026-07-28) widens to `unknown`; not assignable to 2025-11-25's narrower shape.
         spec = sdk;
     },
     CreateMessageResult: (sdk: SDKTypes.CreateMessageResultWithTools, spec: SpecTypes.CreateMessageResult) => {
         sdk = spec;
+        // @ts-expect-error result content includes ToolResultContent, whose structuredContent SEP-2106
+        // (2026-07-28) widens to `unknown`; not assignable to 2025-11-25's narrower shape.
         spec = sdk;
     },
     SetLevelRequest: (sdk: WithJSONRPCRequest<SDKTypes.SetLevelRequest>, spec: SpecTypes.SetLevelRequest) => {
@@ -551,10 +557,14 @@ const sdkTypeChecks = {
     },
     ToolResultContent: (sdk: SDKTypes.ToolResultContent, spec: SpecTypes.ToolResultContent) => {
         sdk = spec;
+        // @ts-expect-error SEP-2106 (2026-07-28) widens structuredContent to any JSON value (`unknown`);
+        // the SDK type is not assignable to 2025-11-25's `{ [key: string]: unknown }`.
         spec = sdk;
     },
     SamplingMessageContentBlock: (sdk: SDKTypes.SamplingMessageContentBlock, spec: SpecTypes.SamplingMessageContentBlock) => {
         sdk = spec;
+        // @ts-expect-error includes ToolResultContent, whose structuredContent SEP-2106 (2026-07-28)
+        // widens to `unknown`; not assignable to 2025-11-25's narrower shape.
         spec = sdk;
     },
     Annotations: (sdk: SDKTypes.Annotations, spec: SpecTypes.Annotations) => {
