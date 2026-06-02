@@ -209,7 +209,7 @@ class InteractiveOAuthClient {
         console.log('Commands:');
         console.log('  list - List available tools');
         console.log('  call <tool_name> [args] - Call a tool');
-        console.log('  stream <tool_name> [args] - (disabled pending SEP-2663 tasksPlugin)');
+        console.log('  stream <tool_name> [args] - (disabled; returns when the SEP-2663 tasks extension lands)');
         console.log('  quit - Exit the client');
         console.log();
 
@@ -358,12 +358,11 @@ class InteractiveOAuthClient {
             return;
         }
 
-        // TODO(F3): re-enable streaming-tool demo via tasksPlugin (SEP-2663).
-        // The 2025-11 callToolStream API is removed by R0; this command is disabled
-        // until the F3 rewrite.
+        // The streaming-tool demo (callToolStream) was removed with the 2025-11
+        // experimental tasks (SEP-2663); it returns when the tasks extension lands.
         void toolName;
         void toolArgs;
-        console.log('Streaming tool demo disabled pending tasksPlugin (SEP-2663). See TODO(F3).');
+        console.log('Streaming tool demo removed with the 2025-11 experimental tasks (SEP-2663); returns when the tasks extension lands.');
     }
 
     close(): void {

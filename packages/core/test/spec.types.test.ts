@@ -962,7 +962,6 @@ const MISSING_SDK_TYPES = [
     'Task',
     'TaskStatus',
     'TaskMetadata',
-    'TaskCreationParams',
     'TaskAugmentedRequestParams',
     'RelatedTaskMetadata',
     'CreateTaskResult',
@@ -980,9 +979,7 @@ const MISSING_SDK_TYPES = [
     'CancelTaskResult',
     'CancelTaskResultResponse',
     'TaskStatusNotification',
-    'TaskStatusNotificationParams',
-    'ClientTasksCapability',
-    'ServerTasksCapability'
+    'TaskStatusNotificationParams'
 ];
 
 function extractExportedTypes(source: string): string[] {

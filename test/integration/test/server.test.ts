@@ -1821,7 +1821,7 @@ describe('createMessage validation', () => {
 });
 
 // SEP-2663 removes the client-hosted task store these tests relied on (server polls
-// the client's tasks/* for async sampling). That direction becomes MRTR (S3/F4),
+// the client's tasks/* for async sampling). That direction becomes MRTR,
 // not tasks. The remaining sampling.tools capability assertions are covered by
 // `_createMessageVia` tests; the `createMessageStream` wrapper has no equivalent and is
 // removed.

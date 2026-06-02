@@ -1052,7 +1052,14 @@ export const ToolAnnotationsSchema = z.object({
  * Execution-related properties for a tool.
  */
 export const ToolExecutionSchema = z.object({
-    // taskSupport field removed in P0.2 alongside spec.types.ts regen (kept here only while spec.types.ts still declares it).
+    /**
+     * Indicates the tool's preference for task-augmented execution
+     * (`"required"`, `"optional"`, or `"forbidden"`; defaults to `"forbidden"`).
+     *
+     * The SDK no longer implements task-augmented execution (SEP-2663). The field is
+     * kept for parity with the spec schema's `ToolExecution` type and will be removed
+     * when the generated spec types next sync.
+     */
     taskSupport: z.enum(['required', 'optional', 'forbidden']).optional()
 });
 

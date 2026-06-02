@@ -771,6 +771,53 @@ describe('protocol tests', () => {
             expect(sendSpy).toHaveBeenCalledTimes(2);
         });
     });
+
+    describe('notifications/cancelled behavior', () => {
+        test('should abort request handler when notifications/cancelled is received', async () => {
+            await protocol.connect(transport);
+
+            // Set up a request handler that checks if it was aborted
+            let wasAborted = false;
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                // Simulate a long-running operation
+                await new Promise(resolve => setTimeout(resolve, 100));
+                wasAborted = ctx.mcpReq.signal.aborted;
+                return {};
+            });
+
+            // Simulate an incoming request
+            const requestId = 123;
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: requestId,
+                    method: 'ping',
+                    params: {}
+                });
+            }
+
+            // Wait a bit for the handler to start
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Send cancellation notification
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/cancelled',
+                    params: {
+                        requestId: requestId,
+                        reason: 'User cancelled'
+                    }
+                });
+            }
+
+            // Wait for the handler to complete
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            // Verify the request was aborted
+            expect(wasAborted).toBe(true);
+        });
+    });
 });
 
 // (2025-11 experimental test suites removed under SEP-2663; see git history.)

@@ -894,7 +894,7 @@ The 2025-11 experimental tasks side-channel woven through `Protocol` has been re
 
 **Also removed:** the storage layer (`TaskStore`, `InMemoryTaskStore`, `CreateTaskOptions`, `isTerminal`) and `TaskCreationParams`. They will return as part of the SEP-2663 server-directed plugin in a follow-up.
 
-There is no migration path for the removed surface; it was always `@experimental`. Under SEP-2663, tasks reattach via a `DispatchMiddleware` (`mcp.use(tasksPlugin({ store }))`) and handlers read task context from `ctx.ext.task` instead of `ctx.task`.
+There is no migration path for the removed surface; it was always `@experimental`. Task support is planned to return as an opt-in extension plugin per SEP-2663.
 
 ## Enhancements
 
