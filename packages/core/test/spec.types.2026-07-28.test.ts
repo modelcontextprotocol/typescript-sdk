@@ -21,6 +21,13 @@ import {
 } from '../src/types/spec.types.2026-07-28.js';
 import type * as SpecTypes from '../src/types/spec.types.2026-07-28.js';
 import type * as SDKTypes from '../src/types/index.js';
+import {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    LOG_LEVEL_META_KEY,
+    PROTOCOL_VERSION_META_KEY,
+    ProtocolErrorCode
+} from '../src/types/index.js';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
@@ -44,6 +51,14 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     MetaObject: (sdk: SDKTypes.MetaObject, spec: SpecTypes.MetaObject) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    // The SDK models the 2026-07-28 revision's required per-request `_meta` envelope as
+    // RequestMetaEnvelope (the base request schemas stay lenient; envelope
+    // requiredness is enforced at dispatch). This check also pins the
+    // *_META_KEY constants: a drifted key name breaks mutual assignability.
+    RequestMetaObject: (sdk: SDKTypes.RequestMetaEnvelope, spec: SpecTypes.RequestMetaObject) => {
         sdk = spec;
         spec = sdk;
     },
@@ -367,11 +382,14 @@ const MISSING_SDK_TYPES_2026_07_28 = [
     // Inlined in the SDK (same as the 2025-11-25 comparison):
     'Error', // The inner error object of a JSONRPCError
 
-    // SEP-2260 per-request envelope: 2026-07-28 requests carry a required `_meta` envelope
-    // (`io.modelcontextprotocol/protocolVersion`, clientInfo, clientCapabilities); the SDK
-    // still implements the 2025-11-25 request shapes.
+    // SEP-2575 per-request envelope: 2026-07-28 requests REQUIRE a `_meta` envelope
+    // (`io.modelcontextprotocol/protocolVersion`, clientInfo, clientCapabilities). The
+    // envelope itself is modeled by RequestMetaEnvelope (see sdkTypeChecks above); the
+    // request shapes below stay here because the SDK wire schemas deliberately keep
+    // `_meta` lenient — the same schemas parse pre-2026 requests (no envelope) and 2026
+    // requests, with envelope requiredness enforced per request at dispatch. They burn
+    // only if the SDK ever models era-specific request types.
     'RequestParams',
-    'RequestMetaObject',
     'PaginatedRequestParams',
     'ResourceRequestParams',
     'CallToolRequestParams',
@@ -392,8 +410,9 @@ const MISSING_SDK_TYPES_2026_07_28 = [
     'CreateMessageRequest',
     'ClientRequest',
 
-    // SEP-2322 (MRTR): 2026-07-28 results carry a required `resultType` discriminator; the SDK
-    // still implements the 2025-11-25 result shapes.
+    // SEP-2322 (MRTR) → PR for MRTR: 2026-07-28 results carry a required `resultType`
+    // discriminator. The SDK base result schema carries `resultType` as an optional
+    // passthrough only (absent means "complete"); per-result modeling lands with MRTR.
     'Result',
     'EmptyResult',
     'PaginatedResult',
@@ -411,9 +430,12 @@ const MISSING_SDK_TYPES_2026_07_28 = [
     'ClientResult',
     'ServerResult',
     'ResultType',
+
+    // SEP-2549 cacheable results: `ttlMs`/`cacheScope` caching hints on the list/read
+    // result shapes → PR for SEP-2549:
     'CacheableResult',
 
-    // Response envelopes embedding the changed Result shape:
+    // Response envelopes embedding the changed Result shape → PR for MRTR:
     'JSONRPCResultResponse',
     'JSONRPCResponse',
     'JSONRPCMessage',
@@ -426,12 +448,15 @@ const MISSING_SDK_TYPES_2026_07_28 = [
     'ListToolsResultResponse',
     'ReadResourceResultResponse',
 
-    // SEP-2575 sessionless discovery (new surface):
+    // SEP-2575 sessionless discovery: the SDK ships the wire shapes
+    // (DiscoverRequestSchema / DiscoverResultSchema), but the 2026-07-28 shapes embed the
+    // required `_meta` envelope (request) and required `resultType` (result → MRTR PR),
+    // so they do not match yet; DiscoverResultResponse is a response wrapper (→ MRTR PR):
     'DiscoverRequest',
     'DiscoverResult',
     'DiscoverResultResponse',
 
-    // SEP-2567 input requests/responses (new surface):
+    // SEP-2567 input requests/responses (new surface) → PR for MRTR:
     'InputRequest',
     'InputRequests',
     'InputRequiredResult',
@@ -439,19 +464,24 @@ const MISSING_SDK_TYPES_2026_07_28 = [
     'InputResponseRequestParams',
     'InputResponses',
 
-    // 2026-07-28 subscriptions surface (new):
+    // 2026-07-28 subscriptions surface (new) → PR for subscriptions/listen:
     'SubscriptionFilter',
     'SubscriptionsAcknowledgedNotification',
     'SubscriptionsAcknowledgedNotificationParams',
     'SubscriptionsListenRequest',
     'SubscriptionsListenRequestParams',
 
-    // New typed protocol errors (-32003 / -32004):
+    // New typed protocol errors: the SDK ships -32003/-32004 as ProtocolErrorCode
+    // entries plus the UnsupportedProtocolVersionError class (errors.ts); the spec's
+    // per-code error *response envelope* interfaces are not modeled as wire types:
     'MissingRequiredClientCapabilityError',
     'UnsupportedProtocolVersionError',
 
-    // Other shapes changed in the 2026-07-28 schema (sampling content, open tool schemas,
-    // loosened Notification.params, server notification union):
+    // Other shapes changed in the 2026-07-28 schema: sampling content changes (SamplingMessage,
+    // SamplingMessageContentBlock, ToolResultContent) → backchannel PR; open tool
+    // input/output schema typing (Tool); loosened Notification.params (Notification);
+    // server notification union, which gains the subscriptions ack (ServerNotification →
+    // PR for subscriptions/listen):
     'SamplingMessage',
     'SamplingMessageContentBlock',
     'ToolResultContent',
@@ -473,6 +503,15 @@ describe('Spec Types (2026-07-28)', () => {
         expect(LATEST_PROTOCOL_VERSION).toBe('2026-07-28');
         expect(MISSING_REQUIRED_CLIENT_CAPABILITY).toBe(-32003);
         expect(UNSUPPORTED_PROTOCOL_VERSION).toBe(-32004);
+        expect(ProtocolErrorCode.MissingRequiredClientCapability).toBe(MISSING_REQUIRED_CLIENT_CAPABILITY);
+        expect(ProtocolErrorCode.UnsupportedProtocolVersion).toBe(UNSUPPORTED_PROTOCOL_VERSION);
+    });
+
+    it('pins the per-request _meta envelope keys to the 2026-07-28 schema', () => {
+        expect(PROTOCOL_VERSION_META_KEY).toBe('io.modelcontextprotocol/protocolVersion');
+        expect(CLIENT_INFO_META_KEY).toBe('io.modelcontextprotocol/clientInfo');
+        expect(CLIENT_CAPABILITIES_META_KEY).toBe('io.modelcontextprotocol/clientCapabilities');
+        expect(LOG_LEVEL_META_KEY).toBe('io.modelcontextprotocol/logLevel');
     });
 
     it('should define some expected types', () => {
@@ -501,8 +540,11 @@ describe('Spec Types (2026-07-28)', () => {
     });
 
     describe('Missing SDK Types', () => {
-        it.each(MISSING_SDK_TYPES_2026_07_28)('%s should not be present in MISSING_SDK_TYPES_2026_07_28 if it has a compatibility test', type => {
-            expect(sdkTypeChecks[type as keyof typeof sdkTypeChecks]).toBeUndefined();
-        });
+        it.each(MISSING_SDK_TYPES_2026_07_28)(
+            '%s should not be present in MISSING_SDK_TYPES_2026_07_28 if it has a compatibility test',
+            type => {
+                expect(sdkTypeChecks[type as keyof typeof sdkTypeChecks]).toBeUndefined();
+            }
+        );
     });
 });

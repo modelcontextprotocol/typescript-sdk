@@ -71,14 +71,18 @@ export * from '../../types/types.js';
 
 // Constants
 export {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
     JSONRPC_VERSION,
     LATEST_PROTOCOL_VERSION,
+    LOG_LEVEL_META_KEY,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY,
     RELATED_TASK_META_KEY,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../../types/constants.js';
@@ -87,7 +91,7 @@ export {
 export { ProtocolErrorCode } from '../../types/enums.js';
 
 // Error classes
-export { ProtocolError, UrlElicitationRequiredError } from '../../types/errors.js';
+export { ProtocolError, UnsupportedProtocolVersionError, UrlElicitationRequiredError } from '../../types/errors.js';
 
 // Type guards and message parsing
 export {
