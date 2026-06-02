@@ -13,6 +13,7 @@ import type {
     InitializeRequest,
     InitializeResult,
     JSONRPCRequest,
+    JSONRPCResponse,
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
@@ -22,18 +23,23 @@ import type {
     NotificationMethod,
     NotificationOptions,
     ProtocolOptions,
+    RequestMetaEnvelope,
     RequestMethod,
     RequestOptions,
     ResourceUpdatedNotification,
     Result,
     ServerCapabilities,
     ServerContext,
+    StatelessDispatchContext,
     ToolResultContent,
-    ToolUseContent
+    ToolUseContent,
+    Transport
 } from '@modelcontextprotocol/core';
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
@@ -43,12 +49,16 @@ import {
     ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
+    NotImplementedYetError,
     parseSchema,
     Protocol,
+    PROTOCOL_VERSION_META_KEY,
     ProtocolError,
     ProtocolErrorCode,
+    RequestMetaEnvelopeSchema,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    UnsupportedProtocolVersionError
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
@@ -73,6 +83,24 @@ export type ServerOptions = ProtocolOptions & {
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 };
+
+/**
+ * Client→server request methods that earlier protocol revisions defined and revision
+ * 2026-07-28 removed: lifecycle and per-session methods have no meaning when every
+ * request is self-contained (`initialize`, `ping`, `logging/setLevel` — replaced by the
+ * per-request `logLevel` `_meta` claim) and resource subscriptions moved to
+ * `subscriptions/listen` (`resources/subscribe`, `resources/unsubscribe`). They are
+ * rejected on the stateless dispatch path with `-32601` (Method not found), exactly as
+ * if the method did not exist — handlers for them remain registered only to serve
+ * stateful-era traffic.
+ */
+const STATELESS_REMOVED_METHODS: ReadonlySet<string> = new Set([
+    'initialize',
+    'ping',
+    'logging/setLevel',
+    'resources/subscribe',
+    'resources/unsubscribe'
+]);
 
 /**
  * An MCP server on top of a pluggable transport.
@@ -124,6 +152,138 @@ export class Server extends Protocol<ServerContext> {
             }
             return {};
         });
+    }
+
+    /**
+     * Attaches to the given transport, starts it, and starts listening for messages.
+     *
+     * Installs the stateless dispatch handlers on transports that support
+     * per-request routing (the seam is optional on the {@linkcode Transport}
+     * contract) before `super.connect()` starts the transport, so the first
+     * message cannot arrive before the router is wired.
+     */
+    override async connect(transport: Transport): Promise<void> {
+        transport.setStatelessHandlers?.({
+            dispatch: (request, ctx) => this._dispatchStateless(request, ctx)
+        });
+        await super.connect(transport);
+    }
+
+    /**
+     * Serves one stateless (draft-protocol-version) request routed here by the
+     * transport, outside the `onmessage` / session flow.
+     *
+     * Order of checks: method gate (`-32601`), envelope acceptance (`-32602`),
+     * version negotiation (`-32004`), then handler dispatch. The method gate runs
+     * first because JSON-RPC resolves the method before interpreting params; the
+     * envelope is validated before handler lookup so that a request with an
+     * incomplete `_meta` is rejected for the actual problem (`-32602`) rather
+     * than reporting `-32601` for a method this server happens not to implement.
+     */
+    private async _dispatchStateless(request: JSONRPCRequest, dispatchCtx: StatelessDispatchContext): Promise<JSONRPCResponse> {
+        // Removed-method gate. This protocol revision removed these RPCs, but the
+        // handlers for them are still registered to serve stateful-era traffic, so
+        // the lookup in invokeRequestHandler() would happily serve them. The
+        // response shape is byte-identical to the unknown-method -32601.
+        if (STATELESS_REMOVED_METHODS.has(request.method)) {
+            return {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: { code: ProtocolErrorCode.MethodNotFound, message: 'Method not found' }
+            };
+        }
+
+        // Envelope acceptance. This revision requires the protocol version, client
+        // info, and client capabilities in every request's _meta. The wire schemas
+        // deliberately stay lenient so they also parse earlier-revision requests
+        // (no envelope); era-requiredness is enforced here, at dispatch.
+        const parsed = parseSchema(RequestMetaEnvelopeSchema, request.params?._meta ?? {});
+        if (!parsed.success) {
+            const issues = [...new Set(parsed.error.issues.map(issue => issue.path.join('.')).filter(Boolean))].join(', ');
+            return {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: {
+                    code: ProtocolErrorCode.InvalidParams,
+                    message:
+                        `Invalid request _meta envelope${issues ? ` (${issues})` : ''}: this protocol revision requires ` +
+                        `${PROTOCOL_VERSION_META_KEY}, ${CLIENT_INFO_META_KEY}, and ${CLIENT_CAPABILITIES_META_KEY} on every request`
+                }
+            };
+        }
+        const envelope = parsed.data;
+
+        // Version negotiation. The stateless path serves only the non-stateful
+        // revisions this server lists; anything else gets -32004 with the full
+        // supported list so the caller can pick a mutual version and retry.
+        // (Transports only route non-stateful claims here; re-checking against the
+        // envelope keeps the error shape with the dispatch logic and covers claims
+        // the routing layer could not see.)
+        const requested = envelope[PROTOCOL_VERSION_META_KEY];
+        if (isStatefulProtocolVersion(requested) || !this._supportedProtocolVersions.includes(requested)) {
+            const error = new UnsupportedProtocolVersionError({ supported: [...this._supportedProtocolVersions], requested });
+            return {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: { code: error.code, message: error.message, data: { supported: error.supported, requested: error.requested } }
+            };
+        }
+
+        return await this.invokeRequestHandler(request, this._buildStatelessContext(request, envelope, dispatchCtx));
+    }
+
+    /**
+     * Builds the per-request handler context for a stateless dispatch. Every fact
+     * is sourced from the request's own `_meta` envelope or the transport's
+     * per-request dispatch context — never from handshake or session state, and
+     * never inherited from a previous request.
+     */
+    private _buildStatelessContext(
+        request: JSONRPCRequest,
+        envelope: RequestMetaEnvelope,
+        dispatchCtx: StatelessDispatchContext
+    ): ServerContext {
+        return {
+            sessionId: undefined,
+            mcpReq: {
+                id: request.id,
+                method: request.method,
+                protocolVersion: envelope[PROTOCOL_VERSION_META_KEY],
+                _meta: request.params?._meta,
+                signal: dispatchCtx.signal ?? new AbortController().signal,
+                send: (() => {
+                    // TODO(SEP-2322 MRTR PR): under this revision, server-to-client
+                    // interactions are embedded in results as input requests; there is
+                    // no backchannel to send a standalone request on.
+                    throw new NotImplementedYetError('Server-to-client requests are not supported on the stateless path yet');
+                }) as ServerContext['mcpReq']['send'],
+                notify: async notification => {
+                    // Request-scoped notifications ride the originating response stream.
+                    await dispatchCtx.sendNotification?.({ jsonrpc: '2.0', ...notification });
+                },
+                log: async () => {
+                    // TODO(per-request logging commit): emission is gated on the request's
+                    // logLevel _meta claim. Without a claim this revision forbids
+                    // notifications/message for the request, so nothing is emitted until
+                    // the per-request filter lands.
+                },
+                elicitInput: () => {
+                    // TODO(SEP-2322 MRTR PR): elicitation becomes an input request
+                    // embedded in this request's result.
+                    throw new NotImplementedYetError('Eliciting user input is not supported on the stateless path yet');
+                },
+                requestSampling: () => {
+                    // TODO(SEP-2322 MRTR PR): sampling becomes an input request embedded
+                    // in this request's result.
+                    throw new NotImplementedYetError('Requesting sampling is not supported on the stateless path yet');
+                }
+            },
+            client: {
+                capabilities: envelope[CLIENT_CAPABILITIES_META_KEY],
+                info: envelope[CLIENT_INFO_META_KEY]
+            },
+            http: dispatchCtx.authInfo ? { authInfo: dispatchCtx.authInfo } : undefined
+        };
     }
 
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {

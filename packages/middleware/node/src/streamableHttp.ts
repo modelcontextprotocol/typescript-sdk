@@ -10,7 +10,7 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, StatelessHandlers, Transport } from '@modelcontextprotocol/core';
 import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
@@ -128,6 +128,20 @@ export class NodeStreamableHTTPServerTransport implements Transport {
 
     get onmessage(): ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined {
         return this._webStandardTransport.onmessage;
+    }
+
+    /**
+     * Sets the supported protocol versions for header validation and stateless
+     * routing. Called by the server during `connect()` to pass its supported
+     * versions; forwarded to the wrapped Web Standard transport.
+     */
+    setSupportedProtocolVersions(versions: string[]): void {
+        this._webStandardTransport.setSupportedProtocolVersions(versions);
+    }
+
+    /** @internal */
+    setStatelessHandlers(handlers: StatelessHandlers): void {
+        this._webStandardTransport.setStatelessHandlers(handlers);
     }
 
     /**

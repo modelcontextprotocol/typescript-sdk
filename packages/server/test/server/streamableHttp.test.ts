@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { CallToolResult, JSONRPCErrorResponse, JSONRPCMessage } from '@modelcontextprotocol/core';
+import { DRAFT_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
 import * as z from 'zod/v4';
 
 import { McpServer } from '../../src/server/mcp.js';
@@ -954,6 +955,359 @@ describe('Zod v4', () => {
             const error = errors[0];
             expect(error).toBeDefined();
             expect(error?.message).toContain('Unsupported protocol version');
+        });
+    });
+
+    describe('HTTPServerTransport - Stateless routing (per-request protocol revisions)', () => {
+        const draftHeaders = {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            'mcp-protocol-version': DRAFT_PROTOCOL_VERSION
+        };
+        const toolsListDraft = {
+            jsonrpc: '2.0',
+            method: 'tools/list',
+            params: {},
+            id: 'route-1'
+        } as JSONRPCMessage;
+
+        /** The complete per-request `_meta` envelope this protocol revision requires. */
+        const validEnvelope = () => ({
+            'io.modelcontextprotocol/protocolVersion': DRAFT_PROTOCOL_VERSION,
+            'io.modelcontextprotocol/clientInfo': { name: 'test-client', version: '1.0.0' },
+            'io.modelcontextprotocol/clientCapabilities': {}
+        });
+
+        /** A transport connected to a server that lists the draft protocol version as supported. */
+        async function connectDraftServer(transport: WebStandardStreamableHTTPServerTransport): Promise<McpServer> {
+            const mcpServer = new McpServer(
+                { name: 'test-server', version: '1.0.0' },
+                {
+                    capabilities: {},
+                    supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION]
+                }
+            );
+            mcpServer.registerTool('noop', { inputSchema: z.object({}) }, async (): Promise<CallToolResult> => ({ content: [] }));
+            await mcpServer.connect(transport);
+            return mcpServer;
+        }
+
+        it('non-POST methods on the stateless path get 405 with Allow: POST', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            for (const method of ['GET', 'DELETE'] as const) {
+                const response = await transport.handleRequest(new Request('http://localhost/mcp', { method, headers: draftHeaders }));
+                expect(response.status).toBe(405);
+                expect(response.headers.get('allow')).toBe('POST');
+            }
+
+            await transport.close();
+        });
+
+        it('falls back to the parsed body _meta version claim when the header is absent', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            // The incomplete envelope proves the route: only the stateless path
+            // answers with the envelope -32602 (the stateful path would serve the
+            // request normally on this session-less transport).
+            const parsedBody = {
+                jsonrpc: '2.0',
+                method: 'tools/list',
+                params: { _meta: { 'io.modelcontextprotocol/protocolVersion': DRAFT_PROTOCOL_VERSION } },
+                id: 'route-2'
+            };
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                    body: JSON.stringify(parsedBody)
+                }),
+                { parsedBody }
+            );
+
+            expect(response.status).toBe(400);
+            expect(await response.json()).toMatchObject({ id: 'route-2', error: { code: -32_602 } });
+
+            await transport.close();
+        });
+
+        it('serves a routed request with a complete envelope as a single JSON response', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: draftHeaders,
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'tools/list',
+                        params: { _meta: validEnvelope() },
+                        id: 'route-5'
+                    })
+                })
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toContain('application/json');
+            // Sessionless invariant: the stateless path never emits a session header.
+            expect(response.headers.get('mcp-session-id')).toBeNull();
+            expect(await response.json()).toMatchObject({
+                jsonrpc: '2.0',
+                id: 'route-5',
+                result: { tools: [{ name: 'noop' }] }
+            });
+
+            await transport.close();
+        });
+
+        it('opens an SSE stream when the handler emits request-scoped notifications', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION]
+            });
+            transport.setStatelessHandlers({
+                dispatch: async (request, ctx) => {
+                    await ctx.sendNotification?.({
+                        jsonrpc: '2.0',
+                        method: 'notifications/progress',
+                        params: { progressToken: 'tok', progress: 1 }
+                    });
+                    return { jsonrpc: '2.0', id: request.id, result: {} };
+                }
+            });
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', { method: 'POST', headers: draftHeaders, body: JSON.stringify(toolsListDraft) })
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toBe('text/event-stream');
+
+            const events = (await response.text())
+                .split('\n\n')
+                .filter(Boolean)
+                .map(event =>
+                    JSON.parse(
+                        event
+                            .split('\n')
+                            .find(line => line.startsWith('data: '))!
+                            .slice('data: '.length)
+                    )
+                );
+            expect(events).toEqual([
+                { jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 'tok', progress: 1 } },
+                { jsonrpc: '2.0', id: 'route-1', result: {} }
+            ]);
+
+            await transport.close();
+        });
+
+        it('maps JSON-RPC error codes to HTTP statuses on the stateless path', async () => {
+            const cases: Array<[number, number]> = [
+                [-32_700, 400], // ParseError
+                [-32_600, 400], // InvalidRequest
+                [-32_602, 400], // InvalidParams
+                [-32_001, 400], // HeaderMismatch
+                [-32_003, 400], // MissingRequiredClientCapability
+                [-32_004, 400], // UnsupportedProtocolVersion
+                [-32_601, 404], // MethodNotFound
+                [-32_603, 500], // InternalError
+                [-32_002, 200], // domain-level error (ResourceNotFound): the HTTP exchange succeeded
+                [1234, 200] // application-defined error
+            ];
+
+            for (const [code, status] of cases) {
+                const transport = new WebStandardStreamableHTTPServerTransport({
+                    sessionIdGenerator: undefined,
+                    supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION]
+                });
+                transport.setStatelessHandlers({
+                    dispatch: async request => ({ jsonrpc: '2.0', id: request.id, error: { code, message: 'mapped' } })
+                });
+
+                const response = await transport.handleRequest(
+                    new Request('http://localhost/mcp', { method: 'POST', headers: draftHeaders, body: JSON.stringify(toolsListDraft) })
+                );
+
+                expect(response.status, `code ${code}`).toBe(status);
+                expect(await response.json()).toMatchObject({ id: 'route-1', error: { code } });
+
+                await transport.close();
+            }
+        });
+
+        it('rejects a header/_meta protocol version mismatch with 400 and -32001, id echoed', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: draftHeaders,
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'tools/list',
+                        params: { _meta: { ...validEnvelope(), 'io.modelcontextprotocol/protocolVersion': 'v999.0.0' } },
+                        id: 'route-6'
+                    })
+                })
+            );
+
+            expect(response.status).toBe(400);
+            expect(await response.json()).toMatchObject({
+                jsonrpc: '2.0',
+                id: 'route-6',
+                error: { code: -32_001, message: expect.stringContaining('Header mismatch') }
+            });
+
+            await transport.close();
+        });
+
+        it('takes the stateful path when no stateless handlers are installed, even with the draft version listed', async () => {
+            // Transport double for the seam-absent case: the draft version is listed via the
+            // constructor option but the transport is never connected, so no handlers exist.
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION]
+            });
+
+            // A notification-only POST is answered 202 by the stateful path (the
+            // stateless path would reject it: it only dispatches single requests).
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: draftHeaders,
+                    body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })
+                })
+            );
+
+            expect(response.status).toBe(202);
+
+            await transport.close();
+        });
+
+        it('rejects batches on the stateless path', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: draftHeaders,
+                    body: JSON.stringify([toolsListDraft, { ...toolsListDraft, id: 'route-3' }])
+                })
+            );
+
+            expect(response.status).toBe(400);
+            expectErrorResponse(await response.json(), -32_600, /Batching is not supported/);
+
+            await transport.close();
+        });
+
+        it('answers a notification body on the stateless path with 202 and no body', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: draftHeaders,
+                    body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 'x' } })
+                })
+            );
+
+            expect(response.status).toBe(202);
+            expect(await response.text()).toBe('');
+
+            await transport.close();
+        });
+
+        it('rejects a response body on the stateless path with 400', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: draftHeaders,
+                    body: JSON.stringify({ jsonrpc: '2.0', id: 9, result: {} })
+                })
+            );
+
+            expect(response.status).toBe(400);
+            expectErrorResponse(await response.json(), -32_600, /no server-initiated request awaits a response/);
+
+            await transport.close();
+        });
+
+        it('rejects a malformed JSON-RPC body on the stateless path with a parse error', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: draftHeaders,
+                    body: JSON.stringify({ jsonrpc: '2.0' })
+                })
+            );
+
+            expect(response.status).toBe(400);
+            expectErrorResponse(await response.json(), -32_700, /Invalid JSON-RPC message/);
+
+            await transport.close();
+        });
+
+        it('a dispatch rejection answers 500 with a generic message (no leak)', async () => {
+            // Fault-injecting handlers double: dispatch() maps handler errors to
+            // error responses itself, so the rejection branch needs direct injection.
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION]
+            });
+            transport.setStatelessHandlers({
+                dispatch: () => {
+                    throw new Error('secret internal detail');
+                }
+            });
+            const errors: Error[] = [];
+            transport.onerror = error => errors.push(error);
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', { method: 'POST', headers: draftHeaders, body: JSON.stringify(toolsListDraft) })
+            );
+
+            // The wire gets a generic message (no internal details leak); onerror gets the real one.
+            expect(response.status).toBe(500);
+            expect(await response.json()).toEqual({
+                jsonrpc: '2.0',
+                id: 'route-1',
+                error: { code: -32_603, message: 'Internal error' }
+            });
+            expect(errors.map(error => error.message)).toEqual(['secret internal detail']);
+
+            await transport.close();
+        });
+
+        it('a raw non-JSON body on the stateless path gets a 400 parse error', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', { method: 'POST', headers: draftHeaders, body: 'this is not json' })
+            );
+
+            expect(response.status).toBe(400);
+            expect(await response.json()).toEqual({
+                jsonrpc: '2.0',
+                id: null,
+                error: { code: -32_700, message: 'Parse error: Invalid JSON' }
+            });
+
+            await transport.close();
         });
     });
 

@@ -9,10 +9,18 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { isJSONRPCRequest, isStatefulProtocolVersion } from '@modelcontextprotocol/core';
 import { localhostHostValidation } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, EventId, EventStore, GetPromptResult, ReadResourceResult, StreamId } from '@modelcontextprotocol/server';
-import { isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import {
+    DRAFT_PROTOCOL_VERSION,
+    isInitializeRequest,
+    McpServer,
+    PROTOCOL_VERSION_META_KEY,
+    ResourceTemplate,
+    SUPPORTED_PROTOCOL_VERSIONS
+} from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
@@ -64,7 +72,8 @@ const TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQ
 // Sample base64 encoded minimal WAV file for testing
 const TEST_AUDIO_BASE64 = 'UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA=';
 
-// Function to create a new MCP server instance (one per session)
+// Function to create a new MCP server instance (one per session, or one per
+// request on the stateless path)
 function createMcpServer() {
     const mcpServer = new McpServer(
         {
@@ -85,7 +94,13 @@ function createMcpServer() {
                 },
                 logging: {},
                 completions: {}
-            }
+            },
+            // Opt in to the draft (per-request) protocol revision: requests claiming
+            // it are served on the stateless dispatch path (SEP-2575 scenarios).
+            // The pinned conformance CLI (0.2.0-alpha.1) labels the draft revision
+            // 'DRAFT-2026-v1' rather than the draft schema's protocol version, so
+            // both labels are listed until the pin catches up.
+            supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION, 'DRAFT-2026-v1']
         }
     );
 
@@ -889,11 +904,51 @@ app.use(
     })
 );
 
-// Handle POST requests - stateful mode
+/**
+ * The protocol version a sessionless POST claims: the MCP-Protocol-Version
+ * header, falling back to the parsed body's request `_meta` — the same
+ * resolution the SDK transport applies for stateless routing.
+ */
+function claimedProtocolVersion(req: Request): string | undefined {
+    const headerVersion = req.headers['mcp-protocol-version'];
+    if (typeof headerVersion === 'string') {
+        return headerVersion;
+    }
+    const body: unknown = req.body;
+    if (isJSONRPCRequest(body)) {
+        const metaVersion = body.params?._meta?.[PROTOCOL_VERSION_META_KEY];
+        if (typeof metaVersion === 'string') {
+            return metaVersion;
+        }
+    }
+    return undefined;
+}
+
+// Handle POST requests - stateful mode, plus the stateless (per-request) path
 app.post('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     try {
+        // Stateless (per-request protocol revision) path: instance per request via
+        // the same factory. The SDK transport performs the routing, envelope
+        // acceptance, and version negotiation; the hosting layer only picks a
+        // fresh server, exactly like the documented getServer()-per-request
+        // stateless deployment pattern.
+        if (!sessionId) {
+            const claimedVersion = claimedProtocolVersion(req);
+            if (claimedVersion !== undefined && !isStatefulProtocolVersion(claimedVersion)) {
+                const mcpServer = createMcpServer();
+                const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+                res.on('close', () => {
+                    void transport.close();
+                    void mcpServer.close();
+                });
+                await mcpServer.connect(transport);
+                await transport.handleRequest(req, res, req.body);
+                return;
+            }
+        }
+
         let transport: NodeStreamableHTTPServerTransport;
 
         if (sessionId && transports[sessionId]) {

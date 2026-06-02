@@ -7,19 +7,53 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+import type {
+    AuthInfo,
+    JSONRPCMessage,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    MessageExtraInfo,
+    RequestId,
+    StatelessHandlers,
+    Transport
+} from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
     isInitializeRequest,
     isJSONRPCErrorResponse,
+    isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
+    isStatefulProtocolVersion,
     JSONRPCMessageSchema,
+    METHOD_NOT_FOUND,
+    PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY,
+    ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
 export type StreamId = string;
 export type EventId = string;
+
+/**
+ * Extracts the protocol version claimed by a pre-parsed POST body's first
+ * request via `params._meta` (see {@linkcode PROTOCOL_VERSION_META_KEY}).
+ * Only pre-parsed bodies are sniffed (`options.parsedBody`, set by
+ * body-parsing middleware) — the raw body stream stays untouched for the
+ * downstream handler.
+ */
+function versionFromParsedBody(body: unknown): string | undefined {
+    const first = Array.isArray(body) ? body.find(message => isJSONRPCRequest(message)) : body;
+    if (!isJSONRPCRequest(first)) {
+        return undefined;
+    }
+    const version = first.params?._meta?.[PROTOCOL_VERSION_META_KEY];
+    return typeof version === 'string' ? version : undefined;
+}
 
 /**
  * Interface for resumability support via event storage
@@ -341,16 +375,71 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
+     * Hook for the stateless (draft-protocol-version) request path. Set
+     * internally by `Server.connect()` so this transport can route requests
+     * claiming a draft protocol version to the server's stateless dispatch
+     * instead of the `onmessage` path. Optional on the {@linkcode Transport}
+     * contract; only this concrete class reads it.
+     * @internal
+     */
+    private _statelessHandlers?: StatelessHandlers;
+
+    /** @internal */
+    setStatelessHandlers(handlers: StatelessHandlers): void {
+        this._statelessHandlers = handlers;
+    }
+
+    /**
      * Handles an incoming HTTP request, whether `GET`, `POST`, or `DELETE`
      * Returns a `Response` object (Web Standard)
+     *
+     * Routes between the stateful path (today's sessions/initialize flow) and
+     * the stateless dispatch path (per-request protocol revisions), in this
+     * order:
+     *
+     * 1. A request carrying an `Mcp-Session-Id` header always takes the
+     *    stateful path, regardless of any claimed version — sessions are
+     *    version-locked at initialize, so a version claim never bypasses
+     *    session validation.
+     * 2. Otherwise the claimed version is resolved: the
+     *    `MCP-Protocol-Version` header first, falling back to the pre-parsed
+     *    body's first request `_meta`.
+     * 3. A claimed non-stateful (per-request) version is handled on the
+     *    stateless path when stateless handlers are installed AND the server
+     *    has opted in by listing at least one non-stateful version in its
+     *    supported list. Claims of versions the server does not list are
+     *    answered there with `-32004` (UnsupportedProtocolVersionError).
+     * 4. Everything else takes the stateful path unchanged — including any
+     *    claim on a server that has not opted in, which still gets the
+     *    existing unsupported-version 400 from header validation there.
      */
     async handleRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
-        // Validate request headers for DNS rebinding protection
+        // Validate request headers for DNS rebinding protection (applies to both paths)
         const validationError = this.validateRequestHeaders(req);
         if (validationError) {
             return validationError;
         }
 
+        if (req.headers.get('mcp-session-id') === null) {
+            const claimedVersion = req.headers.get('mcp-protocol-version') ?? versionFromParsedBody(options?.parsedBody);
+            if (
+                claimedVersion !== undefined &&
+                !isStatefulProtocolVersion(claimedVersion) &&
+                this._statelessHandlers &&
+                this._supportedProtocolVersions.some(version => !isStatefulProtocolVersion(version))
+            ) {
+                return this.handleStatelessRequest(req, this._statelessHandlers, options);
+            }
+        }
+
+        return this.handleStatefulRequest(req, options);
+    }
+
+    /**
+     * Today's request handling (`initialize`, sessions, `GET`/`DELETE`): the
+     * body `handleRequest` had before stateless routing was added, unchanged.
+     */
+    private async handleStatefulRequest(req: Request, options?: HandleRequestOptions): Promise<Response> {
         switch (req.method) {
             case 'POST': {
                 return this.handlePostRequest(req, options);
@@ -363,6 +452,232 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             }
             default: {
                 return this.handleUnsupportedRequest();
+            }
+        }
+    }
+
+    /**
+     * Handles a request routed to the stateless dispatch path (per-request
+     * protocol revisions). Accepts exactly one JSON-RPC message per POST — the
+     * stateless path never accepts batches — and forwards single requests to
+     * the installed dispatch handler. Never touches session or stream state;
+     * safe to call concurrently on a shared transport instance, and never
+     * emits an `Mcp-Session-Id` header.
+     */
+    private async handleStatelessRequest(req: Request, handlers: StatelessHandlers, options?: HandleRequestOptions): Promise<Response> {
+        // The MCP endpoint is POST-only under this revision (the standalone GET
+        // stream is replaced by subscriptions/listen; sessions — and DELETE —
+        // do not exist).
+        if (req.method !== 'POST') {
+            this.onerror?.(new Error('Method not allowed.'));
+            return Response.json(
+                { jsonrpc: '2.0', error: { code: -32_000, message: 'Method not allowed.' }, id: null },
+                { status: 405, headers: { Allow: 'POST', 'Content-Type': 'application/json' } }
+            );
+        }
+
+        // Same content negotiation as the stateful POST path: the client must
+        // accept both shapes the server may answer with, and send JSON.
+        const acceptHeader = req.headers.get('accept');
+        if (!acceptHeader?.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
+            this.onerror?.(new Error('Not Acceptable: Client must accept both application/json and text/event-stream'));
+            return this.createJsonErrorResponse(
+                406,
+                -32_000,
+                'Not Acceptable: Client must accept both application/json and text/event-stream'
+            );
+        }
+        const contentType = req.headers.get('content-type');
+        if (!contentType || !contentType.includes('application/json')) {
+            this.onerror?.(new Error('Unsupported Media Type: Content-Type must be application/json'));
+            return this.createJsonErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
+        }
+
+        let rawMessage: unknown;
+        if (options?.parsedBody === undefined) {
+            try {
+                rawMessage = await req.json();
+            } catch (error) {
+                this.onerror?.(error as Error);
+                return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
+            }
+        } else {
+            rawMessage = options.parsedBody;
+        }
+
+        if (Array.isArray(rawMessage)) {
+            this.onerror?.(new Error('Invalid Request: Batching is not supported on the stateless path'));
+            return this.createJsonErrorResponse(400, -32_600, 'Invalid Request: Batching is not supported on the stateless path');
+        }
+
+        let message: JSONRPCMessage;
+        try {
+            message = JSONRPCMessageSchema.parse(rawMessage);
+        } catch (error) {
+            this.onerror?.(error as Error);
+            return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON-RPC message');
+        }
+
+        if (isJSONRPCNotification(message)) {
+            // Accepted with no body. Each request is self-contained on this path
+            // (its own POST, its own response stream), so there is no cross-request
+            // work a client notification could affect; cancellation is expressed by
+            // closing the response stream, not notifications/cancelled.
+            return new Response(null, { status: 202 });
+        }
+
+        if (!isJSONRPCRequest(message)) {
+            // A JSON-RPC response body: nothing on this path awaits one. (Responses
+            // to server-initiated input requests arrive embedded in a retried
+            // request per SEP-2322, not as standalone response bodies.)
+            this.onerror?.(new Error('Invalid Request: no server-initiated request awaits a response on the stateless path'));
+            return this.createJsonErrorResponse(
+                400,
+                -32_600,
+                'Invalid Request: no server-initiated request awaits a response on the stateless path'
+            );
+        }
+
+        // The MCP-Protocol-Version header must match the version claimed in the
+        // request body's _meta; a disagreement is a HeaderMismatch (-32001).
+        const headerVersion = req.headers.get('mcp-protocol-version');
+        const metaVersion = message.params?._meta?.[PROTOCOL_VERSION_META_KEY];
+        if (headerVersion !== null && typeof metaVersion === 'string' && headerVersion !== metaVersion) {
+            const mismatch = `Header mismatch: MCP-Protocol-Version header value '${headerVersion}' does not match body value '${metaVersion}'`;
+            this.onerror?.(new Error(mismatch));
+            return Response.json(
+                { jsonrpc: '2.0', id: message.id, error: { code: -32_001, message: mismatch } },
+                { status: 400, headers: { 'Content-Type': 'application/json' } }
+            );
+        }
+
+        return this.dispatchStatelessRequest(message, handlers, req, options);
+    }
+
+    /**
+     * Dispatches one stateless request and shapes the HTTP response:
+     *
+     * - If the handler emits request-scoped notifications, an SSE stream is
+     *   opened (HTTP 200) carrying them in order, terminated by the final
+     *   JSON-RPC response.
+     * - Otherwise the JSON-RPC response is returned as a single JSON object
+     *   with the HTTP status mapped from its outcome (see
+     *   {@linkcode statusFromStatelessResponse}).
+     */
+    private dispatchStatelessRequest(
+        request: JSONRPCRequest,
+        handlers: StatelessHandlers,
+        req: Request,
+        options?: HandleRequestOptions
+    ): Promise<Response> {
+        return new Promise<Response>(resolve => {
+            const encoder = new TextEncoder();
+            let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+
+            const openStream = (): void => {
+                if (controller !== undefined) {
+                    return;
+                }
+                const readable = new ReadableStream<Uint8Array>({
+                    start: c => {
+                        controller = c;
+                    }
+                });
+                resolve(
+                    new Response(readable, {
+                        status: 200,
+                        headers: {
+                            'Content-Type': 'text/event-stream',
+                            'Cache-Control': 'no-cache',
+                            Connection: 'keep-alive'
+                        }
+                    })
+                );
+            };
+
+            // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
+            Promise.resolve()
+                .then(() =>
+                    handlers.dispatch(request, {
+                        authInfo: options?.authInfo,
+                        // Client disconnect = cancellation of the request under this revision.
+                        signal: req.signal,
+                        sendNotification: async notification => {
+                            openStream();
+                            this.writeSSEEvent(controller!, encoder, notification);
+                        }
+                    })
+                )
+                .then(
+                    response => {
+                        if (controller !== undefined) {
+                            this.writeSSEEvent(controller, encoder, response);
+                            try {
+                                controller.close();
+                            } catch {
+                                // Stream already closed (e.g. client disconnected).
+                            }
+                            return;
+                        }
+                        resolve(
+                            Response.json(response, {
+                                status: this.statusFromStatelessResponse(response),
+                                headers: { 'Content-Type': 'application/json' }
+                            })
+                        );
+                    },
+                    (error: unknown) => {
+                        // dispatch() maps handler failures to error responses; a rejection is
+                        // an internal fault. The wire gets a generic message (nothing leaks).
+                        this.onerror?.(error as Error);
+                        const errorResponse: JSONRPCMessage = {
+                            jsonrpc: '2.0',
+                            id: request.id,
+                            error: { code: INTERNAL_ERROR, message: 'Internal error' }
+                        };
+                        if (controller !== undefined) {
+                            this.writeSSEEvent(controller, encoder, errorResponse);
+                            try {
+                                controller.close();
+                            } catch {
+                                // Stream already closed (e.g. client disconnected).
+                            }
+                            return;
+                        }
+                        resolve(Response.json(errorResponse, { status: 500, headers: { 'Content-Type': 'application/json' } }));
+                    }
+                );
+        });
+    }
+
+    /**
+     * Maps a stateless dispatch outcome to its HTTP status. Pre-dispatch
+     * rejections and negotiation failures surface as HTTP errors so callers
+     * (and intermediaries) can react without parsing the body; results and
+     * domain-level errors travel as HTTP 200 like on the stateful path.
+     */
+    private statusFromStatelessResponse(response: JSONRPCResponse): number {
+        if (!isJSONRPCErrorResponse(response)) {
+            return 200;
+        }
+        switch (response.error.code) {
+            // Method not found: distinguishable from a legacy server's 404 by the body.
+            case METHOD_NOT_FOUND: {
+                return 404;
+            }
+            case PARSE_ERROR:
+            case INVALID_REQUEST:
+            case INVALID_PARAMS:
+            case -32_001: // HeaderMismatch
+            case ProtocolErrorCode.MissingRequiredClientCapability:
+            case ProtocolErrorCode.UnsupportedProtocolVersion: {
+                return 400;
+            }
+            case INTERNAL_ERROR: {
+                return 500;
+            }
+            default: {
+                return 200;
             }
         }
     }

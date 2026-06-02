@@ -1,4 +1,12 @@
-import type { JSONRPCMessage, MessageExtraInfo, RequestId } from '../types/index.js';
+import type {
+    AuthInfo,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    JSONRPCResponse,
+    MessageExtraInfo,
+    RequestId
+} from '../types/index.js';
 
 export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
@@ -69,6 +77,50 @@ export type TransportSendOptions = {
     onresumptiontoken?: ((token: string) => void) | undefined;
 };
 /**
+ * Per-request context a transport supplies when dispatching a stateless
+ * (draft-protocol-version) request. Everything in it is request-scoped —
+ * nothing is sourced from connection or session state.
+ *
+ * @internal
+ */
+export interface StatelessDispatchContext {
+    /** Validated authorization info from the transport layer (HTTP only). */
+    authInfo?: AuthInfo;
+
+    /**
+     * Aborts when the transport-level request ends before dispatch completes
+     * (HTTP: the client disconnected, which the spec treats as cancellation
+     * of the request). Absent on transports without a per-request lifetime.
+     */
+    signal?: AbortSignal;
+
+    /**
+     * Delivers a request-scoped notification (e.g. `notifications/progress`)
+     * on the originating response stream, before the final response. Absent
+     * when the transport cannot carry notifications for this request;
+     * notifications are then dropped.
+     */
+    sendNotification?: (notification: JSONRPCNotification) => Promise<void>;
+}
+
+/**
+ * The handler shape a server installs on a transport to serve stateless
+ * (draft-protocol-version) requests: `dispatch` is request→response, always
+ * short-lived. Installed on the transport via
+ * {@linkcode Transport.setStatelessHandlers}.
+ *
+ * `dispatch` resolves with the JSON-RPC response message for the request —
+ * handler failures are mapped to error responses, never rejections. A
+ * rejection therefore signals an internal fault; transports answer it with a
+ * generic internal error that leaks nothing.
+ *
+ * @internal
+ */
+export interface StatelessHandlers {
+    dispatch(request: JSONRPCRequest, ctx: StatelessDispatchContext): Promise<JSONRPCResponse>;
+}
+
+/**
  * Describes the minimal contract for an MCP transport that a client or server can communicate over.
  */
 export interface Transport {
@@ -131,4 +183,14 @@ export interface Transport {
      * This allows the server to pass its supported versions to the transport.
      */
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
+
+    /**
+     * Server-side. Installs the stateless dispatch handlers on this transport.
+     * Called by `Server.connect()` before the transport is started. Transports
+     * that implement this route stateless (draft-protocol-version) requests via
+     * `StatelessHandlers` instead of the `onmessage` path.
+     *
+     * @internal
+     */
+    setStatelessHandlers?(handlers: StatelessHandlers): void;
 }

@@ -60,8 +60,10 @@ client:
 
 server:
     # --- Draft-spec scenarios (in `--suite draft`; the default `active` suite is green) ---
-    # SEP-2575 (stateless HTTP / _meta envelope): server has no stateless mode,
-    # _meta-derived capabilities, error-code mappings, or server/discover yet.
+    # SEP-2575: the stateless dispatch path now serves the _meta-validation,
+    # version/header-error, and removed-method checks, but this coarse scenario
+    # also bundles server/discover checks and subscriptions/listen checks, which
+    # land with later changes — it cannot pass scenario-level until those do.
     - server-stateless
     # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented;
     # most scenarios currently fail early with "Session ID required" because the

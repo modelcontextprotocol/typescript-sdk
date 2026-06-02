@@ -5,16 +5,25 @@
  * single `echo` tool, writes a readiness marker line to stderr once it is
  * serving, and — when E2E_IGNORE_SIGTERM=1 — keeps running after stdin EOF and
  * swallows SIGTERM so the client transport's shutdown escalation
- * (stdin EOF → SIGTERM → SIGKILL) is observable.
+ * (stdin EOF → SIGTERM → SIGKILL) is observable. When E2E_LIST_DRAFT_VERSION=1
+ * the server lists the draft protocol revision in supportedProtocolVersions so
+ * the hosting:routing tests can exercise stdio's stateless routing.
  */
 
 /* eslint-disable unicorn/no-process-exit -- standalone spawned executable; exit codes are the behavior under test */
 
-import { McpServer } from '@modelcontextprotocol/server';
+import { DRAFT_PROTOCOL_VERSION, McpServer, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { z } from 'zod/v4';
 
-const server = new McpServer({ name: 'stdio-echo-server', version: '1.0.0' });
+const server = new McpServer(
+    { name: 'stdio-echo-server', version: '1.0.0' },
+    // E2E_LIST_DRAFT_VERSION=1: opt the server in to the draft protocol revision so the
+    // hosting:routing tests can observe stdio's stateless routing (drafts never enter the default list).
+    process.env.E2E_LIST_DRAFT_VERSION === '1'
+        ? { supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION] }
+        : {}
+);
 
 server.registerTool(
     'echo',

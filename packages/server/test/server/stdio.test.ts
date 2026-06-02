@@ -1,7 +1,14 @@
 import { Readable, Writable } from 'node:stream';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import {
+    DRAFT_PROTOCOL_VERSION,
+    PROTOCOL_VERSION_META_KEY,
+    ReadBuffer,
+    serializeMessage,
+    SUPPORTED_PROTOCOL_VERSIONS
+} from '@modelcontextprotocol/core';
+import { vi } from 'vitest';
 
 import { StdioServerTransport } from '../../src/server/stdio.js';
 
@@ -178,4 +185,190 @@ test('should fire onerror before onclose on stdout error', async () => {
     output.emit('error', new Error('EPIPE'));
 
     expect(events).toEqual(['error', 'close']);
+});
+
+// ───── stateless routing (draft protocol revisions) ─────
+
+/** A request claiming `version` per-request via `params._meta` — the stdio routing signal. */
+function versionClaimingRequest(id: number, version: string): JSONRPCMessage {
+    return { jsonrpc: '2.0', id, method: 'tools/list', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: version } } };
+}
+
+const DRAFT_LISTED = [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION];
+
+/** Waits for the next JSON-RPC message the transport writes to stdout. */
+async function nextStdoutMessage(): Promise<JSONRPCMessage> {
+    return await vi.waitFor(() => {
+        const message = outputBuffer.readMessage();
+        if (message === null) {
+            throw new Error('no message written to stdout yet');
+        }
+        return message;
+    });
+}
+
+test('sends the dispatch result for a routed request on stdout', async () => {
+    const server = new StdioServerTransport(input, output);
+    const dispatch = vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 3, result: { ok: true } });
+    server.setStatelessHandlers({ dispatch });
+    server.setSupportedProtocolVersions(DRAFT_LISTED);
+    const onmessage = vi.fn();
+    server.onmessage = onmessage;
+    server.onerror = error => {
+        throw error;
+    };
+
+    await server.start();
+    const request = versionClaimingRequest(3, DRAFT_PROTOCOL_VERSION);
+    input.push(serializeMessage(request));
+
+    expect(await nextStdoutMessage()).toEqual({ jsonrpc: '2.0', id: 3, result: { ok: true } });
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith(request, { sendNotification: expect.any(Function) });
+    expect(onmessage).not.toHaveBeenCalled();
+});
+
+test('writes notifications the dispatch emits to stdout before the response', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.setStatelessHandlers({
+        dispatch: async (request, ctx) => {
+            await ctx.sendNotification?.({
+                jsonrpc: '2.0',
+                method: 'notifications/progress',
+                params: { progressToken: 'tok', progress: 1 }
+            });
+            return { jsonrpc: '2.0', id: request.id, result: {} };
+        }
+    });
+    server.setSupportedProtocolVersions(DRAFT_LISTED);
+    server.onerror = error => {
+        throw error;
+    };
+
+    await server.start();
+    input.push(serializeMessage(versionClaimingRequest(4, DRAFT_PROTOCOL_VERSION)));
+
+    expect(await nextStdoutMessage()).toEqual({
+        jsonrpc: '2.0',
+        method: 'notifications/progress',
+        params: { progressToken: 'tok', progress: 1 }
+    });
+    expect(await nextStdoutMessage()).toEqual({ jsonrpc: '2.0', id: 4, result: {} });
+});
+
+test('leaves stateful-version, meta-less, and notification traffic on onmessage', async () => {
+    const server = new StdioServerTransport(input, output);
+    const dispatch = vi.fn();
+    server.setStatelessHandlers({ dispatch });
+    server.setSupportedProtocolVersions(DRAFT_LISTED);
+    server.onerror = error => {
+        throw error;
+    };
+
+    const messages: JSONRPCMessage[] = [
+        // A stateful-version claim never routes, even though the version is listed.
+        versionClaimingRequest(1, '2025-06-18'),
+        // No claim at all: today's traffic, untouched.
+        { jsonrpc: '2.0', id: 2, method: 'ping' },
+        // Only requests route: a notification claiming a listed draft version stays on onmessage.
+        {
+            jsonrpc: '2.0',
+            method: 'notifications/initialized',
+            params: { _meta: { [PROTOCOL_VERSION_META_KEY]: DRAFT_PROTOCOL_VERSION } }
+        }
+    ];
+
+    const received: JSONRPCMessage[] = [];
+    server.onmessage = message => received.push(message);
+
+    await server.start();
+    for (const message of messages) {
+        input.push(serializeMessage(message));
+    }
+
+    await vi.waitFor(() => expect(received).toHaveLength(3));
+    expect(received).toEqual(messages);
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(outputBuffer.readMessage()).toBeNull();
+});
+
+test('a stateless-version claim falls through to onmessage when no handlers are installed', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.setSupportedProtocolVersions(DRAFT_LISTED);
+    server.onerror = error => {
+        throw error;
+    };
+
+    const received: JSONRPCMessage[] = [];
+    server.onmessage = message => received.push(message);
+
+    await server.start();
+    const request = versionClaimingRequest(5, DRAFT_PROTOCOL_VERSION);
+    input.push(serializeMessage(request));
+
+    await vi.waitFor(() => expect(received).toEqual([request]));
+    expect(outputBuffer.readMessage()).toBeNull();
+});
+
+test('a stateless-version claim falls through to onmessage when the server has not opted in', async () => {
+    const server = new StdioServerTransport(input, output);
+    const dispatch = vi.fn();
+    server.setStatelessHandlers({ dispatch });
+    // Default supported list: no non-stateful version listed, so the claim never routes.
+    server.onerror = error => {
+        throw error;
+    };
+
+    const received: JSONRPCMessage[] = [];
+    server.onmessage = message => received.push(message);
+
+    await server.start();
+    const request = versionClaimingRequest(6, DRAFT_PROTOCOL_VERSION);
+    input.push(serializeMessage(request));
+
+    await vi.waitFor(() => expect(received).toEqual([request]));
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(outputBuffer.readMessage()).toBeNull();
+});
+
+test('an unlisted non-stateful claim still routes on an opted-in server', async () => {
+    // The opt-in is listing any non-stateful version; the dispatch then answers
+    // unlisted claims with -32004 (here doubled, so only routing is under test).
+    const server = new StdioServerTransport(input, output);
+    const dispatch = vi
+        .fn()
+        .mockResolvedValue({ jsonrpc: '2.0', id: 7, error: { code: -32_004, message: 'Unsupported protocol version' } });
+    server.setStatelessHandlers({ dispatch });
+    server.setSupportedProtocolVersions(DRAFT_LISTED);
+    const onmessage = vi.fn();
+    server.onmessage = onmessage;
+    server.onerror = error => {
+        throw error;
+    };
+
+    await server.start();
+    const request = versionClaimingRequest(7, 'v999.0.0');
+    input.push(serializeMessage(request));
+
+    expect(await nextStdoutMessage()).toEqual({ jsonrpc: '2.0', id: 7, error: { code: -32_004, message: 'Unsupported protocol version' } });
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith(request, { sendNotification: expect.any(Function) });
+    expect(onmessage).not.toHaveBeenCalled();
+});
+
+test('a dispatch rejection answers with a generic internal error (no leak)', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.setStatelessHandlers({
+        dispatch: () => {
+            throw new Error('secret internal detail');
+        }
+    });
+    server.setSupportedProtocolVersions(DRAFT_LISTED);
+    const errors: Error[] = [];
+    server.onerror = error => errors.push(error);
+
+    await server.start();
+    input.push(serializeMessage(versionClaimingRequest(9, DRAFT_PROTOCOL_VERSION)));
+
+    // The wire gets a generic message (no internal details leak); onerror gets the real one.
+    expect(await nextStdoutMessage()).toEqual({ jsonrpc: '2.0', id: 9, error: { code: -32_603, message: 'Internal error' } });
+    expect(errors.map(error => error.message)).toEqual(['secret internal detail']);
 });

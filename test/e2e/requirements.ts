@@ -1562,6 +1562,79 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    // Hosting: stateless routing + dispatch (per-request protocol revisions, SEP-2575/SEP-2567)
+
+    'hosting:routing:session-id-never-stateless': {
+        source: 'sdk',
+        behavior:
+            'A request carrying an Mcp-Session-Id header always takes the session path, regardless of the protocol version it claims: session validation still applies (valid session served as today, unknown session 404) and the request is never routed to the stateless dispatch path.',
+        transports: ['streamableHttp'],
+        note: 'Routing rule: the session header is checked before any version logic — sessions are version-locked at initialize, so a claimed draft version never bypasses session validation. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:routing:stateless-only-configured': {
+        source: 'sdk',
+        behavior:
+            'A sessionless request claiming a non-stateful protocol version is handled on the stateless dispatch path only when the server has opted in by listing a non-stateful version in supportedProtocolVersions and a server is connected; otherwise existing behavior applies byte-identically (today: the unsupported-version 400 over HTTP, normal onmessage delivery over stdio).',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'Routing rule: non-stateful versions stay out of the default supported list, so existing deployments see no behavior change. The streamableHttp cell exercises both halves against the WebStandard transport (the routed half is proven by the distinctive envelope -32602 of the stateless path); the stdio cell proves the not-listed half against a spawned fixture server (a draft _meta claim the server does not list is served on the existing path), with the routed half on stdio carried by protocol:stateless:request-served. Version resolution reads the first request of a batch body; batch rejection on the stateless path is pinned at the transport layer and its e2e row lands with the sessionless-invariants sweep.'
+    },
+    'protocol:stateless:envelope-required': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
+        behavior:
+            'Under a per-request (non-stateful) protocol revision, a request whose _meta is missing or lacks any of io.modelcontextprotocol/protocolVersion, clientInfo, or clientCapabilities is rejected with -32602 (Invalid params), the request id echoed.',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'Conformance: sep-2575-request-meta-invalid-{missing-meta,missing-protocol-version,missing-client-info,missing-client-capabilities} (server-stateless scenario). The streamableHttp cell drives raw fetch against a connected WebStandard transport and covers all four cases; the stdio cell drives hand-built messages against an in-process StdioServerTransport wired to a real server, covering the two cases that can route at all — on stdio the _meta protocolVersion claim is the routing signal, so a request without one is indistinguishable from stateful-era traffic and is served on the existing path.'
+    },
+    'protocol:stateless:version-unsupported': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#protocol-version-negotiation',
+        behavior:
+            'A request claiming a non-stateful protocol version the opted-in server does not support is answered with -32004 (UnsupportedProtocolVersionError) carrying data.supported (the full supported list of the server) and data.requested, the request id echoed; over HTTP the status is 400.',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'Conformance: sep-2575-server-unsupported-version-error + sep-2575-http-server-unsupported-version-400 (server-stateless scenario).'
+    },
+    'protocol:stateless:removed-methods': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#protocol-version-header',
+        behavior:
+            'Under a per-request protocol revision the removed RPCs (initialize, ping, logging/setLevel, resources/subscribe, resources/unsubscribe) and unknown methods are answered with -32601 (Method not found), the request id echoed; over HTTP the status is 404. Handlers registered for stateful-era traffic never serve these methods on the stateless path.',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'Conformance: sep-2575-http-server-method-not-found-404{,-initialize,-ping,-logging-setlevel,-resources-subscribe,-resources-unsubscribe} (server-stateless scenario).'
+    },
+    'protocol:stateless:request-served': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            'A request carrying the complete _meta envelope and a supported non-stateful protocol version is served end-to-end on the stateless dispatch path: registered handlers run and the result is returned with the request id, without any initialize handshake.',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'The heart of SEP-2575: every request is self-contained. The streamableHttp cell drives raw fetch against a connected WebStandard transport; the stdio cell spawns the fixture server (E2E_LIST_DRAFT_VERSION=1) as a real child process and drives hand-built messages, proving the same without any process-level handshake.'
+    },
+    'protocol:stateless:ctx-meta-sourced': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            'On the stateless dispatch path the handler context is sourced from the _meta envelope of the request itself: ctx.mcpReq.protocolVersion is the claimed version and ctx.client.info/ctx.client.capabilities are the envelope clientInfo/clientCapabilities — never inherited from an initialize handshake or a previous request, and ctx.sessionId is undefined.',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'Lifecycle rule: servers MUST NOT rely on prior requests to establish context (capabilities, protocol version, client identity). The streamableHttp body proves non-inheritance on a session-mode transport whose handshake state is populated by a real initialize before the stateless request arrives.'
+    },
+    'hosting:http:version-header-meta-mismatch': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#protocol-version-header',
+        behavior:
+            'On Streamable HTTP, a request whose MCP-Protocol-Version header does not match the io.modelcontextprotocol/protocolVersion value in the body _meta is rejected with 400 Bad Request and a HeaderMismatch JSON-RPC error (-32001), the request id echoed.',
+        transports: ['streamableHttp'],
+        note: 'Conformance: sep-2575-http-server-header-mismatch-400 (server-stateless scenario). This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:http:stateless-notification-202': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#sending-messages-1',
+        behavior:
+            'On the stateless HTTP path, a POST whose body is a single JSON-RPC notification is answered with 202 Accepted and no body.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:http:stateless-response-stream': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#receiving-messages-1',
+        behavior:
+            'On the stateless HTTP path the server answers a request either with a single application/json object, or — when the handler emits request-scoped notifications — with an SSE stream carrying those notifications in order followed by the final JSON-RPC response, which terminates the stream. Notifications always relate to the originating request and no Mcp-Session-Id header is ever emitted.',
+        transports: ['streamableHttp'],
+        note: 'Conformance (adjacent): sep-2575-http-server-no-independent-requests-on-stream. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+
     'hosting:express-app-helper': {
         transports: ['streamableHttp'],
         source: 'sdk',

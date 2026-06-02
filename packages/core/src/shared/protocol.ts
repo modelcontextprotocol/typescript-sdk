@@ -61,7 +61,7 @@ export type ProtocolOptions = {
      * Protocol versions supported. The first stateful entry (see
      * {@linkcode STATEFUL_PROTOCOL_VERSIONS}) is preferred: sent by the client at initialize,
      * used as the server's fallback. Revisions newer than 2025-11-25 are never negotiated via
-     * the initialize handshake. Passed to transport during {@linkcode Protocol.connect | connect()}.
+     * the initialize handshake. Passed to transport during `connect()`.
      *
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
