@@ -23,6 +23,7 @@ export const mcpServerApiTransform: Transform = {
         const resourceCalls: CallExpression[] = [];
         const registerToolCalls: CallExpression[] = [];
         const registerPromptCalls: CallExpression[] = [];
+        const registerResourceCalls: CallExpression[] = [];
 
         for (const call of calls) {
             const expr = call.getExpression();
@@ -48,6 +49,10 @@ export const mcpServerApiTransform: Transform = {
                 }
                 case 'registerPrompt': {
                     registerPromptCalls.push(call);
+                    break;
+                }
+                case 'registerResource': {
+                    registerResourceCalls.push(call);
                     break;
                 }
             }
@@ -106,6 +111,12 @@ export const mcpServerApiTransform: Transform = {
 
         for (const call of registerPromptCalls) {
             if (wrapSchemaInConfig(call, 'argsSchema', sourceFile, diagnostics)) {
+                changesCount++;
+            }
+        }
+
+        for (const call of registerResourceCalls) {
+            if (wrapSchemaInConfig(call, 'uriSchema', sourceFile, diagnostics)) {
                 changesCount++;
             }
         }

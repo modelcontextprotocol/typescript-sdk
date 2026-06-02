@@ -9,7 +9,7 @@ import { CONTEXT_PROPERTY_MAP, CTX_PARAM_NAME, EXTRA_PARAM_NAME } from '../mappi
 
 const HANDLER_METHODS = new Set(['setRequestHandler', 'setNotificationHandler']);
 
-const REGISTER_METHODS = new Set(['registerTool', 'registerPrompt', 'registerResource', 'registerToolTask', 'tool', 'prompt', 'resource']);
+const REGISTER_METHODS = new Set(['registerTool', 'registerPrompt', 'registerResource', 'tool', 'prompt', 'resource']);
 
 /**
  * Attempt to rename the second parameter of a callback from 'extra' to 'ctx'
@@ -221,7 +221,7 @@ export const contextTypesTransform: Transform = {
 
                 if (!callbackArg) continue;
 
-                // Handle ObjectLiteralExpression for registerToolTask-style callbacks
+                // Handle ObjectLiteralExpression callback containers (handler maps)
                 if (Node.isObjectLiteralExpression(callbackArg)) {
                     for (const prop of callbackArg.getProperties()) {
                         let callbackNode: Node | undefined;

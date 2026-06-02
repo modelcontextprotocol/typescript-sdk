@@ -208,68 +208,6 @@ describe('handler-registration transform', () => {
         expect(result.diagnostics.length).toBe(0);
     });
 
-    it('replaces ListTasksRequestSchema with method string', () => {
-        const input = [
-            `import { ListTasksRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setRequestHandler(ListTasksRequestSchema, async (request) => {`,
-            `    return { tasks: [] };`,
-            `});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setRequestHandler('tasks/list'");
-        expect(result).not.toContain('ListTasksRequestSchema');
-    });
-
-    it('replaces GetTaskRequestSchema with method string', () => {
-        const input = [
-            `import { GetTaskRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setRequestHandler(GetTaskRequestSchema, async (request) => {`,
-            `    return { taskId: '1', status: 'completed' };`,
-            `});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setRequestHandler('tasks/get'");
-        expect(result).not.toContain('GetTaskRequestSchema');
-    });
-
-    it('replaces CancelTaskRequestSchema with method string', () => {
-        const input = [
-            `import { CancelTaskRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setRequestHandler(CancelTaskRequestSchema, async (request) => {`,
-            `    return {};`,
-            `});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setRequestHandler('tasks/cancel'");
-        expect(result).not.toContain('CancelTaskRequestSchema');
-    });
-
-    it('replaces GetTaskPayloadRequestSchema with method string', () => {
-        const input = [
-            `import { GetTaskPayloadRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setRequestHandler(GetTaskPayloadRequestSchema, async (request) => {`,
-            `    return { content: [] };`,
-            `});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setRequestHandler('tasks/result'");
-        expect(result).not.toContain('GetTaskPayloadRequestSchema');
-    });
-
-    it('replaces TaskStatusNotificationSchema with method string', () => {
-        const input = [
-            `import { TaskStatusNotificationSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setNotificationHandler(TaskStatusNotificationSchema, async () => {});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setNotificationHandler('notifications/tasks/status'");
-        expect(result).not.toContain('TaskStatusNotificationSchema');
-    });
 
     it('replaces ElicitationCompleteNotificationSchema with method string', () => {
         const input = [
