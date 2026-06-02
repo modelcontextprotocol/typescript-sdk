@@ -15,6 +15,7 @@ import {
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
     OAuthError,
+    oauthErrorFromCode,
     OAuthErrorCode,
     OAuthErrorResponseSchema,
     OAuthMetadataSchema,
@@ -527,7 +528,7 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
     } catch (error) {
         // Not a valid OAuth error response, but try to inform the user of the raw data anyway
         const errorMessage = `${statusCode ? `HTTP ${statusCode}: ` : ''}Invalid OAuth error response: ${error}. Raw body: ${body}`;
-        return new OAuthError(OAuthErrorCode.ServerError, errorMessage);
+        return oauthErrorFromCode(OAuthErrorCode.ServerError, errorMessage);
     }
 }
 
@@ -710,7 +711,7 @@ async function authInternal(
         const clientMetadataUrl = provider.clientMetadataUrl;
 
         if (clientMetadataUrl && !isHttpsUrl(clientMetadataUrl)) {
-            throw new OAuthError(
+            throw oauthErrorFromCode(
                 OAuthErrorCode.InvalidClientMetadata,
                 `clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: ${clientMetadataUrl}`
             );
@@ -819,7 +820,7 @@ async function authInternal(
  */
 export function validateClientMetadataUrl(url: string | undefined): void {
     if (url && !isHttpsUrl(url)) {
-        throw new OAuthError(
+        throw oauthErrorFromCode(
             OAuthErrorCode.InvalidClientMetadata,
             `clientMetadataUrl must be a valid HTTPS URL with a non-root pathname, got: ${url}`
         );
