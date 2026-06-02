@@ -1115,6 +1115,29 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             });
         });
 
+        it('should accept application/json-only Accept headers in JSON response mode', async () => {
+            const response = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList, sessionId, { Accept: 'application/json' });
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toBe('application/json');
+
+            const result = await response.json();
+            expect(result).toMatchObject({
+                jsonrpc: '2.0',
+                result: expect.objectContaining({
+                    tools: expect.arrayContaining([expect.objectContaining({ name: 'greet' })])
+                }),
+                id: 'tools-1'
+            });
+        });
+
+        it('should accept wildcard Accept headers in JSON response mode', async () => {
+            const response = await sendPostRequest(baseUrl, TEST_MESSAGES.toolsList, sessionId, { Accept: '*/*' });
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toBe('application/json');
+        });
+
         it('should return JSON response for batch requests', async () => {
             const batchMessages: JSONRPCMessage[] = [
                 { jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'batch-1' },
@@ -3178,6 +3201,31 @@ describe('WebStandardStreamableHTTPServerTransport - onerror callback', () => {
         );
         expect(onerrorSpy).toHaveBeenCalled();
         expect(onerrorSpy.mock.calls[0]![0]!.message).toMatch(/Not Acceptable/);
+    });
+
+    it('should allow application/json-only Accept headers in JSON response mode', async () => {
+        const jsonServer = new McpServer({ name: 'json-test-server', version: '1.0.0' });
+        const jsonTransport = new WebStandardStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            enableJsonResponse: true
+        });
+        const jsonOnError = vi.fn<(error: Error) => void>();
+        jsonTransport.onerror = jsonOnError;
+        await jsonServer.connect(jsonTransport);
+
+        try {
+            const response = await jsonTransport.handleRequest(
+                req('POST', { body: TEST_MESSAGES.initialize, headers: { Accept: 'application/json', 'Content-Type': 'application/json' } })
+            );
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toBe('application/json');
+            expect(await response.json()).toMatchObject({ jsonrpc: '2.0', id: 'init-1' });
+            expect(jsonOnError).not.toHaveBeenCalled();
+        } finally {
+            await jsonTransport.close();
+            await jsonServer.close();
+        }
     });
 
     it('should call onerror for unsupported Content-Type', async () => {
