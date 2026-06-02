@@ -134,6 +134,7 @@ New `SdkErrorCode` enum values:
 - `SdkErrorCode.ConnectionClosed` = `'CONNECTION_CLOSED'`
 - `SdkErrorCode.SendFailed` = `'SEND_FAILED'`
 - `SdkErrorCode.InvalidResult` = `'INVALID_RESULT'`
+- `SdkErrorCode.InvalidSpecType` = `'INVALID_SPEC_TYPE'`
 - `SdkErrorCode.ClientHttpNotImplemented` = `'CLIENT_HTTP_NOT_IMPLEMENTED'`
 - `SdkErrorCode.ClientHttpAuthentication` = `'CLIENT_HTTP_AUTHENTICATION'`
 - `SdkErrorCode.ClientHttpForbidden` = `'CLIENT_HTTP_FORBIDDEN'`
@@ -482,6 +483,8 @@ If a `*Schema` constant was used for **runtime validation** (not just as a `requ
 | Passing `<TypeName>Schema` as a validator argument | `specTypeSchemas.<TypeName>` (a `StandardSchemaV1Sync<In, Out>` with `parse`/`safeParse`) |
 
 All validation is synchronous (`StandardSchemaV1Sync`) — never add `await`. `isCallToolResult(value)` still works, but `isSpecType` covers every spec type by name.
+
+Note: the v1→v2 codemod currently rewrites these call sites to the lower-level `specTypeSchemas.<TypeName>['~standard'].validate(value)` form. That form is equivalent and stays supported, but `parse`/`safeParse` is the recommended form when writing or revising call sites by hand; a codemod update to emit the methods directly is planned.
 
 ## 12. Experimental tasks interception removed
 

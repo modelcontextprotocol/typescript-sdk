@@ -734,6 +734,7 @@ The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 | `SdkErrorCode.ConnectionClosed`                   | Connection was closed                          |
 | `SdkErrorCode.SendFailed`                         | Failed to send message                         |
 | `SdkErrorCode.InvalidResult`                      | Response result failed local schema validation |
+| `SdkErrorCode.InvalidSpecType`                    | Value failed spec type schema validation via `parse`/`safeParse` |
 | `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                       |
 | `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication    |
 | `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping     |
