@@ -24,8 +24,13 @@ export class StdioServerTransport implements Transport {
 
     // Arrow functions to bind `this` properly, while maintaining function identity.
     _ondata = (chunk: Buffer) => {
-        this._readBuffer.append(chunk);
-        this.processReadBuffer();
+        try {
+            this._readBuffer.append(chunk);
+            this.processReadBuffer();
+        } catch (error) {
+            this.onerror?.(error as Error);
+            this.close().catch(() => {});
+        }
     };
     _onerror = (error: Error) => {
         this.onerror?.(error);

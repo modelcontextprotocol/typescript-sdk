@@ -148,8 +148,13 @@ export class StdioClientTransport implements Transport {
             });
 
             this._process.stdout?.on('data', chunk => {
-                this._readBuffer.append(chunk);
-                this.processReadBuffer();
+                try {
+                    this._readBuffer.append(chunk);
+                    this.processReadBuffer();
+                } catch (error) {
+                    this.onerror?.(error as Error);
+                    this.close().catch(() => {});
+                }
             });
 
             this._process.stdout?.on('error', error => {

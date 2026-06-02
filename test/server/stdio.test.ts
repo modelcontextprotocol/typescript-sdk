@@ -100,3 +100,28 @@ test('should read multiple messages', async () => {
     await finished;
     expect(readMessages).toEqual(messages);
 });
+
+test('should fire onerror and close when ReadBuffer overflows', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    let receivedError: Error | undefined;
+    server.onerror = err => {
+        receivedError = err;
+    };
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+
+    // Push data exceeding the default 10 MB limit without a newline
+    const chunk = Buffer.alloc(11 * 1024 * 1024, 0x41);
+    input.push(chunk);
+
+    // Allow the close() promise to settle
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(receivedError?.message).toMatch(/ReadBuffer exceeded maximum size/);
+    expect(closeCount).toBe(1);
+});
