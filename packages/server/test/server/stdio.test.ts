@@ -223,7 +223,10 @@ test('sends the dispatch result for a routed request on stdout', async () => {
     input.push(serializeMessage(request));
 
     expect(await nextStdoutMessage()).toEqual({ jsonrpc: '2.0', id: 3, result: { ok: true } });
-    expect(dispatch).toHaveBeenCalledExactlyOnceWith(request, { sendNotification: expect.any(Function) });
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith(request, {
+        signal: expect.any(AbortSignal),
+        sendNotification: expect.any(Function)
+    });
     expect(onmessage).not.toHaveBeenCalled();
 });
 
@@ -350,7 +353,10 @@ test('an unlisted non-stateful claim still routes on an opted-in server', async 
     input.push(serializeMessage(request));
 
     expect(await nextStdoutMessage()).toEqual({ jsonrpc: '2.0', id: 7, error: { code: -32_004, message: 'Unsupported protocol version' } });
-    expect(dispatch).toHaveBeenCalledExactlyOnceWith(request, { sendNotification: expect.any(Function) });
+    expect(dispatch).toHaveBeenCalledExactlyOnceWith(request, {
+        signal: expect.any(AbortSignal),
+        sendNotification: expect.any(Function)
+    });
     expect(onmessage).not.toHaveBeenCalled();
 });
 
@@ -371,4 +377,75 @@ test('a dispatch rejection answers with a generic internal error (no leak)', asy
     // The wire gets a generic message (no internal details leak); onerror gets the real one.
     expect(await nextStdoutMessage()).toEqual({ jsonrpc: '2.0', id: 9, error: { code: -32_603, message: 'Internal error' } });
     expect(errors.map(error => error.message)).toEqual(['secret internal detail']);
+});
+
+// ───── stateless cancellation (notifications/cancelled for in-flight dispatches) ─────
+
+/** A `notifications/cancelled` for the given request id. */
+function cancelledNotification(requestId: number | string): JSONRPCMessage {
+    return { jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId } };
+}
+
+test('notifications/cancelled aborts an in-flight stateless dispatch and suppresses every later frame', async () => {
+    const server = new StdioServerTransport(input, output);
+    let dispatchCtxSignal: AbortSignal | undefined;
+    let release: () => void;
+    const released = new Promise<void>(resolve => {
+        release = resolve;
+    });
+    server.setStatelessHandlers({
+        dispatch: async (request, ctx) => {
+            dispatchCtxSignal = ctx.signal;
+            await released;
+            // Late notification and response after the abort: neither may reach stdout.
+            await ctx.sendNotification?.({ jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 't', progress: 1 } });
+            return { jsonrpc: '2.0', id: request.id, result: { late: true } };
+        }
+    });
+    server.setSupportedProtocolVersions(DRAFT_LISTED);
+    const onmessage = vi.fn();
+    server.onmessage = onmessage;
+    server.onerror = error => {
+        throw error;
+    };
+
+    await server.start();
+    input.push(serializeMessage(versionClaimingRequest(11, DRAFT_PROTOCOL_VERSION)));
+    await vi.waitFor(() => expect(dispatchCtxSignal).toBeDefined());
+    expect(dispatchCtxSignal!.aborted).toBe(false);
+
+    input.push(serializeMessage(cancelledNotification(11)));
+    await vi.waitFor(() => expect(dispatchCtxSignal!.aborted).toBe(true));
+
+    release!();
+    // Drain a macrotask so the dispatch settles, then assert silence.
+    await new Promise(resolve => setTimeout(resolve, 10));
+    expect(outputBuffer.readMessage()).toBeNull();
+    // The cancellation was consumed by the stateless path, never forwarded.
+    expect(onmessage).not.toHaveBeenCalled();
+});
+
+test('notifications/cancelled for ids with no in-flight stateless dispatch stays on onmessage', async () => {
+    const server = new StdioServerTransport(input, output);
+    const dispatch = vi.fn().mockResolvedValue({ jsonrpc: '2.0', id: 12, result: {} });
+    server.setStatelessHandlers({ dispatch });
+    server.setSupportedProtocolVersions(DRAFT_LISTED);
+    const received: JSONRPCMessage[] = [];
+    server.onmessage = message => received.push(message);
+    server.onerror = error => {
+        throw error;
+    };
+
+    await server.start();
+    // A completed stateless request: its map entry is gone by the time the cancel arrives.
+    input.push(serializeMessage(versionClaimingRequest(12, DRAFT_PROTOCOL_VERSION)));
+    expect(await nextStdoutMessage()).toEqual({ jsonrpc: '2.0', id: 12, result: {} });
+
+    const lateCancel = cancelledNotification(12);
+    const statefulCancel = cancelledNotification(99);
+    input.push(serializeMessage(lateCancel));
+    input.push(serializeMessage(statefulCancel));
+
+    // Both cancellations belong to the connection-scoped protocol instance.
+    await vi.waitFor(() => expect(received).toEqual([lateCancel, statefulCancel]));
 });

@@ -6,6 +6,7 @@ import {
     InMemoryTransport,
     isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
+    NotImplementedYetError,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { Server } from '../../src/server/server.js';
@@ -233,6 +234,29 @@ describe('Server', () => {
             expect(handlers()).toBeDefined();
 
             await server.close();
+        });
+    });
+
+    describe('list_changed emission under per-request revisions', () => {
+        // TODO(subscriptions PR): these notifications gain their per-request-era
+        // carrier (subscriptions/listen); the guard and this block go away then.
+        it('rejects list_changed emission on a server configured for per-request revisions only', async () => {
+            const server = new Server(
+                { name: 'test', version: '1.0.0' },
+                { capabilities: { tools: {}, prompts: {}, resources: {} }, supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION] }
+            );
+
+            await expect(server.sendToolListChanged()).rejects.toThrow(NotImplementedYetError);
+            await expect(server.sendPromptListChanged()).rejects.toThrow(NotImplementedYetError);
+            await expect(server.sendResourceListChanged()).rejects.toThrow(NotImplementedYetError);
+        });
+
+        it('keeps list_changed emission for servers listing an initialize-era version', async () => {
+            // Default supported list (initialize-era versions present): the guard never
+            // fires — the emission proceeds to the existing not-connected failure mode.
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
+
+            await expect(server.sendToolListChanged()).rejects.toThrow(/[Nn]ot connected/);
         });
     });
 });

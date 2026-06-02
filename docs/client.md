@@ -517,6 +517,9 @@ client.setRequestHandler('roots/list', async () => {
 
 When the available roots change, notify the server with {@linkcode @modelcontextprotocol/client!client/client.Client#sendRootsListChanged | client.sendRootsListChanged()}.
 
+> [!NOTE]
+> The `notifications/roots/list_changed` notification exists only on initialize-era (2025-11-25 and earlier) connections. The draft per-request revision removes it: servers there receive the client's current context with each request instead, so there is no standing roots state to invalidate. A server speaking a per-request revision ignores the notification.
+
 ### Request context
 
 Handlers receive the request context (`ctx`) as their second argument. `ctx.mcpReq.protocolVersion` (from {@linkcode @modelcontextprotocol/client!index.BaseContext | BaseContext}) is the protocol version governing the request:

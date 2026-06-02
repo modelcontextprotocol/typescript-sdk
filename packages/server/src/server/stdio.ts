@@ -1,8 +1,9 @@
 import type { Readable, Writable } from 'node:stream';
 
-import type { JSONRPCMessage, JSONRPCRequest, StatelessHandlers, Transport } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, RequestId, StatelessHandlers, Transport } from '@modelcontextprotocol/core';
 import {
     INTERNAL_ERROR,
+    isJSONRPCNotification,
     isJSONRPCRequest,
     isStatefulProtocolVersion,
     PROTOCOL_VERSION_META_KEY,
@@ -39,6 +40,15 @@ export class StdioServerTransport implements Transport {
      * @internal
      */
     private _statelessHandlers?: StatelessHandlers;
+
+    /**
+     * One AbortController per in-flight stateless request, keyed by JSON-RPC
+     * id: a `notifications/cancelled` arriving for one of these ids aborts the
+     * matching dispatch (the per-request cancellation the spec requires on
+     * stdio, where there is no transport-level request lifetime to close).
+     * Entries are removed when the dispatch settles.
+     */
+    private _statelessAbortControllers = new Map<RequestId, AbortController>();
 
     constructor(
         private _stdin: Readable = process.stdin,
@@ -106,6 +116,9 @@ export class StdioServerTransport implements Transport {
                 const handlers = this._statelessHandlers;
                 if (handlers && isJSONRPCRequest(message) && this.claimsRoutableStatelessVersion(message)) {
                     void this.dispatchStatelessRequest(message, handlers);
+                } else if (this.cancelsStatelessRequest(message)) {
+                    // Consumed: the cancellation belongs to a stateless dispatch, not to
+                    // the connection-scoped protocol instance behind onmessage.
                 } else {
                     this.onmessage?.(message);
                 }
@@ -134,6 +147,30 @@ export class StdioServerTransport implements Transport {
     }
 
     /**
+     * Whether `message` is a `notifications/cancelled` for an in-flight
+     * stateless dispatch. When it is, the matching dispatch is aborted and the
+     * notification is consumed — it must not reach `onmessage`, where the
+     * connection-scoped protocol instance would look the id up among its own
+     * (stateful-era) requests and find nothing. Cancellations for any other id
+     * are left for `onmessage` unchanged.
+     */
+    private cancelsStatelessRequest(message: JSONRPCMessage): boolean {
+        if (!isJSONRPCNotification(message) || message.method !== 'notifications/cancelled') {
+            return false;
+        }
+        const requestId = (message.params as { requestId?: unknown } | undefined)?.requestId;
+        if (typeof requestId !== 'string' && typeof requestId !== 'number') {
+            return false;
+        }
+        const controller = this._statelessAbortControllers.get(requestId);
+        if (controller === undefined) {
+            return false;
+        }
+        controller.abort();
+        return true;
+    }
+
+    /**
      * Serves one request routed to the stateless dispatch path: forwards it to
      * the installed dispatch handler and writes the returned response to
      * stdout. Request-scoped notifications the handler emits are written to
@@ -141,19 +178,42 @@ export class StdioServerTransport implements Transport {
      * never blocks `onmessage` traffic); never throws — `dispatch()` maps
      * handler failures to error responses, so a rejection is an internal fault
      * answered with a generic error that leaks nothing, the request id echoed.
+     *
+     * Cancellation: a `notifications/cancelled` for this request aborts the
+     * per-request signal, after which NO further frames are written for the
+     * request — neither notifications nor the (eventual) response.
      */
     private async dispatchStatelessRequest(request: JSONRPCRequest, handlers: StatelessHandlers): Promise<void> {
+        const abortController = new AbortController();
+        this._statelessAbortControllers.set(request.id, abortController);
         try {
             const response = await handlers.dispatch(request, {
-                sendNotification: notification => this.send(notification)
+                signal: abortController.signal,
+                sendNotification: async notification => {
+                    if (abortController.signal.aborted) {
+                        return;
+                    }
+                    await this.send(notification);
+                }
             });
-            await this.send(response);
+            if (!abortController.signal.aborted) {
+                await this.send(response);
+            }
         } catch (error) {
             this.onerror?.(error as Error);
+            if (abortController.signal.aborted) {
+                return;
+            }
             try {
                 await this.send({ jsonrpc: '2.0', id: request.id, error: { code: INTERNAL_ERROR, message: 'Internal error' } });
             } catch (sendError) {
                 this.onerror?.(sendError as Error);
+            }
+        } finally {
+            // Guarded delete: if a (spec-violating) duplicate id arrived while this
+            // request was in flight, its newer entry must survive this cleanup.
+            if (this._statelessAbortControllers.get(request.id) === abortController) {
+                this._statelessAbortControllers.delete(request.id);
             }
         }
     }

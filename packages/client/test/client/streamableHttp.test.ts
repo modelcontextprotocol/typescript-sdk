@@ -2074,4 +2074,54 @@ describe('StreamableHTTPClientTransport', () => {
             expect(messageSpy).not.toHaveBeenCalled();
         });
     });
+
+    describe('per-request protocol revisions: sessionless invariants', () => {
+        const okJsonResponse = (body: unknown, headers: Record<string, string> = {}) => ({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'application/json', ...headers }),
+            json: () => Promise.resolve(body),
+            text: () => Promise.resolve(JSON.stringify(body))
+        });
+
+        it('ignores an Mcp-Session-Id a server emits while pinned to a per-request revision (no storage, no replay)', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { protocolVersion: '2026-07-28' });
+            const request: JSONRPCMessage = { jsonrpc: '2.0', method: 'tools/list', id: 1, params: {} };
+            (globalThis.fetch as Mock).mockResolvedValue(
+                okJsonResponse({ jsonrpc: '2.0', id: 1, result: {} }, { 'mcp-session-id': 'injected-by-server' })
+            );
+
+            await transport.send(request);
+            expect(transport.sessionId).toBeUndefined();
+
+            await transport.send({ ...request, id: 2 });
+            const lastCall = (globalThis.fetch as Mock).mock.calls.at(-1)!;
+            expect((lastCall[1].headers as Headers).get('mcp-session-id')).toBeNull();
+        });
+
+        it('still captures the session id from an initialize response (the back-compat fallback handshake)', async () => {
+            // On the fallback path the initialize request goes out while the probed
+            // per-request version is still set on the transport (the handshake
+            // overwrites it only after the result arrives) — its session id is real.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { protocolVersion: '2026-07-28' });
+            const initialize: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'initialize',
+                id: 1,
+                params: { protocolVersion: '2025-11-25', capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+            };
+            (globalThis.fetch as Mock).mockResolvedValue(
+                okJsonResponse({ jsonrpc: '2.0', id: 1, result: {} }, { 'mcp-session-id': 'handshake-session' })
+            );
+
+            await transport.send(initialize);
+            expect(transport.sessionId).toBe('handshake-session');
+
+            // After the handshake pins a stateful version, the session id is replayed as today.
+            transport.setProtocolVersion('2025-11-25');
+            await transport.send({ jsonrpc: '2.0', method: 'tools/list', id: 2, params: {} });
+            const lastCall = (globalThis.fetch as Mock).mock.calls.at(-1)!;
+            expect((lastCall[1].headers as Headers).get('mcp-session-id')).toBe('handshake-session');
+        });
+    });
 });

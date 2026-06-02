@@ -449,9 +449,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'Registering a tool with a name already in use is rejected at registration time.'
     },
     'typescript:mcpserver:tool:extra': {
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'typescript:mcpserver:tool:extra-sessionless',
         source: 'sdk',
         behavior:
-            'Tool handlers receive RequestHandlerExtra with sessionId, requestId, signal, sendNotification, and (when applicable) authInfo and requestInfo.'
+            'Tool handlers receive RequestHandlerExtra with sessionId, requestId, signal, sendNotification, and (when applicable) authInfo and requestInfo.',
+        note: 'Partial removal: only sessionId is dropped in 2026 (sessionless); requestId/signal/sendNotification/authInfo/requestInfo persist. The successor asserts the same shape minus sessionId.'
     },
     'mcpserver:tool:handle-update': {
         transports: STATEFUL_TRANSPORTS,
@@ -1141,9 +1144,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: "_meta returned in a handler's result is delivered intact to the requesting client."
     },
     'protocol:request-id:unique': {
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'protocol:request-id:outstanding-scope',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#requests',
         behavior:
-            'Every request sent on a session carries a unique, non-null string or integer id; ids are never reused within the session.'
+            'Every request sent on a session carries a unique, non-null string or integer id; ids are never reused within the session.',
+        note: 'Partial removal: the non-null unique-id rule persists in 2026, but the scope narrows from "within the session" to "among outstanding requests" (draft basic/index — an id may be reused once its response has been received).'
     },
     'protocol:notifications:no-response': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#notifications',
@@ -1210,58 +1216,68 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     // Hosting: session lifecycle
 
     'hosting:session:cors-expose': {
+        removedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior: 'CORS configuration exposes the Mcp-Session-Id header so browser clients can read it.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).'
     },
     'hosting:session:create': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior: 'An initialize POST without a session id creates a session and returns Mcp-Session-Id in the response headers.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).'
     },
     'hosting:session:delete': {
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'hosting:sessionless:delete-405',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior: 'DELETE with a valid Mcp-Session-Id terminates the session.',
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:session:id-charset': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior: 'Generated Mcp-Session-Id values contain only visible ASCII characters.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).'
     },
     'hosting:session:isolation': {
+        removedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior: 'Each session gets its own server instance; closing one session does not affect others.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).'
     },
     'hosting:session:missing-id': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior: 'A non-initialize POST without Mcp-Session-Id in stateful mode returns 400.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).'
     },
     'hosting:session:reinitialize': {
+        removedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior: 'A second initialize on an already-initialized session transport is rejected.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).'
     },
     'hosting:session:reuse': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior: "A POST carrying a valid Mcp-Session-Id routes to that session's transport with state preserved.",
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).'
     },
     'hosting:session:unknown-id': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior: 'A POST, GET, or DELETE with an unknown Mcp-Session-Id returns 404.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).',
         knownFailures: [
             {
                 note: "The SDK's documented hosting pattern rejects unknown session ids with 400 at the app level (see src/examples servers); the transport's own validateSession 404 is never reached, while the spec requires 404."
@@ -1292,11 +1308,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the HTTP hosting layer and stateless mode; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:session:delete-cancels-inflight': {
+        removedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior:
             "DELETE on a session aborts every in-flight request handler's RequestHandlerExtra.signal; their POST-initiated SSE streams close without a JSON-RPC response being written.",
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).'
     },
     'hosting:stateless:get-delete-405': {
         source: 'sdk',
@@ -1410,46 +1427,53 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     // Hosting: resumability
 
     'typescript:hosting:resume:bad-event-id': {
+        removedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior: 'Last-Event-ID that cannot be mapped to a stream returns 400; replay failure returns 500.',
         transports: ['streamableHttp'],
-        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
+        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
     'hosting:resume:buffered-replay': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery',
         behavior: 'Notifications emitted while no client is connected are replayed in order on reconnect.',
         transports: ['streamableHttp'],
-        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
+        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
     'hosting:resume:close-stream': {
+        removedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior: 'Handlers can close an SSE stream cleanly when an event store is configured.',
         transports: ['streamableHttp'],
-        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
+        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
     'hosting:resume:event-ids': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery',
         behavior: 'With an event store configured, every SSE event carries an id field.',
         transports: ['streamableHttp'],
-        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
+        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
     'hosting:resume:priming': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
         behavior: 'With eventStore + new protocol, POST SSE streams begin with a priming event carrying the configured retry: interval.',
         transports: ['streamableHttp'],
-        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
+        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
     'hosting:resume:replay': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery',
         behavior: 'GET with Last-Event-ID replays stored events for that stream after the given id.',
         transports: ['streamableHttp'],
-        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
+        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
     'hosting:resume:stream-scoped': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery',
         behavior: 'Replay via Last-Event-ID returns only messages from the stream that event id belongs to.',
         transports: ['streamableHttp'],
-        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
+        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
 
     // Hosting: HTTP semantics
@@ -1461,11 +1485,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'These test the per-session host layer (via hostPerSession helper); stateless transport tests use hostStateless which has different request routing.'
     },
     'hosting:http:batch': {
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'hosting:sessionless:no-batching',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
         behavior:
             'POST body is a single JSON-RPC message; batched arrays are accepted only as an SDK back-compat affordance for pre-2025-06-18 clients (spec forbids batches).',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Partial removal: the single-message rule persists in 2026 (draft transports — POST body MUST be a single JSON-RPC message); only the legacy batch-array affordance is dropped. The 2026 successor asserts batch ⇒ 400.'
     },
     'hosting:http:content-type-415': {
         source: 'sdk',
@@ -1550,17 +1576,19 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:http:standalone-sse': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server',
         behavior: 'GET opens a standalone SSE stream that receives server-initiated messages.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: the standalone GET SSE stream is removed; in 2026 the only server to client paths are request-scoped (MRTR) and subscriptions/listen (SEP-2575/2567).'
     },
     'hosting:http:standalone-sse-no-response': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server',
         behavior:
             'The standalone GET SSE stream carries server requests and notifications but never a JSON-RPC response, except when resuming a prior request stream.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: the standalone GET SSE stream is removed; in 2026 the only server to client paths are request-scoped (MRTR) and subscriptions/listen (SEP-2575/2567).'
     },
     // Hosting: stateless routing + dispatch (per-request protocol revisions, SEP-2575/SEP-2567)
 
@@ -1647,6 +1675,107 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'On the stateless HTTP path the server answers a request either with a single application/json object, or — when the handler emits request-scoped notifications — with an SSE stream carrying those notifications in order followed by the final JSON-RPC response, which terminates the stream. Notifications always relate to the originating request and no Mcp-Session-Id header is ever emitted.',
         transports: ['streamableHttp'],
         note: 'Conformance (adjacent): sep-2575-http-server-no-independent-requests-on-stream. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+
+    // Sessionless invariants (per-request protocol revisions, SEP-2567)
+
+    'hosting:sessionless:get-405': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#sending-messages-1',
+        behavior:
+            'A GET claiming a per-request protocol revision is answered 405 Method Not Allowed (Allow: POST): the MCP endpoint is POST-only under these revisions — there is no standalone server-to-client stream to open. (The deleted standalone-GET-stream rule that response streams never carry independent server requests is absorbed here: no GET stream can exist at all.)',
+        transports: ['streamableHttp'],
+        note: 'Distinct from hosting:stateless:get-delete-405, which covers the 2025 stateless MODE (sessionIdGenerator: undefined, initialize-era traffic); this entry covers the routed per-request path, where the 405 is unconditional. The body also asserts the DELETE half and the batch rejection — it is shared with the 2026-bounded successors hosting:sessionless:delete-405 and hosting:sessionless:no-batching, so those behaviors are pinned by live cells before the 2026 matrix axis activates. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:sessionless:delete-405': {
+        addedInSpecVersion: '2026-07-28',
+        supersedes: ['hosting:session:delete'],
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#sending-messages-1',
+        behavior:
+            'Under a per-request protocol revision there is no session to terminate: a DELETE claiming such a revision is answered 405 Method Not Allowed.',
+        transports: ['streamableHttp'],
+        note: 'SEP-2567: sessions are deleted, so the DELETE leg of the endpoint loses its meaning. The cited body is shared with hosting:sessionless:get-405 (live), which pins this behavior today; this entry registers its own cells when the 2026 matrix axis activates. This exercises the HTTP hosting layer; the matrix transport arg is ignored.'
+    },
+    'hosting:sessionless:no-batching': {
+        addedInSpecVersion: '2026-07-28',
+        supersedes: ['hosting:http:batch'],
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#sending-messages-1',
+        behavior:
+            'A POST claiming a per-request protocol revision whose body is a JSON-RPC batch array is rejected with 400 (-32600 Invalid Request): the 2025 batch back-compat affordance does not exist on this path — the body is exactly one message.',
+        transports: ['streamableHttp'],
+        note: 'SEP-2575 (R-2575-14). The cited body is shared with hosting:sessionless:get-405 (live), which pins this behavior today; this entry registers its own cells when the 2026 matrix axis activates. This exercises the HTTP hosting layer; the matrix transport arg is ignored.'
+    },
+    'hosting:sessionless:no-session-header': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            'Per-request-revision traffic is sessionless on both sides: the server never emits an Mcp-Session-Id header on any stateless-path response — including on a transport configured with a sessionIdGenerator, whose 2025-era session behavior is unaffected — and requests are served without one.',
+        transports: ['streamableHttp'],
+        note: 'SEP-2567. The sessionIdGenerator half pins that a dual-stack deployment cannot leak session headers into per-request traffic (the config is simply inert there). The body is shared with client-transport:http:no-session-header (2026-bounded successor), driving a real 2026-mode client against this server with a header-injecting fetch. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-transport:http:no-session-header': {
+        addedInSpecVersion: '2026-07-28',
+        supersedes: [
+            'client-transport:http:session-stored',
+            'typescript:client-transport:http:session-id-property',
+            'typescript:client-transport:http:session-id-option'
+        ],
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
+        behavior:
+            'A client transport pinned to a per-request protocol revision never sends Mcp-Session-Id on any request and ignores one if a server (or intermediary) emits it: no storage, no replay, and .sessionId stays undefined.',
+        transports: ['streamableHttp'],
+        note: 'SEP-2567 backward compatibility. The superseded typescript: entries are the SDK API surfaces of session-id storage and replay. The cited body is shared with hosting:sessionless:no-session-header (live), which pins this behavior today; this entry registers its own cells when the 2026 matrix axis activates. This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored.'
+    },
+    'hosting:sessionless:per-request-auth': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            'On the stateless dispatch path, authorization context is per-request: ctx.http.authInfo carries exactly the auth info validated for the request being served, and a request without credentials sees none — never auth inherited from an earlier request on the same transport.',
+        transports: ['streamableHttp'],
+        note: 'SEP-2575: every request is independently authenticated; the SDK surface for that rule is the per-request authInfo plumbing (rejecting unauthenticated requests is the auth middleware layer, exercised by the hosting-auth tests). The body is shared with typescript:mcpserver:tool:extra-sessionless (2026-bounded successor): the same ctx-reporting tool proves both the auth scoping and the sessionless handler-context shape. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'typescript:mcpserver:tool:extra-sessionless': {
+        addedInSpecVersion: '2026-07-28',
+        supersedes: ['typescript:mcpserver:tool:extra'],
+        source: 'sdk',
+        behavior:
+            'On the per-request (sessionless) path, tool handlers receive the RequestHandlerExtra shape minus the session identifier: sessionId is undefined while requestId, signal, sendNotification, and (when applicable) authInfo persist.',
+        transports: ['streamableHttp'],
+        note: 'SEP-2567: the 2026 sibling of the RequestHandlerExtra shape requirement — only sessionId is dropped. The cited body is shared with hosting:sessionless:per-request-auth (live), which pins this behavior today; this entry registers its own cells when the 2026 matrix axis activates. The matrix transport arg is ignored.'
+    },
+    'protocol:stateless:list-connection-independent': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            'Under a per-request protocol revision, list results (tools/list) are connection-invariant: the same request through two independently connected transports (each serving a fresh server instance from the same factory) yields identical results.',
+        transports: ['streamableHttp'],
+        note: 'SEP-2567 (R-2567-1); also covers the no-connection-affinity rule (R-2575-8) — same requests over one connection or two produce identical results, which is exactly what the two-transport probe asserts. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'protocol:stateless:list-no-side-effects': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
+        behavior:
+            'Under a per-request protocol revision, list results are unchanged by intervening calls on the same connection: tools/list before and after a tools/call yields identical results.',
+        transports: ['streamableHttp'],
+        note: 'SEP-2567 (R-2567-2). The body is shared with protocol:request-id:outstanding-scope (2026-bounded successor): the second list reuses the JSON-RPC id of the first — already settled — list request, so the same probe pins the re-scoped id-uniqueness rule. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'protocol:request-id:outstanding-scope': {
+        addedInSpecVersion: '2026-07-28',
+        supersedes: ['protocol:request-id:unique'],
+        source: 'https://modelcontextprotocol.io/specification/draft/basic#requests',
+        behavior:
+            'Under a per-request protocol revision, request-id uniqueness is scoped to outstanding requests: ids never collide among in-flight requests, and a request reusing the id of an already-completed request is processed normally.',
+        transports: ['streamableHttp'],
+        note: 'SEP-2567 (R-2567-3): the session-scoped never-reuse rule narrows to in-flight requests only (the SDK client, with its monotonic counter, trivially satisfies it — the server-side acceptance of a reused settled id is the consequential half). The cited body is shared with protocol:stateless:list-no-side-effects (live), which pins this behavior today; this entry registers its own cells when the 2026 matrix axis activates. The matrix transport arg is ignored.'
+    },
+    'protocol:stateless:stdio-cancellation': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/cancellation',
+        behavior:
+            'On the stdio stateless path, a notifications/cancelled naming an in-flight stateless request aborts that dispatch: the handler observes its per-request signal fire, and the server writes no further frames for that request id — neither notifications nor the late response. The cancellation is consumed by the stateless path (never delivered to the connection-scoped protocol instance), and unrelated traffic on the same pipe is unaffected.',
+        transports: ['stdio'],
+        note: 'SEP-2575 cancellation MUST for self-contained requests; over HTTP the equivalent is closing the response stream (the request signal is the HTTP request lifetime). Spawned-child variant only: the abort observation is reported on stderr, the one channel allowed to carry anything for the request after cancellation.'
+    },
+    'hosting:http:stateless-no-sse-event-ids': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#receiving-messages-1',
+        behavior:
+            'SSE responses on the stateless HTTP path carry no SSE id: lines, even when the transport is configured with an eventStore: per-request revisions have no stream resumability, so no resumption ids may be offered.',
+        transports: ['streamableHttp'],
+        note: 'SEP-2575 removes Last-Event-ID resumability for per-request revisions (SEP-2567 re-scopes event-id uniqueness in a way that contradicts the removal — flagged upstream; the SDK emits no ids on this path under either reading). This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
 
     // Discovery (server/discover, draft spec)
@@ -1748,10 +1877,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'removed in v2: the bundled authorize and token endpoints no longer exist, so redirect_uri binding across authorize and token cannot be exercised.'
     },
     'hosting:session:post-termination-404': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior: 'After a session is terminated, any further request carrying that session ID is answered with 404 Not Found.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).',
         knownFailures: [
             {
                 note: 'The documented per-session hosting pattern (hostPerSession) removes the transport from the session map on DELETE via onsessionclosed and answers any later request carrying the stale Mcp-Session-Id with 400 at the app level, so the spec-required 404 is never produced.'
@@ -1801,17 +1931,19 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     // Client transport: streamableHttp
 
     'client-transport:http:404-surfaces': {
+        removedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior: 'A 404 (session expired) on a request surfaces as an error to the caller.',
         transports: ['streamableHttp'],
-        note: 'Session-id continuity testing requires the per-session host (404 is session-not-found).'
+        note: 'Session-id continuity testing requires the per-session host (404 is session-not-found). Removed in 2026 with no replacement: session expiry and client-side session termination are 2025-only; a 2026 client never carries a session id (SEP-2567).'
     },
     'client-transport:http:session-404-reinitialize': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior:
             'A 404 in response to a request carrying a session ID makes the client start a new session with a fresh InitializeRequest and no session ID attached.',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: session expiry and client-side session termination are 2025-only; a 2026 client never carries a session id (SEP-2567).',
         knownFailures: [
             {
                 note: 'On a 404 for an existing session the transport throws StreamableHTTPError (streamableHttp.ts:551) and never re-initializes — no session recovery is attempted.'
@@ -1819,10 +1951,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         ]
     },
     'client-transport:http:accept-header-get': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server',
         behavior: 'The client GET to the MCP endpoint includes an Accept header listing text/event-stream.',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: the standalone GET SSE stream is removed; in 2026 the only server to client paths are request-scoped (MRTR) and subscriptions/listen (SEP-2575/2567).'
     },
     'client-transport:http:accept-header-post': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
@@ -1846,7 +1979,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior: 'Caller-supplied headers are sent on every POST, GET, and DELETE to the MCP endpoint.',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Not removed in 2026: caller-supplied headers survive; the 2026 endpoint is POST-only, so the GET and DELETE legs of this behavior become vacuous (SEP-2567/2575).'
     },
     'client-transport:http:json-response-parsed': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
@@ -1879,17 +2012,19 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'client-transport:http:reconnect-get': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery',
         behavior: 'A standalone GET SSE stream that errors is reconnected with the Last-Event-ID of the last received event.',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
     'client-transport:http:reconnect-post-priming': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
         behavior:
             'A POST-initiated SSE stream that errors before delivering its response is reconnected only if a priming event (an event carrying an ID) was received on it.',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
     'client-transport:http:reconnect-retry-value': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
@@ -1898,28 +2033,33 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'client-transport:http:resume-stream-api': {
+        removedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior: 'The client can capture a resumption token, reconnect with the same session id, and receive the notifications it missed.',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
     'client-transport:http:session-stored': {
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'client-transport:http:no-session-header',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior: 'The Mcp-Session-Id returned by initialize is stored by the client transport and sent on every subsequent request.',
         transports: ['streamableHttp'],
         note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'client-transport:http:sse-405-tolerated': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server',
         behavior: 'Opening the standalone GET SSE stream tolerates a 405 response without failing the connection.',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: the standalone GET SSE stream is removed; in 2026 the only server to client paths are request-scoped (MRTR) and subscriptions/listen (SEP-2575/2567).'
     },
     'client-transport:http:terminate-405-ok': {
+        removedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior: 'Session termination succeeds without error if the server answers 405 (termination unsupported).',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: session expiry and client-side session termination are 2025-only; a 2026 client never carries a session id (SEP-2567).'
     },
     'client-transport:http:body-stream-error-preserved': {
         source: 'sdk',
@@ -2201,11 +2341,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'flow:multi-client:stateful-isolation': {
+        removedInSpecVersion: '2026-07-28',
         transports: ['streamableHttp'],
         source: 'sdk',
         behavior:
             'Independent clients connected to one stateful server each receive a distinct session and only the notifications produced by their own requests.',
-        note: 'This is an HTTP-specific flow requiring session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This is an HTTP-specific flow requiring session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567); in 2026 isolation is structural — notifications are scoped to the response stream of the request that produced them.'
     },
     'flow:oauth:authorization-code-roundtrip': {
         transports: ['streamableHttp'],
@@ -2215,17 +2356,19 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'End-to-end authorization-code journey (401 → discovery → DCR → redirect → finishAuth → authorized reconnect); the individual mechanisms are covered by the client-auth:* requirements. This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'flow:resume:tool-call-resumption-token': {
+        removedInSpecVersion: '2026-07-28',
         transports: ['streamableHttp'],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery',
         behavior:
             'A tool call interrupted mid-stream is transparently resumed by the client transport using the last-seen event id, delivering only the remaining notifications and the final result.',
-        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
+        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither. Removed in 2026 with no replacement: resumable SSE streams via Last-Event-ID are not supported in 2026 (SEP-2575).'
     },
     'flow:session:terminate-then-reconnect': {
+        removedInSpecVersion: '2026-07-28',
         transports: ['streamableHttp'],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
         behavior: 'After terminating a session, a fresh connection obtains a new session id and operations succeed.',
-        note: 'This is an HTTP-specific flow requiring session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This is an HTTP-specific flow requiring session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567).'
     },
     'flow:tool-result:resource-link-follow': {
         transports: STATEFUL_TRANSPORTS,
@@ -2521,18 +2664,22 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         ]
     },
     'typescript:client-transport:http:session-id-property': {
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'client-transport:http:no-session-header',
         source: 'sdk',
         behavior:
             'StreamableHTTPClientTransport exposes the negotiated session id via a readable .sessionId property after initialization so consumers can persist and display it.',
         transports: ['streamableHttp'],
-        note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. A 2026 client stores no session id, so .sessionId stays undefined.'
     },
     'typescript:client-transport:http:session-id-option': {
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'client-transport:http:no-session-header',
         source: 'sdk',
         behavior:
             'A sessionId passed to the StreamableHTTPClientTransport constructor is sent as the Mcp-Session-Id header from the first request onwards.',
         transports: ['streamableHttp'],
-        note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. A 2026 client never sends Mcp-Session-Id, so the constructor option is inert.'
     },
     'client-transport:http:reconnect-failure-onerror': {
         source: 'sdk',
@@ -2604,11 +2751,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'Tool metadata supplied to registerTool (title, annotations, _meta, icons) is returned verbatim in tools/list results to connected clients.'
     },
     'hosting:session:lifecycle-callbacks': {
+        removedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior:
             'StreamableHTTPServerTransport invokes onsessioninitialized with the new session id after initialization and onsessionclosed when the client issues DELETE, allowing hosts to maintain a session-to-transport map.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. Removed in 2026 with no replacement: protocol sessions and the Mcp-Session-Id header are deleted (SEP-2567); the onsessioninitialized/onsessionclosed callbacks have no 2026 home.'
     },
     // Legacy SSE
     'transport:sse:server-transport': {

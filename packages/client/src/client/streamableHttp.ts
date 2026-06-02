@@ -4,6 +4,7 @@ import type { FetchLike, JSONRPCErrorResponse, JSONRPCMessage, Transport } from 
 import {
     createFetchWithInit,
     isInitializedNotification,
+    isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -238,7 +239,7 @@ export class StreamableHTTPClientTransport implements Transport {
             headers['Authorization'] = `Bearer ${token}`;
         }
 
-        if (this._sessionId) {
+        if (this._sessionId && !this._isSessionlessVersion()) {
             headers['mcp-session-id'] = this._sessionId;
         }
         if (this._protocolVersion) {
@@ -580,9 +581,14 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const response = await (this._fetch ?? fetch)(this._url, init);
 
-            // Handle session ID received during initialization
+            // Handle session ID received during initialization. Per-request protocol
+            // revisions are sessionless: while this transport is pinned to one, an
+            // Mcp-Session-Id a server (or intermediary) emits is ignored — never
+            // stored, never replayed. Initialize requests stay exempt: on the
+            // back-compat fallback the handshake response arrives while the probed
+            // per-request version is still set, and its session id must be kept.
             const sessionId = response.headers.get('mcp-session-id');
-            if (sessionId) {
+            if (sessionId && (!this._isSessionlessVersion() || this._containsInitializeRequest(message))) {
                 this._sessionId = sessionId;
             }
 
@@ -734,6 +740,20 @@ export class StreamableHTTPClientTransport implements Transport {
 
     get sessionId(): string | undefined {
         return this._sessionId;
+    }
+
+    /**
+     * Whether this transport is pinned to a per-request (non-stateful) protocol
+     * revision. Those connections are sessionless: the client never sends
+     * `Mcp-Session-Id` and ignores one if a server emits it.
+     */
+    private _isSessionlessVersion(): boolean {
+        return this._protocolVersion !== undefined && !isStatefulProtocolVersion(this._protocolVersion);
+    }
+
+    /** Whether the POSTed body contains an `initialize` request. */
+    private _containsInitializeRequest(message: JSONRPCMessage | JSONRPCMessage[]): boolean {
+        return (Array.isArray(message) ? message : [message]).some(m => isInitializeRequest(m));
     }
 
     /**

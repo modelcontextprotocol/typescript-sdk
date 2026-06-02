@@ -48,6 +48,31 @@ server.registerTool(
     }
 );
 
+// slow tool: emits one progress notification (the started signal), then waits for
+// per-request cancellation. When the request's abort signal fires it reports the
+// observation on stderr — the only channel allowed to carry anything for the
+// request after a cancellation ("no further frames" is the behavior under test) —
+// and returns; the transport suppresses the late response.
+server.registerTool(
+    'slow',
+    {
+        description: 'Runs until the request is cancelled; reports the observed abort on stderr.',
+        inputSchema: z.object({})
+    },
+    async (_args, ctx) => {
+        await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'slow', progress: 0 } });
+        await new Promise<void>(resolve => {
+            if (ctx.mcpReq.signal.aborted) {
+                resolve();
+            } else {
+                ctx.mcpReq.signal.addEventListener('abort', () => resolve(), { once: true });
+            }
+        });
+        process.stderr.write(`[stdio-server] aborted:${String(ctx.mcpReq.id)}:${String(ctx.mcpReq.signal.aborted)}\n`);
+        return { content: [{ type: 'text', text: 'late' }] };
+    }
+);
+
 if (process.env.E2E_IGNORE_SIGTERM === '1') {
     // Misbehaving-server mode: keep alive after stdin EOF via interval (load-bearing — without it the child exits on stdin EOF and SIGTERM never arrives) and ignore SIGTERM, so only SIGKILL can end the process.
     setInterval(() => {}, 1000);

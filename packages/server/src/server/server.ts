@@ -836,17 +836,38 @@ export class Server extends Protocol<ServerContext> {
         });
     }
 
+    /**
+     * Asserts that a list_changed notification has a delivery channel.
+     *
+     * Under the per-request protocol revisions, list_changed notifications are
+     * delivered on `subscriptions/listen` streams; until listen is implemented,
+     * a server configured exclusively for per-request revisions has no channel
+     * that can carry an out-of-band notification (matching `server/discover`,
+     * which withholds the listChanged capability flags for the same reason).
+     * Servers listing at least one initialize-era version keep the existing
+     * connection-scoped delivery for that era, unchanged.
+     */
+    // TODO(subscriptions PR): delete this guard when subscriptions/listen delivers list_changed.
+    private _assertListChangedDeliverable(): void {
+        if (!this._supportedProtocolVersions.some(version => isStatefulProtocolVersion(version))) {
+            throw new NotImplementedYetError('list_changed notifications are not supported for per-request protocol revisions yet');
+        }
+    }
+
     async sendResourceListChanged() {
+        this._assertListChangedDeliverable();
         return this.notification({
             method: 'notifications/resources/list_changed'
         });
     }
 
     async sendToolListChanged() {
+        this._assertListChangedDeliverable();
         return this.notification({ method: 'notifications/tools/list_changed' });
     }
 
     async sendPromptListChanged() {
+        this._assertListChangedDeliverable();
         return this.notification({ method: 'notifications/prompts/list_changed' });
     }
 }
