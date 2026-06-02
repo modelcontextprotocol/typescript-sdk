@@ -10,7 +10,8 @@ node_modules
 pnpm-lock.yaml
 
 # Ignore generated files
-src/spec.types.ts
+**/src/types/spec.types.2025-11-25.ts
+**/src/types/spec.types.draft.ts
 
 # Batch test cloned repos and results
 packages/codemod/batch-test/repos

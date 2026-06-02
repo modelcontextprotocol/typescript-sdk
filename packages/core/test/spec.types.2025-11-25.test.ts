@@ -1,4 +1,8 @@
 /**
+ * Compares the SDK's types against the frozen 2025-11-25 release schema
+ * (spec.types.2025-11-25.ts). The draft-schema comparison lives in
+ * spec.types.draft.test.ts.
+ *
  * This contains:
  * - Static type checks to verify the Spec's types are compatible with the SDK's types
  *   (mutually assignable — no type-level workarounds should be needed)
@@ -8,7 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type * as SpecTypes from '../src/types/spec.types.js';
+import type * as SpecTypes from '../src/types/spec.types.2025-11-25.js';
 import type * as SDKTypes from '../src/types/index.js';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
@@ -18,13 +22,6 @@ type WithJSONRPC<T> = T & { jsonrpc: '2.0' };
 
 // Adds the `jsonrpc` and `id` properties to a type, to match the on-wire format of requests.
 type WithJSONRPCRequest<T> = T & { jsonrpc: '2.0'; id: SDKTypes.RequestId };
-
-// The spec defines typed *ResultResponse interfaces (e.g. InitializeResultResponse) that pair a
-// JSONRPCResultResponse envelope with a specific result type. The SDK doesn't export these because
-// nothing in the SDK needs the combined type — Protocol._onresponse() unwraps the envelope and
-// validates the inner result separately. We define this locally to verify the composition still
-// type-checks against the spec without polluting the SDK's public API.
-type TypedResultResponse<R extends SDKTypes.Result> = SDKTypes.JSONRPCResultResponse & { result: R };
 
 const sdkTypeChecks = {
     RequestParams: (sdk: SDKTypes.RequestParams, spec: SpecTypes.RequestParams) => {
@@ -40,6 +37,7 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     InitializeRequestParams: (sdk: SDKTypes.InitializeRequestParams, spec: SpecTypes.InitializeRequestParams) => {
+        // @ts-expect-error 2025-11-25 types capabilities.experimental values as `object`; the SDK follows the draft schema's JSONObject
         sdk = spec;
         spec = sdk;
     },
@@ -90,7 +88,9 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     CreateMessageRequestParams: (sdk: SDKTypes.CreateMessageRequestParams, spec: SpecTypes.CreateMessageRequestParams) => {
+        // @ts-expect-error 2025-11-25 types `metadata` as `object`; the SDK follows the draft schema's JSONObject
         sdk = spec;
+        // @ts-expect-error the SDK's JSONValue-typed tool inputSchema properties are not assignable to 2025-11-25's `object`
         spec = sdk;
     },
     CompleteRequestParams: (sdk: SDKTypes.CompleteRequestParams, spec: SpecTypes.CompleteRequestParams) => {
@@ -245,7 +245,9 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     Tool: (sdk: SDKTypes.Tool, spec: SpecTypes.Tool) => {
+        // @ts-expect-error 2025-11-25 types inputSchema/outputSchema properties as `object`; the SDK follows the draft schema's JSONValue
         sdk = spec;
+        // @ts-expect-error the SDK's JSONValue-typed inputSchema/outputSchema properties are not assignable to 2025-11-25's `object`
         spec = sdk;
     },
     ListToolsRequest: (sdk: WithJSONRPCRequest<SDKTypes.ListToolsRequest>, spec: SpecTypes.ListToolsRequest) => {
@@ -253,7 +255,9 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     ListToolsResult: (sdk: SDKTypes.ListToolsResult, spec: SpecTypes.ListToolsResult) => {
+        // @ts-expect-error 2025-11-25 vs draft Tool typing; see the Tool check above
         sdk = spec;
+        // @ts-expect-error 2025-11-25 vs draft Tool typing; see the Tool check above
         spec = sdk;
     },
     CallToolResult: (sdk: SDKTypes.CallToolResult, spec: SpecTypes.CallToolResult) => {
@@ -473,31 +477,40 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     CreateMessageRequest: (sdk: WithJSONRPCRequest<SDKTypes.CreateMessageRequest>, spec: SpecTypes.CreateMessageRequest) => {
+        // @ts-expect-error 2025-11-25 vs draft typing of params metadata/tools; see the CreateMessageRequestParams check above
         sdk = spec;
+        // @ts-expect-error 2025-11-25 vs draft typing of params metadata/tools; see the CreateMessageRequestParams check above
         spec = sdk;
     },
     InitializeRequest: (sdk: WithJSONRPCRequest<SDKTypes.InitializeRequest>, spec: SpecTypes.InitializeRequest) => {
+        // @ts-expect-error 2025-11-25 types capabilities.experimental values as `object`; the SDK follows the draft schema's JSONObject
         sdk = spec;
         spec = sdk;
     },
     InitializeResult: (sdk: SDKTypes.InitializeResult, spec: SpecTypes.InitializeResult) => {
+        // @ts-expect-error 2025-11-25 types capabilities.experimental values as `object`; the SDK follows the draft schema's JSONObject
         sdk = spec;
         spec = sdk;
     },
     ClientCapabilities: (sdk: SDKTypes.ClientCapabilities, spec: SpecTypes.ClientCapabilities) => {
+        // @ts-expect-error 2025-11-25 types experimental/sampling/elicitation/tasks blobs as `object`; the SDK follows the draft schema's JSONObject
         sdk = spec;
         spec = sdk;
     },
     ServerCapabilities: (sdk: SDKTypes.ServerCapabilities, spec: SpecTypes.ServerCapabilities) => {
+        // @ts-expect-error 2025-11-25 types experimental/logging/completions/tasks blobs as `object`; the SDK follows the draft schema's JSONObject
         sdk = spec;
         spec = sdk;
     },
     ClientRequest: (sdk: WithJSONRPCRequest<SDKTypes.ClientRequest>, spec: SpecTypes.ClientRequest) => {
+        // @ts-expect-error 2025-11-25 types capabilities.experimental values as `object` (via the InitializeRequest member); the SDK follows the draft schema's JSONObject
         sdk = spec;
         spec = sdk;
     },
     ServerRequest: (sdk: WithJSONRPCRequest<SDKTypes.ServerRequest>, spec: SpecTypes.ServerRequest) => {
+        // @ts-expect-error 2025-11-25 vs draft typing of CreateMessageRequest params; see the CreateMessageRequestParams check above
         sdk = spec;
+        // @ts-expect-error 2025-11-25 vs draft typing of CreateMessageRequest params; see the CreateMessageRequestParams check above
         spec = sdk;
     },
     LoggingMessageNotification: (sdk: WithJSONRPC<SDKTypes.LoggingMessageNotification>, spec: SpecTypes.LoggingMessageNotification) => {
@@ -552,10 +565,6 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    TaskAugmentedRequestParams: (sdk: SDKTypes.TaskAugmentedRequestParams, spec: SpecTypes.TaskAugmentedRequestParams) => {
-        sdk = spec;
-        spec = sdk;
-    },
     ToolExecution: (sdk: SDKTypes.ToolExecution, spec: SpecTypes.ToolExecution) => {
         sdk = spec;
         spec = sdk;
@@ -572,6 +581,10 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
+    TaskAugmentedRequestParams: (sdk: SDKTypes.TaskAugmentedRequestParams, spec: SpecTypes.TaskAugmentedRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
     Task: (sdk: SDKTypes.Task, spec: SpecTypes.Task) => {
         sdk = spec;
         spec = sdk;
@@ -580,11 +593,19 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
+    GetTaskRequest: (sdk: WithJSONRPCRequest<SDKTypes.GetTaskRequest>, spec: SpecTypes.GetTaskRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
     GetTaskResult: (sdk: SDKTypes.GetTaskResult, spec: SpecTypes.GetTaskResult) => {
         sdk = spec;
         spec = sdk;
     },
     GetTaskPayloadRequest: (sdk: WithJSONRPCRequest<SDKTypes.GetTaskPayloadRequest>, spec: SpecTypes.GetTaskPayloadRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetTaskPayloadResult: (sdk: SDKTypes.GetTaskPayloadResult, spec: SpecTypes.GetTaskPayloadResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -604,160 +625,11 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    GetTaskRequest: (sdk: WithJSONRPCRequest<SDKTypes.GetTaskRequest>, spec: SpecTypes.GetTaskRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    GetTaskPayloadResult: (sdk: SDKTypes.GetTaskPayloadResult, spec: SpecTypes.GetTaskPayloadResult) => {
-        sdk = spec;
-        spec = sdk;
-    },
     TaskStatusNotificationParams: (sdk: SDKTypes.TaskStatusNotificationParams, spec: SpecTypes.TaskStatusNotificationParams) => {
         sdk = spec;
         spec = sdk;
     },
     TaskStatusNotification: (sdk: WithJSONRPC<SDKTypes.TaskStatusNotification>, spec: SpecTypes.TaskStatusNotification) => {
-        sdk = spec;
-        spec = sdk;
-    },
-
-    /* JSON primitives */
-    JSONValue: (sdk: SDKTypes.JSONValue, spec: SpecTypes.JSONValue) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    JSONObject: (sdk: SDKTypes.JSONObject, spec: SpecTypes.JSONObject) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    JSONArray: (sdk: SDKTypes.JSONArray, spec: SpecTypes.JSONArray) => {
-        sdk = spec;
-        spec = sdk;
-    },
-
-    /* Meta types */
-    MetaObject: (sdk: SDKTypes.MetaObject, spec: SpecTypes.MetaObject) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    RequestMetaObject: (sdk: SDKTypes.RequestMetaObject, spec: SpecTypes.RequestMetaObject) => {
-        sdk = spec;
-        spec = sdk;
-    },
-
-    /* Error types */
-    ParseError: (sdk: SDKTypes.ParseError, spec: SpecTypes.ParseError) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    InvalidRequestError: (sdk: SDKTypes.InvalidRequestError, spec: SpecTypes.InvalidRequestError) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    MethodNotFoundError: (sdk: SDKTypes.MethodNotFoundError, spec: SpecTypes.MethodNotFoundError) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    InvalidParamsError: (sdk: SDKTypes.InvalidParamsError, spec: SpecTypes.InvalidParamsError) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    InternalError: (sdk: SDKTypes.InternalError, spec: SpecTypes.InternalError) => {
-        sdk = spec;
-        spec = sdk;
-    },
-
-    /* ResultResponse types — see TypedResultResponse comment above */
-    InitializeResultResponse: (sdk: TypedResultResponse<SDKTypes.InitializeResult>, spec: SpecTypes.InitializeResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    PingResultResponse: (sdk: TypedResultResponse<SDKTypes.EmptyResult>, spec: SpecTypes.PingResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListResourcesResultResponse: (sdk: TypedResultResponse<SDKTypes.ListResourcesResult>, spec: SpecTypes.ListResourcesResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListResourceTemplatesResultResponse: (
-        sdk: TypedResultResponse<SDKTypes.ListResourceTemplatesResult>,
-        spec: SpecTypes.ListResourceTemplatesResultResponse
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ReadResourceResultResponse: (sdk: TypedResultResponse<SDKTypes.ReadResourceResult>, spec: SpecTypes.ReadResourceResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    SubscribeResultResponse: (sdk: TypedResultResponse<SDKTypes.EmptyResult>, spec: SpecTypes.SubscribeResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    UnsubscribeResultResponse: (sdk: TypedResultResponse<SDKTypes.EmptyResult>, spec: SpecTypes.UnsubscribeResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListPromptsResultResponse: (sdk: TypedResultResponse<SDKTypes.ListPromptsResult>, spec: SpecTypes.ListPromptsResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    GetPromptResultResponse: (sdk: TypedResultResponse<SDKTypes.GetPromptResult>, spec: SpecTypes.GetPromptResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListToolsResultResponse: (sdk: TypedResultResponse<SDKTypes.ListToolsResult>, spec: SpecTypes.ListToolsResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CallToolResultResponse: (sdk: TypedResultResponse<SDKTypes.CallToolResult>, spec: SpecTypes.CallToolResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CreateTaskResultResponse: (sdk: TypedResultResponse<SDKTypes.CreateTaskResult>, spec: SpecTypes.CreateTaskResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    GetTaskResultResponse: (sdk: TypedResultResponse<SDKTypes.GetTaskResult>, spec: SpecTypes.GetTaskResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    GetTaskPayloadResultResponse: (
-        sdk: TypedResultResponse<SDKTypes.GetTaskPayloadResult>,
-        spec: SpecTypes.GetTaskPayloadResultResponse
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CancelTaskResultResponse: (sdk: TypedResultResponse<SDKTypes.CancelTaskResult>, spec: SpecTypes.CancelTaskResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListTasksResultResponse: (sdk: TypedResultResponse<SDKTypes.ListTasksResult>, spec: SpecTypes.ListTasksResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    SetLevelResultResponse: (sdk: TypedResultResponse<SDKTypes.EmptyResult>, spec: SpecTypes.SetLevelResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CreateMessageResultResponse: (
-        sdk: TypedResultResponse<SDKTypes.CreateMessageResultWithTools>,
-        spec: SpecTypes.CreateMessageResultResponse
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CompleteResultResponse: (sdk: TypedResultResponse<SDKTypes.CompleteResult>, spec: SpecTypes.CompleteResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ListRootsResultResponse: (sdk: TypedResultResponse<SDKTypes.ListRootsResult>, spec: SpecTypes.ListRootsResultResponse) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ElicitResultResponse: (sdk: TypedResultResponse<SDKTypes.ElicitResult>, spec: SpecTypes.ElicitResultResponse) => {
         sdk = spec;
         spec = sdk;
     }
@@ -791,7 +663,7 @@ type AssertExactKeys<
 type Assert<T extends true> = T;
 
 /*
- * Excluded from key-level assertions (23 entries):
+ * Excluded from key-level assertions (21 entries):
  *
  * Union types — KnownKeys cannot meaningfully enumerate their members (15):
  *   ClientRequest, ServerRequest, ClientNotification, ServerNotification,
@@ -799,12 +671,11 @@ type Assert<T extends true> = T;
  *   SamplingMessageContentBlock, ElicitRequestParams, PrimitiveSchemaDefinition,
  *   SingleSelectEnumSchema, MultiSelectEnumSchema, EnumSchema
  *
- * Primitive type aliases — no object keys to compare (8):
- *   JSONValue, JSONArray, Role, LoggingLevel, ProgressToken, RequestId,
- *   Cursor, TaskStatus
+ * Primitive type aliases — no object keys to compare (6):
+ *   Role, LoggingLevel, ProgressToken, RequestId, Cursor, TaskStatus
  */
 
-// -- Simple types (96) --
+// -- Simple types (88) --
 
 type _K_RequestParams = Assert<AssertExactKeys<SDKTypes.RequestParams, SpecTypes.RequestParams>>;
 type _K_NotificationParams = Assert<AssertExactKeys<SDKTypes.NotificationParams, SpecTypes.NotificationParams>>;
@@ -884,7 +755,9 @@ type _K_LegacyTitledEnumSchema = Assert<AssertExactKeys<SDKTypes.LegacyTitledEnu
 type _K_JSONRPCErrorResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCErrorResponse, SpecTypes.JSONRPCErrorResponse>>;
 type _K_JSONRPCResultResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCResultResponse, SpecTypes.JSONRPCResultResponse>>;
 type _K_InitializeResult = Assert<AssertExactKeys<SDKTypes.InitializeResult, SpecTypes.InitializeResult>>;
+// @ts-expect-error SDK follows the draft schema's `extensions` capability key; not in released 2025-11-25
 type _K_ClientCapabilities = Assert<AssertExactKeys<SDKTypes.ClientCapabilities, SpecTypes.ClientCapabilities>>;
+// @ts-expect-error SDK follows the draft schema's `extensions` capability key; not in released 2025-11-25
 type _K_ServerCapabilities = Assert<AssertExactKeys<SDKTypes.ServerCapabilities, SpecTypes.ServerCapabilities>>;
 type _K_SamplingMessage = Assert<AssertExactKeys<SDKTypes.SamplingMessage, SpecTypes.SamplingMessage>>;
 type _K_Icon = Assert<AssertExactKeys<SDKTypes.Icon, SpecTypes.Icon>>;
@@ -895,28 +768,19 @@ type _K_ToolChoice = Assert<AssertExactKeys<SDKTypes.ToolChoice, SpecTypes.ToolC
 type _K_ToolUseContent = Assert<AssertExactKeys<SDKTypes.ToolUseContent, SpecTypes.ToolUseContent>>;
 type _K_ToolResultContent = Assert<AssertExactKeys<SDKTypes.ToolResultContent, SpecTypes.ToolResultContent>>;
 type _K_Annotations = Assert<AssertExactKeys<SDKTypes.Annotations, SpecTypes.Annotations>>;
-type _K_TaskAugmentedRequestParams = Assert<AssertExactKeys<SDKTypes.TaskAugmentedRequestParams, SpecTypes.TaskAugmentedRequestParams>>;
 type _K_ToolExecution = Assert<AssertExactKeys<SDKTypes.ToolExecution, SpecTypes.ToolExecution>>;
 type _K_TaskMetadata = Assert<AssertExactKeys<SDKTypes.TaskMetadata, SpecTypes.TaskMetadata>>;
 type _K_RelatedTaskMetadata = Assert<AssertExactKeys<SDKTypes.RelatedTaskMetadata, SpecTypes.RelatedTaskMetadata>>;
+type _K_TaskAugmentedRequestParams = Assert<AssertExactKeys<SDKTypes.TaskAugmentedRequestParams, SpecTypes.TaskAugmentedRequestParams>>;
 type _K_Task = Assert<AssertExactKeys<SDKTypes.Task, SpecTypes.Task>>;
 type _K_CreateTaskResult = Assert<AssertExactKeys<SDKTypes.CreateTaskResult, SpecTypes.CreateTaskResult>>;
 type _K_GetTaskResult = Assert<AssertExactKeys<SDKTypes.GetTaskResult, SpecTypes.GetTaskResult>>;
+type _K_GetTaskPayloadResult = Assert<AssertExactKeys<SDKTypes.GetTaskPayloadResult, SpecTypes.GetTaskPayloadResult>>;
 type _K_ListTasksResult = Assert<AssertExactKeys<SDKTypes.ListTasksResult, SpecTypes.ListTasksResult>>;
 type _K_CancelTaskResult = Assert<AssertExactKeys<SDKTypes.CancelTaskResult, SpecTypes.CancelTaskResult>>;
-type _K_GetTaskPayloadResult = Assert<AssertExactKeys<SDKTypes.GetTaskPayloadResult, SpecTypes.GetTaskPayloadResult>>;
 type _K_TaskStatusNotificationParams = Assert<
     AssertExactKeys<SDKTypes.TaskStatusNotificationParams, SpecTypes.TaskStatusNotificationParams>
 >;
-type _K_JSONObject = Assert<AssertExactKeys<SDKTypes.JSONObject, SpecTypes.JSONObject>>;
-type _K_MetaObject = Assert<AssertExactKeys<SDKTypes.MetaObject, SpecTypes.MetaObject>>;
-// @ts-expect-error Genuine mismatch: SDK RequestMetaObject has extra 'io.modelcontextprotocol/related-task' not in spec
-type _K_RequestMetaObject = Assert<AssertExactKeys<SDKTypes.RequestMetaObject, SpecTypes.RequestMetaObject>>;
-type _K_ParseError = Assert<AssertExactKeys<SDKTypes.ParseError, SpecTypes.ParseError>>;
-type _K_InvalidRequestError = Assert<AssertExactKeys<SDKTypes.InvalidRequestError, SpecTypes.InvalidRequestError>>;
-type _K_MethodNotFoundError = Assert<AssertExactKeys<SDKTypes.MethodNotFoundError, SpecTypes.MethodNotFoundError>>;
-type _K_InvalidParamsError = Assert<AssertExactKeys<SDKTypes.InvalidParamsError, SpecTypes.InvalidParamsError>>;
-type _K_InternalError = Assert<AssertExactKeys<SDKTypes.InternalError, SpecTypes.InternalError>>;
 
 // -- WithJSONRPC-wrapped notification types (11) --
 // SDK notification types do not include `jsonrpc` — the spec types do. We wrap
@@ -971,57 +835,12 @@ type _K_ListPromptsRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.
 type _K_GetPromptRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.GetPromptRequest>, SpecTypes.GetPromptRequest>>;
 type _K_CreateMessageRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.CreateMessageRequest>, SpecTypes.CreateMessageRequest>>;
 type _K_InitializeRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.InitializeRequest>, SpecTypes.InitializeRequest>>;
+type _K_GetTaskRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.GetTaskRequest>, SpecTypes.GetTaskRequest>>;
 type _K_GetTaskPayloadRequest = Assert<
     AssertExactKeys<WithJSONRPCRequest<SDKTypes.GetTaskPayloadRequest>, SpecTypes.GetTaskPayloadRequest>
 >;
 type _K_ListTasksRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.ListTasksRequest>, SpecTypes.ListTasksRequest>>;
 type _K_CancelTaskRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.CancelTaskRequest>, SpecTypes.CancelTaskRequest>>;
-type _K_GetTaskRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.GetTaskRequest>, SpecTypes.GetTaskRequest>>;
-
-// -- TypedResultResponse-wrapped types (21) --
-// The spec defines typed *ResultResponse interfaces that pair JSONRPCResultResponse
-// with a specific result. We compare TypedResultResponse<SDKInnerType> against the
-// spec's combined type.
-
-type _K_InitializeResultResponse = Assert<
-    AssertExactKeys<TypedResultResponse<SDKTypes.InitializeResult>, SpecTypes.InitializeResultResponse>
->;
-type _K_PingResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.EmptyResult>, SpecTypes.PingResultResponse>>;
-type _K_ListResourcesResultResponse = Assert<
-    AssertExactKeys<TypedResultResponse<SDKTypes.ListResourcesResult>, SpecTypes.ListResourcesResultResponse>
->;
-type _K_ListResourceTemplatesResultResponse = Assert<
-    AssertExactKeys<TypedResultResponse<SDKTypes.ListResourceTemplatesResult>, SpecTypes.ListResourceTemplatesResultResponse>
->;
-type _K_ReadResourceResultResponse = Assert<
-    AssertExactKeys<TypedResultResponse<SDKTypes.ReadResourceResult>, SpecTypes.ReadResourceResultResponse>
->;
-type _K_SubscribeResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.EmptyResult>, SpecTypes.SubscribeResultResponse>>;
-type _K_UnsubscribeResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.EmptyResult>, SpecTypes.UnsubscribeResultResponse>>;
-type _K_ListPromptsResultResponse = Assert<
-    AssertExactKeys<TypedResultResponse<SDKTypes.ListPromptsResult>, SpecTypes.ListPromptsResultResponse>
->;
-type _K_GetPromptResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.GetPromptResult>, SpecTypes.GetPromptResultResponse>>;
-type _K_ListToolsResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ListToolsResult>, SpecTypes.ListToolsResultResponse>>;
-type _K_CallToolResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.CallToolResult>, SpecTypes.CallToolResultResponse>>;
-type _K_CreateTaskResultResponse = Assert<
-    AssertExactKeys<TypedResultResponse<SDKTypes.CreateTaskResult>, SpecTypes.CreateTaskResultResponse>
->;
-type _K_GetTaskResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.GetTaskResult>, SpecTypes.GetTaskResultResponse>>;
-type _K_GetTaskPayloadResultResponse = Assert<
-    AssertExactKeys<TypedResultResponse<SDKTypes.GetTaskPayloadResult>, SpecTypes.GetTaskPayloadResultResponse>
->;
-type _K_CancelTaskResultResponse = Assert<
-    AssertExactKeys<TypedResultResponse<SDKTypes.CancelTaskResult>, SpecTypes.CancelTaskResultResponse>
->;
-type _K_ListTasksResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ListTasksResult>, SpecTypes.ListTasksResultResponse>>;
-type _K_SetLevelResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.EmptyResult>, SpecTypes.SetLevelResultResponse>>;
-type _K_CreateMessageResultResponse = Assert<
-    AssertExactKeys<TypedResultResponse<SDKTypes.CreateMessageResultWithTools>, SpecTypes.CreateMessageResultResponse>
->;
-type _K_CompleteResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.CompleteResult>, SpecTypes.CompleteResultResponse>>;
-type _K_ListRootsResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ListRootsResult>, SpecTypes.ListRootsResultResponse>>;
-type _K_ElicitResultResponse = Assert<AssertExactKeys<TypedResultResponse<SDKTypes.ElicitResult>, SpecTypes.ElicitResultResponse>>;
 
 // -- Name mismatches (2) --
 // SDK exports these under different names than the spec.
@@ -1048,9 +867,7 @@ const KEY_PARITY_EXCLUDED = [
     'SingleSelectEnumSchema',
     'MultiSelectEnumSchema',
     'EnumSchema',
-    // Primitive aliases (8)
-    'JSONValue',
-    'JSONArray',
+    // Primitive aliases (6)
     'Role',
     'LoggingLevel',
     'ProgressToken',
@@ -1059,8 +876,8 @@ const KEY_PARITY_EXCLUDED = [
     'TaskStatus'
 ];
 
-// This file is .gitignore'd, and fetched by `npm run fetch:spec-types` (called by `npm run test`)
-const SPEC_TYPES_FILE = path.resolve(__dirname, '../src/types/spec.types.ts');
+// Generated from the frozen 2025-11-25 release schema by `pnpm run fetch:spec-types 2025-11-25`.
+const SPEC_TYPES_FILE = path.resolve(__dirname, '../src/types/spec.types.2025-11-25.ts');
 const SDK_TYPES_FILE = path.resolve(__dirname, '../src/types/types.ts');
 
 const MISSING_SDK_TYPES = [
@@ -1078,7 +895,7 @@ function extractKeyParityTypes(source: string): string[] {
     return [...source.matchAll(/^type _K_(\w+)\s*=/gm)].map(m => m[1]!);
 }
 
-describe('Spec Types', () => {
+describe('Spec Types (2025-11-25)', () => {
     const specTypes = extractExportedTypes(fs.readFileSync(SPEC_TYPES_FILE, 'utf8'));
     const sdkTypes = extractExportedTypes(fs.readFileSync(SDK_TYPES_FILE, 'utf8'));
     const typesToCheck = specTypes.filter(type => !MISSING_SDK_TYPES.includes(type));
@@ -1086,7 +903,7 @@ describe('Spec Types', () => {
     it('should define some expected types', () => {
         expect(specTypes).toContain('JSONRPCNotification');
         expect(specTypes).toContain('ElicitResult');
-        expect(specTypes).toHaveLength(176);
+        expect(specTypes).toHaveLength(145);
     });
 
     it('should have up to date list of missing sdk types', () => {
