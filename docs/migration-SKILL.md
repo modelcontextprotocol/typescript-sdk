@@ -507,6 +507,8 @@ NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + infe
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
+Stdio transports: non-JSON lines on the stream are now skipped silently (v1 surfaced a `SyntaxError` via `onerror`); valid-JSON messages failing schema validation still reach `onerror`. Both stdio transports accept an optional `maxMessageBytes` — oversized messages are dropped and reported via `onerror` as `SdkError` with code `SdkErrorCode.MessageTooLarge` (default: unlimited). Use it to replace any v1-era flood protection built on transport internals.
+
 ## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:

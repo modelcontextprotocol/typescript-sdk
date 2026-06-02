@@ -141,6 +141,27 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'));
 ```
 
+### Stdio transports: non-JSON lines are now skipped silently
+
+In v1, a non-JSON line on the stdio stream (for example, debug output from a hot-reload
+tool writing to stdout) surfaced as a `SyntaxError` through the transport's `onerror`
+callback. In v2, the stdio read buffer silently skips lines that are not valid JSON and
+continues with the next line; only valid-JSON messages that fail schema validation still
+reach `onerror`. If you relied on `onerror` to detect a misbehaving server that writes
+noise to stdout, that signal no longer fires for non-JSON lines.
+
+Relatedly, both stdio transports now accept an optional `maxMessageBytes` setting that
+bounds how large a single message may grow before it is dropped and reported via
+`onerror` (`SdkError` with code `SdkErrorCode.MessageTooLarge`). v1 had no built-in
+protection against a peer flooding the stream with unbounded data on a single line; if
+you implemented such protection against v1 transport internals, migrate to this option.
+
+```typescript
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
+
+const transport = new StdioClientTransport({ command: 'my-server' }, { maxMessageBytes: 4 * 1024 * 1024 });
+```
+
 ### Server auth split
 
 Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`.
