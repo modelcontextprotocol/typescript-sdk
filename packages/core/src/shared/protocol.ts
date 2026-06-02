@@ -479,8 +479,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
-        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
-
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
 
@@ -489,22 +487,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
             this._requestWithSchema(r, resultSchema, { ...options, relatedRequestId: request.id });
 
-        if (handler === undefined) {
-            const errorResponse: JSONRPCErrorResponse = {
-                jsonrpc: '2.0',
-                id: request.id,
-                error: {
-                    code: ProtocolErrorCode.MethodNotFound,
-                    message: 'Method not found'
-                }
-            };
-            capturedTransport?.send(errorResponse).catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
-            return;
-        }
-
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
 
+        // Connection-path context: sourced from the transport and the initialize handshake.
+        // Other dispatch paths build their own context before calling invokeRequestHandler().
         const baseCtx: BaseContext = {
             sessionId: capturedTransport?.sessionId,
             mcpReq: {
@@ -534,47 +521,65 @@ export abstract class Protocol<ContextT extends BaseContext> {
         };
         const ctx = this.buildContext(baseCtx, extra);
 
-        // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        Promise.resolve()
-            .then(() => handler(request, ctx))
-            .then(
-                async result => {
-                    if (abortController.signal.aborted) {
-                        // Request was cancelled
-                        return;
-                    }
-
-                    const response: JSONRPCResponse = {
-                        result,
-                        jsonrpc: '2.0',
-                        id: request.id
-                    };
-                    await capturedTransport?.send(response);
-                },
-                async error => {
-                    if (abortController.signal.aborted) {
-                        // Request was cancelled
-                        return;
-                    }
-
-                    const errorResponse: JSONRPCErrorResponse = {
-                        jsonrpc: '2.0',
-                        id: request.id,
-                        error: {
-                            code: Number.isSafeInteger(error['code']) ? error['code'] : ProtocolErrorCode.InternalError,
-                            message: error.message ?? 'Internal error',
-                            ...(error['data'] !== undefined && { data: error['data'] })
-                        }
-                    };
-                    await capturedTransport?.send(errorResponse);
+        this.invokeRequestHandler(request, ctx)
+            .then(async response => {
+                if (abortController.signal.aborted) {
+                    // Request was cancelled
+                    return;
                 }
-            )
+
+                await capturedTransport?.send(response);
+            })
             .catch(error => this._onerror(new Error(`Failed to send response: ${error}`)))
             .finally(() => {
                 if (this._requestHandlerAbortControllers.get(request.id) === abortController) {
                     this._requestHandlerAbortControllers.delete(request.id);
                 }
             });
+    }
+
+    /**
+     * Looks up and runs the handler for an incoming JSON-RPC request, mapping the outcome
+     * (no handler installed, handler result, or handler error) to the JSON-RPC response message.
+     *
+     * This is the shared dispatch core: it never touches the transport and never rejects with
+     * handler errors (they are mapped to error responses). Callers own response delivery,
+     * cancellation bookkeeping, and assembling the `ctx` appropriate to their dispatch path.
+     */
+    protected invokeRequestHandler(request: JSONRPCRequest, ctx: ContextT): Promise<JSONRPCResponse> {
+        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+
+        if (handler === undefined) {
+            const errorResponse: JSONRPCErrorResponse = {
+                jsonrpc: '2.0',
+                id: request.id,
+                error: {
+                    code: ProtocolErrorCode.MethodNotFound,
+                    message: 'Method not found'
+                }
+            };
+            return Promise.resolve(errorResponse);
+        }
+
+        // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
+        return Promise.resolve()
+            .then(() => handler(request, ctx))
+            .then(
+                (result): JSONRPCResponse => ({
+                    result,
+                    jsonrpc: '2.0',
+                    id: request.id
+                }),
+                (error): JSONRPCErrorResponse => ({
+                    jsonrpc: '2.0',
+                    id: request.id,
+                    error: {
+                        code: Number.isSafeInteger(error['code']) ? error['code'] : ProtocolErrorCode.InternalError,
+                        message: error.message ?? 'Internal error',
+                        ...(error['data'] !== undefined && { data: error['data'] })
+                    }
+                })
+            );
     }
 
     private _onprogress(notification: ProgressNotification): void {
