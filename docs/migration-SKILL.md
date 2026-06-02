@@ -471,15 +471,15 @@ For **custom (non-spec)** methods, keep the result-schema argument — see §9. 
 
 Remove unused schema imports: `CallToolResultSchema`, `CompatibilityCallToolResultSchema`, `ElicitResultSchema`, `CreateMessageResultSchema`, etc., when they were only used in `request()`/`send()`/`callTool()` calls.
 
-If a `*Schema` constant was used for **runtime validation** (not just as a `request()` argument), replace with `parseSpecType` / `safeParseSpecType` / `isSpecType`:
+If a `*Schema` constant was used for **runtime validation** (not just as a `request()` argument), the `specTypeSchemas.<TypeName>` entries carry `parse`/`safeParse` methods — a mechanical rename:
 
 | v1 pattern                                         | v2 replacement                                                                         |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `<TypeName>Schema.parse(value)`                    | `parseSpecType('<TypeName>', value)` (returns the parsed value; throws `SpecTypeValidationError` with `.issues`) |
-| `<TypeName>Schema.safeParse(value)`                | `safeParseSpecType('<TypeName>', value)` (`{ success: true, data }` \| `{ success: false, issues }`) |
+| `<TypeName>Schema.parse(value)`                    | `specTypeSchemas.<TypeName>.parse(value)` (returns the parsed value; throws `SpecTypeValidationError` with `.issues`) |
+| `<TypeName>Schema.safeParse(value)`                | `specTypeSchemas.<TypeName>.safeParse(value)` (`{ success: true, data }` \| `{ success: false, issues }`) |
 | `CallToolResultSchema.safeParse(value).success`    | `isSpecType.CallToolResult(value)`                                                     |
 | `<TypeName>Schema.safeParse(value).success`        | `isSpecType.<TypeName>(value)`                                                         |
-| Passing `<TypeName>Schema` as a validator argument | `specTypeSchemas.<TypeName>` (a `StandardSchemaV1Sync<In, Out>`)                       |
+| Passing `<TypeName>Schema` as a validator argument | `specTypeSchemas.<TypeName>` (a `StandardSchemaV1Sync<In, Out>` with `parse`/`safeParse`) |
 
 All validation is synchronous (`StandardSchemaV1Sync`) — never add `await`. `isCallToolResult(value)` still works, but `isSpecType` covers every spec type by name.
 

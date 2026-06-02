@@ -7,7 +7,7 @@
  * @module
  */
 
-import { isSpecType, parseSpecType, safeParseSpecType, specTypeSchemas } from './specTypeSchema.js';
+import { isSpecType, specTypeSchemas } from './specTypeSchema.js';
 
 declare const untrusted: unknown;
 declare const value: unknown;
@@ -15,12 +15,36 @@ declare const mixed: unknown[];
 
 function specTypeSchemas_basicUsage() {
     //#region specTypeSchemas_basicUsage
-    const result = specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
-    if (result.issues === undefined) {
-        // result.value is CallToolResult
+    const result = specTypeSchemas.CallToolResult.parse(untrusted);
+    // result is CallToolResult; throws SpecTypeValidationError on invalid input
+
+    // Entries are Standard Schemas, so the underlying validator is also available:
+    const validated = specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
+    if (validated.issues === undefined) {
+        // validated.value is CallToolResult
     }
     //#endregion specTypeSchemas_basicUsage
     void result;
+}
+
+function specTypeSchemas_parse() {
+    //#region specTypeSchemas_parse
+    const result = specTypeSchemas.CallToolResult.parse(untrusted);
+    // result is CallToolResult; throws SpecTypeValidationError on invalid input
+    //#endregion specTypeSchemas_parse
+    void result;
+}
+
+function specTypeSchemas_safeParse() {
+    //#region specTypeSchemas_safeParse
+    const parsed = specTypeSchemas.Tool.safeParse(untrusted);
+    if (parsed.success) {
+        // parsed.data is Tool
+    } else {
+        // parsed.issues describes the failures
+    }
+    //#endregion specTypeSchemas_safeParse
+    void parsed;
 }
 
 function isSpecType_basicUsage() {
@@ -36,27 +60,7 @@ function isSpecType_basicUsage() {
     void blocks;
 }
 
-function parseSpecType_basicUsage() {
-    //#region parseSpecType_basicUsage
-    const result = parseSpecType('CallToolResult', untrusted);
-    // result is CallToolResult; throws SpecTypeValidationError on invalid input
-    //#endregion parseSpecType_basicUsage
-    void result;
-}
-
-function safeParseSpecType_basicUsage() {
-    //#region safeParseSpecType_basicUsage
-    const parsed = safeParseSpecType('Tool', untrusted);
-    if (parsed.success) {
-        // parsed.data is Tool
-    } else {
-        // parsed.issues describes the failures
-    }
-    //#endregion safeParseSpecType_basicUsage
-    void parsed;
-}
-
 void specTypeSchemas_basicUsage;
+void specTypeSchemas_parse;
+void specTypeSchemas_safeParse;
 void isSpecType_basicUsage;
-void parseSpecType_basicUsage;
-void safeParseSpecType_basicUsage;

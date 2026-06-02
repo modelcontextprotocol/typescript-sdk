@@ -235,65 +235,14 @@ type SpecTypeInputs = {
     [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.input<SchemaFor<K>> : never;
 };
 
-type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1Sync<SpecTypeInputs[K], SpecTypes[K]> };
-type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypeInputs[K] };
-
-const _specTypeSchemas: Record<string, StandardSchemaV1> = {};
-const _isSpecType: Record<string, (value: unknown) => boolean> = {};
-function register(key: string, schema: z.ZodType): void {
-    const name = key.slice(0, -'Schema'.length);
-    _specTypeSchemas[name] = schema;
-    _isSpecType[name] = (v: unknown) => schema.safeParse(v).success;
-}
-for (const key of SPEC_SCHEMA_KEYS) {
-    // eslint-disable-next-line import/namespace -- key is constrained to keyof typeof schemas via the satisfies clause above
-    register(key, schemas[key]);
-}
-for (const [key, schema] of Object.entries(authSchemas)) {
-    register(key, schema);
-}
-
 /**
- * Runtime validators for every MCP spec type, keyed by type name.
- *
- * Use this when you need to validate a spec-defined shape at a boundary the SDK does not own, for
- * example an extension's custom-method payload that embeds a `CallToolResult`, or a value read from
- * storage that should be a `Tool`.
- *
- * Each entry implements the Standard Schema interface, so it composes with any
- * Standard-Schema-aware library. For a simple boolean check, use {@linkcode isSpecType} instead.
- *
- * @example
- * ```ts source="./specTypeSchema.examples.ts#specTypeSchemas_basicUsage"
- * const result = specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
- * if (result.issues === undefined) {
- *     // result.value is CallToolResult
- * }
- * ```
+ * Result of {@linkcode SpecTypeSchema.safeParse}: a discriminated union shaped like the result of
+ * v1's `<TypeName>Schema.safeParse(value)`, so migrated call sites keep their `.success` /
+ * `.data` control flow.
  */
-export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas as SchemaRecord);
-
-/**
- * Type predicates for every MCP spec type, keyed by type name.
- *
- * Returns `true` if the value satisfies the schema's input type (`z.input<>`, before defaults and
- * transforms are applied), and narrows to that input type. For schemas with `.default()` or
- * `.preprocess()`, this may accept values that do not structurally match the named output type;
- * for example `isSpecType.CallToolResult({})` is `true` because `content` has a default. Use
- * `specTypeSchemas.X['~standard'].validate(value)` when you need the validated output value.
- *
- * Each guard is a standalone function, so it can be passed directly as a callback.
- *
- * @example
- * ```ts source="./specTypeSchema.examples.ts#isSpecType_basicUsage"
- * if (isSpecType.ContentBlock(value)) {
- *     // value is ContentBlock
- * }
- *
- * const blocks = mixed.filter(isSpecType.ContentBlock);
- * ```
- */
-export const isSpecType: GuardRecord = Object.freeze(_isSpecType as GuardRecord);
+export type SafeParseSpecTypeResult<T> =
+    | { readonly success: true; readonly data: T }
+    | { readonly success: false; readonly issues: ReadonlyArray<StandardSchemaV1.Issue> };
 
 function formatIssuePath(path: NonNullable<StandardSchemaV1.Issue['path']>): string {
     return path
@@ -306,7 +255,7 @@ function formatIssues(issues: ReadonlyArray<StandardSchemaV1.Issue>): string {
 }
 
 /**
- * Error thrown by {@linkcode parseSpecType} when a value fails validation.
+ * Error thrown by {@linkcode SpecTypeSchema.parse} when a value fails validation.
  *
  * Mirrors the shape v1 consumers relied on when catching `ZodError` from
  * `<TypeName>Schema.parse()`: the failure details are available on
@@ -325,52 +274,127 @@ export class SpecTypeValidationError extends Error {
 }
 
 /**
- * Validates that `value` is a valid instance of the named spec type and returns the parsed value,
- * throwing {@linkcode SpecTypeValidationError} on failure.
- *
- * This is the direct replacement for v1's `<TypeName>Schema.parse(value)`. Validation is
- * synchronous (the backing schemas are {@linkcode StandardSchemaV1Sync}), so no `await` is needed.
- *
- * @example
- * ```ts source="./specTypeSchema.examples.ts#parseSpecType_basicUsage"
- * const result = parseSpecType('CallToolResult', untrusted);
- * // result is CallToolResult; throws SpecTypeValidationError on invalid input
- * ```
+ * A {@linkcode specTypeSchemas} entry: a synchronous Standard Schema for one spec type, extended
+ * with `parse`/`safeParse` methods shaped like the Zod schemas v1 exported.
  */
-export function parseSpecType<K extends SpecTypeName>(name: K, value: unknown): SpecTypes[K] {
-    const result = specTypeSchemas[name]['~standard'].validate(value);
-    if (result.issues) {
-        throw new SpecTypeValidationError(name, result.issues);
-    }
-    return result.value;
+export interface SpecTypeSchema<Input = unknown, Output = Input> extends StandardSchemaV1Sync<Input, Output> {
+    /**
+     * Validates `value` and returns the parsed output, throwing
+     * {@linkcode SpecTypeValidationError} on failure.
+     *
+     * This is the direct replacement for v1's `<TypeName>Schema.parse(value)`. Validation is
+     * synchronous, so no `await` is needed.
+     *
+     * @example
+     * ```ts source="./specTypeSchema.examples.ts#specTypeSchemas_parse"
+     * const result = specTypeSchemas.CallToolResult.parse(untrusted);
+     * // result is CallToolResult; throws SpecTypeValidationError on invalid input
+     * ```
+     */
+    parse(value: unknown): Output;
+
+    /**
+     * Validates `value` without throwing.
+     *
+     * This is the direct replacement for v1's `<TypeName>Schema.safeParse(value)`. Validation is
+     * synchronous, so no `await` is needed.
+     *
+     * @example
+     * ```ts source="./specTypeSchema.examples.ts#specTypeSchemas_safeParse"
+     * const parsed = specTypeSchemas.Tool.safeParse(untrusted);
+     * if (parsed.success) {
+     *     // parsed.data is Tool
+     * } else {
+     *     // parsed.issues describes the failures
+     * }
+     * ```
+     */
+    safeParse(value: unknown): SafeParseSpecTypeResult<Output>;
+}
+
+type SchemaRecord = { readonly [K in SpecTypeName]: SpecTypeSchema<SpecTypeInputs[K], SpecTypes[K]> };
+type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypeInputs[K] };
+
+const _specTypeSchemas: Record<string, SpecTypeSchema<unknown, unknown>> = {};
+const _isSpecType: Record<string, (value: unknown) => boolean> = {};
+function register(key: string, schema: z.ZodType): void {
+    const name = key.slice(0, -'Schema'.length) as SpecTypeName;
+    // The backing protocol schemas validate synchronously; `~standard` itself is initialized
+    // lazily by the schema library, so it is only dereferenced on first use.
+    const standard = (): StandardSchemaV1Sync.Props<unknown, unknown> =>
+        (schema as unknown as StandardSchemaV1Sync<unknown, unknown>)['~standard'];
+    _specTypeSchemas[name] = Object.freeze({
+        get '~standard'(): StandardSchemaV1Sync.Props<unknown, unknown> {
+            return standard();
+        },
+        parse(value: unknown): unknown {
+            const result = standard().validate(value);
+            if (result.issues) {
+                throw new SpecTypeValidationError(name, result.issues);
+            }
+            return result.value;
+        },
+        safeParse(value: unknown): SafeParseSpecTypeResult<unknown> {
+            const result = standard().validate(value);
+            return result.issues ? { success: false, issues: result.issues } : { success: true, data: result.value };
+        }
+    });
+    _isSpecType[name] = (v: unknown) => schema.safeParse(v).success;
+}
+for (const key of SPEC_SCHEMA_KEYS) {
+    // eslint-disable-next-line import/namespace -- key is constrained to keyof typeof schemas via the satisfies clause above
+    register(key, schemas[key]);
+}
+for (const [key, schema] of Object.entries(authSchemas)) {
+    register(key, schema);
 }
 
 /**
- * Result of {@linkcode safeParseSpecType}: a discriminated union shaped like the result of v1's
- * `<TypeName>Schema.safeParse(value)`, so migrated call sites keep their `.success` / `.data`
- * control flow.
- */
-export type SafeParseSpecTypeResult<T> =
-    | { readonly success: true; readonly data: T }
-    | { readonly success: false; readonly issues: ReadonlyArray<StandardSchemaV1.Issue> };
-
-/**
- * Validates that `value` is a valid instance of the named spec type without throwing.
+ * Runtime validators for every MCP spec type, keyed by type name.
  *
- * This is the direct replacement for v1's `<TypeName>Schema.safeParse(value)`. Validation is
- * synchronous (the backing schemas are {@linkcode StandardSchemaV1Sync}), so no `await` is needed.
+ * Use this when you need to validate a spec-defined shape at a boundary the SDK does not own, for
+ * example an extension's custom-method payload that embeds a `CallToolResult`, or a value read from
+ * storage that should be a `Tool`.
+ *
+ * Each entry implements the Standard Schema interface, so it composes with any
+ * Standard-Schema-aware library, and additionally offers {@linkcode SpecTypeSchema.parse} and
+ * {@linkcode SpecTypeSchema.safeParse} methods shaped like the Zod schemas v1 exported — v1's
+ * `CallToolResultSchema.parse(value)` becomes `specTypeSchemas.CallToolResult.parse(value)`. For a
+ * simple boolean check, use {@linkcode isSpecType} instead.
  *
  * @example
- * ```ts source="./specTypeSchema.examples.ts#safeParseSpecType_basicUsage"
- * const parsed = safeParseSpecType('Tool', untrusted);
- * if (parsed.success) {
- *     // parsed.data is Tool
- * } else {
- *     // parsed.issues describes the failures
+ * ```ts source="./specTypeSchema.examples.ts#specTypeSchemas_basicUsage"
+ * const result = specTypeSchemas.CallToolResult.parse(untrusted);
+ * // result is CallToolResult; throws SpecTypeValidationError on invalid input
+ *
+ * // Entries are Standard Schemas, so the underlying validator is also available:
+ * const validated = specTypeSchemas.CallToolResult['~standard'].validate(untrusted);
+ * if (validated.issues === undefined) {
+ *     // validated.value is CallToolResult
  * }
  * ```
  */
-export function safeParseSpecType<K extends SpecTypeName>(name: K, value: unknown): SafeParseSpecTypeResult<SpecTypes[K]> {
-    const result = specTypeSchemas[name]['~standard'].validate(value);
-    return result.issues ? { success: false, issues: result.issues } : { success: true, data: result.value };
-}
+export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas as unknown as SchemaRecord);
+
+/**
+ * Type predicates for every MCP spec type, keyed by type name.
+ *
+ * Returns `true` if the value satisfies the schema's input type (`z.input<>`, before defaults and
+ * transforms are applied), and narrows to that input type. For schemas with `.default()` or
+ * `.preprocess()`, this may accept values that do not structurally match the named output type;
+ * for example `isSpecType.CallToolResult({})` is `true` because `content` has a default. Use
+ * `specTypeSchemas.X.parse(value)` (or `['~standard'].validate`) when you need the validated
+ * output value.
+ *
+ * Each guard is a standalone function, so it can be passed directly as a callback.
+ *
+ * @example
+ * ```ts source="./specTypeSchema.examples.ts#isSpecType_basicUsage"
+ * if (isSpecType.ContentBlock(value)) {
+ *     // value is ContentBlock
+ * }
+ *
+ * const blocks = mixed.filter(isSpecType.ContentBlock);
+ * ```
+ */
+export const isSpecType: GuardRecord = Object.freeze(_isSpecType as GuardRecord);

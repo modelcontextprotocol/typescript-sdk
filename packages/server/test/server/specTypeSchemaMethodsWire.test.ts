@@ -1,20 +1,14 @@
 import type { CallToolResult, JSONRPCMessage, ListToolsResult } from '@modelcontextprotocol/core';
-import {
-    InMemoryTransport,
-    LATEST_PROTOCOL_VERSION,
-    parseSpecType,
-    safeParseSpecType,
-    SpecTypeValidationError
-} from '@modelcontextprotocol/core';
+import { InMemoryTransport, LATEST_PROTOCOL_VERSION, SpecTypeValidationError, specTypeSchemas } from '@modelcontextprotocol/core';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import { McpServer } from '../../src/index.js';
 
-// Validates real wire payloads with parseSpecType/safeParseSpecType — the
+// Validates real wire payloads with specTypeSchemas.X.parse/.safeParse — the
 // replacement for the v1 pattern of calling SomeResultSchema.parse() on a
 // response received from a live server, rather than on hand-built fixtures.
-describe('parseSpecType on wire data', () => {
+describe('specTypeSchemas parse methods on wire data', () => {
     async function roundTrip(): Promise<{ callToolResult: unknown; listToolsResult: unknown }> {
         const server = new McpServer({ name: 't', version: '1.0.0' });
         server.registerTool(
@@ -63,7 +57,7 @@ describe('parseSpecType on wire data', () => {
     it('parses a tools/call result received over a real transport', async () => {
         const { callToolResult } = await roundTrip();
 
-        const parsed = parseSpecType('CallToolResult', callToolResult);
+        const parsed = specTypeSchemas.CallToolResult.parse(callToolResult);
         expectTypeOf(parsed).toEqualTypeOf<CallToolResult>();
         expect(parsed.content).toEqual([{ type: 'text', text: '7' }]);
     });
@@ -71,7 +65,7 @@ describe('parseSpecType on wire data', () => {
     it('parses a tools/list result received over a real transport, preserving advertised schema', async () => {
         const { listToolsResult } = await roundTrip();
 
-        const parsed = parseSpecType('ListToolsResult', listToolsResult);
+        const parsed = specTypeSchemas.ListToolsResult.parse(listToolsResult);
         expectTypeOf(parsed).toEqualTypeOf<ListToolsResult>();
         expect(parsed.tools).toHaveLength(1);
         expect(parsed.tools[0]?.name).toBe('add');
@@ -82,8 +76,8 @@ describe('parseSpecType on wire data', () => {
     it('rejects the same wire payload when validated as a different spec type', async () => {
         const { callToolResult } = await roundTrip();
 
-        expect(() => parseSpecType('Implementation', callToolResult)).toThrowError(SpecTypeValidationError);
-        const parsed = safeParseSpecType('Implementation', callToolResult);
+        expect(() => specTypeSchemas.Implementation.parse(callToolResult)).toThrowError(SpecTypeValidationError);
+        const parsed = specTypeSchemas.Implementation.safeParse(callToolResult);
         expect(parsed.success).toBe(false);
         if (!parsed.success) {
             expect(parsed.issues.length).toBeGreaterThan(0);

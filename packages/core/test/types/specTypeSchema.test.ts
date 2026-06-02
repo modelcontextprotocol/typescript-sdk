@@ -3,7 +3,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { OAuthMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import * as schemas from '../../src/types/schemas.js';
 import type { SpecTypeName, SpecTypes } from '../../src/types/specTypeSchema.js';
-import { isSpecType, parseSpecType, safeParseSpecType, SpecTypeValidationError, specTypeSchemas } from '../../src/types/specTypeSchema.js';
+import { isSpecType, SpecTypeValidationError, specTypeSchemas } from '../../src/types/specTypeSchema.js';
 import type {
     CallToolResult,
     ContentBlock,
@@ -175,22 +175,22 @@ describe('SPEC_SCHEMA_KEYS allowlist', () => {
     });
 });
 
-describe('parseSpecType', () => {
+describe('specTypeSchemas.X.parse', () => {
     it('returns the parsed value for valid input', () => {
-        const value = parseSpecType('Implementation', { name: 'x', version: '1.0.0' });
+        const value = specTypeSchemas.Implementation.parse({ name: 'x', version: '1.0.0' });
         expect(value).toEqual({ name: 'x', version: '1.0.0' });
         expectTypeOf(value).toEqualTypeOf<Implementation>();
     });
 
     it('applies schema defaults to the returned value', () => {
-        const value = parseSpecType('CallToolResult', {});
+        const value = specTypeSchemas.CallToolResult.parse({});
         expect(value.content).toEqual([]);
     });
 
     it('throws SpecTypeValidationError with issue summaries on invalid input', () => {
-        expect(() => parseSpecType('Implementation', { name: 'x' })).toThrowError(SpecTypeValidationError);
+        expect(() => specTypeSchemas.Implementation.parse({ name: 'x' })).toThrowError(SpecTypeValidationError);
         try {
-            parseSpecType('Implementation', { name: 'x' });
+            specTypeSchemas.Implementation.parse({ name: 'x' });
             expect.unreachable();
         } catch (error) {
             expect(error).toBeInstanceOf(SpecTypeValidationError);
@@ -203,26 +203,43 @@ describe('parseSpecType', () => {
         }
     });
 
+    it('throws the SDK error class, not the schema library error', () => {
+        // The entries are SDK-owned wrappers; consumers must never see the internal
+        // validation library's error type cross the public boundary.
+        try {
+            specTypeSchemas.Implementation.parse({ name: 'x' });
+            expect.unreachable();
+        } catch (error) {
+            expect((error as Error).name).toBe('SpecTypeValidationError');
+            expect((error as Error).constructor).toBe(SpecTypeValidationError);
+        }
+    });
+
     it('is synchronous — never returns a Promise', () => {
-        const value: Implementation = parseSpecType('Implementation', { name: 'x', version: '1.0.0' });
+        const value: Implementation = specTypeSchemas.Implementation.parse({ name: 'x', version: '1.0.0' });
         expect(value).not.toBeInstanceOf(Promise);
     });
 
     it('covers OAuth types', () => {
-        const tokens = parseSpecType('OAuthTokens', { access_token: 'x', token_type: 'Bearer' });
+        const tokens = specTypeSchemas.OAuthTokens.parse({ access_token: 'x', token_type: 'Bearer' });
         expectTypeOf(tokens).toEqualTypeOf<OAuthTokens>();
         expect(tokens.access_token).toBe('x');
     });
 
-    it('rejects unknown spec type names at compile time', () => {
-        // @ts-expect-error - 'NotASpecType' is not a SpecTypeName
-        expect(() => parseSpecType('NotASpecType', {})).toThrowError();
+    it("agrees with the entry's own Standard Schema validator", () => {
+        const input = { name: 'x', version: '1.0.0' };
+        const viaParse = specTypeSchemas.Implementation.parse(input);
+        const viaValidate = specTypeSchemas.Implementation['~standard'].validate(input);
+        expect(viaValidate.issues).toBeUndefined();
+        if (viaValidate.issues === undefined) {
+            expect(viaParse).toEqual(viaValidate.value);
+        }
     });
 });
 
-describe('safeParseSpecType', () => {
+describe('specTypeSchemas.X.safeParse', () => {
     it('returns { success: true, data } for valid input', () => {
-        const parsed = safeParseSpecType('Tool', { name: 't', inputSchema: { type: 'object' } });
+        const parsed = specTypeSchemas.Tool.safeParse({ name: 't', inputSchema: { type: 'object' } });
         expect(parsed.success).toBe(true);
         if (parsed.success) {
             expectTypeOf(parsed.data).toEqualTypeOf<Tool>();
@@ -231,7 +248,7 @@ describe('safeParseSpecType', () => {
     });
 
     it('returns { success: false, issues } for invalid input', () => {
-        const parsed = safeParseSpecType('Tool', { inputSchema: { type: 'object' } });
+        const parsed = specTypeSchemas.Tool.safeParse({ inputSchema: { type: 'object' } });
         expect(parsed.success).toBe(false);
         if (!parsed.success) {
             expect(parsed.issues.length).toBeGreaterThan(0);
@@ -239,8 +256,16 @@ describe('safeParseSpecType', () => {
         }
     });
 
+    it('applies schema defaults, distinguishing parsed output from input', () => {
+        const parsed = specTypeSchemas.CallToolResult.safeParse({});
+        expect(parsed.success).toBe(true);
+        if (parsed.success) {
+            expect(parsed.data.content).toEqual([]);
+        }
+    });
+
     it('narrows the result type through the success discriminant', () => {
-        const parsed = safeParseSpecType('JSONRPCRequest', { jsonrpc: '2.0', id: 1, method: 'ping' });
+        const parsed = specTypeSchemas.JSONRPCRequest.safeParse({ jsonrpc: '2.0', id: 1, method: 'ping' });
         if (parsed.success) {
             expectTypeOf(parsed.data).toEqualTypeOf<JSONRPCRequest>();
         } else {
@@ -250,8 +275,18 @@ describe('safeParseSpecType', () => {
     });
 
     it('is synchronous — result is directly accessible without await', () => {
-        const parsed = safeParseSpecType('Implementation', { name: 'x', version: '1.0.0' });
+        const parsed = specTypeSchemas.Implementation.safeParse({ name: 'x', version: '1.0.0' });
         expect(parsed).not.toBeInstanceOf(Promise);
         expect(parsed.success).toBe(true);
+    });
+
+    it('covers OAuth types', () => {
+        const parsed = specTypeSchemas.OAuthTokens.safeParse({ token_type: 'Bearer' });
+        expect(parsed.success).toBe(false);
+    });
+
+    it('entries are frozen — methods cannot be reassigned', () => {
+        expect(Object.isFrozen(specTypeSchemas.CallToolResult)).toBe(true);
+        expect(Object.isFrozen(specTypeSchemas)).toBe(true);
     });
 });
