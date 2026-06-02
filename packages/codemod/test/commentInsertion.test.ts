@@ -207,7 +207,7 @@ describe('comment insertion', () => {
     it('skips comment insertion when target line is inside a template literal', () => {
         const dir = createTempDir();
         const input = [
-            'import { CallToolRequestSchema } from \'@modelcontextprotocol/sdk/types.js\';',
+            "import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';",
             'const msg = `',
             '  Result: ${CallToolRequestSchema.parse(data).method}',
             '`;',
@@ -230,7 +230,7 @@ describe('comment insertion', () => {
         const dir = createTempDir();
         // TemplateMiddle: text between two ${} spans
         const input = [
-            'import { CallToolRequestSchema, ListToolsRequestSchema } from \'@modelcontextprotocol/sdk/types.js\';',
+            "import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';",
             'const msg = `${somePrefix}',
             '  A: ${CallToolRequestSchema.parse(d1)}',
             '  B: ${ListToolsRequestSchema.parse(d2)}',
@@ -252,7 +252,7 @@ describe('comment insertion', () => {
         // The .parse() and template are on the same line, but lineStart is at "const",
         // which is outside the template literal.
         const input = [
-            'import { CallToolRequestSchema } from \'@modelcontextprotocol/sdk/types.js\';',
+            "import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';",
             'const a = CallToolRequestSchema.parse(`template ${data}`);',
             ''
         ].join('\n');

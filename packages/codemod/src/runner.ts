@@ -1,4 +1,5 @@
-import { type Node, Project, SyntaxKind } from 'ts-morph';
+import type { Node } from 'ts-morph';
+import { Project, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, FileResult, Migration, RunnerOptions, RunnerResult } from './types.js';
 import { CODEMOD_ERROR_PREFIX, error } from './utils/diagnostics.js';
@@ -11,7 +12,7 @@ const LITERAL_NODE_KINDS = new Set([
     SyntaxKind.TemplateMiddle,
     SyntaxKind.TemplateTail,
     SyntaxKind.StringLiteral,
-    SyntaxKind.JsxText,
+    SyntaxKind.JsxText
 ]);
 
 function isInsideLiteral(node: Node | undefined): boolean {
