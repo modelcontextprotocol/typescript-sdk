@@ -1717,37 +1717,43 @@ export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
 /**
  * Primitive schema definition for boolean fields.
  */
-export const BooleanSchemaSchema = z.object({
-    type: z.literal('boolean'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    default: z.boolean().optional()
-});
+export const BooleanSchemaSchema = z
+    .object({
+        type: z.literal('boolean'),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        default: z.boolean().optional()
+    })
+    .passthrough();
 
 /**
  * Primitive schema definition for string fields.
  */
-export const StringSchemaSchema = z.object({
-    type: z.literal('string'),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    minLength: z.number().optional(),
-    maxLength: z.number().optional(),
-    format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
-    default: z.string().optional()
-});
+export const StringSchemaSchema = z
+    .object({
+        type: z.literal('string'),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        minLength: z.number().optional(),
+        maxLength: z.number().optional(),
+        format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
+        default: z.string().optional()
+    })
+    .passthrough();
 
 /**
  * Primitive schema definition for number fields.
  */
-export const NumberSchemaSchema = z.object({
-    type: z.enum(['number', 'integer']),
-    title: z.string().optional(),
-    description: z.string().optional(),
-    minimum: z.number().optional(),
-    maximum: z.number().optional(),
-    default: z.number().optional()
-});
+export const NumberSchemaSchema = z
+    .object({
+        type: z.enum(['number', 'integer']),
+        title: z.string().optional(),
+        description: z.string().optional(),
+        minimum: z.number().optional(),
+        maximum: z.number().optional(),
+        default: z.number().optional()
+    })
+    .passthrough();
 
 /**
  * Schema for single-selection enumeration without display titles for options.
