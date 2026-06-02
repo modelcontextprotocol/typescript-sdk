@@ -38,6 +38,7 @@ import {
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    isStatefulProtocolVersion,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -358,9 +359,12 @@ export class Server extends Protocol<ServerContext> {
         this._clientCapabilities = request.params.capabilities;
         this._clientVersion = request.params.clientInfo;
 
-        const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
+        // initialize negotiates stateful versions only; an empty stateful subset falls back to the
+        // latest released version, matching the previous behavior for an empty supported list.
+        const statefulVersions = this._supportedProtocolVersions.filter(version => isStatefulProtocolVersion(version));
+        const protocolVersion = statefulVersions.includes(requestedVersion)
             ? requestedVersion
-            : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
+            : (statefulVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
         this._negotiatedProtocolVersion = protocolVersion;
         this.transport?.setProtocolVersion?.(protocolVersion);

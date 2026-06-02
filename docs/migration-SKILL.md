@@ -507,6 +507,8 @@ NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + infe
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
+`initialize` version negotiation is restricted to `STATEFUL_PROTOCOL_VERSIONS` (released versions ≤ 2025-11-25): unknown/future strings in `supportedProtocolVersions` are ignored by the handshake, a list containing none makes `connect()` throw, and the server's fallback picks its first stateful entry. Revisions after 2025-11-25 negotiate per-request instead (arriving with a later release).
+
 ## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:

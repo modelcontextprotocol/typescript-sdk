@@ -44,7 +44,7 @@ import {
     EmptyResultSchema,
     GetPromptResultSchema,
     InitializeResultSchema,
-    LATEST_PROTOCOL_VERSION,
+    isStatefulProtocolVersion,
     ListChangedOptionsBaseSchema,
     ListPromptsResultSchema,
     ListResourcesResultSchema,
@@ -420,11 +420,19 @@ export class Client extends Protocol<ClientContext> {
             return;
         }
         try {
+            const statefulVersions = this._supportedProtocolVersions.filter(version => isStatefulProtocolVersion(version));
+            const requestedProtocolVersion = statefulVersions[0];
+            if (requestedProtocolVersion === undefined) {
+                throw new Error(
+                    'initialize cannot negotiate protocol versions newer than 2025-11-25. Include at least one version from STATEFUL_PROTOCOL_VERSIONS in supportedProtocolVersions.'
+                );
+            }
+
             const result = await this._requestWithSchema(
                 {
                     method: 'initialize',
                     params: {
-                        protocolVersion: this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION,
+                        protocolVersion: requestedProtocolVersion,
                         capabilities: this._capabilities,
                         clientInfo: this._clientInfo
                     }
@@ -437,7 +445,7 @@ export class Client extends Protocol<ClientContext> {
                 throw new Error(`Server sent invalid initialize result: ${result}`);
             }
 
-            if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
+            if (!statefulVersions.includes(result.protocolVersion)) {
                 throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
             }
 

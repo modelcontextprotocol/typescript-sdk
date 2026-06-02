@@ -898,6 +898,11 @@ The 2025-11 experimental tasks side-channel woven through `Protocol` has been re
 
 There is no migration path for the removed surface; it was always `@experimental`. Task support is planned to return as an opt-in extension plugin per SEP-2663.
 
+### `initialize` negotiates only known stateful protocol versions
+
+`supportedProtocolVersions` entries outside `STATEFUL_PROTOCOL_VERSIONS` (the released versions up to 2025-11-25) no longer participate in the `initialize` handshake: clients request, and servers accept and fall back to, the first known stateful version in the list. A list
+containing no stateful version makes `connect()` throw. Custom or future version strings were previously sent as-is; revisions after 2025-11-25 negotiate per-request instead (arriving in a later release), and newly released stateful versions require an SDK update.
+
 ## Enhancements
 
 ### Automatic JSON Schema validator selection by runtime

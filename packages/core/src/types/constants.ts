@@ -2,6 +2,28 @@ export const LATEST_PROTOCOL_VERSION = '2025-11-25';
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
 export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
 
+/**
+ * Protocol versions that negotiate via the initialize handshake (the stateful model). Closed by
+ * design: every revision after 2025-11-25 is stateless and negotiates per-request, never via
+ * initialize. Hardcoded — do not derive from {@linkcode SUPPORTED_PROTOCOL_VERSIONS}.
+ */
+export const STATEFUL_PROTOCOL_VERSIONS = ['2025-11-25', '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
+
+/**
+ * Returns `true` when `version` negotiates via the initialize handshake — one of
+ * {@linkcode STATEFUL_PROTOCOL_VERSIONS}.
+ */
+export function isStatefulProtocolVersion(version: string): boolean {
+    return STATEFUL_PROTOCOL_VERSIONS.includes(version);
+}
+
+/**
+ * Wire identifier of the draft (unreleased) protocol revision, mirroring `LATEST_PROTOCOL_VERSION`
+ * in the [draft specification schema](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/schema/draft/schema.ts).
+ * Stateless: never negotiated via initialize.
+ */
+export const DRAFT_PROTOCOL_VERSION = '2026-07-28';
+
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
 /* Reserved `_meta` keys for the per-request envelope (protocol revision 2026-07-28) */

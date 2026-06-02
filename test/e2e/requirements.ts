@@ -2325,6 +2325,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             "When the server's negotiated protocol version is not in the client's supportedProtocolVersions list, client.connect() rejects and the connection is not established."
     },
+    'lifecycle:version:initialize-stateful-versions-only': {
+        source: 'sdk',
+        behavior:
+            'The initialize handshake negotiates only stateful protocol versions (2025-11-25 and older): a client and server whose supportedProtocolVersions lists contain newer revisions in any position complete the handshake on the newest mutually-supported stateful version, and no revision newer than 2025-11-25 appears anywhere in the handshake.',
+        note: 'Protocol revisions after 2025-11-25 are stateless and negotiate per-request, arriving with a later release.'
+    },
     'lifecycle:capability:list-empty-when-not-advertised': {
         source: 'sdk',
         behavior:

@@ -62,6 +62,12 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
 
+### Protocol versions
+
+A server negotiates the protocol version per connection from the stateful subset of its supported list — by default the versions in {@linkcode @modelcontextprotocol/server!index.SUPPORTED_PROTOCOL_VERSIONS | SUPPORTED_PROTOCOL_VERSIONS}. Pass `supportedProtocolVersions` in the server options to restrict or reorder that list.
+
+Only the stateful protocol versions in {@linkcode @modelcontextprotocol/server!index.STATEFUL_PROTOCOL_VERSIONS | STATEFUL_PROTOCOL_VERSIONS} negotiate via the initialize handshake — the server neither accepts a newer revision nor falls back to one. Every revision after 2025-11-25, including the draft revision {@linkcode @modelcontextprotocol/server!index.DRAFT_PROTOCOL_VERSION | DRAFT_PROTOCOL_VERSION}, is stateless and negotiates per-request, which arrives with a later release.
+
 ## Server instructions
 
 Instructions describe how to use the server and its features — cross-tool relationships, workflow patterns, and constraints (see [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP specification). Clients may add them to the system prompt. Instructions should not duplicate information already in tool descriptions.
