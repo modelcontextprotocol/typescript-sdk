@@ -62,20 +62,24 @@ export function normalizeRawShapeSchema(
     if (schema === undefined) return undefined;
     if (isZodRawShape(schema)) {
         // Fail at registration time, not serve time. Listing handlers run this
-        // exact JSON Schema conversion later; if the shape's field schemas come
-        // from a different zod build than the one the SDK bundles (e.g. the
-        // application's own zod 4.0/4.1 instance), the bundled converter can
-        // fail while walking their internals. Without this check, a bad shape
-        // registers fine and then crashes `tools/list` far from the cause.
+        // exact JSON Schema conversion later; it can fail when the shape's
+        // field schemas come from a different zod build than the one the SDK
+        // bundles (e.g. the application's own zod 4.0/4.1 instance), or when a
+        // field is not representable in JSON Schema (e.g. `z.custom()`).
+        // Without this check, a bad shape registers fine and then crashes
+        // `tools/list` far from the cause.
         let wrapped: StandardSchemaWithJSON;
         try {
             wrapped = z.object(schema) as StandardSchemaWithJSON;
             standardSchemaToJsonSchema(wrapped, io);
         } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
             throw new TypeError(
-                'Raw-shape inputSchema/outputSchema/argsSchema could not be converted to JSON Schema. ' +
-                    'The field schemas likely come from a different zod build than the one the SDK bundles. ' +
-                    "Wrap the shape with your own zod's `z.object({...})` (zod >=4.2), or pass a JSON Schema via `fromJsonSchema()`.",
+                `Raw-shape inputSchema/outputSchema/argsSchema could not be converted to JSON Schema: ${detail}. ` +
+                    'This happens when the field schemas come from a different zod build than the one the SDK bundles, ' +
+                    'or when a field is not representable in JSON Schema (e.g. `z.custom()`). ' +
+                    "For a foreign zod build, wrap the shape with your own zod's `z.object({...})` (zod >=4.2) so the schema carries its own converter; " +
+                    'for non-representable fields, pass a JSON Schema via `fromJsonSchema()`.',
                 { cause: error }
             );
         }

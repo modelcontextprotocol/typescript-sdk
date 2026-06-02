@@ -145,6 +145,10 @@ describe('normalizeRawShapeSchema real-instance coverage', () => {
     test('native z.custom raw-shape field fails at normalization time (version-independent construct)', () => {
         const shape = { c: z.custom<string>(v => typeof v === 'string') };
         expect(() => normalizeRawShapeSchema(shape as never)).toThrow(/could not be converted to JSON Schema/);
+        // The thrown message itself carries the converter's diagnosis, so the
+        // bundled-zod non-representable case is distinguishable from a foreign
+        // zod build without unwrapping `cause`.
+        expect(() => normalizeRawShapeSchema(shape as never)).toThrow(/Non-representable type|custom/i);
     });
 
     test('raw shape from a real foreign zod build fails at normalization time, not serve time', () => {
