@@ -55,7 +55,8 @@ transports: STATEFUL_TRANSPORTS, // or an explicit list
 note: 'stateless hosting has no server→client back-channel'
 ```
 
-`addedInSpecVersion` / `removedInSpecVersion` bound the spec versions a requirement applies to; a behavior changed by a spec release gets a sibling entry linked via `supersedes`.
+`addedInSpecVersion` / `removedInSpecVersion` bound the spec versions a requirement applies to. A behavior changed by a spec release gets a sibling entry: the new entry lists every retired id it replaces in `supersedes` (an array, requires `addedInSpecVersion`), and each retired
+entry points back via `supersededBy` (requires `removedInSpecVersion`). A coverage gate enforces that the links resolve and are exactly symmetric.
 
 ## Running
 
