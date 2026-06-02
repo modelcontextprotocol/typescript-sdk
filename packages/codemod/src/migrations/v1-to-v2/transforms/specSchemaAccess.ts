@@ -105,8 +105,8 @@ function handleReference(
             actionRequired(
                 sourceFile.getFilePath(),
                 ref,
-                `${localName}.safeParse() not available in v2. Use \`isSpecType.${typeName}(value)\` for boolean validation, ` +
-                    `or \`specTypeSchemas.${typeName}['~standard'].validate(value)\` for full result.`
+                `${localName}.safeParse() was removed with the v1 schema exports. Rewrite as \`specTypeSchemas.${typeName}.safeParse(value)\` ` +
+                    `(returns { success, data | issues }), or use \`isSpecType.${typeName}(value)\` for a boolean check.`
             )
         );
         return false;
@@ -118,8 +118,8 @@ function handleReference(
             actionRequired(
                 sourceFile.getFilePath(),
                 ref,
-                `${localName}.parse() not available in v2. Use \`isSpecType.${typeName}(value)\` for validation, ` +
-                    `or \`specTypeSchemas.${typeName}['~standard'].validate(value)\` and check for issues.`
+                `${localName}.parse() was removed with the v1 schema exports. Rewrite as \`specTypeSchemas.${typeName}.parse(value)\` ` +
+                    `(throws SpecTypeValidationError on failure), or use \`isSpecType.${typeName}(value)\` for a boolean check.`
             )
         );
         return false;
@@ -135,7 +135,7 @@ function handleReference(
             warning(
                 sourceFile.getFilePath(),
                 line,
-                `Replaced ${localName} with specTypeSchemas.${typeName}. Note: typed as StandardSchemaV1, not ZodType — Zod methods like .safeParse()/.parse()/.parseAsync() are not available. Manual rewrite required.`
+                `Replaced ${localName} with specTypeSchemas.${typeName}. Note: typed as StandardSchemaV1, not ZodType — .parse()/.safeParse() are provided, but Zod-specific APIs like .parseAsync() are not. Verify the accessed member.`
             )
         );
         return true;
@@ -160,7 +160,7 @@ function handleReference(
             warning(
                 sourceFile.getFilePath(),
                 line,
-                `Replaced ${localName} with specTypeSchemas.${typeName}. Note: typed as StandardSchemaV1, not ZodType — Zod methods like .safeParse()/.parse() are not available.`
+                `Replaced ${localName} with specTypeSchemas.${typeName}. Note: typed as StandardSchemaV1, not ZodType — .parse()/.safeParse() are provided, but Zod-specific APIs (e.g. .parseAsync(), .extend()) are not.`
             )
         );
         return true;
@@ -178,7 +178,7 @@ function handleReference(
         warning(
             sourceFile.getFilePath(),
             line,
-            `Replaced ${localName} with specTypeSchemas.${typeName}. Note: typed as StandardSchemaV1, not ZodType — Zod methods like .safeParse()/.parse() are not available.`
+            `Replaced ${localName} with specTypeSchemas.${typeName}. Note: typed as StandardSchemaV1, not ZodType — .parse()/.safeParse() are provided, but Zod-specific APIs (e.g. .parseAsync(), .extend()) are not.`
         )
     );
     return true;
