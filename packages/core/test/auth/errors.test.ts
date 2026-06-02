@@ -38,6 +38,16 @@ describe('oauthErrorFromCode', () => {
     });
 });
 
+describe('oauthErrorFromCode prototype-chain safety', () => {
+    it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])('treats Object.prototype member %s as an unknown code', code => {
+        const error = oauthErrorFromCode(code, 'server sent a hostile code');
+        expect(error).toBeInstanceOf(OAuthError);
+        expect(error.constructor).toBe(OAuthError);
+        expect(error.code).toBe(code);
+        expect(error.message).toContain('server sent a hostile code');
+    });
+});
+
 describe('OAuthError.fromResponse', () => {
     it('produces subclass instances so 1.x instanceof checks keep working', () => {
         const error = OAuthError.fromResponse({ error: 'invalid_grant', error_description: 'expired' });

@@ -12,11 +12,12 @@ import type {
 } from '@modelcontextprotocol/core';
 import {
     checkResourceAllowed,
+    isTransientOAuthError,
     LATEST_PROTOCOL_VERSION,
     OAuthClientInformationFullSchema,
     OAuthError,
-    oauthErrorFromCode,
     OAuthErrorCode,
+    oauthErrorFromCode,
     OAuthErrorResponseSchema,
     OAuthMetadataSchema,
     OAuthProtectedResourceMetadataSchema,
@@ -778,8 +779,10 @@ async function authInternal(
             await provider.saveTokens(newTokens);
             return 'AUTHORIZED';
         } catch (error) {
-            // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
-            if (!(error instanceof OAuthError) || error.code === OAuthErrorCode.ServerError) {
+            // If this is a transient OAuth error or an unrecognized code (which 1.x collapsed
+            // into ServerError), or not an OAuth error at all, log it out and try to continue
+            // with a fresh authorization flow. Otherwise, escalate so we can fix things and retry.
+            if (!(error instanceof OAuthError) || isTransientOAuthError(error)) {
                 // Could not refresh OAuth tokens
             } else {
                 // Refresh failed for another reason, re-throw

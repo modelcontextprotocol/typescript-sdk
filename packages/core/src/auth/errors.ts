@@ -341,7 +341,9 @@ const KNOWN_OAUTH_ERROR_CODES: ReadonlySet<string> = new Set(Object.values(OAuth
  * raw code.
  */
 export function oauthErrorFromCode(code: OAuthErrorCode | string, message: string, errorUri?: string): OAuthError {
-    const ErrorClass = OAUTH_ERRORS[code];
+    // The code comes from untrusted server responses: guard against prototype-chain
+    // lookups (e.g. a server returning "constructor" or "__proto__" as the error code).
+    const ErrorClass = Object.hasOwn(OAUTH_ERRORS, code) ? OAUTH_ERRORS[code] : undefined;
     if (ErrorClass) {
         return new ErrorClass(message, errorUri);
     }
