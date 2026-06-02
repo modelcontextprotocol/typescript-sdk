@@ -1,5 +1,6 @@
 import type { Transform } from '../../../types.js';
 import { contextTypesTransform } from './contextTypes.js';
+import { errorCodeSemanticsTransform } from './errorCodeSemantics.js';
 import { expressMiddlewareTransform } from './expressMiddleware.js';
 import { handlerRegistrationTransform } from './handlerRegistration.js';
 import { importPathsTransform } from './importPaths.js';
@@ -20,26 +21,33 @@ import { symbolRenamesTransform } from './symbolRenames.js';
 //    ProtocolError) and rewrites type references (e.g., SchemaInput<T> →
 //    StandardSchemaWithJSON.InferInput<T>).
 //
-// 3. removedApis runs after symbolRenames: handles removed Zod helpers,
+// 3. errorCodeSemantics runs after symbolRenames: the rename turns
+//    ErrorCode.RequestTimeout/ConnectionClosed into SdkErrorCode members; this
+//    transform then fixes the surrounding semantics (instanceof guards that
+//    still reference ProtocolError, switches/maps mixing the two enums). It
+//    also recognizes the pre-rename spelling, so it is safe standalone.
+//
+// 4. removedApis runs after symbolRenames: handles removed Zod helpers,
 //    IsomorphicHeaders, and StreamableHTTPError. Conceptually different
 //    from renames — these are removals with diagnostic guidance.
 //
-// 4. mcpServerApi SHOULD run before contextTypes: it rewrites .tool() etc.
+// 5. mcpServerApi SHOULD run before contextTypes: it rewrites .tool() etc.
 //    to .registerTool() etc. contextTypes handles both old and new names,
 //    but running mcpServerApi first ensures consistent argument structure.
 //
-// 5. handlerRegistration, schemaParamRemoval, and expressMiddleware are
+// 6. handlerRegistration, schemaParamRemoval, and expressMiddleware are
 //    independent of each other but all depend on importPaths having run.
 //
-// 6. specSchemaAccess runs after handlerRegistration and schemaParamRemoval:
+// 7. specSchemaAccess runs after handlerRegistration and schemaParamRemoval:
 //    those transforms remove spec schema references they handle. specSchemaAccess
 //    then processes remaining standalone usages (safeParse, parse, z.infer, etc.).
 //
-// 7. mockPaths runs last: handles test mocks and dynamic imports,
+// 8. mockPaths runs last: handles test mocks and dynamic imports,
 //    independent of the other transforms.
 export const v1ToV2Transforms: Transform[] = [
     importPathsTransform,
     symbolRenamesTransform,
+    errorCodeSemanticsTransform,
     removedApisTransform,
     mcpServerApiTransform,
     handlerRegistrationTransform,
