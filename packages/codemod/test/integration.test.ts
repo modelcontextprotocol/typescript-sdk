@@ -271,6 +271,63 @@ describe('integration', () => {
         expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/phantom-pkg');
     });
 
+    it('migrates an error-handling client file end to end, preserving the file header', () => {
+        const dir = createTempDir();
+        const input = [
+            `#\!/usr/bin/env node`,
+            `// Acme MCP client entry point.`,
+            `// Connects to local MCP servers over stdio and classifies failures.`,
+            `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            ``,
+            `const client = new Client({ name: 'acme', version: '1.0' });`,
+            ``,
+            `export async function callWithRetry(fn: () => Promise<unknown>): Promise<unknown> {`,
+            `    try {`,
+            `        return await fn();`,
+            `    } catch (e) {`,
+            `        if (e instanceof McpError && e.code === ErrorCode.RequestTimeout) {`,
+            `            return await fn();`,
+            `        }`,
+            `        if (e instanceof McpError && e.code === ErrorCode.ConnectionClosed) {`,
+            `            reconnect();`,
+            `        }`,
+            `        throw e;`,
+            `    }`,
+            `}`,
+            ``
+        ].join('\n');
+
+        writeFileSync(path.join(dir, 'client.ts'), input);
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.filesChanged).toBe(1);
+
+        const output = readFileSync(path.join(dir, 'client.ts'), 'utf8');
+
+        // File-leading trivia survives the full pipeline (multiple transforms
+        // capture/restore it in sequence).
+        expect(output.startsWith('#\!/usr/bin/env node')).toBe(true);
+        expect(output.split('Acme MCP client entry point.').length - 1).toBe(1);
+
+        // The symbols transform renames McpError -> ProtocolError and splits the
+        // moved enum members to SdkErrorCode; error-code-semantics must then
+        // retarget the instanceof guards so the catch blocks still match at
+        // runtime. This asserts the composed, in-order pipeline result.
+        expect(output).toContain('e instanceof SdkError && e.code === SdkErrorCode.RequestTimeout');
+        expect(output).toContain('e instanceof SdkError && e.code === SdkErrorCode.ConnectionClosed');
+        expect(output).not.toContain('McpError');
+        expect(output).not.toContain('instanceof ProtocolError');
+
+        // SdkError import added alongside the rewritten client import. (The
+        // renamed-but-now-unused ProtocolError specifier is tolerated here:
+        // the symbols transform renames the import before error-code-semantics
+        // retargets the usages. Linters flag it; nothing breaks at runtime.)
+        expect(output).toMatch(/import \{[^}]*\bSdkError\b[^}]*\} from ["']@modelcontextprotocol\/client["']/);
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+    });
+
     it('respects transform filter option', () => {
         const dir = createTempDir();
         const input = [
