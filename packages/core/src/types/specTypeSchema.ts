@@ -21,7 +21,7 @@ import * as schemas from './schemas.js';
  *
  * This intentionally excludes internal helper schemas exported from `schemas.ts` that have no
  * matching public type (e.g. `ListChangedOptionsBaseSchema`, `BaseRequestParamsSchema`,
- * `NotificationsParamsSchema`).
+ * `NotificationsParamsSchema`, `ClientTasksCapabilitySchema`, `ServerTasksCapabilitySchema`).
  * Keeping the list explicit means new public spec types must be added here deliberately, and
  * internals never leak into `SpecTypeName`.
  *
@@ -41,6 +41,8 @@ const SPEC_SCHEMA_KEYS = [
     'CallToolResultSchema',
     'CancelledNotificationSchema',
     'CancelledNotificationParamsSchema',
+    'CancelTaskRequestSchema',
+    'CancelTaskResultSchema',
     'ClientCapabilitiesSchema',
     'ClientNotificationSchema',
     'ClientRequestSchema',
@@ -54,6 +56,7 @@ const SPEC_SCHEMA_KEYS = [
     'CreateMessageRequestParamsSchema',
     'CreateMessageResultSchema',
     'CreateMessageResultWithToolsSchema',
+    'CreateTaskResultSchema',
     'CursorSchema',
     'ElicitationCompleteNotificationSchema',
     'ElicitationCompleteNotificationParamsSchema',
@@ -68,6 +71,10 @@ const SPEC_SCHEMA_KEYS = [
     'GetPromptRequestSchema',
     'GetPromptRequestParamsSchema',
     'GetPromptResultSchema',
+    'GetTaskPayloadRequestSchema',
+    'GetTaskPayloadResultSchema',
+    'GetTaskRequestSchema',
+    'GetTaskResultSchema',
     'IconSchema',
     'IconsSchema',
     'ImageContentSchema',
@@ -94,6 +101,8 @@ const SPEC_SCHEMA_KEYS = [
     'ListResourceTemplatesResultSchema',
     'ListRootsRequestSchema',
     'ListRootsResultSchema',
+    'ListTasksRequestSchema',
+    'ListTasksResultSchema',
     'ListToolsRequestSchema',
     'ListToolsResultSchema',
     'LoggingLevelSchema',
@@ -121,6 +130,7 @@ const SPEC_SCHEMA_KEYS = [
     'ReadResourceRequestSchema',
     'ReadResourceRequestParamsSchema',
     'ReadResourceResultSchema',
+    'RelatedTaskMetadataSchema',
     'RequestSchema',
     'RequestIdSchema',
     'RequestMetaSchema',
@@ -150,6 +160,13 @@ const SPEC_SCHEMA_KEYS = [
     'StringSchemaSchema',
     'SubscribeRequestSchema',
     'SubscribeRequestParamsSchema',
+    'TaskSchema',
+    'TaskAugmentedRequestParamsSchema',
+    'TaskCreationParamsSchema',
+    'TaskMetadataSchema',
+    'TaskStatusSchema',
+    'TaskStatusNotificationSchema',
+    'TaskStatusNotificationParamsSchema',
     'TextContentSchema',
     'TextResourceContentsSchema',
     'TitledMultiSelectEnumSchemaSchema',

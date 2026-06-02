@@ -1,6 +1,8 @@
 import {
+    CallToolRequestSchema,
     CallToolResultSchema,
     ClientCapabilitiesSchema,
+    ClientRequestSchema,
     CompleteRequestSchema,
     ContentBlockSchema,
     CreateMessageRequestSchema,
@@ -1010,5 +1012,40 @@ describe('Types', () => {
                 expect(result.data.requestedSchema.additionalProperties).toBe(false);
             }
         });
+    });
+});
+
+describe('2025-11-25 task wire interop (task feature removed; wire types remain)', () => {
+    test('tasks/get parses through the client request union', () => {
+        const result = ClientRequestSchema.safeParse({ method: 'tasks/get', params: { taskId: 'task-123' } });
+        expect(result.success).toBe(true);
+    });
+
+    test('task-augmented tools/call params parse and retain the task field', () => {
+        const result = CallToolRequestSchema.safeParse({
+            method: 'tools/call',
+            params: { name: 'echo', arguments: {}, task: { ttl: 60000 } }
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.params.task).toEqual({ ttl: 60000 });
+        }
+    });
+
+    test('tool execution.taskSupport is accepted', () => {
+        const result = ToolSchema.safeParse({
+            name: 'echo',
+            inputSchema: { type: 'object' },
+            execution: { taskSupport: 'optional' }
+        });
+        expect(result.success).toBe(true);
+    });
+
+    test('capabilities.tasks is retained, not stripped', () => {
+        const result = ClientCapabilitiesSchema.safeParse({ tasks: { list: {}, cancel: {} } });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.tasks).toEqual({ list: {}, cancel: {} });
+        }
     });
 });

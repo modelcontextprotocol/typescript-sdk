@@ -154,7 +154,9 @@ describe('SPEC_SCHEMA_KEYS allowlist', () => {
     const INTERNAL_HELPER_SCHEMAS: readonly string[] = [
         'ListChangedOptionsBaseSchema',
         'BaseRequestParamsSchema',
-        'NotificationsParamsSchema'
+        'NotificationsParamsSchema',
+        'ClientTasksCapabilitySchema',
+        'ServerTasksCapabilitySchema'
     ];
 
     it('covers every public protocol schema in schemas.ts (drift guard)', () => {

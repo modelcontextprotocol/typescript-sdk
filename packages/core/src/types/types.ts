@@ -17,6 +17,8 @@ import type {
     CallToolResultSchema,
     CancelledNotificationParamsSchema,
     CancelledNotificationSchema,
+    CancelTaskRequestSchema,
+    CancelTaskResultSchema,
     ClientCapabilitiesSchema,
     ClientNotificationSchema,
     ClientRequestSchema,
@@ -30,6 +32,7 @@ import type {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    CreateTaskResultSchema,
     CursorSchema,
     ElicitationCompleteNotificationParamsSchema,
     ElicitationCompleteNotificationSchema,
@@ -44,6 +47,10 @@ import type {
     GetPromptRequestParamsSchema,
     GetPromptRequestSchema,
     GetPromptResultSchema,
+    GetTaskPayloadRequestSchema,
+    GetTaskPayloadResultSchema,
+    GetTaskRequestSchema,
+    GetTaskResultSchema,
     IconSchema,
     IconsSchema,
     ImageContentSchema,
@@ -67,6 +74,8 @@ import type {
     ListResourceTemplatesResultSchema,
     ListRootsRequestSchema,
     ListRootsResultSchema,
+    ListTasksRequestSchema,
+    ListTasksResultSchema,
     ListToolsRequestSchema,
     ListToolsResultSchema,
     LoggingLevelSchema,
@@ -95,6 +104,7 @@ import type {
     ReadResourceRequestParamsSchema,
     ReadResourceRequestSchema,
     ReadResourceResultSchema,
+    RelatedTaskMetadataSchema,
     RequestIdSchema,
     RequestMetaSchema,
     RequestSchema,
@@ -124,6 +134,13 @@ import type {
     StringSchemaSchema,
     SubscribeRequestParamsSchema,
     SubscribeRequestSchema,
+    TaskAugmentedRequestParamsSchema,
+    TaskCreationParamsSchema,
+    TaskMetadataSchema,
+    TaskSchema,
+    TaskStatusNotificationParamsSchema,
+    TaskStatusNotificationSchema,
+    TaskStatusSchema,
     TextContentSchema,
     TextResourceContentsSchema,
     TitledMultiSelectEnumSchemaSchema,
@@ -170,6 +187,7 @@ type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 export type ProgressToken = Infer<typeof ProgressTokenSchema>;
 export type Cursor = Infer<typeof CursorSchema>;
 export type Request = Infer<typeof RequestSchema>;
+export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
 export type RequestMeta = Infer<typeof RequestMetaSchema>;
 export type Notification = Infer<typeof NotificationSchema>;
 export type Result = Infer<typeof ResultSchema>;
@@ -213,6 +231,24 @@ export type PingRequest = Infer<typeof PingRequestSchema>;
 export type Progress = Infer<typeof ProgressSchema>;
 export type ProgressNotificationParams = Infer<typeof ProgressNotificationParamsSchema>;
 export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
+
+/* Tasks */
+export type Task = Infer<typeof TaskSchema>;
+export type TaskStatus = Infer<typeof TaskStatusSchema>;
+export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
+export type TaskMetadata = Infer<typeof TaskMetadataSchema>;
+export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
+export type CreateTaskResult = Infer<typeof CreateTaskResultSchema>;
+export type TaskStatusNotificationParams = Infer<typeof TaskStatusNotificationParamsSchema>;
+export type TaskStatusNotification = Infer<typeof TaskStatusNotificationSchema>;
+export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
+export type GetTaskResult = Infer<typeof GetTaskResultSchema>;
+export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;
+export type ListTasksRequest = Infer<typeof ListTasksRequestSchema>;
+export type ListTasksResult = Infer<typeof ListTasksResultSchema>;
+export type CancelTaskRequest = Infer<typeof CancelTaskRequestSchema>;
+export type CancelTaskResult = Infer<typeof CancelTaskResultSchema>;
+export type GetTaskPayloadResult = Infer<typeof GetTaskPayloadResultSchema>;
 
 /* Pagination */
 export type PaginatedRequestParams = Infer<typeof PaginatedRequestParamsSchema>;
@@ -356,11 +392,15 @@ export type ResultTypeMap = {
     'resources/read': ReadResourceResult;
     'resources/subscribe': EmptyResult;
     'resources/unsubscribe': EmptyResult;
-    'tools/call': CallToolResult;
+    'tools/call': CallToolResult | CreateTaskResult;
     'tools/list': ListToolsResult;
-    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;
-    'elicitation/create': ElicitResult;
+    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools | CreateTaskResult;
+    'elicitation/create': ElicitResult | CreateTaskResult;
     'roots/list': ListRootsResult;
+    'tasks/get': GetTaskResult;
+    'tasks/result': Result;
+    'tasks/list': ListTasksResult;
+    'tasks/cancel': CancelTaskResult;
 };
 
 /**

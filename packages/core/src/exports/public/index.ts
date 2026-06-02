@@ -79,6 +79,7 @@ export {
     LATEST_PROTOCOL_VERSION,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
+    RELATED_TASK_META_KEY,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '../../types/constants.js';
 
@@ -100,6 +101,7 @@ export {
     isJSONRPCRequest,
     isJSONRPCResponse,
     isJSONRPCResultResponse,
+    isTaskAugmentedRequestParams,
     parseJSONRPCMessage
 } from '../../types/guards.js';
 

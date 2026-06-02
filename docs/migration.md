@@ -892,7 +892,9 @@ The 2025-11 experimental tasks side-channel woven through `Protocol` has been re
 - `TaskMessageQueue`, `InMemoryTaskMessageQueue`, `BaseQueuedMessage` and the `Queued*` message types, `CreateTaskServerContext`, `TaskServerContext`, `TaskToolExecution`
 - `examples/{client,server}/src/simpleTaskInteractive*.ts`
 
-**Also removed:** the storage layer (`TaskStore`, `InMemoryTaskStore`, `CreateTaskOptions`, `isTerminal`) and `TaskCreationParams`. They will return as part of the SEP-2663 server-directed plugin in a follow-up.
+**Also removed:** the storage layer (`TaskStore`, `InMemoryTaskStore`, `CreateTaskOptions`, `isTerminal`). It will return as part of the SEP-2663 server-directed plugin in a follow-up.
+
+**Wire types remain.** The task wire surface defined by the 2025-11-25 protocol revision is still exported, for interoperability with peers on that revision: the task Zod schemas and their inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `GetTaskPayload*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), the task members of the request/result/notification unions, the `tasks` capability key, the `isTaskAugmentedRequestParams` guard, and `RELATED_TASK_META_KEY`. Only the behavior is gone: servers built on this SDK do not advertise the `tasks` capability, and inbound `tasks/*` requests receive a standard `-32601` (method not found) error.
 
 There is no migration path for the removed surface; it was always `@experimental`. Task support is planned to return as an opt-in extension plugin per SEP-2663.
 

@@ -499,7 +499,9 @@ The 2025-11 task side-channel through `Protocol` is removed (was always `@experi
 | `TaskMessageQueue`, `InMemoryTaskMessageQueue`, `BaseQueuedMessage`, `Queued*`, `CreateTaskServerContext`, `TaskServerContext`, `TaskToolExecution`                       | removed                       |
 | `ResponseMessage`, `BaseResponseMessage`, `ErrorMessage`, `AsyncGeneratorValue`, `TaskStatusMessage`, `TaskCreatedMessage`, `ResultMessage`, `takeResult`, `toArrayAsync` | removed                       |
 
-`TaskStore` / `InMemoryTaskStore` / `CreateTaskOptions` / `isTerminal` (storage layer) and `TaskCreationParams` are also removed; they will return with the SEP-2663 server-directed plugin.
+`TaskStore` / `InMemoryTaskStore` / `CreateTaskOptions` / `isTerminal` (storage layer) are also removed; they will return with the SEP-2663 server-directed plugin.
+
+NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task members of the request/result/notification unions, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
 
 ## 13. Client Behavioral Changes
 
