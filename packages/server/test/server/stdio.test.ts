@@ -179,3 +179,68 @@ test('should fire onerror before onclose on stdout error', async () => {
 
     expect(events).toEqual(['error', 'close']);
 });
+
+test('should fire onclose when stdin emits close', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+    input.emit('close');
+
+    expect(closeCount).toBe(1);
+});
+
+test('should fire onclose when stdin emits end', async () => {
+    // Use autoDestroy:false + emitClose:false so push(null) fires 'end' but NOT 'close',
+    // ensuring the test fails unless an 'end' listener is explicitly registered.
+    const endOnlyInput = new Readable({
+        autoDestroy: false,
+        emitClose: false,
+        read: () => {}
+    });
+    const server = new StdioServerTransport(endOnlyInput, output);
+    server.onerror = error => {
+        throw error;
+    };
+
+    let closeCount = 0;
+    let inputCloseCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+    endOnlyInput.on('close', () => {
+        inputCloseCount++;
+    });
+
+    await server.start();
+    endOnlyInput.push(null); // signals end-of-stream without emitting close
+
+    // Allow microtasks to flush
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(inputCloseCount).toBe(0); // confirms close was NOT emitted
+    expect(closeCount).toBe(1);
+});
+
+test('should not fire onclose twice when close() called after stdin close', async () => {
+    const server = new StdioServerTransport(input, output);
+    server.onerror = () => {};
+
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+    input.emit('close');
+    await server.close();
+
+    expect(closeCount).toBe(1);
+});
