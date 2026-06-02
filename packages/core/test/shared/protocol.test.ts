@@ -2319,6 +2319,43 @@ describe('Request Cancellation vs Task Cancellation', () => {
             expect(wasAborted).toBe(true);
         });
 
+        test('should abort request handler when cancelling request ID 0', async () => {
+            await protocol.connect(transport);
+
+            let wasAborted = false;
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                await new Promise(resolve => setTimeout(resolve, 100));
+                wasAborted = ctx.mcpReq.signal.aborted;
+                return {};
+            });
+
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    id: 0,
+                    method: 'ping',
+                    params: {}
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            if (transport.onmessage) {
+                transport.onmessage({
+                    jsonrpc: '2.0',
+                    method: 'notifications/cancelled',
+                    params: {
+                        requestId: 0,
+                        reason: 'User cancelled'
+                    }
+                });
+            }
+
+            await new Promise(resolve => setTimeout(resolve, 150));
+
+            expect(wasAborted).toBe(true);
+        });
+
         test('should NOT automatically cancel associated tasks when notifications/cancelled is received', async () => {
             await protocol.connect(transport);
 
