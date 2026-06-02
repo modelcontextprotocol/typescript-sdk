@@ -5,8 +5,41 @@ import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '
 import { type Mock, type Mocked } from 'vitest';
 
 describe('StreamableHTTPClientTransport', () => {
+    type ParsedSseEvent = {
+        id?: string;
+        event?: string;
+        data?: string;
+    };
+
     let transport: StreamableHTTPClientTransport;
     let mockAuthProvider: Mocked<OAuthClientProvider>;
+
+    const waitForCondition = async (condition: () => boolean) => {
+        for (let i = 0; i < 20; i++) {
+            if (condition()) {
+                return;
+            }
+            await new Promise(resolve => setTimeout(resolve, 0));
+        }
+        expect(condition()).toBe(true);
+    };
+
+    const handleSseStream = (stream: ReadableStream<Uint8Array>, options: StartSSEOptions = {}, isReconnectable = false) => {
+        (
+            transport as unknown as {
+                _handleSseStream: (stream: ReadableStream<Uint8Array>, options: StartSSEOptions, isReconnectable: boolean) => void;
+            }
+        )._handleSseStream(stream, options, isReconnectable);
+    };
+
+    const makeSseStreamWithReader = (reader: Pick<ReadableStreamDefaultReader<ParsedSseEvent>, 'read' | 'releaseLock'>) =>
+        ({
+            pipeThrough: vi.fn(() => ({
+                pipeThrough: vi.fn(() => ({
+                    getReader: vi.fn(() => reader)
+                }))
+            }))
+        }) as unknown as ReadableStream<Uint8Array>;
 
     beforeEach(() => {
         mockAuthProvider = {
@@ -309,6 +342,48 @@ describe('StreamableHTTPClientTransport', () => {
                 params: {}
             })
         );
+    });
+
+    it('releases the SSE reader after the stream ends', async () => {
+        const reader = {
+            read: vi
+                .fn<() => Promise<ReadableStreamReadResult<ParsedSseEvent>>>()
+                .mockResolvedValueOnce({
+                    done: false,
+                    value: {
+                        event: 'message',
+                        data: '{"jsonrpc":"2.0","method":"serverNotification","params":{}}'
+                    }
+                })
+                .mockResolvedValueOnce({ done: true, value: undefined }),
+            releaseLock: vi.fn()
+        };
+        const messageSpy = vi.fn();
+        transport.onmessage = messageSpy;
+
+        handleSseStream(makeSseStreamWithReader(reader));
+
+        await waitForCondition(() => reader.releaseLock.mock.calls.length === 1);
+        expect(messageSpy).toHaveBeenCalledWith({
+            jsonrpc: '2.0',
+            method: 'serverNotification',
+            params: {}
+        });
+    });
+
+    it('releases the SSE reader when stream processing fails', async () => {
+        const reader = {
+            read: vi.fn<() => Promise<ReadableStreamReadResult<ParsedSseEvent>>>().mockRejectedValueOnce(new Error('network disconnect')),
+            releaseLock: vi.fn()
+        };
+        const errorSpy = vi.fn();
+        transport.onerror = errorSpy;
+
+        handleSseStream(makeSseStreamWithReader(reader));
+
+        await waitForCondition(() => errorSpy.mock.calls.length === 1);
+        expect(reader.releaseLock).toHaveBeenCalledTimes(1);
+        expect(errorSpy).toHaveBeenCalledWith(new Error('SSE stream disconnected: Error: network disconnect'));
     });
 
     it('should handle multiple concurrent SSE streams', async () => {
