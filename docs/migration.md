@@ -62,6 +62,9 @@ import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so you can import types and error classes from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly
 — it is an internal package.
 
+For files where both packages are plausible (shared protocol types like `CallToolResult`, `Transport`, or `JSONRPCMessage`), the choice has no runtime or type-identity effect — both packages re-export identical declarations. Pick the package matching the file's role
+(`@modelcontextprotocol/client` unless the file constructs a server), and avoid importing from both packages in the same file.
+
 ### Dropped Node.js 18 and CommonJS
 
 v2 requires **Node.js 20+** and ships **ESM only** (no more CommonJS builds).
@@ -140,6 +143,11 @@ const transport = new WebSocketClientTransport(new URL('ws://localhost:3000'));
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'));
 ```
+
+### Stdio: non-JSON lines are now skipped
+
+In v1, any line on a stdio transport's stream that failed to parse surfaced via the transport's `onerror`. In v2, lines that are not valid JSON (e.g. stray debug output from hot-reload tools writing to stdout) are silently skipped; only valid JSON that fails message-schema
+validation still reaches `onerror`. If you relied on `onerror` to detect servers that write non-protocol output to stdout, that signal no longer fires.
 
 ### Server auth split
 
@@ -254,6 +262,12 @@ server.registerResource('config', 'config://app', {}, async uri => {
     return { contents: [{ uri: uri.href, text: '{}' }] };
 });
 ```
+
+### Tool argument validation failures are returned in-band
+
+When `tools/call` arguments fail `inputSchema` validation, v1's `McpServer` surfaced a protocol-level `InvalidParams` error. v2 catches tool-handler and validation errors and returns them as an in-band tool result: `{ isError: true }` with a text content item beginning
+`Input validation error: ...`. Clients that detected argument errors by catching protocol errors will now see them in the tool result instead, and tests asserting a thrown error need updating. (URL-elicitation-required errors are the exception and still propagate as protocol
+errors.)
 
 ### Standard Schema objects required (raw shapes no longer supported)
 
@@ -380,6 +394,9 @@ The request and notification parameters remain fully typed via `RequestTypeMap` 
 
 For vendor-prefixed methods (anything not in the MCP spec), use the 3-arg form: pass the method string, a `{ params, result? }` schemas object, and the handler. Any [Standard Schema](https://standardschema.dev) library works (Zod, Valibot, ArkType).
 
+This is a signature change from v1, where custom-schema handlers received the full request/notification envelope: handler bodies switch from `request.params.x` to `params.x`, and test doubles that capture registration arguments must account for the handler now being the _third_
+argument (the second is the schemas object).
+
 **Before (v1):**
 
 ```typescript
@@ -415,6 +432,9 @@ The handler receives the parsed `params` directly (not the full request envelope
 
 For `setNotificationHandler`, the 3-arg handler is `(params, notification) => void`. The raw notification is the second argument, so `_meta` is recoverable via `notification.params?._meta`.
 
+Note this is a signature change from v1, where custom-schema handlers received the full request/notification envelope. Handler bodies must switch from `request.params.x` to `params.x`, and test doubles that capture registration arguments must account for the handler now being the
+_third_ argument (the second is the schemas object).
+
 #### Sending custom-method requests
 
 `request()` and `ctx.mcpReq.send()` accept a result schema as the second argument; for custom methods this is required:
@@ -431,18 +451,34 @@ Common method string replacements:
 | Schema (v1)                             | Method string (v2)                       |
 | --------------------------------------- | ---------------------------------------- |
 | `InitializeRequestSchema`               | `'initialize'`                           |
+| `PingRequestSchema`                     | `'ping'`                                 |
 | `CallToolRequestSchema`                 | `'tools/call'`                           |
 | `ListToolsRequestSchema`                | `'tools/list'`                           |
 | `ListPromptsRequestSchema`              | `'prompts/list'`                         |
 | `GetPromptRequestSchema`                | `'prompts/get'`                          |
 | `ListResourcesRequestSchema`            | `'resources/list'`                       |
 | `ReadResourceRequestSchema`             | `'resources/read'`                       |
+| `ListResourceTemplatesRequestSchema`    | `'resources/templates/list'`             |
+| `SubscribeRequestSchema`                | `'resources/subscribe'`                  |
+| `UnsubscribeRequestSchema`              | `'resources/unsubscribe'`                |
 | `CreateMessageRequestSchema`            | `'sampling/createMessage'`               |
 | `ElicitRequestSchema`                   | `'elicitation/create'`                   |
+| `SetLevelRequestSchema`                 | `'logging/setLevel'`                     |
+| `CompleteRequestSchema`                 | `'completion/complete'`                  |
+| `ListRootsRequestSchema`                | `'roots/list'`                           |
 | `LoggingMessageNotificationSchema`      | `'notifications/message'`                |
 | `ToolListChangedNotificationSchema`     | `'notifications/tools/list_changed'`     |
 | `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
 | `PromptListChangedNotificationSchema`   | `'notifications/prompts/list_changed'`   |
+| `ResourceUpdatedNotificationSchema`     | `'notifications/resources/updated'`      |
+| `ProgressNotificationSchema`            | `'notifications/progress'`               |
+| `CancelledNotificationSchema`           | `'notifications/cancelled'`              |
+| `InitializedNotificationSchema`         | `'notifications/initialized'`            |
+| `RootsListChangedNotificationSchema`    | `'notifications/roots/list_changed'`     |
+| `ElicitationCompleteNotificationSchema` | `'notifications/elicitation/complete'`   |
+
+Task-related schemas (`ListTasksRequestSchema`, `GetTaskRequestSchema`, `GetTaskPayloadRequestSchema`, `CancelTaskRequestSchema`, `TaskStatusNotificationSchema`) have no v2 handler-registration equivalent: the experimental task feature was removed and servers answer inbound
+`tasks/*` with `-32601` (see the experimental-tasks section).
 
 ### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer require a schema parameter for spec methods
 
@@ -632,6 +668,18 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 });
 ```
 
+The same restructure applies to client-side handlers — `ClientContext` is an alias of `BaseContext`, so handlers registered on a `Client` receive the same `ctx` shape:
+
+```typescript
+client.setRequestHandler('elicitation/create', async (request, ctx) => {
+    // ctx.mcpReq.signal, ctx.mcpReq.id, ctx.mcpReq._meta are all available client-side
+    if (ctx.mcpReq.signal.aborted) {
+        throw new Error('Request cancelled');
+    }
+    return { action: 'decline' };
+});
+```
+
 Context fields are organized into 3 groups:
 
 - **`mcpReq`** — request-level concerns: `id`, `method`, `_meta`, `signal`, `send()`, `notify()`, plus server-only `log()`, `elicitInput()`, and `requestSampling()`
@@ -796,6 +844,11 @@ The new design:
 - `ProtocolError` with `ProtocolErrorCode`: For errors that are serialized and sent as JSON-RPC error responses
 - `SdkError` with `SdkErrorCode`: For local errors that are thrown/rejected locally and never leave the SDK
 
+#### JSON-RPC error responses without an `id`
+
+`JSONRPCErrorResponse` now allows the `id` field to be absent (v1 required it). Error responses without an `id` — which some servers emit for parse-level failures — now pass message validation and are delivered to transport `onmessage` handlers instead of being rejected at the
+transport boundary. Code that assumes every error response carries an `id` should handle the absent case.
+
 ### OAuth error refactoring
 
 The OAuth error classes have been consolidated into a single `OAuthError` class with an `OAuthErrorCode` enum.
@@ -838,7 +891,7 @@ This package is deprecated and will not receive new features. Use a dedicated OA
 **Before (v1):**
 
 ```typescript
-import { InvalidClientError, InvalidGrantError, ServerError } from '@modelcontextprotocol/client';
+import { InvalidClientError, InvalidGrantError, ServerError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 
 try {
     await refreshToken();
@@ -877,6 +930,17 @@ try {
 }
 ```
 
+The error code is exposed as `error.code` (`readonly code: OAuthErrorCode | string`).
+
+One behavioral difference to account for when rewriting `instanceof` checks to code comparisons: v1 mapped _unrecognized_ error codes from server responses onto `ServerError`, so `instanceof ServerError` matched both real `server_error` responses and any nonstandard code (e.g.
+`invalid_refresh_token`). v2 preserves the raw code on `OAuthError`. If your v1 code treated `ServerError` as "transient, safe to retry", preserve that behavior by treating unknown codes as transient too:
+
+```typescript
+const KNOWN_OAUTH_ERROR_CODES = new Set<string>(Object.values(OAuthErrorCode));
+
+const isTransient = error instanceof OAuthError && (error.code === OAuthErrorCode.ServerError || error.code === OAuthErrorCode.TemporarilyUnavailable || error.code === OAuthErrorCode.TooManyRequests || !KNOWN_OAUTH_ERROR_CODES.has(error.code));
+```
+
 ### Experimental tasks interception removed
 
 The 2025-11 experimental tasks side-channel woven through `Protocol` has been removed in preparation for the SEP-2663 Tasks Extension. The following are gone with no in-place replacement:
@@ -894,7 +958,9 @@ The 2025-11 experimental tasks side-channel woven through `Protocol` has been re
 
 **Also removed:** the storage layer (`TaskStore`, `InMemoryTaskStore`, `CreateTaskOptions`, `isTerminal`). It will return as part of the SEP-2663 server-directed plugin in a follow-up.
 
-**Wire types remain.** The task wire surface defined by the 2025-11-25 protocol revision is still exported, for interoperability with peers on that revision: the task Zod schemas and their inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `GetTaskPayload*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), the task members of the request/result/notification unions, the `tasks` capability key, the `isTaskAugmentedRequestParams` guard, and `RELATED_TASK_META_KEY`. Only the behavior is gone: servers built on this SDK do not advertise the `tasks` capability, and inbound `tasks/*` requests receive a standard `-32601` (method not found) error.
+**Wire types remain.** The task wire surface defined by the 2025-11-25 protocol revision is still exported, for interoperability with peers on that revision: the task Zod schemas and their inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`,
+`CreateTaskResult`, `GetTask*`, `GetTaskPayload*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), the task members of the request/result/notification unions, the `tasks` capability key, the `isTaskAugmentedRequestParams` guard, and
+`RELATED_TASK_META_KEY`. Only the behavior is gone: servers built on this SDK do not advertise the `tasks` capability, and inbound `tasks/*` requests receive a standard `-32601` (method not found) error.
 
 There is no migration path for the removed surface; it was always `@experimental`. Task support is planned to return as an opt-in extension plugin per SEP-2663.
 

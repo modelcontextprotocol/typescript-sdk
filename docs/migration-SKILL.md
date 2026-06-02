@@ -71,6 +71,8 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 Notes:
 
 - `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so import from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly — it is an internal package.
+- For shared protocol types (`CallToolResult`, `Transport`, `JSONRPCMessage`, ...) the package choice is cosmetic — declarations are identical. Rule: pick the package matching the file's role (`client` unless the file constructs a server); never import from both packages in one
+  file.
 - When multiple v1 imports map to the same v2 package, consolidate them into a single import statement.
 
 ## 4. Renamed Symbols
@@ -123,6 +125,8 @@ Three error classes now exist:
 | Unexpected content type           | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`            |
 | Session termination failed        | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
 | Response result fails schema      | `ZodError` (raw)                             | `SdkError` with `SdkErrorCode.InvalidResult`                          |
+
+`JSONRPCErrorResponse.id` is now optional (v1 required it) — id-less error responses pass validation and reach `onmessage`.
 
 New `SdkErrorCode` enum values:
 
@@ -207,13 +211,16 @@ Update OAuth error handling:
 
 ```typescript
 // v1
-import { InvalidClientError, InvalidGrantError } from '@modelcontextprotocol/client';
+import { InvalidClientError, InvalidGrantError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 if (error instanceof InvalidClientError) { ... }
 
 // v2
 import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/client';
 if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
 ```
+
+The code property is `error.code` (`OAuthErrorCode | string`). Behavioral trap: v1 collapsed unrecognized response error codes into `ServerError`; v2 preserves the raw code. When rewriting `instanceof ServerError` retry/transient checks, treat unknown codes as transient to
+preserve v1 behavior: `!new Set<string>(Object.values(OAuthErrorCode)).has(error.code)`.
 
 **Unchanged APIs** (only import paths changed): `Client` constructor and most methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all
 Zod schemas, all callback return types. Note: `callTool()` and `request()` signatures changed (schema parameter removed, see section 11).
@@ -300,6 +307,8 @@ Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
 | `{}` (empty)                       | `z.object({})`                               |
 | `undefined` (no schema)            | `undefined` or omit the field                |
 
+Tool argument validation failures are returned in-band (`isError: true`, text content starting `Input validation error:`) instead of v1's protocol-level `InvalidParams` error; tests asserting a thrown error need updating.
+
 ### Removed core exports
 
 | Removed from `@modelcontextprotocol/core`                                            | Replacement                               |
@@ -379,6 +388,9 @@ client.setNotificationHandler('acme/progress', { params: P }, (params, notificat
 
 The 3-arg notification handler receives the raw notification as its second argument, so `_meta` is recoverable via `notification.params?._meta`.
 
+Signature trap: v1 custom-schema handlers received the full envelope; v2 3-arg handlers receive parsed params first. Update handler bodies (`request.params.x` → `params.x`) and test fakes that capture registration arguments (the handler is now argument 3; argument 2 is the
+schemas object).
+
 To send a custom-method request, pass a result schema as the second argument to `request()` (and `ctx.mcpReq.send()`):
 
 ```typescript
@@ -393,23 +405,34 @@ Schema to method string mapping:
 | v1 Schema                               | v2 Method String                         |
 | --------------------------------------- | ---------------------------------------- |
 | `InitializeRequestSchema`               | `'initialize'`                           |
+| `PingRequestSchema`                     | `'ping'`                                 |
 | `CallToolRequestSchema`                 | `'tools/call'`                           |
 | `ListToolsRequestSchema`                | `'tools/list'`                           |
 | `ListPromptsRequestSchema`              | `'prompts/list'`                         |
 | `GetPromptRequestSchema`                | `'prompts/get'`                          |
 | `ListResourcesRequestSchema`            | `'resources/list'`                       |
 | `ReadResourceRequestSchema`             | `'resources/read'`                       |
+| `ListResourceTemplatesRequestSchema`    | `'resources/templates/list'`             |
+| `SubscribeRequestSchema`                | `'resources/subscribe'`                  |
+| `UnsubscribeRequestSchema`              | `'resources/unsubscribe'`                |
 | `CreateMessageRequestSchema`            | `'sampling/createMessage'`               |
 | `ElicitRequestSchema`                   | `'elicitation/create'`                   |
 | `SetLevelRequestSchema`                 | `'logging/setLevel'`                     |
-| `PingRequestSchema`                     | `'ping'`                                 |
+| `CompleteRequestSchema`                 | `'completion/complete'`                  |
+| `ListRootsRequestSchema`                | `'roots/list'`                           |
 | `LoggingMessageNotificationSchema`      | `'notifications/message'`                |
 | `ToolListChangedNotificationSchema`     | `'notifications/tools/list_changed'`     |
 | `ResourceListChangedNotificationSchema` | `'notifications/resources/list_changed'` |
 | `PromptListChangedNotificationSchema`   | `'notifications/prompts/list_changed'`   |
+| `ResourceUpdatedNotificationSchema`     | `'notifications/resources/updated'`      |
 | `ProgressNotificationSchema`            | `'notifications/progress'`               |
 | `CancelledNotificationSchema`           | `'notifications/cancelled'`              |
 | `InitializedNotificationSchema`         | `'notifications/initialized'`            |
+| `RootsListChangedNotificationSchema`    | `'notifications/roots/list_changed'`     |
+| `ElicitationCompleteNotificationSchema` | `'notifications/elicitation/complete'`   |
+
+Task-related schemas (`ListTasksRequestSchema`, `GetTaskRequestSchema`, `GetTaskPayloadRequestSchema`, `CancelTaskRequestSchema`, `TaskStatusNotificationSchema`) have no v2 handler-registration equivalent: the experimental task feature was removed and servers answer inbound
+`tasks/*` with `-32601` (see the experimental-tasks section).
 
 Request/notification params remain fully typed. Remove unused schema imports after migration.
 
@@ -432,6 +455,8 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `extra.closeSSEStream`                            | `ctx.http?.closeSSE` (only `ServerContext`)                                |
 | `extra.closeStandaloneSSEStream`                  | `ctx.http?.closeStandaloneSSE` (only `ServerContext`)                      |
 | `extra.taskStore` / `taskId` / `taskRequestedTtl` | _removed; see §12_                                                         |
+
+The restructure applies client-side too: `ClientContext` = `BaseContext`, so client handler mocks/fakes need the `{ mcpReq: { signal, id, ... } }` shape rather than the flat v1 fields.
 
 `ServerContext` convenience methods (new in v2, no v1 equivalent):
 
@@ -501,11 +526,14 @@ The 2025-11 task side-channel through `Protocol` is removed (was always `@experi
 
 `TaskStore` / `InMemoryTaskStore` / `CreateTaskOptions` / `isTerminal` (storage layer) are also removed; they will return with the SEP-2663 server-directed plugin.
 
-NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task members of the request/result/notification unions, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
+NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task
+members of the request/result/notification unions, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
 
 ## 13. Client Behavioral Changes
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
+
+Stdio transports now silently skip non-JSON lines on the stream (v1 surfaced them via `onerror`); only valid-JSON lines that fail message-schema validation still reach `onerror`.
 
 ## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
