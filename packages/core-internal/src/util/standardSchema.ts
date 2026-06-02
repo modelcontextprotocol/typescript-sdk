@@ -226,7 +226,10 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
                 `Wrap your schema in z.object({...}) or equivalent.`
         );
     }
-    return { type: 'object', ...result };
+    // Per SEP-2106, a tool's outputSchema may be any valid JSON Schema 2020-12 — objects, arrays,
+    // primitives, or compositions. Return the converted schema unchanged; do not force a root
+    // `type: 'object'`.
+    return result;
 }
 
 /**

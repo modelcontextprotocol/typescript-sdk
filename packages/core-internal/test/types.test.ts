@@ -502,7 +502,8 @@ describe('Types', () => {
                 name: 'test',
                 inputSchema: { type: 'object' },
                 outputSchema: {
-                    type: 'array'
+                    type: 'array',
+                    items: { type: 'number' }
                 }
             };
             const result = ToolSchema.safeParse(tool);

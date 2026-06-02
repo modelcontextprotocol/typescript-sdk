@@ -10,6 +10,7 @@
 
 import { Validator } from '@cfworker/json-schema';
 
+import { assertSchemaSafeToCompile } from './schemaBounds';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 
 /**

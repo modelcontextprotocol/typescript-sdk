@@ -296,6 +296,8 @@ const sdkTypeChecks = {
     },
     CallToolResult: (sdk: Wire2025CallToolResult, spec: SpecTypes.CallToolResult) => {
         sdk = spec;
+        // @ts-expect-error SEP-2106 (2026-07-28) widens structuredContent to any JSON value (`unknown`);
+        // the SDK type is not assignable to 2025-11-25's `{ [key: string]: unknown }`.
         spec = sdk;
     },
     CallToolRequest: (sdk: WithJSONRPCRequest<SDKTypes.CallToolRequest>, spec: SpecTypes.CallToolRequest) => {
@@ -333,10 +335,14 @@ const sdkTypeChecks = {
     },
     SamplingMessage: (sdk: Wire2025SamplingMessage, spec: SpecTypes.SamplingMessage) => {
         sdk = spec;
+        // @ts-expect-error SamplingMessage content includes ToolResultContent, whose structuredContent
+        // SEP-2106 (2026-07-28) widens to `unknown`; not assignable to 2025-11-25's narrower shape.
         spec = sdk;
     },
     CreateMessageResult: (sdk: Wire2025CreateMessageResultWithTools, spec: SpecTypes.CreateMessageResult) => {
         sdk = spec;
+        // @ts-expect-error result content includes ToolResultContent, whose structuredContent SEP-2106
+        // (2026-07-28) widens to `unknown`; not assignable to 2025-11-25's narrower shape.
         spec = sdk;
     },
     SetLevelRequest: (sdk: WithJSONRPCRequest<SDKTypes.SetLevelRequest>, spec: SpecTypes.SetLevelRequest) => {
@@ -576,10 +582,14 @@ const sdkTypeChecks = {
     },
     ToolResultContent: (sdk: Wire2025ToolResultContent, spec: SpecTypes.ToolResultContent) => {
         sdk = spec;
+        // @ts-expect-error SEP-2106 (2026-07-28) widens structuredContent to any JSON value (`unknown`);
+        // the SDK type is not assignable to 2025-11-25's `{ [key: string]: unknown }`.
         spec = sdk;
     },
     SamplingMessageContentBlock: (sdk: Wire2025SamplingMessageContentBlock, spec: SpecTypes.SamplingMessageContentBlock) => {
         sdk = spec;
+        // @ts-expect-error includes ToolResultContent, whose structuredContent SEP-2106 (2026-07-28)
+        // widens to `unknown`; not assignable to 2025-11-25's narrower shape.
         spec = sdk;
     },
     Annotations: (sdk: SDKTypes.Annotations, spec: SpecTypes.Annotations) => {

@@ -21,6 +21,7 @@ import type {
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
+    JSONValue,
     ListChangedHandlers,
     ListChangedOptions,
     ListPromptsRequest,
@@ -2191,9 +2192,13 @@ export class Client extends Protocol<ClientContext> {
      * console.log(result.content);
      * ```
      *
+     * Per SEP-2106 `structuredContent` may be any JSON value (object, array, string, number,
+     * boolean, or null). The return type's `structuredContent` defaults to {@linkcode JSONValue};
+     * pass a type argument to get a precise type for a tool whose output shape you know:
+     *
      * @example Structured output
      * ```ts source="./client.examples.ts#Client_callTool_structuredOutput"
-     * const result = await client.callTool({
+     * const result = await client.callTool<{ bmi: number }>({
      *     name: 'calculate-bmi',
      *     arguments: { weightKg: 70, heightM: 1.75 }
      * });

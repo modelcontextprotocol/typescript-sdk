@@ -1324,13 +1324,15 @@ export const ToolSchema = z.object({
     description: z.string().optional(),
     /**
      * A JSON Schema 2020-12 object defining the expected parameters for the tool.
-     * Must have `type: 'object'` at the root level per MCP spec.
+     *
+     * Tool arguments are always JSON objects, so `type: 'object'` is required at the root.
+     * Beyond that, any JSON Schema 2020-12 keyword may appear — composition (`oneOf`/`anyOf`/
+     * `allOf`/`not`), conditional (`if`/`then`/`else`), reference (`$ref`/`$defs`/`$anchor`), etc.
      */
     inputSchema: z
         .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), JSONValueSchema).optional(),
-            required: z.array(z.string()).optional()
+            $schema: z.string().optional(),
+            type: z.literal('object')
         })
         .catchall(z.unknown()),
     /**

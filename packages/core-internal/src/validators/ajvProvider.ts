@@ -5,6 +5,7 @@
 import { Ajv2020 } from 'ajv/dist/2020.js';
 import _addFormats from 'ajv-formats';
 
+import { assertSchemaSafeToCompile } from './schemaBounds';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 
 /**

@@ -532,6 +532,27 @@ describe('JSON Schema Validators', () => {
     });
 });
 
+describe('SEP-2106 schema safety guards', () => {
+    describe.each(validators)('$name Validator', ({ provider }) => {
+        it('refuses to compile a schema with a non-local $ref (SSRF guard)', () => {
+            const schema = {
+                type: 'object',
+                properties: { x: { $ref: 'https://evil.example/schema.json' } }
+            } as JsonSchemaType;
+            expect(() => provider.getValidator(schema)).toThrow(/non-local/i);
+        });
+
+        it('compiles a schema with a same-document $ref', () => {
+            const schema = {
+                type: 'object',
+                $defs: { Name: { type: 'string' } },
+                properties: { name: { $ref: '#/$defs/Name' } }
+            } as JsonSchemaType;
+            expect(() => provider.getValidator(schema)).not.toThrow();
+        });
+    });
+});
+
 describe('Missing dependencies', () => {
     describe('AJV not installed but CfWorker is', () => {
         beforeEach(() => {
