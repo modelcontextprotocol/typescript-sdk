@@ -324,8 +324,8 @@ describe('integration', () => {
         expect(output).toContain('const h: Headers');
         expect(output).not.toContain('IsomorphicHeaders');
 
-        // StreamableHTTPError renamed to SdkError
-        expect(output).toContain('instanceof SdkError');
+        // StreamableHTTPError replaced with SdkHttpError
+        expect(output).toContain('instanceof SdkHttpError');
         expect(output).not.toContain('StreamableHTTPError');
 
         // schemaToJson removed (import gone)

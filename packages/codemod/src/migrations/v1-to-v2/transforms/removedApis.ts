@@ -155,13 +155,14 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
             warning(
                 sourceFile.getFilePath(),
                 node.getStartLineNumber(),
-                'new StreamableHTTPError(statusCode, statusText, body?) → new SdkError(code, message, data?). ' +
-                    'Constructor arguments differ — manual review required. Map HTTP status to SdkErrorCode enum value.'
+                'new StreamableHTTPError(statusCode, statusText, body?) → new SdkHttpError(code, message, { status, statusText }). ' +
+                    'Constructor arguments differ — manual review required. Pick the SdkErrorCode that matches the failure ' +
+                    'and pass the HTTP status in the data object.'
             )
         );
     }
 
-    renameAllReferences(sourceFile, localName, 'SdkError');
+    renameAllReferences(sourceFile, localName, 'SdkHttpError');
     changesCount++;
 
     foundImport.remove();
@@ -171,7 +172,7 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
 
     const targetModule = resolveTargetModule(sourceFile, moduleSpec);
     const insertIndex = sourceFile.getImportDeclarations().length;
-    const importsToAdd = hasConstructorCalls ? ['SdkError', 'SdkErrorCode'] : ['SdkError'];
+    const importsToAdd = hasConstructorCalls ? ['SdkHttpError', 'SdkErrorCode'] : ['SdkHttpError'];
     addOrMergeImport(sourceFile, targetModule, importsToAdd, false, insertIndex);
     changesCount++;
 
@@ -179,8 +180,9 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
         warning(
             sourceFile.getFilePath(),
             line,
-            'StreamableHTTPError replaced with SdkError. Constructor arguments differ — manual review required. ' +
-                'HTTP status is now in error.data?.status.'
+            'StreamableHTTPError replaced with SdkHttpError (extends SdkError). The HTTP status is exposed as ' +
+                'error.status (with error.statusText alongside); error.code is now an SdkErrorCode string, ' +
+                'not the HTTP status number.'
         )
     );
 
