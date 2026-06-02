@@ -223,7 +223,7 @@ Zod schemas, all callback return types. Note: `callTool()` and `request()` signa
 The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the `register*` methods with a config object.
 
 **IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with
-`fromJsonSchema(schema)` from `@modelcontextprotocol/server` (validator defaults automatically; pass an explicit validator for custom configurations). Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
+`fromJsonSchema(schema)` from `@modelcontextprotocol/server` (validator defaults automatically; pass an explicit validator for custom configurations). Applies to `inputSchema`, `outputSchema`, and `argsSchema`. A deprecated overload still auto-wraps raw shapes of zod/v4 fields; invalid shapes fail at registration time: zod v3 fields → `TypeError`; mixed v3+v4 fields → `Error('Mixed Zod versions detected in object shape.')` (v1's exact error); fields from a different zod v4 build that the bundled converter cannot walk → `TypeError` (wrap with your own zod ≥4.2 `z.object()`).
 
 ### Tools
 

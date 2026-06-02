@@ -304,6 +304,12 @@ This applies to:
 - `outputSchema` in `registerTool()`
 - `argsSchema` in `registerPrompt()`
 
+> **Compatibility note:** a deprecated `registerTool`/`registerPrompt` overload still accepts raw shapes at runtime and auto-wraps them with the SDK-bundled `z.object()`. Shapes that cannot work fail at **registration time** (not later at `tools/list`):
+>
+> - fields from **zod v3** → `TypeError` — wrap with your own `z.object()` from `zod/v4`, or pass JSON Schema via `fromJsonSchema()`;
+> - fields mixing **zod v3 and v4** → `Error('Mixed Zod versions detected in object shape.')`, the same error v1 threw for this case;
+> - fields from a **different zod v4 build** whose internals the bundled JSON Schema converter cannot walk → `TypeError` at registration — wrap with your own zod ≥4.2 `z.object()` so the schema carries its own converter.
+
 **Removed Zod-specific helpers** from `@modelcontextprotocol/core` (use Standard Schema equivalents):
 
 | Removed                                                                              | Replacement                                                       |
