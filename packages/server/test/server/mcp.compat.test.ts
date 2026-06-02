@@ -2,6 +2,7 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
+import * as zV40 from 'zod-v40';
 import { McpServer } from '../../src/index.js';
 import type { InferRawShape } from '../../src/server/mcp.js';
 import { completable } from '../../src/server/completable.js';
@@ -154,6 +155,65 @@ describe('registerTool raw-shape failure modes surface at registration time', ()
         expect(() => registerLoose(server, 'foreign', { inputSchema: { a: foreignV4Field } })).toThrow(
             /could not be converted to JSON Schema/
         );
+    });
+
+    it('throws at registerTool for a raw shape from a real second zod install', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        expect(() => registerLoose(server, 'real-foreign', { inputSchema: { a: zV40.z.string().optional() } })).toThrow(
+            /could not be converted to JSON Schema/
+        );
+    });
+});
+
+describe('auto-wrapped raw shapes advertise correct schemas over tools/list', () => {
+    it('round trip: registered raw shape is advertised with properties, required, and descriptions intact', async () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        server.registerTool(
+            'echo',
+            { inputSchema: { x: z.number().describe('the x value'), opt: z.string().optional() } },
+            async ({ x }) => ({ content: [{ type: 'text' as const, text: String(x) }] })
+        );
+
+        const [client, srv] = InMemoryTransport.createLinkedPair();
+        await server.connect(srv);
+        await client.start();
+
+        const responses: JSONRPCMessage[] = [];
+        client.onmessage = m => responses.push(m);
+
+        await client.send({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+                protocolVersion: LATEST_PROTOCOL_VERSION,
+                capabilities: {},
+                clientInfo: { name: 'c', version: '1.0.0' }
+            }
+        } as JSONRPCMessage);
+        await client.send({ jsonrpc: '2.0', method: 'notifications/initialized' } as JSONRPCMessage);
+        await client.send({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} } as JSONRPCMessage);
+
+        await vi.waitFor(() => expect(responses.some(r => 'id' in r && r.id === 2)).toBe(true));
+
+        const result = responses.find(r => 'id' in r && r.id === 2) as {
+            result?: {
+                tools: Array<{
+                    name: string;
+                    inputSchema: { type: string; properties?: Record<string, { description?: string }>; required?: string[] };
+                }>;
+            };
+            error?: unknown;
+        };
+        expect(result.error).toBeUndefined();
+        const tool = result.result?.tools.find(t => t.name === 'echo');
+        expect(tool).toBeDefined();
+        expect(tool!.inputSchema.type).toBe('object');
+        expect(Object.keys(tool!.inputSchema.properties ?? {}).sort()).toEqual(['opt', 'x']);
+        expect(tool!.inputSchema.required).toEqual(['x']);
+        expect(tool!.inputSchema.properties?.x?.description).toBe('the x value');
+
+        await server.close();
     });
 });
 

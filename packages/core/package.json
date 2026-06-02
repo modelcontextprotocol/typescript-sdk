@@ -98,6 +98,7 @@
         "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
-        "vitest": "catalog:devTools"
+        "vitest": "catalog:devTools",
+        "zod-v40": "npm:zod@4.0.17"
     }
 }

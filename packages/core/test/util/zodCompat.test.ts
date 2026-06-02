@@ -88,10 +88,10 @@ describe('normalizeRawShapeSchema', () => {
     });
 });
 
-// Minimal structural mock of a field schema from a *different* zod v4 build
-// (e.g. an application's own zod 4.0/4.1 instance): has `_zod` so it is
-// detected as a v4 raw-shape field, but its internals are not walkable by the
-// SDK-bundled `z.toJSONSchema()`.
+// Minimal structural stand-in for a v4-detected field schema whose internals
+// the SDK-bundled `z.toJSONSchema()` cannot walk. Deterministic and
+// build-independent; the real-instance equivalent (an actual second zod
+// install) is covered in the real-instance tests below.
 function mockForeignZodV4String(): unknown {
     return {
         _zod: { def: { type: 'string' }, version: { major: 4, minor: 0 } },
@@ -131,5 +131,32 @@ describe('normalizeRawShapeSchema v1-compat dispatch', () => {
         const wrapped = normalizeRawShapeSchema({ result: z.string().default('x') }, 'output');
         expect(wrapped).toBeDefined();
         expect(standardSchemaToJsonSchema(wrapped!, 'output').type).toBe('object');
+    });
+});
+
+// Real second zod instance (npm alias zod-v40 -> zod@4.0.17): implements
+// StandardSchemaV1 but not `~standard.jsonSchema`, like most currently
+// installed zod versions. The SDK-bundled converter cannot walk schemas from
+// this build, so raw shapes built from it are exactly the input that used to
+// register fine and then crash every `tools/list`.
+import * as zV40 from 'zod-v40';
+
+describe('normalizeRawShapeSchema real-instance coverage', () => {
+    test('native z.custom raw-shape field fails at normalization time (version-independent construct)', () => {
+        const shape = { c: z.custom<string>(v => typeof v === 'string') };
+        expect(() => normalizeRawShapeSchema(shape as never)).toThrow(/could not be converted to JSON Schema/);
+    });
+
+    test('raw shape from a real foreign zod build fails at normalization time, not serve time', () => {
+        const shape = { a: zV40.z.string(), o: zV40.z.string().optional() };
+        try {
+            normalizeRawShapeSchema(shape as never);
+            expect.unreachable('should have thrown');
+        } catch (e) {
+            expect(e).toBeInstanceOf(TypeError);
+            expect(String(e)).toMatch(/could not be converted to JSON Schema/);
+            // the underlying converter error is preserved for debugging
+            expect(String((e as TypeError).cause)).toMatch(/Non-representable type/);
+        }
     });
 });
