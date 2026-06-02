@@ -464,7 +464,10 @@ export class Server<
         return this._clientVersion;
     }
 
-    private getCapabilities(): ServerCapabilities {
+    /**
+     * Returns the current server capabilities.
+     */
+    public getCapabilities(): ServerCapabilities {
         return this._capabilities;
     }
 
@@ -654,16 +657,22 @@ export class Server<
     }
 
     async sendResourceListChanged() {
-        return this.notification({
-            method: 'notifications/resources/list_changed'
-        });
+        if (this._capabilities.resources?.listChanged) {
+            return this.notification({
+                method: 'notifications/resources/list_changed'
+            });
+        }
     }
 
     async sendToolListChanged() {
-        return this.notification({ method: 'notifications/tools/list_changed' });
+        if (this._capabilities.tools?.listChanged) {
+            return this.notification({ method: 'notifications/tools/list_changed' });
+        }
     }
 
     async sendPromptListChanged() {
-        return this.notification({ method: 'notifications/prompts/list_changed' });
+        if (this._capabilities.prompts?.listChanged) {
+            return this.notification({ method: 'notifications/prompts/list_changed' });
+        }
     }
 }
