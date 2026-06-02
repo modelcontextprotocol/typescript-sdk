@@ -598,14 +598,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         try {
             // Validate the Accept header
             const acceptHeader = req.headers.get('accept');
-            // The client MUST include an Accept header, listing both application/json and text/event-stream as supported content types.
-            if (!acceptHeader?.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
-                this.onerror?.(new Error('Not Acceptable: Client must accept both application/json and text/event-stream'));
-                return this.createJsonErrorResponse(
-                    406,
-                    -32000,
-                    'Not Acceptable: Client must accept both application/json and text/event-stream'
-                );
+            const acceptsJson = acceptHeader?.includes('application/json') ?? false;
+            const acceptsEventStream = acceptHeader?.includes('text/event-stream') ?? false;
+
+            if (!acceptsJson || (!this._enableJsonResponse && !acceptsEventStream)) {
+                const message = this._enableJsonResponse
+                    ? 'Not Acceptable: Client must accept application/json'
+                    : 'Not Acceptable: Client must accept both application/json and text/event-stream';
+                this.onerror?.(new Error(message));
+                return this.createJsonErrorResponse(406, -32000, message);
             }
 
             const ct = req.headers.get('content-type');
