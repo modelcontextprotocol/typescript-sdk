@@ -708,7 +708,7 @@ type AssertExactKeys<
 type Assert<T extends true> = T;
 
 /*
- * Excluded from key-level assertions (23 entries):
+ * Excluded from key-level assertions (22 entries):
  *
  * Union types — KnownKeys cannot meaningfully enumerate their members (15):
  *   ClientRequest, ServerRequest, ClientNotification, ServerNotification,
@@ -716,12 +716,12 @@ type Assert<T extends true> = T;
  *   SamplingMessageContentBlock, ElicitRequestParams, PrimitiveSchemaDefinition,
  *   SingleSelectEnumSchema, MultiSelectEnumSchema, EnumSchema
  *
- * Primitive type aliases — no object keys to compare (8):
+ * Primitive type aliases — no object keys to compare (7):
  *   JSONValue, JSONArray, Role, LoggingLevel, ProgressToken, RequestId,
  *   Cursor
  */
 
-// -- Simple types (96) --
+// -- Simple types (86) --
 
 type _K_RequestParams = Assert<AssertExactKeys<SDKTypes.RequestParams, SpecTypes.RequestParams>>;
 type _K_NotificationParams = Assert<AssertExactKeys<SDKTypes.NotificationParams, SpecTypes.NotificationParams>>;
@@ -828,7 +828,7 @@ type _K_MethodNotFoundError = Assert<AssertExactKeys<SDKTypes.MethodNotFoundErro
 type _K_InvalidParamsError = Assert<AssertExactKeys<SDKTypes.InvalidParamsError, SpecTypes.InvalidParamsError>>;
 type _K_InternalError = Assert<AssertExactKeys<SDKTypes.InternalError, SpecTypes.InternalError>>;
 
-// -- WithJSONRPC-wrapped notification types (11) --
+// -- WithJSONRPC-wrapped notification types (10) --
 // SDK notification types do not include `jsonrpc` — the spec types do. We wrap
 // with WithJSONRPC<> to add the missing field before comparing keys.
 
@@ -857,7 +857,7 @@ type _K_LoggingMessageNotification = Assert<
 >;
 type _K_InitializedNotification = Assert<AssertExactKeys<WithJSONRPC<SDKTypes.InitializedNotification>, SpecTypes.InitializedNotification>>;
 
-// -- WithJSONRPCRequest-wrapped request types (21) --
+// -- WithJSONRPCRequest-wrapped request types (17) --
 // SDK request types do not include `jsonrpc` or `id` — the spec types do. We
 // wrap with WithJSONRPCRequest<> to add the missing fields before comparing keys.
 
@@ -881,7 +881,7 @@ type _K_GetPromptRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.Ge
 type _K_CreateMessageRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.CreateMessageRequest>, SpecTypes.CreateMessageRequest>>;
 type _K_InitializeRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.InitializeRequest>, SpecTypes.InitializeRequest>>;
 
-// -- TypedResultResponse-wrapped types (21) --
+// -- TypedResultResponse-wrapped types (16) --
 // The spec defines typed *ResultResponse interfaces that pair JSONRPCResultResponse
 // with a specific result. We compare TypedResultResponse<SDKInnerType> against the
 // spec's combined type.
@@ -940,7 +940,7 @@ const KEY_PARITY_EXCLUDED = [
     'SingleSelectEnumSchema',
     'MultiSelectEnumSchema',
     'EnumSchema',
-    // Primitive aliases (8)
+    // Primitive aliases (7)
     'JSONValue',
     'JSONArray',
     'Role',
