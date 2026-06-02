@@ -246,16 +246,22 @@ function foreignElement(node: unknown): unknown {
  * getters still work, so walk the schema alongside the converted JSON Schema and fill
  * in any descriptions the converter missed. Existing descriptions are never overwritten.
  */
-function recoverForeignDescriptions(
-    schema: unknown,
-    jsonSchema: Record<string, unknown>,
-    visited = new WeakSet<object>(),
-    depth = 0
-): void {
+function recoverForeignDescriptions(schema: unknown, jsonSchema: Record<string, unknown>, path = new WeakSet<object>(), depth = 0): void {
     if (depth > 16 || schema == null || typeof schema !== 'object') return;
-    if (visited.has(schema)) return;
-    visited.add(schema);
+    // Cycle detection is scoped to the current recursion path: a schema instance that is
+    // *reused* at several positions (sibling properties, nested objects) is converted to a
+    // distinct JSON Schema node per occurrence and must be recovered at every one of them.
+    // Only a true ancestor cycle stops the walk; the depth cap bounds everything else.
+    if (path.has(schema)) return;
+    path.add(schema);
+    try {
+        recoverNode(schema, jsonSchema, path, depth);
+    } finally {
+        path.delete(schema);
+    }
+}
 
+function recoverNode(schema: object, jsonSchema: Record<string, unknown>, path: WeakSet<object>, depth: number): void {
     if (jsonSchema.description === undefined) {
         const description = readForeignDescriptionDeep(schema);
         if (description !== undefined) jsonSchema.description = description;
@@ -268,7 +274,7 @@ function recoverForeignDescriptions(
             for (const [key, fieldSchema] of Object.entries(shape)) {
                 const fieldJson = (properties as Record<string, unknown>)[key];
                 if (fieldJson != null && typeof fieldJson === 'object') {
-                    recoverForeignDescriptions(fieldSchema, fieldJson as Record<string, unknown>, visited, depth + 1);
+                    recoverForeignDescriptions(fieldSchema, fieldJson as Record<string, unknown>, path, depth + 1);
                 }
             }
         }
@@ -278,7 +284,7 @@ function recoverForeignDescriptions(
     if (items != null && typeof items === 'object' && !Array.isArray(items)) {
         const element = foreignElement(schema);
         if (element != null) {
-            recoverForeignDescriptions(element, items as Record<string, unknown>, visited, depth + 1);
+            recoverForeignDescriptions(element, items as Record<string, unknown>, path, depth + 1);
         }
     }
 }

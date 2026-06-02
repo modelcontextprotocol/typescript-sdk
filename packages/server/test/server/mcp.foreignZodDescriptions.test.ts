@@ -12,7 +12,7 @@ import { McpServer } from '../../src/index.js';
 // pins the end-to-end behavior a connected peer observes: the advertised tool schema
 // retains `.describe()` metadata, and validated tool calls still round-trip.
 
-type ProfileInput = { name: string; address: { street: string } };
+type ProfileInput = { name: string; address: { street: string }; primaryLabel?: string; secondaryLabel?: string };
 
 describe('tools/list over a transport with a foreign-zod inputSchema', () => {
     afterEach(() => {
@@ -23,6 +23,7 @@ describe('tools/list over a transport with a foreign-zod inputSchema', () => {
         vi.spyOn(console, 'warn').mockImplementation(() => {});
 
         const server = new McpServer({ name: 't', version: '1.0.0' });
+        const label = zOld.string().describe('a short label').optional();
         let received: unknown;
         server.registerTool(
             'create-profile',
@@ -31,7 +32,11 @@ describe('tools/list over a transport with a foreign-zod inputSchema', () => {
                 inputSchema: zOld
                     .object({
                         name: zOld.string().describe('the display name'),
-                        address: zOld.object({ street: zOld.string().describe('street and house number') }).describe('postal address')
+                        address: zOld.object({ street: zOld.string().describe('street and house number') }).describe('postal address'),
+                        // One schema instance reused at two positions: both occurrences
+                        // must carry the description in the advertised schema.
+                        primaryLabel: label,
+                        secondaryLabel: label
                     })
                     .describe('profile input') as unknown as StandardSchemaWithJSON<ProfileInput, ProfileInput>
             },
@@ -77,6 +82,8 @@ describe('tools/list over a transport with a foreign-zod inputSchema', () => {
         expect(schema.properties?.name?.description).toBe('the display name');
         expect(schema.properties?.address?.description).toBe('postal address');
         expect(schema.properties?.address?.properties?.street?.description).toBe('street and house number');
+        expect(schema.properties?.primaryLabel?.description).toBe('a short label');
+        expect(schema.properties?.secondaryLabel?.description).toBe('a short label');
 
         // The foreign schema also still validates calls (cross-instance `~standard.validate`).
         await client.send({

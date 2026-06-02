@@ -84,6 +84,77 @@ describe('standardSchemaToJsonSchema — foreign zod instance description recove
         expect(() => standardSchemaToJsonSchema(schema as unknown as SchemaArg)).not.toThrow();
     });
 
+    it('recovers descriptions for a schema instance reused at multiple positions', () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        // One schema instance referenced from several places: the converter inlines a
+        // distinct JSON Schema node per occurrence, so every occurrence needs recovery,
+        // not just the first one the walk happens to visit.
+        const tag = zOld.string().describe('a tag');
+        const schema = zOld.object({
+            primary: tag,
+            secondary: tag,
+            nested: zOld.object({ inner: tag }).describe('nested holder')
+        });
+
+        const result = standardSchemaToJsonSchema(schema as unknown as SchemaArg);
+
+        expect(props(result).primary?.description).toBe('a tag');
+        expect(props(result).secondary?.description).toBe('a tag');
+        const nested = props(result).nested as { description?: string; properties?: Record<string, { description?: string }> };
+        expect(nested.description).toBe('nested holder');
+        expect(nested.properties?.inner?.description).toBe('a tag');
+    });
+
+    it('recovers descriptions for a reused object schema and its children', () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const address = zOld.object({ street: zOld.string().describe('street and number') }).describe('postal address');
+        const schema = zOld.object({ home: address, work: address });
+
+        const result = standardSchemaToJsonSchema(schema as unknown as SchemaArg);
+
+        for (const key of ['home', 'work'] as const) {
+            const node = props(result)[key] as { description?: string; properties?: Record<string, { description?: string }> };
+            expect(node.description).toBe('postal address');
+            expect(node.properties?.street?.description).toBe('street and number');
+        }
+    });
+
+    it('terminates on cyclic schema graphs', async () => {
+        vi.spyOn(console, 'warn').mockImplementation(() => {});
+        // The walk duck-types foreign schemas (.description / .shape), so a self-referential
+        // graph is representable regardless of zod version. Recovery must stop at the cycle
+        // along the current path (with the depth cap as backstop), not recurse forever.
+        const cyclicSchema: { description: string; shape: Record<string, unknown> } = {
+            description: 'a node',
+            shape: {}
+        };
+        cyclicSchema.shape.self = cyclicSchema;
+        const cyclicJson: Record<string, unknown> = { type: 'object', properties: {} };
+        (cyclicJson.properties as Record<string, unknown>).self = cyclicJson;
+
+        // The bundled converter never emits cyclic output, so substitute it for this test
+        // to hand the recovery walk a worst-case graph on both sides.
+        vi.resetModules();
+        vi.doMock('zod/v4', async importOriginal => {
+            const real = await importOriginal<typeof import('zod/v4')>();
+            return { ...real, toJSONSchema: () => cyclicJson };
+        });
+        try {
+            const { standardSchemaToJsonSchema: convert } = await import('../../src/util/standardSchema.js');
+            const fake = {
+                '~standard': { version: 1, vendor: 'zod', validate: (value: unknown) => ({ value }) },
+                _zod: {},
+                description: cyclicSchema.description,
+                shape: cyclicSchema.shape
+            };
+            const result = convert(fake as unknown as SchemaArg) as Record<string, unknown>;
+            expect(result.description).toBe('a node');
+        } finally {
+            vi.doUnmock('zod/v4');
+            vi.resetModules();
+        }
+    });
+
     it('zod 3 schemas still get the clear upgrade error', () => {
         const zod3ish = { _def: {}, '~standard': { version: 1, vendor: 'zod', validate: () => ({ value: {} }) } };
         expect(() => standardSchemaToJsonSchema(zod3ish as unknown as SchemaArg)).toThrow(/zod 3/);
