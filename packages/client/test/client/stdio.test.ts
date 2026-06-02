@@ -122,3 +122,40 @@ test('should surface MessageTooLarge via onerror and keep running when maxMessag
 
     await client.close();
 });
+
+test('should recover when a child floods stdout without a newline', async () => {
+    // A misbehaving server that writes a large amount of data with no message
+    // boundary, then a valid message: the limit must trip while the flood is
+    // still incomplete, and the transport must recover at the newline.
+    const childScript = [
+        "process.stdout.write('x'.repeat(1_000_000));",
+        "process.stdout.write('\\n');",
+        "process.stdout.write(JSON.stringify({ jsonrpc: '2.0', method: 'after-flood' }) + '\\n');",
+        'setInterval(() => {}, 1 << 30);'
+    ].join(' ');
+
+    const client = new StdioClientTransport({ command: process.execPath, args: ['-e', childScript] }, { maxMessageBytes: 65_536 });
+
+    const errors: Error[] = [];
+    client.onerror = error => {
+        errors.push(error);
+    };
+
+    const messages: JSONRPCMessage[] = [];
+    const messageAfterFlood = new Promise<void>(resolve => {
+        client.onmessage = message => {
+            messages.push(message);
+            resolve();
+        };
+    });
+
+    await client.start();
+    await messageAfterFlood;
+
+    expect(messages).toEqual([{ jsonrpc: '2.0', method: 'after-flood' }]);
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(SdkError);
+    expect((errors[0] as SdkError).code).toBe(SdkErrorCode.MessageTooLarge);
+
+    await client.close();
+});

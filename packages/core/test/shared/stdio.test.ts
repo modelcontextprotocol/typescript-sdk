@@ -254,3 +254,75 @@ describe('maxMessageBytes', () => {
         expect(readBuffer.readMessage()).toEqual(testMessage);
     });
 });
+
+describe('capacity events with a consumed prefix', () => {
+    // These cases pin the in-place compaction and growth paths of the internal
+    // buffer when a previous message has already been consumed (start offset > 0)
+    // while a partial message is still buffered - the common interleaving on a
+    // busy stream. A copy/offset bug here silently corrupts message bytes.
+    // Each message uses a distinct payload character so that a copy bug that
+    // splices bytes from a neighboring message changes content detectably.
+    const messageWithPayload = (method: string, payloadLength: number): JSONRPCMessage => ({
+        jsonrpc: '2.0',
+        method,
+        params: { payload: method.charAt(0).repeat(payloadLength) }
+    });
+
+    test('compacts in place without corrupting a partially buffered message', () => {
+        const readBuffer = new ReadBuffer();
+        const messageA = messageWithPayload('a', 5900); // ~6000 bytes serialized
+        const messageB = messageWithPayload('b', 1500); // ~1600 bytes serialized
+        const messageC = messageWithPayload('c', 1900); // ~2000 bytes serialized
+
+        const serializedB = Buffer.from(JSON.stringify(messageB) + '\n');
+
+        // First chunk: all of A plus the first 1000 bytes of B (fits the initial
+        // 8 KiB capacity). Consuming A leaves a consumed prefix ahead of B's bytes.
+        readBuffer.append(Buffer.concat([Buffer.from(JSON.stringify(messageA) + '\n'), serializedB.subarray(0, 1000)]));
+        expect(readBuffer.readMessage()).toEqual(messageA);
+        expect(readBuffer.readMessage()).toBeNull();
+
+        // Second chunk: the rest of B plus C (~2600 bytes). Total valid bytes fit
+        // the existing capacity only after reclaiming the consumed prefix, so this
+        // append must compact in place rather than grow.
+        readBuffer.append(Buffer.concat([serializedB.subarray(1000), Buffer.from(JSON.stringify(messageC) + '\n')]));
+        expect(readBuffer.readMessage()).toEqual(messageB);
+        expect(readBuffer.readMessage()).toEqual(messageC);
+        expect(readBuffer.readMessage()).toBeNull();
+    });
+
+    test('grows without corrupting a partially buffered message', () => {
+        const readBuffer = new ReadBuffer();
+        const messageA = messageWithPayload('a', 3900); // ~4000 bytes serialized
+        const messageB = messageWithPayload('b', 8800); // ~8900 bytes serialized
+
+        const serializedB = Buffer.from(JSON.stringify(messageB) + '\n');
+
+        readBuffer.append(Buffer.concat([Buffer.from(JSON.stringify(messageA) + '\n'), serializedB.subarray(0, 1000)]));
+        expect(readBuffer.readMessage()).toEqual(messageA);
+        expect(readBuffer.readMessage()).toBeNull();
+
+        // The remaining ~7900 bytes of B exceed the initial capacity even after
+        // compaction, forcing the growth path while the start offset is non-zero.
+        readBuffer.append(serializedB.subarray(1000));
+        expect(readBuffer.readMessage()).toEqual(messageB);
+        expect(readBuffer.readMessage()).toBeNull();
+    });
+
+    test('releases an inflated buffer once fully drained', () => {
+        const readBuffer = new ReadBuffer();
+        const bigMessage = messageWithPayload('big', 200_000);
+        readBuffer.append(Buffer.from(JSON.stringify(bigMessage) + '\n'));
+        expect(readBuffer.readMessage()).toEqual(bigMessage);
+
+        // The documented memory bound: one large message must not pin a large
+        // allocation forever. This intentionally inspects the internal buffer -
+        // the property is not observable through the public API.
+        const internal = readBuffer as unknown as { _buffer: Buffer };
+        expect(internal._buffer.length).toBeLessThanOrEqual(131_072);
+
+        // And the buffer still works after shrinking.
+        readBuffer.append(Buffer.from(JSON.stringify(testMessage) + '\n'));
+        expect(readBuffer.readMessage()).toEqual(testMessage);
+    });
+});
