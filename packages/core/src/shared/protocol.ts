@@ -9,6 +9,7 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    Implementation,
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -31,6 +32,7 @@ import type {
     ServerCapabilities
 } from '../types/index.js';
 import {
+    DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     getNotificationSchema,
     getRequestSchema,
     getResultSchema,
@@ -157,6 +159,18 @@ export type BaseContext = {
         method: string;
 
         /**
+         * The protocol version governing this request.
+         *
+         * Resolved per request from the source the governing protocol revision defines: the initialize
+         * handshake for 2025-line revisions; the request's own `_meta` for revisions that carry a
+         * per-request envelope. Sources never mix and never fall back.
+         *
+         * For requests that arrive before the initialize handshake completes (where only `ping` is legal),
+         * this is the SDK's {@linkcode DEFAULT_NEGOTIATED_PROTOCOL_VERSION}.
+         */
+        protocolVersion: string;
+
+        /**
          * Metadata from the original request.
          */
         _meta?: RequestMeta;
@@ -248,6 +262,32 @@ export type ServerContext = BaseContext & {
          */
         closeStandaloneSSE?: () => void;
     };
+
+    /**
+     * Facts about the client that is calling this request.
+     *
+     * The values are resolved per request from the source the governing protocol revision defines: the
+     * initialize handshake for 2025-line revisions; the request's own `_meta` for revisions that carry a
+     * per-request envelope. Sources never mix and never fall back. For requests that arrive before the
+     * initialize handshake completes (where only `ping` is legal), `capabilities` is `{}` and `info` is
+     * `undefined`.
+     *
+     * Capabilities are declarations, not authorization: this exists so the server does not ask a client to
+     * do something it cannot (e.g. elicitation). It MUST NOT be used to gate access to tools, resources, or
+     * data — that is the authorization layer's job.
+     */
+    client: {
+        /**
+         * The capabilities the calling client declared. `{}` before the initialize handshake completes.
+         */
+        capabilities: ClientCapabilities;
+
+        /**
+         * The calling client's implementation name and version, or `undefined` before the initialize
+         * handshake completes.
+         */
+        info: Implementation | undefined;
+    };
 };
 
 /**
@@ -286,6 +326,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _pendingDebouncedNotifications = new Set<string>();
 
     protected _supportedProtocolVersions: string[];
+
+    /**
+     * The protocol version negotiated for the current connection, set by the concrete role at its
+     * negotiation point (the client when it receives InitializeResult; the server when it responds
+     * to initialize), or `undefined` before negotiation has completed.
+     */
+    protected _negotiatedProtocolVersion?: string;
 
     /**
      * Callback for when the connection is closed for any reason.
@@ -334,6 +381,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * to return the appropriate context type (e.g., ServerContext adds HTTP request info).
      */
     protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
+
+    /**
+     * The protocol version negotiated for the current connection, or `undefined` before
+     * negotiation has completed.
+     *
+     * It is read per request when building the handler context to populate
+     * `ctx.mcpReq.protocolVersion`. On the client side, when manually reconstructing a transport for
+     * reconnection, pass this value to the new transport so it continues sending the required
+     * `mcp-protocol-version` header.
+     */
+    getNegotiatedProtocolVersion(): string | undefined {
+        return this._negotiatedProtocolVersion;
+    }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
         if (!notification.params.requestId) {
@@ -497,6 +557,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
             mcpReq: {
                 id: request.id,
                 method: request.method,
+                // Resolved from the source the governing revision defines. At present that is the
+                // initialize-handshake-negotiated version (exposed by the concrete role); requests that
+                // arrive before the handshake completes (only `ping` is legal there) get the SDK default.
+                protocolVersion: this.getNegotiatedProtocolVersion() ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
                 _meta: request.params?._meta,
                 signal: abortController.signal,
                 // BaseContext.mcpReq.send is declared with two overloads (spec-method-keyed and explicit-schema). Arrow

@@ -632,11 +632,12 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 });
 ```
 
-Context fields are organized into 3 groups:
+Context fields are organized into groups:
 
-- **`mcpReq`** — request-level concerns: `id`, `method`, `_meta`, `signal`, `send()`, `notify()`, plus server-only `log()`, `elicitInput()`, and `requestSampling()`
+- **`mcpReq`** — request-level concerns: `id`, `method`, `protocolVersion`, `_meta`, `signal`, `send()`, `notify()`, plus server-only `log()`, `elicitInput()`, and `requestSampling()`
 - **`http?`** — HTTP transport concerns (undefined for stdio): `authInfo`, plus server-only `req`, `closeSSE`, `closeStandaloneSSE`
 - **`sessionId?`** — transport session identifier (top-level)
+- **`client`** — server-only: the calling client's declared `capabilities` and implementation `info`
 
 `BaseContext` is the common base type shared by both `ServerContext` and `ClientContext`. `ServerContext` extends each group with server-specific additions via type intersection.
 

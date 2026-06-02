@@ -501,6 +501,51 @@ server.registerTool(
 );
 ```
 
+## Reading request context
+
+Every handler receives the request context (`ctx`) as its second argument. Beyond the helpers shown above, it carries per-request facts about the caller:
+
+- `ctx.mcpReq.protocolVersion` (from {@linkcode @modelcontextprotocol/server!index.BaseContext | BaseContext}) — the protocol version governing the request.
+- `ctx.client.capabilities` and `ctx.client.info` (from {@linkcode @modelcontextprotocol/server!index.ServerContext | ServerContext}) — the calling client's declared capabilities and implementation info.
+
+Check `ctx.client.capabilities` before sending a [server-initiated request](#server-initiated-requests) so you never ask a client to do something it cannot — for example, only [elicit input](#elicitation) when the client declared the `elicitation` capability:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#registerTool_requestContext"
+server.registerTool(
+    'delete-records',
+    {
+        description: 'Delete records, asking for confirmation when the client supports it',
+        inputSchema: z.object({ table: z.string() })
+    },
+    async ({ table }, ctx): Promise<CallToolResult> => {
+        // Per-request facts: the calling client and the protocol version governing this request
+        const caller = `${ctx.client.info?.name ?? 'unknown client'} (MCP ${ctx.mcpReq.protocolVersion})`;
+
+        // Only ask for confirmation if the calling client declared the elicitation capability
+        if (ctx.client.capabilities.elicitation) {
+            const result = await ctx.mcpReq.elicitInput({
+                mode: 'form',
+                message: `Delete all records in ${table}?`,
+                requestedSchema: {
+                    type: 'object',
+                    properties: { confirm: { type: 'boolean', title: 'Confirm' } },
+                    required: ['confirm']
+                }
+            });
+            if (result.action !== 'accept' || result.content?.confirm !== true) {
+                return { content: [{ type: 'text', text: 'Deletion cancelled.' }] };
+            }
+        }
+
+        // ... delete records, attributing the request to `caller` ...
+        return { content: [{ type: 'text', text: `Deleted all records in ${table} (requested by ${caller})` }] };
+    }
+);
+```
+
+> [!IMPORTANT]
+> Capabilities are declarations, not authorization. Never use them to gate access to tools, resources, or data — that is the authorization layer's job.
+
 ## Shutdown
 
 For stateful multi-session HTTP servers, capture the `http.Server` from `app.listen()` so you can stop accepting connections, then close each session transport:

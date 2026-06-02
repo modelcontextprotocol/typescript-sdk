@@ -437,6 +437,22 @@ function roots_handler(client: Client) {
     //#endregion roots_handler
 }
 
+/** Example: Read the governing protocol version from the handler context. */
+function requestContext_handler(client: Client) {
+    //#region requestContext_handler
+    client.setRequestHandler('sampling/createMessage', async (request, ctx) => {
+        console.log(`Sampling request under MCP ${ctx.mcpReq.protocolVersion}:`, request.params.messages.at(-1));
+
+        // In production, send messages to your LLM here
+        return {
+            model: 'my-model',
+            role: 'assistant' as const,
+            content: { type: 'text' as const, text: 'Response from the model' }
+        };
+    });
+    //#endregion requestContext_handler
+}
+
 // ---------------------------------------------------------------------------
 // Error handling
 // ---------------------------------------------------------------------------
@@ -568,6 +584,7 @@ void capabilities_declaration;
 void sampling_handler;
 void elicitation_handler;
 void roots_handler;
+void requestContext_handler;
 void errorHandling_toolErrors;
 void errorHandling_lifecycle;
 void errorHandling_timeout;

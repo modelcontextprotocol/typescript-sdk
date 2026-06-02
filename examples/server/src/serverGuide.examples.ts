@@ -420,6 +420,46 @@ function registerTool_roots(server: McpServer) {
 }
 
 // ---------------------------------------------------------------------------
+// Reading request context
+// ---------------------------------------------------------------------------
+
+/** Example: Tool that reads per-request facts (protocol version, client capabilities) from the handler context. */
+function registerTool_requestContext(server: McpServer) {
+    //#region registerTool_requestContext
+    server.registerTool(
+        'delete-records',
+        {
+            description: 'Delete records, asking for confirmation when the client supports it',
+            inputSchema: z.object({ table: z.string() })
+        },
+        async ({ table }, ctx): Promise<CallToolResult> => {
+            // Per-request facts: the calling client and the protocol version governing this request
+            const caller = `${ctx.client.info?.name ?? 'unknown client'} (MCP ${ctx.mcpReq.protocolVersion})`;
+
+            // Only ask for confirmation if the calling client declared the elicitation capability
+            if (ctx.client.capabilities.elicitation) {
+                const result = await ctx.mcpReq.elicitInput({
+                    mode: 'form',
+                    message: `Delete all records in ${table}?`,
+                    requestedSchema: {
+                        type: 'object',
+                        properties: { confirm: { type: 'boolean', title: 'Confirm' } },
+                        required: ['confirm']
+                    }
+                });
+                if (result.action !== 'accept' || result.content?.confirm !== true) {
+                    return { content: [{ type: 'text', text: 'Deletion cancelled.' }] };
+                }
+            }
+
+            // ... delete records, attributing the request to `caller` ...
+            return { content: [{ type: 'text', text: `Deleted all records in ${table} (requested by ${caller})` }] };
+        }
+    );
+    //#endregion registerTool_requestContext
+}
+
+// ---------------------------------------------------------------------------
 // Transports
 // ---------------------------------------------------------------------------
 
@@ -546,6 +586,7 @@ void registerTool_progress;
 void registerTool_sampling;
 void registerTool_elicitation;
 void registerTool_roots;
+void registerTool_requestContext;
 void registerResource_static;
 void registerResource_template;
 void registerPrompt_basic;

@@ -1,5 +1,6 @@
-import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, ServerContext } from '@modelcontextprotocol/core';
 import {
+    DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     DRAFT_PROTOCOL_VERSION,
     InitializeResultSchema,
     InMemoryTransport,
@@ -163,6 +164,37 @@ describe('Server', () => {
 
             expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
             expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+
+            await server.close();
+        });
+    });
+
+    describe('ctx.client / ctx.mcpReq.protocolVersion on the handler context', () => {
+        // The post-initialize values (declared capabilities/info, negotiated version) are
+        // observable over the wire and covered by the handler-context e2e scenarios; only the
+        // pre-initialize state is pinned here.
+        it('pre-initialize: ping before the handshake gets {} capabilities, undefined info, and the default version', async () => {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await server.connect(serverTransport);
+
+            let captured: ServerContext | undefined;
+            server.setRequestHandler('ping', async (_request, ctx) => {
+                captured = ctx;
+                return {};
+            });
+
+            await clientTransport.start();
+            const pingResponse = new Promise<void>(resolve => {
+                clientTransport.onmessage = () => resolve();
+            });
+            // No initialize handshake first - only ping is legal pre-initialize.
+            await clientTransport.send({ jsonrpc: '2.0', id: 1, method: 'ping', params: {} } as JSONRPCMessage);
+            await pingResponse;
+
+            expect(captured?.client.capabilities).toEqual({});
+            expect(captured?.client.info).toBeUndefined();
+            expect(captured?.mcpReq.protocolVersion).toBe(DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
 
             await server.close();
         });

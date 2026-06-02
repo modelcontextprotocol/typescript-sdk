@@ -441,6 +441,14 @@ Request/notification params remain fully typed. Remove unused schema imports aft
 | `ctx.mcpReq.elicitInput(params, options?)`     | Elicit user input (form or URL)                        | `server.elicitInput(...)` from within handler        |
 | `ctx.mcpReq.requestSampling(params, options?)` | Request LLM sampling from client                       | `server.createMessage(...)` from within handler      |
 
+Per-request facts on the context (new in v2):
+
+| Field                        | Description                                                   | v1 near-equivalent                                        |
+| ---------------------------- | ------------------------------------------------------------- | --------------------------------------------------------- |
+| `ctx.mcpReq.protocolVersion` | Protocol version governing the request (both roles)           | `server.getNegotiatedProtocolVersion()` from within handler |
+| `ctx.client.capabilities`    | Calling client's declared capabilities (only `ServerContext`) | `server.getClientCapabilities()` from within handler       |
+| `ctx.client.info`            | Calling client's implementation info (only `ServerContext`)   | `server.getClientVersion()` from within handler            |
+
 ## 11. Schema parameter removed from `request()`, `send()`, and `callTool()` (spec methods)
 
 For **spec** methods, `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` no longer require a Zod result schema argument. The SDK resolves the schema internally from the method name.
