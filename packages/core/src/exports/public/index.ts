@@ -10,7 +10,31 @@
  */
 
 // Auth error classes
-export { OAuthError, OAuthErrorCode } from '../../auth/errors.js';
+export {
+    AccessDeniedError,
+    CustomOAuthError,
+    InsufficientScopeError,
+    InvalidClientError,
+    InvalidClientMetadataError,
+    InvalidGrantError,
+    InvalidScopeError,
+    InvalidTargetError,
+    InvalidTokenError,
+    isTransientOAuthError,
+    MethodNotAllowedError,
+    OAUTH_ERRORS,
+    OAuthError,
+    OAuthErrorCode,
+    oauthErrorFromCode,
+    OAuthInvalidRequestError,
+    ServerError,
+    TemporarilyUnavailableError,
+    TooManyRequestsError,
+    UnauthorizedClientError,
+    UnsupportedGrantTypeError,
+    UnsupportedResponseTypeError,
+    UnsupportedTokenTypeError
+} from '../../auth/errors.js';
 
 // SDK error types (local errors that never cross the wire)
 export type { SdkHttpErrorData } from '../../errors/sdkErrors.js';
