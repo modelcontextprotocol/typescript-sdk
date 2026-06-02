@@ -4,7 +4,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { renameAllReferences } from '../../../utils/astUtils.js';
 import { warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, isAnyMcpSpecifier } from '../../../utils/importUtils.js';
+import { addOrMergeImport, captureLeadingFileTrivia, isAnyMcpSpecifier, restoreLeadingFileTrivia } from '../../../utils/importUtils.js';
 
 const REMOVED_ZOD_HELPERS: Record<string, string> = {
     schemaToJson:
@@ -26,9 +26,16 @@ export const removedApisTransform: Transform = {
         const diagnostics: Diagnostic[] = [];
         let changesCount = 0;
 
+        // Import removals below may delete the file's first import, taking any attached
+        // shebang/banner comment with it — capture and restore around the mutations.
+        const firstImport = sourceFile.getImportDeclarations()[0];
+        const leadingTrivia = firstImport ? captureLeadingFileTrivia(firstImport) : undefined;
+
         changesCount += handleRemovedZodHelpers(sourceFile, diagnostics);
         changesCount += handleIsomorphicHeaders(sourceFile, diagnostics);
         changesCount += handleStreamableHTTPError(sourceFile, diagnostics);
+
+        restoreLeadingFileTrivia(sourceFile, leadingTrivia);
 
         return { changesCount, diagnostics };
     }

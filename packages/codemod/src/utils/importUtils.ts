@@ -139,3 +139,27 @@ export function removeUnusedImport(sourceFile: SourceFile, symbolName: string, o
         }
     }
 }
+
+/**
+ * If `imp` is the first statement in the file and carries leading trivia (a shebang
+ * and/or a file-header banner comment), return that trivia text so it can be restored
+ * after the import is removed. ts-morph removes a node's leading trivia together with
+ * the node, which silently deletes file headers when the codemod consolidates imports.
+ */
+export function captureLeadingFileTrivia(imp: ImportDeclaration): string | undefined {
+    if (imp.getFullStart() !== 0) return undefined;
+    const fullText = imp.getFullText();
+    const trivia = fullText.slice(0, fullText.length - imp.getText().length);
+    return /\S/.test(trivia) ? trivia : undefined;
+}
+
+/**
+ * Re-attach file-leading trivia captured by {@link captureLeadingFileTrivia} when the
+ * import that carried it was removed. No-op when the trivia is still present (the
+ * import survived, or another call already restored it).
+ */
+export function restoreLeadingFileTrivia(sourceFile: SourceFile, trivia: string | undefined): void {
+    if (!trivia) return;
+    if (sourceFile.getFullText().startsWith(trivia)) return;
+    sourceFile.insertText(0, trivia.endsWith('\n') ? trivia : trivia + '\n');
+}

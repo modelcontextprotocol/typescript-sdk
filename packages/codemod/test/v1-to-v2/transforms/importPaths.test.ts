@@ -12,6 +12,62 @@ function applyTransform(code: string, context: TransformContext = { projectType:
 }
 
 describe('import-paths transform', () => {
+    describe('file-leading trivia preservation', () => {
+        it('preserves a file-header banner comment when consolidating imports', () => {
+            const input = [
+                `/**`,
+                ` * Acme MCP integration.`,
+                ` *`,
+                ` * Connects the Acme CLI to MCP servers over stdio.`,
+                ` */`,
+                `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+                `import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
+                `console.log(Client, CallToolResult);`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain('Acme MCP integration.');
+            expect(result.indexOf('Acme MCP integration.')).toBeLessThan(result.indexOf('import'));
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
+
+        it('preserves a shebang when the first import is removed', () => {
+            const input = [
+                `#!/usr/bin/env node`,
+                `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+                `console.log(Client);`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result.startsWith('#!/usr/bin/env node')).toBe(true);
+        });
+
+        it('preserves shebang and banner together', () => {
+            const input = [
+                `#!/usr/bin/env node`,
+                `// Entry point for the example MCP client.`,
+                `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+                `console.log(Client);`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result.startsWith('#!/usr/bin/env node')).toBe(true);
+            expect(result).toContain('// Entry point for the example MCP client.');
+        });
+
+        it('does not duplicate trivia when the first import is only rewritten in place', () => {
+            const input = [
+                `// Aliased import keeps its declaration node.`,
+                `import { Client as McpClient } from '@modelcontextprotocol/sdk/client/index.js';`,
+                `console.log(McpClient);`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            const occurrences = result.split('Aliased import keeps its declaration node.').length - 1;
+            expect(occurrences).toBe(1);
+        });
+    });
+
     it('rewrites client imports to @modelcontextprotocol/client', () => {
         const input = `import { Client } from '@modelcontextprotocol/sdk/client/index.js';\n`;
         const result = applyTransform(input);

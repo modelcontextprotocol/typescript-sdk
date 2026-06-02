@@ -3,7 +3,14 @@ import type { SourceFile } from 'ts-morph';
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { renameAllReferences } from '../../../utils/astUtils.js';
 import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
+import {
+    addOrMergeImport,
+    captureLeadingFileTrivia,
+    getSdkExports,
+    getSdkImports,
+    isTypeOnlyImport,
+    restoreLeadingFileTrivia
+} from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
 import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
@@ -49,6 +56,9 @@ export const importPathsTransform: Transform = {
         });
 
         const insertIndex = sourceFile.getImportDeclarations().indexOf(sdkImports[0]!);
+        // Removing the first import would silently delete a file-leading shebang or
+        // banner comment attached to it — capture it up front and restore at the end.
+        const leadingTrivia = captureLeadingFileTrivia(sdkImports[0]!);
 
         interface PendingImport {
             names: string[];
@@ -203,6 +213,8 @@ export const importPathsTransform: Transform = {
                 addOrMergeImport(sourceFile, target, [...typeOnlyNames], true, typeInsertIndex);
             }
         }
+
+        restoreLeadingFileTrivia(sourceFile, leadingTrivia);
 
         return { changesCount, diagnostics, usedPackages };
     }

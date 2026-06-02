@@ -14,6 +14,18 @@ function applyTransform(code: string): string {
 }
 
 describe('symbol-renames transform', () => {
+    it('preserves a file-header banner when the ErrorCode split removes the first import', () => {
+        const input = [
+            `// Error classification helpers.`,
+            `import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';`,
+            `const a = ErrorCode.RequestTimeout;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('// Error classification helpers.');
+        expect(result.indexOf('// Error classification helpers.')).toBeLessThan(result.indexOf('import'));
+    });
+
     it('renames McpError to ProtocolError', () => {
         const input = [`import { McpError } from '@modelcontextprotocol/sdk/types.js';`, `throw new McpError(1, 'error');`, ''].join('\n');
         const result = applyTransform(input);

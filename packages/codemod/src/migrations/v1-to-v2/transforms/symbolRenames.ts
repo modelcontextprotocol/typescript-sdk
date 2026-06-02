@@ -4,7 +4,13 @@ import { Node } from 'ts-morph';
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { renameAllReferences } from '../../../utils/astUtils.js';
 import { info, warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, isAnyMcpSpecifier, removeUnusedImport } from '../../../utils/importUtils.js';
+import {
+    addOrMergeImport,
+    captureLeadingFileTrivia,
+    isAnyMcpSpecifier,
+    removeUnusedImport,
+    restoreLeadingFileTrivia
+} from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { ERROR_CODE_SDK_MEMBERS, SIMPLE_RENAMES } from '../mappings/symbolMap.js';
 
@@ -19,6 +25,10 @@ export const symbolRenamesTransform: Transform = {
         let changesCount = 0;
 
         const imports = sourceFile.getImportDeclarations();
+
+        // The ErrorCode split below may remove the file's first import, taking any
+        // attached shebang/banner comment with it — capture and restore around it.
+        const leadingTrivia = imports[0] ? captureLeadingFileTrivia(imports[0]) : undefined;
 
         for (const imp of imports) {
             if (!isAnyMcpSpecifier(imp.getModuleSpecifierValue())) continue;
@@ -39,6 +49,8 @@ export const symbolRenamesTransform: Transform = {
         changesCount += handleErrorCodeSplit(sourceFile, diagnostics);
         changesCount += handleRequestHandlerExtra(sourceFile, context, diagnostics);
         changesCount += handleSchemaInput(sourceFile, context, diagnostics);
+
+        restoreLeadingFileTrivia(sourceFile, leadingTrivia);
 
         return { changesCount, diagnostics };
     }
