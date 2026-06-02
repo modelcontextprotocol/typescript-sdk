@@ -798,84 +798,58 @@ The new design:
 
 ### OAuth error refactoring
 
-The OAuth error classes have been consolidated into a single `OAuthError` class with an `OAuthErrorCode` enum.
+OAuth errors are now built around a single `OAuthError` class with an `OAuthErrorCode` enum: `error.code` carries the OAuth error code (e.g. `'invalid_grant'`), including non-standard codes returned by real-world authorization servers.
 
-#### Removed classes
-
-The following individual error classes have been removed in favor of `OAuthError` with the appropriate code:
-
-| v1 Class                       | v2 Equivalent                                                     |
-| ------------------------------ | ----------------------------------------------------------------- |
-| `InvalidRequestError`          | `new OAuthError(OAuthErrorCode.InvalidRequest, message)`          |
-| `InvalidClientError`           | `new OAuthError(OAuthErrorCode.InvalidClient, message)`           |
-| `InvalidGrantError`            | `new OAuthError(OAuthErrorCode.InvalidGrant, message)`            |
-| `UnauthorizedClientError`      | `new OAuthError(OAuthErrorCode.UnauthorizedClient, message)`      |
-| `UnsupportedGrantTypeError`    | `new OAuthError(OAuthErrorCode.UnsupportedGrantType, message)`    |
-| `InvalidScopeError`            | `new OAuthError(OAuthErrorCode.InvalidScope, message)`            |
-| `AccessDeniedError`            | `new OAuthError(OAuthErrorCode.AccessDenied, message)`            |
-| `ServerError`                  | `new OAuthError(OAuthErrorCode.ServerError, message)`             |
-| `TemporarilyUnavailableError`  | `new OAuthError(OAuthErrorCode.TemporarilyUnavailable, message)`  |
-| `UnsupportedResponseTypeError` | `new OAuthError(OAuthErrorCode.UnsupportedResponseType, message)` |
-| `UnsupportedTokenTypeError`    | `new OAuthError(OAuthErrorCode.UnsupportedTokenType, message)`    |
-| `InvalidTokenError`            | `new OAuthError(OAuthErrorCode.InvalidToken, message)`            |
-| `MethodNotAllowedError`        | `new OAuthError(OAuthErrorCode.MethodNotAllowed, message)`        |
-| `TooManyRequestsError`         | `new OAuthError(OAuthErrorCode.TooManyRequests, message)`         |
-| `InvalidClientMetadataError`   | `new OAuthError(OAuthErrorCode.InvalidClientMetadata, message)`   |
-| `InsufficientScopeError`       | `new OAuthError(OAuthErrorCode.InsufficientScope, message)`       |
-| `InvalidTargetError`           | `new OAuthError(OAuthErrorCode.InvalidTarget, message)`           |
-| `CustomOAuthError`             | `new OAuthError(customCode, message)`                             |
-
-The `OAUTH_ERRORS` constant has also been removed.
-
-If you need the v1 OAuth error classes and `mcpAuthRouter` during migration, `@modelcontextprotocol/server-legacy/auth` provides a frozen copy:
+For backwards compatibility, the v1 error subclasses are still exported (as `@deprecated` wrappers around `OAuthError`), and errors produced by the SDK from server error responses are constructed as the matching subclass — so v1-style `instanceof` classification keeps working:
 
 ```typescript
-import { mcpAuthRouter, InvalidClientError } from '@modelcontextprotocol/server-legacy/auth';
-```
-
-This package is deprecated and will not receive new features. Use a dedicated OAuth provider in production.
-
-**Before (v1):**
-
-```typescript
-import { InvalidClientError, InvalidGrantError, ServerError } from '@modelcontextprotocol/client';
+import { InvalidGrantError, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/client';
 
 try {
     await refreshToken();
 } catch (error) {
-    if (error instanceof InvalidClientError) {
-        // Handle invalid client
-    } else if (error instanceof InvalidGrantError) {
-        // Handle invalid grant
-    } else if (error instanceof ServerError) {
-        // Handle server error
+    // v1 style — still works:
+    if (error instanceof InvalidGrantError) {
+        // Drop stored tokens, re-authorize
+    }
+    // v2 style — preferred:
+    if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidGrant) {
+        // Drop stored tokens, re-authorize
     }
 }
 ```
 
-**After (v2):**
+Differences to be aware of when migrating:
+
+- **One rename:** the OAuth `InvalidRequestError` class is now `OAuthInvalidRequestError`, because v2 exports a JSON-RPC `InvalidRequestError` interface from the protocol types under the same name. Check `error.code === OAuthErrorCode.InvalidRequest` instead.
+- **`error.name` is always `'OAuthError'`**, including for the subclasses (v1 used the subclass name). Use `instanceof` or `error.code` to distinguish kinds.
+- **`error.errorCode` is deprecated** — it remains available as an alias, but use `error.code`.
+- **Unknown error codes are preserved.** v1 collapsed unrecognized codes (e.g. `invalid_refresh_token`) into `ServerError`, which made them look transient/retryable. v2 keeps the raw code on a plain `OAuthError`. If you had retry logic keyed on `instanceof ServerError`, use the
+  new `isTransientOAuthError(error)` helper, which treats the RFC transient codes _and_ unknown codes as retryable — matching v1 behavior:
 
 ```typescript
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/client';
+import { isTransientOAuthError } from '@modelcontextprotocol/client';
 
 try {
     await refreshToken();
 } catch (error) {
-    if (error instanceof OAuthError) {
-        switch (error.code) {
-            case OAuthErrorCode.InvalidClient:
-                // Handle invalid client
-                break;
-            case OAuthErrorCode.InvalidGrant:
-                // Handle invalid grant
-                break;
-            case OAuthErrorCode.ServerError:
-                // Handle server error
-                break;
-        }
+    if (isTransientOAuthError(error)) {
+        scheduleRetry();
+    } else {
+        throw error;
     }
 }
 ```
+
+- `OAUTH_ERRORS` (the code → class map) is still exported, `@deprecated`. `oauthErrorFromCode(code, message, errorUri?)` is the supported way to construct an error from a code.
+
+If you need the full v1 OAuth _server_ surface (`mcpAuthRouter` and friends) during migration, `@modelcontextprotocol/server-legacy/auth` provides a frozen copy:
+
+```typescript
+import { mcpAuthRouter } from '@modelcontextprotocol/server-legacy/auth';
+```
+
+This package is deprecated and will not receive new features. Use a dedicated OAuth provider in production. Note that error classes imported from `server-legacy/auth` are distinct from the `@modelcontextprotocol/client` ones — don't mix them in `instanceof` checks.
 
 ### Experimental tasks interception removed
 

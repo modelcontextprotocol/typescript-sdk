@@ -178,52 +178,34 @@ if (error instanceof SdkHttpError) {
 
 ### OAuth error consolidation
 
-Individual OAuth error classes replaced with single `OAuthError` class and `OAuthErrorCode` enum:
+OAuth errors consolidated into `OAuthError` with `OAuthErrorCode` enum on `error.code`. The v1 subclasses remain exported as `@deprecated` compatibility wrappers, and SDK-produced errors are constructed as the matching subclass — `instanceof` checks from v1 continue to work
+WITHOUT code changes, with ONE exception:
 
-| v1 Class                       | v2 Equivalent                                              |
-| ------------------------------ | ---------------------------------------------------------- |
-| `InvalidRequestError`          | `OAuthError` with `OAuthErrorCode.InvalidRequest`          |
-| `InvalidClientError`           | `OAuthError` with `OAuthErrorCode.InvalidClient`           |
-| `InvalidGrantError`            | `OAuthError` with `OAuthErrorCode.InvalidGrant`            |
-| `UnauthorizedClientError`      | `OAuthError` with `OAuthErrorCode.UnauthorizedClient`      |
-| `UnsupportedGrantTypeError`    | `OAuthError` with `OAuthErrorCode.UnsupportedGrantType`    |
-| `InvalidScopeError`            | `OAuthError` with `OAuthErrorCode.InvalidScope`            |
-| `AccessDeniedError`            | `OAuthError` with `OAuthErrorCode.AccessDenied`            |
-| `ServerError`                  | `OAuthError` with `OAuthErrorCode.ServerError`             |
-| `TemporarilyUnavailableError`  | `OAuthError` with `OAuthErrorCode.TemporarilyUnavailable`  |
-| `UnsupportedResponseTypeError` | `OAuthError` with `OAuthErrorCode.UnsupportedResponseType` |
-| `UnsupportedTokenTypeError`    | `OAuthError` with `OAuthErrorCode.UnsupportedTokenType`    |
-| `InvalidTokenError`            | `OAuthError` with `OAuthErrorCode.InvalidToken`            |
-| `MethodNotAllowedError`        | `OAuthError` with `OAuthErrorCode.MethodNotAllowed`        |
-| `TooManyRequestsError`         | `OAuthError` with `OAuthErrorCode.TooManyRequests`         |
-| `InvalidClientMetadataError`   | `OAuthError` with `OAuthErrorCode.InvalidClientMetadata`   |
-| `InsufficientScopeError`       | `OAuthError` with `OAuthErrorCode.InsufficientScope`       |
-| `InvalidTargetError`           | `OAuthError` with `OAuthErrorCode.InvalidTarget`           |
-| `CustomOAuthError`             | `new OAuthError(customCode, message)`                      |
+| v1 Class                                                                               | v2 status                                                                                                                                                                    |
+| -------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `InvalidRequestError` (OAuth)                                                          | RENAMED → `OAuthInvalidRequestError` (name now owned by a JSON-RPC protocol type). Rewrite `instanceof InvalidRequestError` → `error.code === OAuthErrorCode.InvalidRequest` |
+| All 16 other subclasses (`InvalidGrantError`, `ServerError`, …) and `CustomOAuthError` | Unchanged names, deprecated; prefer `error.code === OAuthErrorCode.X`                                                                                                        |
+| `OAUTH_ERRORS`                                                                         | Still exported, deprecated; prefer `oauthErrorFromCode(code, message, errorUri?)`                                                                                            |
 
-Removed: `OAUTH_ERRORS` constant.
+Semantics to preserve when rewriting v1 code:
 
-Update OAuth error handling:
+1. `error.errorCode` → `error.code` (deprecated alias exists).
+2. `error.name` is `'OAuthError'` for ALL OAuth errors including subclasses (v1 used the subclass name). Never match on subclass names.
+3. UNKNOWN-CODE TRAP: v1 collapsed unrecognized error codes into `ServerError` (transient/retryable). v2 preserves the raw code on a plain `OAuthError`. Rewriting `instanceof ServerError` retry checks as `error.code === OAuthErrorCode.ServerError` SILENTLY DROPS retry for
+   non-standard codes (e.g. `invalid_refresh_token`). Use `isTransientOAuthError(error)` instead — it returns true for `server_error`, `temporarily_unavailable`, `too_many_requests`, AND any code not in `OAuthErrorCode` (v1 parity).
 
 ```typescript
 // v1
-import { InvalidClientError, InvalidGrantError } from '@modelcontextprotocol/client';
-if (error instanceof InvalidClientError) { ... }
+if (error instanceof ServerError) {
+    scheduleRetry();
+}
 
-// v2
-import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/client';
-if (error instanceof OAuthError && error.code === OAuthErrorCode.InvalidClient) { ... }
+// v2 — equivalent semantics
+import { isTransientOAuthError } from '@modelcontextprotocol/client';
+if (isTransientOAuthError(error)) {
+    scheduleRetry();
+}
 ```
-
-**Unchanged APIs** (only import paths changed): `Client` constructor and most methods, `McpServer` constructor, `server.connect()`, `server.close()`, all client transports (`StreamableHTTPClientTransport`, `SSEClientTransport`, `StdioClientTransport`), `StdioServerTransport`, all
-Zod schemas, all callback return types. Note: `callTool()` and `request()` signatures changed (schema parameter removed, see section 11).
-
-## 6. McpServer API Changes
-
-The variadic `.tool()`, `.prompt()`, `.resource()` methods are removed. Use the `register*` methods with a config object.
-
-**IMPORTANT**: v2 requires schema objects implementing [Standard Schema](https://standardschema.dev/) — raw shapes like `{ name: z.string() }` are no longer supported. Wrap with `z.object()` (Zod v4), or use ArkType's `type({...})`, or Valibot. For raw JSON Schema, wrap with
-`fromJsonSchema(schema)` from `@modelcontextprotocol/server` (validator defaults automatically; pass an explicit validator for custom configurations). Applies to `inputSchema`, `outputSchema`, and `argsSchema`.
 
 ### Tools
 
