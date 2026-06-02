@@ -164,6 +164,125 @@ export function isStandardSchemaWithJSON(schema: unknown): schema is StandardSch
 
 let warnedZodFallback = false;
 
+function isZodFallbackWarningSuppressed(): boolean {
+    // Core must stay runtime-neutral (browser / Workers), so reach for `process` defensively.
+    try {
+        const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process?.env;
+        const value = env?.MCP_SUPPRESS_ZOD_FALLBACK_WARNING;
+        return value !== undefined && value !== '' && value !== '0' && value !== 'false';
+    } catch {
+        return false;
+    }
+}
+
+function readForeignDescription(node: unknown): string | undefined {
+    // `.description` is a getter that runs the schema's own zod code against its own
+    // metadata registry, so it works across zod instances where the bundled converter
+    // cannot. Foreign getters are untrusted: never let them break conversion.
+    try {
+        const description = (node as { description?: unknown }).description;
+        return typeof description === 'string' && description.length > 0 ? description : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function unwrapForeignSchema(node: unknown): unknown {
+    // Wrappers like .optional()/.nullable()/.default() carry their own registry entry;
+    // a .describe() applied before wrapping lives on the inner schema instead.
+    try {
+        const def = (node as { _zod?: { def?: { innerType?: unknown } } })._zod?.def;
+        return def?.innerType;
+    } catch {
+        return undefined;
+    }
+}
+
+function readForeignDescriptionDeep(node: unknown): string | undefined {
+    let current: unknown = node;
+    for (let depth = 0; depth < 8 && current != null; depth++) {
+        const description = readForeignDescription(current);
+        if (description !== undefined) return description;
+        current = unwrapForeignSchema(current);
+    }
+    return undefined;
+}
+
+function foreignShape(node: unknown): Record<string, unknown> | undefined {
+    let current: unknown = node;
+    for (let depth = 0; depth < 8 && current != null; depth++) {
+        try {
+            const shape = (current as { shape?: unknown }).shape;
+            if (shape != null && typeof shape === 'object') return shape as Record<string, unknown>;
+        } catch {
+            return undefined;
+        }
+        current = unwrapForeignSchema(current);
+    }
+    return undefined;
+}
+
+function foreignElement(node: unknown): unknown {
+    let current: unknown = node;
+    for (let depth = 0; depth < 8 && current != null; depth++) {
+        try {
+            const element = (current as { element?: unknown }).element;
+            if (element != null) return element;
+        } catch {
+            return undefined;
+        }
+        current = unwrapForeignSchema(current);
+    }
+    return undefined;
+}
+
+/**
+ * Best-effort recovery of `.describe()` metadata after converting a foreign zod
+ * instance's schema with the SDK-bundled `z.toJSONSchema()`.
+ *
+ * Zod stores `.describe()` text in a per-instance metadata registry, so the bundled
+ * converter silently drops every description attached through a different zod instance
+ * (zod 4.0/4.1, or the zod@3.25.x `zod/v4` subpath). The schema's own `.description`
+ * getters still work, so walk the schema alongside the converted JSON Schema and fill
+ * in any descriptions the converter missed. Existing descriptions are never overwritten.
+ */
+function recoverForeignDescriptions(
+    schema: unknown,
+    jsonSchema: Record<string, unknown>,
+    visited = new WeakSet<object>(),
+    depth = 0
+): void {
+    if (depth > 16 || schema == null || typeof schema !== 'object') return;
+    if (visited.has(schema)) return;
+    visited.add(schema);
+
+    if (jsonSchema.description === undefined) {
+        const description = readForeignDescriptionDeep(schema);
+        if (description !== undefined) jsonSchema.description = description;
+    }
+
+    const properties = jsonSchema.properties;
+    if (properties != null && typeof properties === 'object') {
+        const shape = foreignShape(schema);
+        if (shape) {
+            for (const [key, fieldSchema] of Object.entries(shape)) {
+                const fieldJson = (properties as Record<string, unknown>)[key];
+                if (fieldJson != null && typeof fieldJson === 'object') {
+                    recoverForeignDescriptions(fieldSchema, fieldJson as Record<string, unknown>, visited, depth + 1);
+                }
+            }
+        }
+    }
+
+    const items = jsonSchema.items;
+    if (items != null && typeof items === 'object' && !Array.isArray(items)) {
+        const element = foreignElement(schema);
+        if (element != null) {
+            recoverForeignDescriptions(element, items as Record<string, unknown>, visited, depth + 1);
+        }
+    }
+}
+
 /**
  * Converts a StandardSchema to JSON Schema for use as an MCP tool/prompt schema.
  *
@@ -190,14 +309,17 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
                     'Upgrade to zod >=4.2.0, or wrap your JSON Schema with fromJsonSchema().'
             );
         }
-        if (!warnedZodFallback) {
+        if (!warnedZodFallback && !isZodFallbackWarningSuppressed()) {
             warnedZodFallback = true;
             console.warn(
                 '[mcp-sdk] Your zod version does not implement `~standard.jsonSchema` (added in zod 4.2.0). ' +
-                    'Falling back to z.toJSONSchema(). Upgrade to zod >=4.2.0 to silence this warning.'
+                    'Falling back to the bundled converter; `.describe()` descriptions are recovered on a best-effort ' +
+                    'basis but other registry metadata (`.meta()`) may be lost. Upgrade to zod >=4.2.0 for full ' +
+                    'fidelity, or set MCP_SUPPRESS_ZOD_FALLBACK_WARNING=1 to silence this warning.'
             );
         }
         result = z.toJSONSchema(schema as unknown as z.ZodType, { target: 'draft-2020-12', io }) as Record<string, unknown>;
+        recoverForeignDescriptions(schema, result);
     } else {
         throw new Error(
             `Schema library "${std.vendor}" does not implement StandardJSONSchemaV1 (\`~standard.jsonSchema\`). ` +

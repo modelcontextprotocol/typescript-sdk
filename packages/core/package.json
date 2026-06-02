@@ -77,13 +77,11 @@
         }
     },
     "devDependencies": {
+        "@cfworker/json-schema": "catalog:runtimeShared",
+        "@eslint/js": "catalog:devTools",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^",
-        "@cfworker/json-schema": "catalog:runtimeShared",
-        "ajv": "catalog:runtimeShared",
-        "ajv-formats": "catalog:runtimeShared",
-        "@eslint/js": "catalog:devTools",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
         "@types/cross-spawn": "catalog:devTools",
@@ -91,6 +89,8 @@
         "@types/express": "catalog:devTools",
         "@types/express-serve-static-core": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
+        "ajv": "catalog:runtimeShared",
+        "ajv-formats": "catalog:runtimeShared",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
@@ -98,6 +98,7 @@
         "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
-        "vitest": "catalog:devTools"
+        "vitest": "catalog:devTools",
+        "zod-v40": "npm:zod@4.0.17"
     }
 }
