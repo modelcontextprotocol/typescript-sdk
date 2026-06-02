@@ -3,6 +3,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { OAuthMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import * as schemas from '../../src/types/schemas.js';
 import type { SpecTypeName, SpecTypes } from '../../src/types/specTypeSchema.js';
+import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
 import { isSpecType, SpecTypeValidationError, specTypeSchemas } from '../../src/types/specTypeSchema.js';
 import type {
     CallToolResult,
@@ -201,6 +202,30 @@ describe('specTypeSchemas.X.parse', () => {
             expect(validationError.message).toContain('Invalid Implementation');
             expect(validationError.message).toContain('version');
         }
+    });
+
+    it('is an SdkError with code InvalidSpecType', () => {
+        try {
+            specTypeSchemas.Implementation.parse({ name: 'x' });
+            expect.unreachable();
+        } catch (error) {
+            expect(error).toBeInstanceOf(SdkError);
+            expect((error as SdkError).code).toBe(SdkErrorCode.InvalidSpecType);
+        }
+    });
+
+    it('is caught by generic SdkError handling', () => {
+        // The composability the consolidated error taxonomy exists for: a handler written
+        // against SdkError + code discrimination sees parse failures without a dedicated branch.
+        let handled: string | undefined;
+        try {
+            specTypeSchemas.Implementation.parse({ name: 'x' });
+        } catch (error) {
+            if (error instanceof SdkError) {
+                handled = error.code;
+            }
+        }
+        expect(handled).toBe(SdkErrorCode.InvalidSpecType);
     });
 
     it('throws the SDK error class, not the schema library error', () => {

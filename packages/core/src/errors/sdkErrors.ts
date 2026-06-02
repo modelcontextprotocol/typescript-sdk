@@ -29,6 +29,10 @@ export enum SdkErrorCode {
     /** Response result failed local schema validation */
     InvalidResult = 'INVALID_RESULT',
 
+    // Validation errors
+    /** Value failed spec type schema validation via `parse`/`safeParse` */
+    InvalidSpecType = 'INVALID_SPEC_TYPE',
+
     // Transport errors
     ClientHttpNotImplemented = 'CLIENT_HTTP_NOT_IMPLEMENTED',
     ClientHttpAuthentication = 'CLIENT_HTTP_AUTHENTICATION',

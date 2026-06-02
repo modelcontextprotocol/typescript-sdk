@@ -475,7 +475,7 @@ If a `*Schema` constant was used for **runtime validation** (not just as a `requ
 
 | v1 pattern                                         | v2 replacement                                                                         |
 | -------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `<TypeName>Schema.parse(value)`                    | `specTypeSchemas.<TypeName>.parse(value)` (returns the parsed value; throws `SpecTypeValidationError` with `.issues`) |
+| `<TypeName>Schema.parse(value)`                    | `specTypeSchemas.<TypeName>.parse(value)` (returns the parsed value; throws `SpecTypeValidationError`, an `SdkError` subclass with code `SdkErrorCode.InvalidSpecType`, with `.issues`) |
 | `<TypeName>Schema.safeParse(value)`                | `specTypeSchemas.<TypeName>.safeParse(value)` (`{ success: true, data }` \| `{ success: false, issues }`) |
 | `CallToolResultSchema.safeParse(value).success`    | `isSpecType.CallToolResult(value)`                                                     |
 | `<TypeName>Schema.safeParse(value).success`        | `isSpecType.<TypeName>(value)`                                                         |

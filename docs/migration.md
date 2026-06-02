@@ -530,7 +530,7 @@ const blocks = mixed.filter(isSpecType.ContentBlock);
 const r = specTypeSchemas.CallToolResult['~standard'].validate(value);
 ```
 
-All of these are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. Validation is **synchronous** throughout: the backing schemas are `StandardSchemaV1Sync`, so `parse`/`safeParse`/`validate()` return results directly and no `await` is needed. On failure, `parse` throws `SpecTypeValidationError`, whose `.issues` plays the role v1's `ZodError.issues` did in catch blocks. The pre-existing `isCallToolResult(value)` guard still works.
+All of these are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. Validation is **synchronous** throughout: the backing schemas are `StandardSchemaV1Sync`, so `parse`/`safeParse`/`validate()` return results directly and no `await` is needed. On failure, `parse` throws `SpecTypeValidationError` — an `SdkError` subclass with code `SdkErrorCode.InvalidSpecType`, so generic `instanceof SdkError` handlers catch it — whose `.issues` plays the role v1's `ZodError.issues` did in catch blocks. The pre-existing `isCallToolResult(value)` guard still works.
 
 ### Client list methods return empty results for missing capabilities
 

@@ -107,6 +107,7 @@ export {
 
 // Validator types and classes
 export type { SafeParseSpecTypeResult, SpecTypeName, SpecTypes, SpecTypeSchema } from '../../types/specTypeSchema.js';
+export type { SpecTypeValidationErrorData } from '../../types/specTypeSchema.js';
 export { isSpecType, specTypeSchemas, SpecTypeValidationError } from '../../types/specTypeSchema.js';
 export type { StandardSchemaV1, StandardSchemaV1Sync, StandardSchemaWithJSON } from '../../util/standardSchema.js';
 // Validator providers are type-only here — import the runtime classes from the explicit

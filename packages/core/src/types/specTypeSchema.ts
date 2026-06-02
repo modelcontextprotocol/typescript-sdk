@@ -1,5 +1,6 @@
 import type * as z from 'zod/v4';
 
+import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
 import {
     OAuthClientInformationFullSchema,
     OAuthClientInformationSchema,
@@ -255,21 +256,37 @@ function formatIssues(issues: ReadonlyArray<StandardSchemaV1.Issue>): string {
 }
 
 /**
+ * Typed shape for validation failure data carried by {@linkcode SpecTypeValidationError}.
+ */
+export interface SpecTypeValidationErrorData {
+    specType: SpecTypeName;
+    issues: ReadonlyArray<StandardSchemaV1.Issue>;
+    [key: string]: unknown;
+}
+
+/**
  * Error thrown by {@linkcode SpecTypeSchema.parse} when a value fails validation.
  *
- * Mirrors the shape v1 consumers relied on when catching `ZodError` from
+ * An {@linkcode SdkError} subclass with {@linkcode SdkErrorCode.InvalidSpecType}, so generic
+ * `instanceof SdkError` handlers and `error.code` switches catch it alongside the SDK's other
+ * local errors. Mirrors the shape v1 consumers relied on when catching `ZodError` from
  * `<TypeName>Schema.parse()`: the failure details are available on
  * {@linkcode SpecTypeValidationError.issues} and summarized in the message.
  */
-export class SpecTypeValidationError extends Error {
-    readonly specType: SpecTypeName;
-    readonly issues: ReadonlyArray<StandardSchemaV1.Issue>;
+export class SpecTypeValidationError extends SdkError {
+    declare readonly data: SpecTypeValidationErrorData;
 
     constructor(specType: SpecTypeName, issues: ReadonlyArray<StandardSchemaV1.Issue>) {
-        super(`Invalid ${specType}: ${formatIssues(issues)}`);
+        super(SdkErrorCode.InvalidSpecType, `Invalid ${specType}: ${formatIssues(issues)}`, { specType, issues });
         this.name = 'SpecTypeValidationError';
-        this.specType = specType;
-        this.issues = issues;
+    }
+
+    get specType(): SpecTypeName {
+        return this.data.specType;
+    }
+
+    get issues(): ReadonlyArray<StandardSchemaV1.Issue> {
+        return this.data.issues;
     }
 }
 
