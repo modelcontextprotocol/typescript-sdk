@@ -243,6 +243,96 @@ describe('Token Handler', () => {
             expect(response.body.error).toBe('invalid_grant');
         });
 
+        it('rejects redirect_uri mismatches when the provider exposes the original authorization redirect', async () => {
+            const mockStoredRedirectUri = vi.fn().mockResolvedValue('https://example.com/callback');
+            const mockExchangeCode = vi.spyOn(mockProvider, 'exchangeAuthorizationCode');
+            mockProvider.redirectUriForAuthorizationCode = mockStoredRedirectUri;
+
+            const response = await supertest(app).post('/token').type('form').send({
+                client_id: 'valid-client',
+                client_secret: 'valid-secret',
+                grant_type: 'authorization_code',
+                code: 'valid_code',
+                code_verifier: 'valid_verifier',
+                redirect_uri: 'https://attacker.example/callback'
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('invalid_grant');
+            expect(response.body.error_description).toContain('redirect_uri');
+            expect(mockStoredRedirectUri).toHaveBeenCalledWith(validClient, 'valid_code');
+            expect(mockExchangeCode).not.toHaveBeenCalled();
+        });
+
+        it('rejects missing redirect_uri when the authorization request used one', async () => {
+            mockProvider.redirectUriForAuthorizationCode = vi.fn().mockResolvedValue('https://example.com/callback');
+
+            const response = await supertest(app).post('/token').type('form').send({
+                client_id: 'valid-client',
+                client_secret: 'valid-secret',
+                grant_type: 'authorization_code',
+                code: 'valid_code',
+                code_verifier: 'valid_verifier'
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('invalid_grant');
+            expect(response.body.error_description).toContain('redirect_uri');
+        });
+
+        it('allows matching redirect_uri when the provider exposes the original authorization redirect', async () => {
+            mockProvider.redirectUriForAuthorizationCode = vi.fn().mockResolvedValue('https://example.com/callback');
+
+            const response = await supertest(app).post('/token').type('form').send({
+                client_id: 'valid-client',
+                client_secret: 'valid-secret',
+                grant_type: 'authorization_code',
+                code: 'valid_code',
+                code_verifier: 'valid_verifier',
+                redirect_uri: 'https://example.com/callback'
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.body.access_token).toBe('mock_access_token');
+        });
+
+        it('revokes tokens for the presented authorization code when code exchange fails', async () => {
+            const mockRevokeCodeTokens = vi.fn().mockResolvedValue(undefined);
+            mockProvider.revokeTokensForAuthorizationCode = mockRevokeCodeTokens;
+            mockProvider.exchangeAuthorizationCode = vi
+                .fn()
+                .mockRejectedValue(new InvalidGrantError('Authorization code was already used'));
+
+            const response = await supertest(app).post('/token').type('form').send({
+                client_id: 'valid-client',
+                client_secret: 'valid-secret',
+                grant_type: 'authorization_code',
+                code: 'valid_code',
+                code_verifier: 'valid_verifier'
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('invalid_grant');
+            expect(mockRevokeCodeTokens).toHaveBeenCalledWith(validClient, 'valid_code');
+        });
+
+        it('revokes tokens for the presented authorization code when local code validation fails', async () => {
+            const mockRevokeCodeTokens = vi.fn().mockResolvedValue(undefined);
+            mockProvider.revokeTokensForAuthorizationCode = mockRevokeCodeTokens;
+
+            const response = await supertest(app).post('/token').type('form').send({
+                client_id: 'valid-client',
+                client_secret: 'valid-secret',
+                grant_type: 'authorization_code',
+                code: 'expired_code',
+                code_verifier: 'valid_verifier'
+            });
+
+            expect(response.status).toBe(400);
+            expect(response.body.error).toBe('invalid_grant');
+            expect(mockRevokeCodeTokens).toHaveBeenCalledWith(validClient, 'expired_code');
+        });
+
         it('returns tokens for valid code exchange', async () => {
             const mockExchangeCode = vi.spyOn(mockProvider, 'exchangeAuthorizationCode');
             const response = await supertest(app).post('/token').type('form').send({
