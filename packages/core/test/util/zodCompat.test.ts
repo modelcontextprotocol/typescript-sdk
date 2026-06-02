@@ -87,3 +87,49 @@ describe('normalizeRawShapeSchema', () => {
         expect(() => normalizeRawShapeSchema(null as never)).toThrow(/must be a Standard Schema/);
     });
 });
+
+// Minimal structural mock of a field schema from a *different* zod v4 build
+// (e.g. an application's own zod 4.0/4.1 instance): has `_zod` so it is
+// detected as a v4 raw-shape field, but its internals are not walkable by the
+// SDK-bundled `z.toJSONSchema()`.
+function mockForeignZodV4String(): unknown {
+    return {
+        _zod: { def: { type: 'string' }, version: { major: 4, minor: 0 } },
+        '~standard': { version: 1, vendor: 'zod', validate: (v: unknown) => ({ value: v }) }
+    };
+}
+
+describe('normalizeRawShapeSchema v1-compat dispatch', () => {
+    test('throws the v1 error for a shape mixing zod versions (exact message)', () => {
+        const shape = { a: z.string(), b: mockZodV3String() };
+        expect(() => normalizeRawShapeSchema(shape as never)).toThrow('Mixed Zod versions detected in object shape.');
+    });
+
+    test('mixed-version error is not misreported as the all-v3 error', () => {
+        const shape = { a: z.string(), b: mockZodV3String() };
+        expect(() => normalizeRawShapeSchema(shape as never)).not.toThrow(/must be Zod v4 schemas/);
+    });
+
+    test('fails at normalization time when raw-shape fields cannot be converted to JSON Schema', () => {
+        // Without the eager check this registers fine and `tools/list` crashes later.
+        const shape = { a: mockForeignZodV4String() };
+        expect(() => normalizeRawShapeSchema(shape as never)).toThrow(/could not be converted to JSON Schema/);
+    });
+
+    test('conversion failure preserves the underlying error as cause', () => {
+        const shape = { a: mockForeignZodV4String() };
+        try {
+            normalizeRawShapeSchema(shape as never);
+            expect.unreachable('should have thrown');
+        } catch (e) {
+            expect(e).toBeInstanceOf(TypeError);
+            expect((e as TypeError).cause).toBeDefined();
+        }
+    });
+
+    test('wraps and converts a well-formed raw shape for the output position', () => {
+        const wrapped = normalizeRawShapeSchema({ result: z.string().default('x') }, 'output');
+        expect(wrapped).toBeDefined();
+        expect(standardSchemaToJsonSchema(wrapped!, 'output').type).toBe('object');
+    });
+});

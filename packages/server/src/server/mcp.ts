@@ -817,8 +817,8 @@ export class McpServer {
             name,
             title,
             description,
-            normalizeRawShapeSchema(inputSchema),
-            normalizeRawShapeSchema(outputSchema),
+            normalizeRawShapeSchema(inputSchema, 'input'),
+            normalizeRawShapeSchema(outputSchema, 'output'),
             annotations,
             undefined,
             _meta,
@@ -893,7 +893,7 @@ export class McpServer {
             name,
             title,
             description,
-            normalizeRawShapeSchema(argsSchema),
+            normalizeRawShapeSchema(argsSchema, 'input'),
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
             _meta
         );

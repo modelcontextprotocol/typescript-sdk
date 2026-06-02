@@ -121,6 +121,42 @@ describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () =
     });
 });
 
+describe('registerTool raw-shape failure modes surface at registration time', () => {
+    // Structural stand-ins for field schemas from other zod builds. A v3 field
+    // has `_def.typeName` and no `_zod`; a foreign v4 field has `_zod` but
+    // internals the SDK-bundled `z.toJSONSchema()` cannot walk.
+    const v3Field = {
+        _def: { typeName: 'ZodString', checks: [], coerce: false },
+        '~standard': { version: 1, vendor: 'zod', validate: (v: unknown) => ({ value: v }) },
+        parse: (v: unknown) => v
+    };
+    const foreignV4Field = {
+        _zod: { def: { type: 'string' }, version: { major: 4, minor: 0 } },
+        '~standard': { version: 1, vendor: 'zod', validate: (v: unknown) => ({ value: v }) }
+    };
+
+    // These shapes are intentionally invalid, so go through a loosened
+    // signature — the runtime dispatch in normalizeRawShapeSchema is the
+    // subject under test, not the overload types.
+    function registerLoose(server: McpServer, name: string, config: unknown): void {
+        (server.registerTool as unknown as (n: string, c: unknown, cb: unknown) => unknown)(name, config, async () => ({ content: [] }));
+    }
+
+    it('throws the v1 mixed-versions error when a raw shape mixes zod versions', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        expect(() => registerLoose(server, 'mixed', { inputSchema: { a: z.string(), b: v3Field } })).toThrow(
+            'Mixed Zod versions detected in object shape.'
+        );
+    });
+
+    it('throws at registerTool, not tools/list, when raw-shape fields cannot convert to JSON Schema', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        expect(() => registerLoose(server, 'foreign', { inputSchema: { a: foreignV4Field } })).toThrow(
+            /could not be converted to JSON Schema/
+        );
+    });
+});
+
 describe('InferRawShape', () => {
     it('preserves optionality from .optional() as ?: keys', () => {
         type S = InferRawShape<{ a: z.ZodString; b: z.ZodOptional<z.ZodString> }>;
