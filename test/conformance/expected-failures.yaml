@@ -60,11 +60,9 @@ client:
 
 server:
     # --- Draft-spec scenarios (in `--suite draft`; the default `active` suite is green) ---
-    # SEP-2575: the stateless dispatch path now serves the _meta-validation,
-    # version/header-error, and removed-method checks, but this coarse scenario
-    # also bundles server/discover checks and subscriptions/listen checks, which
-    # land with later changes — it cannot pass scenario-level until those do.
-    - server-stateless
+    # SEP-2575 (server-stateless) passes since server/discover landed: the
+    # subscriptions/listen and capability-gating (-32003) checks it also bundles
+    # report SKIPPED until those features exist, which does not fail the scenario.
     # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented;
     # most scenarios currently fail early with "Session ID required" because the
     # fixture only runs in stateful mode.
@@ -83,8 +81,11 @@ server:
     - caching
     # SEP-2243 (HTTP header standardization): -32001 HeaderMismatch handling and
     # case-insensitive/whitespace-trimmed header validation not implemented.
+    # (http-custom-header-server-validation is no longer listed: its stateless
+    # tools/list setup probe succeeds now, and with no x-mcp-header diagnostic
+    # tool in the fixture every check reports SKIPPED — the scenario re-arms
+    # when SEP-2243 support adds the custom-header tool.)
     - http-header-validation
-    - http-custom-header-server-validation
     # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
     # WARNINGs, but the expected-failures evaluator counts WARNINGs as failures.
     # SEP-2164: server returns -32002 without the requested URI in error.data.

@@ -1635,6 +1635,30 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Conformance (adjacent): sep-2575-http-server-no-independent-requests-on-stream. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
 
+    // Discovery (server/discover, draft spec)
+
+    'discover:result': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/discover#response',
+        behavior:
+            'A server answers server/discover with supportedVersions (exactly the protocol versions it is configured to support — the same list an UnsupportedProtocolVersionError reports in error.data.supported), its capabilities, its serverInfo, and its instructions when configured.',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'Conformance: sep-2575-server-implements-discover + sep-2575-server-unsupported-version-error (server-stateless scenario; the latter asserts error.data.supported is contained in the discover supportedVersions). Driven on the stateless dispatch path with the full _meta envelope: the streamableHttp cell drives raw Request/Response against a connected WebStandard transport, the stdio cell hand-built framed messages against an in-process StdioServerTransport.'
+    },
+    'discover:pre-initialize': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/discover#when-to-call',
+        behavior:
+            'A server answers server/discover before any initialize handshake, including on the stateful-era path without a _meta envelope: the probe is the first request on the wire and no initialize precedes it.',
+        transports: ['inMemory', 'stdio'],
+        note: 'The spec back-compat probe: a client that supports both eras SHOULD send server/discover first and fall back to the initialize handshake when the server answers -32601. The server here is NOT opted into any non-stateful version, so the probe is served on the existing stateful-era path pre-handshake, like ping. Stateful streamable HTTP hosting rejects every POST before an initialize-established session, so the probe cannot reach the server there; the stateless HTTP path is covered by discover:result.'
+    },
+    'discover:subscription-capabilities-withheld': {
+        source: 'sdk',
+        behavior:
+            'server/discover advertises the declared capabilities minus the subscription-delivery flags (prompts.listChanged, resources.listChanged, resources.subscribe, tools.listChanged) while subscriptions/listen is unimplemented: discovery never advertises notification delivery no RPC can honor. The capabilities themselves (prompts/resources/tools presence) stay advertised, and the initialize result on the same server still carries the declared flags.',
+        transports: ['streamableHttp', 'stdio'],
+        note: 'Conformance: sep-2575-server-sends-{prompts,tools}-list-changed-on-subscription (server-stateless scenario) treat a discover result advertising listChanged without delivering on a listen stream as a SHOULD violation, so the flags are withheld from discover (not from the initialize result, whose stateful-era notification flow delivers them). When subscriptions/listen lands, the flags are advertised again and this entry is superseded.'
+    },
+
     'hosting:express-app-helper': {
         transports: ['streamableHttp'],
         source: 'sdk',

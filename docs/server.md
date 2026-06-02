@@ -82,6 +82,23 @@ const server = new McpServer(
 );
 ```
 
+## Discovery
+
+Every server answers `server/discover` automatically — there is nothing to register or configure. The built-in handler reports, straight from the server's configuration:
+
+| Field               | Content                                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `supportedVersions` | The protocol versions the server is configured to support (`supportedProtocolVersions`, or the SDK default)   |
+| `capabilities`      | The server's advertised capabilities (see the note below)                                                      |
+| `serverInfo`        | The server's name and version                                                                                  |
+| `instructions`      | The configured instructions string, when present                                                               |
+
+Discovery is connection-less: like `ping`, it is answered both before and after the initialize handshake, and on the stateless dispatch path, so clients can probe a server before deciding how to connect (see [Discovery](https://modelcontextprotocol.io/specification/draft/server/discover) in the draft specification).
+
+The advertised capabilities omit the subscription-delivery flags (`prompts.listChanged`, `resources.listChanged`, `resources.subscribe`, `tools.listChanged`) until `subscriptions/listen` is implemented — discovery never advertises notification delivery no RPC can honor. The initialize result still carries the declared flags, where the stateful-era notification flow delivers them.
+
+To customize the response, register your own handler for `server/discover` on the low-level `Server` — an explicit registration replaces the built-in one.
+
 ## Tools
 
 Tools let clients invoke actions on your server — they are usually the main way LLMs call into your application (see [Tools](https://modelcontextprotocol.io/docs/learn/server-concepts#tools) in the MCP overview).

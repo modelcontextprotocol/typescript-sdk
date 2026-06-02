@@ -505,6 +505,7 @@ const sdkTypeChecks = {
     ClientRequest: (sdk: WithJSONRPCRequest<SDKTypes.ClientRequest>, spec: SpecTypes.ClientRequest) => {
         // @ts-expect-error 2025-11-25 types capabilities.experimental values as `object` (via the InitializeRequest member); the SDK follows the draft schema's JSONObject
         sdk = spec;
+        // @ts-expect-error the SDK union carries the draft schema's DiscoverRequest (server/discover), absent from released 2025-11-25 — deliberate wire-superset surface, like the capabilities `extensions` key
         spec = sdk;
     },
     ServerRequest: (sdk: WithJSONRPCRequest<SDKTypes.ServerRequest>, spec: SpecTypes.ServerRequest) => {

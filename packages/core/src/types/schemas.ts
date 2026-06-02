@@ -2172,6 +2172,7 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
 export const ClientRequestSchema = z.union([
     PingRequestSchema,
     InitializeRequestSchema,
+    DiscoverRequestSchema,
     CompleteRequestSchema,
     SetLevelRequestSchema,
     GetPromptRequestSchema,
@@ -2235,6 +2236,7 @@ export const ServerNotificationSchema = z.union([
 export const ServerResultSchema = z.union([
     EmptyResultSchema,
     InitializeResultSchema,
+    DiscoverResultSchema,
     CompleteResultSchema,
     GetPromptResultSchema,
     ListPromptsResultSchema,
@@ -2252,6 +2254,7 @@ export const ServerResultSchema = z.union([
 const resultSchemas: Record<string, z.core.$ZodType> = {
     ping: EmptyResultSchema,
     initialize: InitializeResultSchema,
+    'server/discover': DiscoverResultSchema,
     'completion/complete': CompleteResultSchema,
     'logging/setLevel': EmptyResultSchema,
     'prompts/get': GetPromptResultSchema,

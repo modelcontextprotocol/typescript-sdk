@@ -612,6 +612,33 @@ function createMcpServer() {
         }
     );
 
+    // SEP-2575: stream-discipline diagnostic tool. Emits request-scoped
+    // notifications that ride the originating response stream before the final
+    // response, so the stateless scenario can verify the stream carries only
+    // notifications/* frames and the response — never an independent
+    // server→client request (real elicitation is a backchannel feature and has
+    // no place on the per-request path).
+    mcpServer.registerTool(
+        'test_streaming_elicitation',
+        {
+            description: 'Tests that streamed responses carry only notifications and the final response (SEP-2575)',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult> => {
+            await ctx.mcpReq.notify({
+                method: 'notifications/progress',
+                params: { progressToken: 'test_streaming_elicitation', progress: 1, total: 2 }
+            });
+            await ctx.mcpReq.notify({
+                method: 'notifications/progress',
+                params: { progressToken: 'test_streaming_elicitation', progress: 2, total: 2 }
+            });
+            return {
+                content: [{ type: 'text', text: 'Streaming complete: emitted 2 request-scoped notifications' }]
+            };
+        }
+    );
+
     // SEP-1613: JSON Schema 2020-12 conformance test tool
     mcpServer.registerTool(
         'json_schema_2020_12_tool',

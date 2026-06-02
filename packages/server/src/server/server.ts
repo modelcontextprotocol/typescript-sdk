@@ -6,6 +6,7 @@ import type {
     CreateMessageRequestParamsWithTools,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    DiscoverResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
@@ -134,6 +135,10 @@ export class Server extends Protocol<ServerContext> {
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
+        // Discovery is served built-in, like ping: the response is derived entirely
+        // from the server's own configuration, so there is nothing for user code to
+        // decide. Registering a user handler for 'server/discover' replaces this default.
+        this.setRequestHandler('server/discover', () => this._ondiscover());
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
         if (this._capabilities.logging) {
@@ -511,7 +516,8 @@ export class Server extends Protocol<ServerContext> {
             }
 
             case 'ping':
-            case 'initialize': {
+            case 'initialize':
+            case 'server/discover': {
                 // No specific capability required for these methods
                 break;
             }
@@ -540,6 +546,54 @@ export class Server extends Protocol<ServerContext> {
             serverInfo: this._serverInfo,
             ...(this._instructions && { instructions: this._instructions })
         };
+    }
+
+    /**
+     * Built-in handler for `server/discover`: advertises the protocol versions this
+     * server is configured to support (the same list an UnsupportedProtocolVersionError
+     * reports in `error.data.supported`), its capabilities, its implementation info,
+     * and its instructions (when configured).
+     *
+     * Discovery is connection-less: like `ping`, it is answered both before and after
+     * the initialize handshake, and on the stateless dispatch path.
+     */
+    private _ondiscover(): DiscoverResult {
+        return {
+            supportedVersions: [...this._supportedProtocolVersions],
+            capabilities: this._discoverCapabilities(),
+            serverInfo: this._serverInfo,
+            ...(this._instructions && { instructions: this._instructions })
+        };
+    }
+
+    /**
+     * The capabilities `server/discover` advertises: the declared capabilities minus
+     * the subscription-delivery flags (`prompts.listChanged`, `resources.listChanged`,
+     * `resources.subscribe`, `tools.listChanged`).
+     *
+     * Under the per-request protocol revisions those notifications are delivered
+     * through `subscriptions/listen`, which this SDK does not implement yet, so
+     * discovery must not advertise them: advertised capabilities reflect what RPC
+     * handlers actually honor. The flags still appear in the initialize result, where
+     * the stateful-era notification flow delivers them.
+     */
+    // TODO(subscriptions/listen PR): stop withholding these flags once listen delivers them.
+    private _discoverCapabilities(): ServerCapabilities {
+        const advertised: ServerCapabilities = { ...this._capabilities };
+        if (advertised.prompts) {
+            advertised.prompts = { ...advertised.prompts };
+            delete advertised.prompts.listChanged;
+        }
+        if (advertised.resources) {
+            advertised.resources = { ...advertised.resources };
+            delete advertised.resources.subscribe;
+            delete advertised.resources.listChanged;
+        }
+        if (advertised.tools) {
+            advertised.tools = { ...advertised.tools };
+            delete advertised.tools.listChanged;
+        }
+        return advertised;
     }
 
     /**
