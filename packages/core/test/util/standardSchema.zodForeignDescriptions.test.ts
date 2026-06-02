@@ -62,6 +62,10 @@ describe('standardSchemaToJsonSchema — foreign zod instance description recove
         const { jsonSchema: _drop, ...stdNoJson } = real['~standard'] as unknown as Record<string, unknown>;
         void _drop;
         Object.defineProperty(real, '~standard', { value: { ...stdNoJson, vendor: 'zod' }, configurable: true });
+        // Shadow the field's `.description` getter with a value that DIFFERS from what the
+        // converter emits (the converter reads the registry, not this own-property), so the
+        // assertion can actually distinguish "preserved" from "overwritten with the same text".
+        Object.defineProperty(real.shape.a, 'description', { get: () => 'from recovery walk', configurable: true });
 
         const result = standardSchemaToJsonSchema(real as unknown as SchemaArg);
         expect(props(result).a?.description).toBe('from converter');
