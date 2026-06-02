@@ -506,29 +506,32 @@ The return type is now inferred from the method name via `ResultTypeMap`. For ex
 
 For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
-If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), use `isSpecType` or `specTypeSchemas`:
+If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), use `parseSpecType` / `safeParseSpecType` — drop-in shaped replacements for `.parse()` / `.safeParse()` — or `isSpecType` for a boolean guard:
 
 ```typescript
 // v1: runtime validation with Zod schema
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
-if (CallToolResultSchema.safeParse(value).success) {
-    /* ... */
-}
+const result = CallToolResultSchema.parse(value); // throws ZodError on failure
+const parsed = CallToolResultSchema.safeParse(value); // { success, data | error }
 
-// v2: keyed type predicate
+// v2: drop-in shaped replacements
+import { parseSpecType, safeParseSpecType } from '@modelcontextprotocol/client';
+const result = parseSpecType('CallToolResult', value); // throws SpecTypeValidationError (with .issues) on failure
+const parsed = safeParseSpecType('CallToolResult', value); // { success: true, data } | { success: false, issues }
+
+// v2: boolean type predicate
 import { isSpecType } from '@modelcontextprotocol/client';
 if (isSpecType.CallToolResult(value)) {
     /* ... */
 }
 const blocks = mixed.filter(isSpecType.ContentBlock);
 
-// v2: or get the StandardSchemaV1Sync validator object directly
+// v2: or use the StandardSchemaV1Sync validator object directly
 import { specTypeSchemas } from '@modelcontextprotocol/client';
-const result = specTypeSchemas.CallToolResult['~standard'].validate(value);
+const r = specTypeSchemas.CallToolResult['~standard'].validate(value);
 ```
 
-`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1Sync<In, Out>` — `validate()` returns the result synchronously,
-so you can access `.issues` / `.value` without `await`. It composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
+All of these are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. Validation is **synchronous** throughout: the backing schemas are `StandardSchemaV1Sync`, so `validate()` returns the result directly and no `await` is needed. `specTypeSchemas.X` composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
 
 ### Client list methods return empty results for missing capabilities
 

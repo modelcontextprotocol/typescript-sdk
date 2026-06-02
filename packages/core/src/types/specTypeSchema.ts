@@ -294,3 +294,83 @@ export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas as S
  * ```
  */
 export const isSpecType: GuardRecord = Object.freeze(_isSpecType as GuardRecord);
+
+function formatIssuePath(path: NonNullable<StandardSchemaV1.Issue['path']>): string {
+    return path
+        .map(segment => (typeof segment === 'object' && segment !== null && 'key' in segment ? String(segment.key) : String(segment)))
+        .join('.');
+}
+
+function formatIssues(issues: ReadonlyArray<StandardSchemaV1.Issue>): string {
+    return issues.map(issue => (issue.path?.length ? `${formatIssuePath(issue.path)}: ${issue.message}` : issue.message)).join('; ');
+}
+
+/**
+ * Error thrown by {@linkcode parseSpecType} when a value fails validation.
+ *
+ * Mirrors the shape v1 consumers relied on when catching `ZodError` from
+ * `<TypeName>Schema.parse()`: the failure details are available on
+ * {@linkcode SpecTypeValidationError.issues} and summarized in the message.
+ */
+export class SpecTypeValidationError extends Error {
+    readonly specType: SpecTypeName;
+    readonly issues: ReadonlyArray<StandardSchemaV1.Issue>;
+
+    constructor(specType: SpecTypeName, issues: ReadonlyArray<StandardSchemaV1.Issue>) {
+        super(`Invalid ${specType}: ${formatIssues(issues)}`);
+        this.name = 'SpecTypeValidationError';
+        this.specType = specType;
+        this.issues = issues;
+    }
+}
+
+/**
+ * Validates that `value` is a valid instance of the named spec type and returns the parsed value,
+ * throwing {@linkcode SpecTypeValidationError} on failure.
+ *
+ * This is the direct replacement for v1's `<TypeName>Schema.parse(value)`. Validation is
+ * synchronous (the backing schemas are {@linkcode StandardSchemaV1Sync}), so no `await` is needed.
+ *
+ * @example
+ * ```ts source="./specTypeSchema.examples.ts#parseSpecType_basicUsage"
+ * const result = parseSpecType('CallToolResult', untrusted);
+ * // result is CallToolResult; throws SpecTypeValidationError on invalid input
+ * ```
+ */
+export function parseSpecType<K extends SpecTypeName>(name: K, value: unknown): SpecTypes[K] {
+    const result = specTypeSchemas[name]['~standard'].validate(value);
+    if (result.issues) {
+        throw new SpecTypeValidationError(name, result.issues);
+    }
+    return result.value;
+}
+
+/**
+ * Result of {@linkcode safeParseSpecType}: a discriminated union shaped like the result of v1's
+ * `<TypeName>Schema.safeParse(value)`, so migrated call sites keep their `.success` / `.data`
+ * control flow.
+ */
+export type SafeParseSpecTypeResult<T> =
+    | { readonly success: true; readonly data: T }
+    | { readonly success: false; readonly issues: ReadonlyArray<StandardSchemaV1.Issue> };
+
+/**
+ * Validates that `value` is a valid instance of the named spec type without throwing.
+ *
+ * This is the direct replacement for v1's `<TypeName>Schema.safeParse(value)`. Validation is
+ * synchronous (the backing schemas are {@linkcode StandardSchemaV1Sync}), so no `await` is needed.
+ *
+ * @example
+ * ```ts source="./specTypeSchema.examples.ts#safeParseSpecType_basicUsage"
+ * const parsed = safeParseSpecType('Tool', untrusted);
+ * if (parsed.success) {
+ *     // parsed.data is Tool
+ * } else {
+ *     // parsed.issues describes the failures
+ * }
+ * ```
+ */
+export function safeParseSpecType<K extends SpecTypeName>(name: K, value: unknown): SafeParseSpecTypeResult<SpecTypes[K]> {
+    const result = specTypeSchemas[name]['~standard'].validate(value);
+    return result.issues ? { success: false, issues: result.issues } : { success: true, data: result.value };
+}

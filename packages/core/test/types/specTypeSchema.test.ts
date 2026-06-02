@@ -3,7 +3,7 @@ import { describe, expect, expectTypeOf, it } from 'vitest';
 import type { OAuthMetadata, OAuthTokens } from '../../src/shared/auth.js';
 import * as schemas from '../../src/types/schemas.js';
 import type { SpecTypeName, SpecTypes } from '../../src/types/specTypeSchema.js';
-import { isSpecType, specTypeSchemas } from '../../src/types/specTypeSchema.js';
+import { isSpecType, parseSpecType, safeParseSpecType, SpecTypeValidationError, specTypeSchemas } from '../../src/types/specTypeSchema.js';
 import type {
     CallToolResult,
     ContentBlock,
@@ -172,5 +172,86 @@ describe('SPEC_SCHEMA_KEYS allowlist', () => {
             .filter(k => !k.startsWith('OAuth') && !k.startsWith('OpenId'))
             .sort();
         expect(actual).toEqual(expected);
+    });
+});
+
+describe('parseSpecType', () => {
+    it('returns the parsed value for valid input', () => {
+        const value = parseSpecType('Implementation', { name: 'x', version: '1.0.0' });
+        expect(value).toEqual({ name: 'x', version: '1.0.0' });
+        expectTypeOf(value).toEqualTypeOf<Implementation>();
+    });
+
+    it('applies schema defaults to the returned value', () => {
+        const value = parseSpecType('CallToolResult', {});
+        expect(value.content).toEqual([]);
+    });
+
+    it('throws SpecTypeValidationError with issue summaries on invalid input', () => {
+        expect(() => parseSpecType('Implementation', { name: 'x' })).toThrowError(SpecTypeValidationError);
+        try {
+            parseSpecType('Implementation', { name: 'x' });
+            expect.unreachable();
+        } catch (error) {
+            expect(error).toBeInstanceOf(SpecTypeValidationError);
+            const validationError = error as SpecTypeValidationError;
+            expect(validationError.name).toBe('SpecTypeValidationError');
+            expect(validationError.specType).toBe('Implementation');
+            expect(validationError.issues.length).toBeGreaterThan(0);
+            expect(validationError.message).toContain('Invalid Implementation');
+            expect(validationError.message).toContain('version');
+        }
+    });
+
+    it('is synchronous — never returns a Promise', () => {
+        const value: Implementation = parseSpecType('Implementation', { name: 'x', version: '1.0.0' });
+        expect(value).not.toBeInstanceOf(Promise);
+    });
+
+    it('covers OAuth types', () => {
+        const tokens = parseSpecType('OAuthTokens', { access_token: 'x', token_type: 'Bearer' });
+        expectTypeOf(tokens).toEqualTypeOf<OAuthTokens>();
+        expect(tokens.access_token).toBe('x');
+    });
+
+    it('rejects unknown spec type names at compile time', () => {
+        // @ts-expect-error - 'NotASpecType' is not a SpecTypeName
+        expect(() => parseSpecType('NotASpecType', {})).toThrowError();
+    });
+});
+
+describe('safeParseSpecType', () => {
+    it('returns { success: true, data } for valid input', () => {
+        const parsed = safeParseSpecType('Tool', { name: 't', inputSchema: { type: 'object' } });
+        expect(parsed.success).toBe(true);
+        if (parsed.success) {
+            expectTypeOf(parsed.data).toEqualTypeOf<Tool>();
+            expect(parsed.data.name).toBe('t');
+        }
+    });
+
+    it('returns { success: false, issues } for invalid input', () => {
+        const parsed = safeParseSpecType('Tool', { inputSchema: { type: 'object' } });
+        expect(parsed.success).toBe(false);
+        if (!parsed.success) {
+            expect(parsed.issues.length).toBeGreaterThan(0);
+            expect(parsed.issues[0]?.message).toBeTruthy();
+        }
+    });
+
+    it('narrows the result type through the success discriminant', () => {
+        const parsed = safeParseSpecType('JSONRPCRequest', { jsonrpc: '2.0', id: 1, method: 'ping' });
+        if (parsed.success) {
+            expectTypeOf(parsed.data).toEqualTypeOf<JSONRPCRequest>();
+        } else {
+            expectTypeOf(parsed).not.toHaveProperty('data');
+        }
+        expect(parsed.success).toBe(true);
+    });
+
+    it('is synchronous — result is directly accessible without await', () => {
+        const parsed = safeParseSpecType('Implementation', { name: 'x', version: '1.0.0' });
+        expect(parsed).not.toBeInstanceOf(Promise);
+        expect(parsed.success).toBe(true);
     });
 });

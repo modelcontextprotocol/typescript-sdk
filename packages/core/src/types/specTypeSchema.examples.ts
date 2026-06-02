@@ -7,7 +7,7 @@
  * @module
  */
 
-import { isSpecType, specTypeSchemas } from './specTypeSchema.js';
+import { isSpecType, parseSpecType, safeParseSpecType, specTypeSchemas } from './specTypeSchema.js';
 
 declare const untrusted: unknown;
 declare const value: unknown;
@@ -36,5 +36,27 @@ function isSpecType_basicUsage() {
     void blocks;
 }
 
+function parseSpecType_basicUsage() {
+    //#region parseSpecType_basicUsage
+    const result = parseSpecType('CallToolResult', untrusted);
+    // result is CallToolResult; throws SpecTypeValidationError on invalid input
+    //#endregion parseSpecType_basicUsage
+    void result;
+}
+
+function safeParseSpecType_basicUsage() {
+    //#region safeParseSpecType_basicUsage
+    const parsed = safeParseSpecType('Tool', untrusted);
+    if (parsed.success) {
+        // parsed.data is Tool
+    } else {
+        // parsed.issues describes the failures
+    }
+    //#endregion safeParseSpecType_basicUsage
+    void parsed;
+}
+
 void specTypeSchemas_basicUsage;
 void isSpecType_basicUsage;
+void parseSpecType_basicUsage;
+void safeParseSpecType_basicUsage;
