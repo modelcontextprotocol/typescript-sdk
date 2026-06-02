@@ -14,7 +14,18 @@ export const KNOWN_SPEC_VERSIONS = ['2025-11-25', '2026-07-28'] as const;
 export type SpecVersion = (typeof KNOWN_SPEC_VERSIONS)[number];
 
 /** The spec versions cells are registered for (the active matrix axis). */
-export const ALL_SPEC_VERSIONS = ['2025-11-25'] as const satisfies readonly SpecVersion[];
+export const ALL_SPEC_VERSIONS = ['2025-11-25', '2026-07-28'] as const satisfies readonly SpecVersion[];
+
+/**
+ * The revision the SDK's default (initialize-era) negotiation lands on. Bodies that do not
+ * consume the `protocolVersion` axis exercise exactly this revision, so requirements without
+ * an explicit `addedInSpecVersion` register cells here only — labelling a default-negotiation
+ * run with a later revision would claim coverage the body does not exercise. Requirements
+ * explicitly added in a later revision register across the bounds their fields admit (their
+ * bodies pin that revision's behavior). The release that flips the SDK default revisits this
+ * restriction together with the bodies it exists for.
+ */
+export const BASELINE_SPEC_VERSION = '2025-11-25' as const satisfies SpecVersion;
 
 /**
  * Arguments every test body receives. Expand with new matrix axes here so

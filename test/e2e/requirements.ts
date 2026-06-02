@@ -1593,6 +1593,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     // Hosting: stateless routing + dispatch (per-request protocol revisions, SEP-2575/SEP-2567)
 
     'hosting:routing:session-id-never-stateless': {
+        addedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior:
             'A request carrying an Mcp-Session-Id header always takes the session path, regardless of the protocol version it claims: session validation still applies (valid session served as today, unknown session 404) and the request is never routed to the stateless dispatch path.',
@@ -1600,6 +1601,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Routing rule: the session header is checked before any version logic — sessions are version-locked at initialize, so a claimed draft version never bypasses session validation. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:routing:stateless-only-configured': {
+        addedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior:
             'A sessionless request claiming a non-stateful protocol version is handled on the stateless dispatch path only when the server has opted in by listing a non-stateful version in supportedProtocolVersions and a server is connected; otherwise existing behavior applies byte-identically (today: the unsupported-version 400 over HTTP, normal onmessage delivery over stdio).',
@@ -1607,6 +1609,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Routing rule: non-stateful versions stay out of the default supported list, so existing deployments see no behavior change. The streamableHttp cell exercises both halves against the WebStandard transport (the routed half is proven by the distinctive envelope -32602 of the stateless path); the stdio cell proves the not-listed half against a spawned fixture server (a draft _meta claim the server does not list is served on the existing path), with the routed half on stdio carried by protocol:stateless:request-served. Version resolution reads the first request of a batch body; batch rejection on the stateless path is pinned at the transport layer and its e2e row lands with the sessionless-invariants sweep.'
     },
     'protocol:stateless:envelope-required': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
         behavior:
             'Under a per-request (non-stateful) protocol revision, a request whose _meta is missing or lacks any of io.modelcontextprotocol/protocolVersion, clientInfo, or clientCapabilities is rejected with -32602 (Invalid params), the request id echoed.',
@@ -1614,6 +1617,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Conformance: sep-2575-request-meta-invalid-{missing-meta,missing-protocol-version,missing-client-info,missing-client-capabilities} (server-stateless scenario). The streamableHttp cell drives raw fetch against a connected WebStandard transport and covers all four cases; the stdio cell drives hand-built messages against an in-process StdioServerTransport wired to a real server, covering the two cases that can route at all — on stdio the _meta protocolVersion claim is the routing signal, so a request without one is indistinguishable from stateful-era traffic and is served on the existing path.'
     },
     'protocol:stateless:version-unsupported': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#protocol-version-negotiation',
         behavior:
             'A request claiming a non-stateful protocol version the opted-in server does not support is answered with -32004 (UnsupportedProtocolVersionError) carrying data.supported (the full supported list of the server) and data.requested, the request id echoed; over HTTP the status is 400.',
@@ -1621,6 +1625,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Conformance: sep-2575-server-unsupported-version-error + sep-2575-http-server-unsupported-version-400 (server-stateless scenario).'
     },
     'protocol:stateless:removed-methods': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#protocol-version-header',
         behavior:
             'Under a per-request protocol revision the removed RPCs (initialize, ping, logging/setLevel, resources/subscribe, resources/unsubscribe) and unknown methods are answered with -32601 (Method not found), the request id echoed; over HTTP the status is 404. Handlers registered for stateful-era traffic never serve these methods on the stateless path.',
@@ -1628,6 +1633,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Conformance: sep-2575-http-server-method-not-found-404{,-initialize,-ping,-logging-setlevel,-resources-subscribe,-resources-unsubscribe} (server-stateless scenario).'
     },
     'protocol:stateless:request-served': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
         behavior:
             'A request carrying the complete _meta envelope and a supported non-stateful protocol version is served end-to-end on the stateless dispatch path: registered handlers run and the result is returned with the request id, without any initialize handshake.',
@@ -1635,6 +1641,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'The heart of SEP-2575: every request is self-contained. The streamableHttp cell drives raw fetch against a connected WebStandard transport; the stdio cell spawns the fixture server (E2E_LIST_DRAFT_VERSION=1) as a real child process and drives hand-built messages, proving the same without any process-level handshake.'
     },
     'protocol:stateless:ctx-meta-sourced': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
         behavior:
             'On the stateless dispatch path the handler context is sourced from the _meta envelope of the request itself: ctx.mcpReq.protocolVersion is the claimed version and ctx.client.info/ctx.client.capabilities are the envelope clientInfo/clientCapabilities — never inherited from an initialize handshake or a previous request, and ctx.sessionId is undefined.',
@@ -1642,6 +1649,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Lifecycle rule: servers MUST NOT rely on prior requests to establish context (capabilities, protocol version, client identity). The streamableHttp body proves non-inheritance on a session-mode transport whose handshake state is populated by a real initialize before the stateless request arrives.'
     },
     'protocol:stateless:per-request-loglevel': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/server/utilities/logging#per-request-log-level',
         behavior:
             'Under a per-request protocol revision, a request carrying io.modelcontextprotocol/logLevel in _meta receives notifications/message for handler log emissions at or above the claimed level on the originating response stream, in order, before the final response; emissions below the claimed level are not delivered. A request claiming an unrecognized logLevel value is rejected with -32602 (Invalid params), the request id echoed.',
@@ -1649,6 +1657,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: "The logLevel _meta claim replaces logging/setLevel (a removed RPC on this path). The -32602 for unrecognized levels is the logging spec's Error Handling SHOULD, enforced by the same envelope acceptance that rejects malformed _meta. Conformance covers only the no-claim case (sep-2575-server-no-log-without-loglevel); the unrecognized-level rejection has no check — gap recorded in the build log."
     },
     'protocol:stateless:no-log-without-loglevel': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/server/utilities/logging#per-request-log-level',
         behavior:
             'Under a per-request protocol revision, a request whose _meta carries no io.modelcontextprotocol/logLevel claim produces no notifications/message even when the handler emits log messages — including immediately after another request on the same connection claimed a level: the claim governs exactly its own request and is never stored.',
@@ -1656,6 +1665,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Conformance: sep-2575-server-no-log-without-loglevel (server-stateless scenario). Per-request isolation is pinned by claiming debug on a preceding request: over HTTP the unclaimed request is answered as plain application/json (the lazy SSE stream never opens because nothing was emitted); on stdio the message after the unclaimed request is its response directly.'
     },
     'hosting:http:version-header-meta-mismatch': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#protocol-version-header',
         behavior:
             'On Streamable HTTP, a request whose MCP-Protocol-Version header does not match the io.modelcontextprotocol/protocolVersion value in the body _meta is rejected with 400 Bad Request and a HeaderMismatch JSON-RPC error (-32001), the request id echoed.',
@@ -1663,6 +1673,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Conformance: sep-2575-http-server-header-mismatch-400 (server-stateless scenario). This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:http:stateless-notification-202': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#sending-messages-1',
         behavior:
             'On the stateless HTTP path, a POST whose body is a single JSON-RPC notification is answered with 202 Accepted and no body.',
@@ -1670,6 +1681,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:http:stateless-response-stream': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#receiving-messages-1',
         behavior:
             'On the stateless HTTP path the server answers a request either with a single application/json object, or — when the handler emits request-scoped notifications — with an SSE stream carrying those notifications in order followed by the final JSON-RPC response, which terminates the stream. Notifications always relate to the originating request and no Mcp-Session-Id header is ever emitted.',
@@ -1680,11 +1692,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     // Sessionless invariants (per-request protocol revisions, SEP-2567)
 
     'hosting:sessionless:get-405': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#sending-messages-1',
         behavior:
             'A GET claiming a per-request protocol revision is answered 405 Method Not Allowed (Allow: POST): the MCP endpoint is POST-only under these revisions — there is no standalone server-to-client stream to open. (The deleted standalone-GET-stream rule that response streams never carry independent server requests is absorbed here: no GET stream can exist at all.)',
         transports: ['streamableHttp'],
-        note: 'Distinct from hosting:stateless:get-delete-405, which covers the 2025 stateless MODE (sessionIdGenerator: undefined, initialize-era traffic); this entry covers the routed per-request path, where the 405 is unconditional. The body also asserts the DELETE half and the batch rejection — it is shared with the 2026-bounded successors hosting:sessionless:delete-405 and hosting:sessionless:no-batching, so those behaviors are pinned by live cells before the 2026 matrix axis activates. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'Distinct from hosting:stateless:get-delete-405, which covers the 2025 stateless MODE (sessionIdGenerator: undefined, initialize-era traffic); this entry covers the routed per-request path, where the 405 is unconditional. The body also asserts the DELETE half and the batch rejection — it is shared with hosting:sessionless:delete-405 and hosting:sessionless:no-batching. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:sessionless:delete-405': {
         addedInSpecVersion: '2026-07-28',
@@ -1693,7 +1706,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'Under a per-request protocol revision there is no session to terminate: a DELETE claiming such a revision is answered 405 Method Not Allowed.',
         transports: ['streamableHttp'],
-        note: 'SEP-2567: sessions are deleted, so the DELETE leg of the endpoint loses its meaning. The cited body is shared with hosting:sessionless:get-405 (live), which pins this behavior today; this entry registers its own cells when the 2026 matrix axis activates. This exercises the HTTP hosting layer; the matrix transport arg is ignored.'
+        note: 'SEP-2567: sessions are deleted, so the DELETE leg of the endpoint loses its meaning. The cited body is shared with hosting:sessionless:get-405. This exercises the HTTP hosting layer; the matrix transport arg is ignored.'
     },
     'hosting:sessionless:no-batching': {
         addedInSpecVersion: '2026-07-28',
@@ -1702,14 +1715,15 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'A POST claiming a per-request protocol revision whose body is a JSON-RPC batch array is rejected with 400 (-32600 Invalid Request): the 2025 batch back-compat affordance does not exist on this path — the body is exactly one message.',
         transports: ['streamableHttp'],
-        note: 'SEP-2575 (R-2575-14). The cited body is shared with hosting:sessionless:get-405 (live), which pins this behavior today; this entry registers its own cells when the 2026 matrix axis activates. This exercises the HTTP hosting layer; the matrix transport arg is ignored.'
+        note: 'SEP-2575 (R-2575-14). The cited body is shared with hosting:sessionless:get-405. This exercises the HTTP hosting layer; the matrix transport arg is ignored.'
     },
     'hosting:sessionless:no-session-header': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/transports',
         behavior:
             'Per-request-revision traffic is sessionless on both sides: the server never emits an Mcp-Session-Id header on any stateless-path response — including on a transport configured with a sessionIdGenerator, whose 2025-era session behavior is unaffected — and requests are served without one.',
         transports: ['streamableHttp'],
-        note: 'SEP-2567. The sessionIdGenerator half pins that a dual-stack deployment cannot leak session headers into per-request traffic (the config is simply inert there). The body is shared with client-transport:http:no-session-header (2026-bounded successor), driving a real 2026-mode client against this server with a header-injecting fetch. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'SEP-2567. The sessionIdGenerator half pins that a dual-stack deployment cannot leak session headers into per-request traffic (the config is simply inert there). The body is shared with client-transport:http:no-session-header, driving a real 2026-mode client against this server with a header-injecting fetch. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'client-transport:http:no-session-header': {
         addedInSpecVersion: '2026-07-28',
@@ -1722,14 +1736,15 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'A client transport pinned to a per-request protocol revision never sends Mcp-Session-Id on any request and ignores one if a server (or intermediary) emits it: no storage, no replay, and .sessionId stays undefined.',
         transports: ['streamableHttp'],
-        note: 'SEP-2567 backward compatibility. The superseded typescript: entries are the SDK API surfaces of session-id storage and replay. The cited body is shared with hosting:sessionless:no-session-header (live), which pins this behavior today; this entry registers its own cells when the 2026 matrix axis activates. This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored.'
+        note: 'SEP-2567 backward compatibility. The superseded typescript: entries are the SDK API surfaces of session-id storage and replay. The cited body is shared with hosting:sessionless:no-session-header. This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored.'
     },
     'hosting:sessionless:per-request-auth': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
         behavior:
             'On the stateless dispatch path, authorization context is per-request: ctx.http.authInfo carries exactly the auth info validated for the request being served, and a request without credentials sees none — never auth inherited from an earlier request on the same transport.',
         transports: ['streamableHttp'],
-        note: 'SEP-2575: every request is independently authenticated; the SDK surface for that rule is the per-request authInfo plumbing (rejecting unauthenticated requests is the auth middleware layer, exercised by the hosting-auth tests). The body is shared with typescript:mcpserver:tool:extra-sessionless (2026-bounded successor): the same ctx-reporting tool proves both the auth scoping and the sessionless handler-context shape. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'SEP-2575: every request is independently authenticated; the SDK surface for that rule is the per-request authInfo plumbing (rejecting unauthenticated requests is the auth middleware layer, exercised by the hosting-auth tests). The body is shared with typescript:mcpserver:tool:extra-sessionless: the same ctx-reporting tool proves both the auth scoping and the sessionless handler-context shape. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'typescript:mcpserver:tool:extra-sessionless': {
         addedInSpecVersion: '2026-07-28',
@@ -1738,9 +1753,10 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'On the per-request (sessionless) path, tool handlers receive the RequestHandlerExtra shape minus the session identifier: sessionId is undefined while requestId, signal, sendNotification, and (when applicable) authInfo persist.',
         transports: ['streamableHttp'],
-        note: 'SEP-2567: the 2026 sibling of the RequestHandlerExtra shape requirement — only sessionId is dropped. The cited body is shared with hosting:sessionless:per-request-auth (live), which pins this behavior today; this entry registers its own cells when the 2026 matrix axis activates. The matrix transport arg is ignored.'
+        note: 'SEP-2567: the 2026 sibling of the RequestHandlerExtra shape requirement — only sessionId is dropped. The cited body is shared with hosting:sessionless:per-request-auth. The matrix transport arg is ignored.'
     },
     'protocol:stateless:list-connection-independent': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
         behavior:
             'Under a per-request protocol revision, list results (tools/list) are connection-invariant: the same request through two independently connected transports (each serving a fresh server instance from the same factory) yields identical results.',
@@ -1748,11 +1764,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'SEP-2567 (R-2567-1); also covers the no-connection-affinity rule (R-2575-8) — same requests over one connection or two produce identical results, which is exactly what the two-transport probe asserts. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'protocol:stateless:list-no-side-effects': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle',
         behavior:
             'Under a per-request protocol revision, list results are unchanged by intervening calls on the same connection: tools/list before and after a tools/call yields identical results.',
         transports: ['streamableHttp'],
-        note: 'SEP-2567 (R-2567-2). The body is shared with protocol:request-id:outstanding-scope (2026-bounded successor): the second list reuses the JSON-RPC id of the first — already settled — list request, so the same probe pins the re-scoped id-uniqueness rule. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'SEP-2567 (R-2567-2). The body is shared with protocol:request-id:outstanding-scope: the second list reuses the JSON-RPC id of the first — already settled — list request, so the same probe pins the re-scoped id-uniqueness rule. This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'protocol:request-id:outstanding-scope': {
         addedInSpecVersion: '2026-07-28',
@@ -1761,9 +1778,10 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'Under a per-request protocol revision, request-id uniqueness is scoped to outstanding requests: ids never collide among in-flight requests, and a request reusing the id of an already-completed request is processed normally.',
         transports: ['streamableHttp'],
-        note: 'SEP-2567 (R-2567-3): the session-scoped never-reuse rule narrows to in-flight requests only (the SDK client, with its monotonic counter, trivially satisfies it — the server-side acceptance of a reused settled id is the consequential half). The cited body is shared with protocol:stateless:list-no-side-effects (live), which pins this behavior today; this entry registers its own cells when the 2026 matrix axis activates. The matrix transport arg is ignored.'
+        note: 'SEP-2567 (R-2567-3): the session-scoped never-reuse rule narrows to in-flight requests only (the SDK client, with its monotonic counter, trivially satisfies it — the server-side acceptance of a reused settled id is the consequential half). The cited body is shared with protocol:stateless:list-no-side-effects. The matrix transport arg is ignored.'
     },
     'protocol:stateless:stdio-cancellation': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/utilities/cancellation',
         behavior:
             'On the stdio stateless path, a notifications/cancelled naming an in-flight stateless request aborts that dispatch: the handler observes its per-request signal fire, and the server writes no further frames for that request id — neither notifications nor the late response. The cancellation is consumed by the stateless path (never delivered to the connection-scoped protocol instance), and unrelated traffic on the same pipe is unaffected.',
@@ -1771,6 +1789,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'SEP-2575 cancellation MUST for self-contained requests; over HTTP the equivalent is closing the response stream (the request signal is the HTTP request lifetime). Spawned-child variant only: the abort observation is reported on stderr, the one channel allowed to carry anything for the request after cancellation.'
     },
     'hosting:http:stateless-no-sse-event-ids': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/transports#receiving-messages-1',
         behavior:
             'SSE responses on the stateless HTTP path carry no SSE id: lines, even when the transport is configured with an eventStore: per-request revisions have no stream resumability, so no resumption ids may be offered.',
@@ -1781,6 +1800,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     // Discovery (server/discover, draft spec)
 
     'discover:result': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/server/discover#response',
         behavior:
             'A server answers server/discover with supportedVersions (exactly the protocol versions it is configured to support — the same list an UnsupportedProtocolVersionError reports in error.data.supported), its capabilities, its serverInfo, and its instructions when configured.',
@@ -1788,6 +1808,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Conformance: sep-2575-server-implements-discover + sep-2575-server-unsupported-version-error (server-stateless scenario; the latter asserts error.data.supported is contained in the discover supportedVersions). Driven on the stateless dispatch path with the full _meta envelope: the streamableHttp cell drives raw Request/Response against a connected WebStandard transport, the stdio cell hand-built framed messages against an in-process StdioServerTransport.'
     },
     'discover:pre-initialize': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/server/discover#when-to-call',
         behavior:
             'A server answers server/discover before any initialize handshake, including on the stateful-era path without a _meta envelope: the probe is the first request on the wire and no initialize precedes it.',
@@ -1795,6 +1816,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'The spec back-compat probe: a client that supports both eras SHOULD send server/discover first and fall back to the initialize handshake when the server answers -32601. The server here is NOT opted into any non-stateful version, so the probe is served on the existing stateful-era path pre-handshake, like ping. Stateful streamable HTTP hosting rejects every POST before an initialize-established session, so the probe cannot reach the server there; the stateless HTTP path is covered by discover:result.'
     },
     'discover:subscription-capabilities-withheld': {
+        addedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior:
             'server/discover advertises the declared capabilities minus the subscription-delivery flags (prompts.listChanged, resources.listChanged, resources.subscribe, tools.listChanged) while subscriptions/listen is unimplemented: discovery never advertises notification delivery no RPC can honor. The capabilities themselves (prompts/resources/tools presence) stay advertised, and the initialize result on the same server still carries the declared flags.',
@@ -1805,6 +1827,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     // Client 2026 mode: dual-era connect + per-request envelope stamping (draft spec)
 
     'lifecycle:connect:per-request-era': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#protocol-version-negotiation',
         behavior:
             'A client that lists a per-request (non-stateful) protocol version connects to a server listing the same version without any initialize handshake: connect() sends server/discover, selects the mutual per-request version, populates the server facts (capabilities, serverInfo, instructions, negotiated version) from the discover result, and subsequent requests are served. No initialize request and no notifications/initialized appears on the wire.',
@@ -1812,12 +1835,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Listing a non-stateful version in supportedProtocolVersions is the opt-in on both sides — no separate flag. inMemory and sse are excluded: those transports have no per-request routing seam, so a server cannot serve the stateless dispatch path on them.'
     },
     'lifecycle:connect:per-request-era-fallback': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#backward-compatibility-with-initialization-based-versions',
         behavior:
             "A client that lists a per-request protocol version still connects to servers that do not speak one: the server/discover probe is answered with -32601 (no discovery), rejected with an HTTP 400 carrying no correlatable JSON-RPC error (legacy header/session validation), or answered with initialize-era versions only — and in every case the client falls back to the initialize handshake, completing on the newest mutually-supported stateful version. After the fallback no _meta envelope is stamped on the connection's requests.",
         note: 'The draft back-compat detection, exercised against a legacy-shaped server (no discover handler): stdio/inMemory/sse fall back on -32601, per-session streamable HTTP hosting on the 400 pre-session rejection, stateless hosting on the 400 header-validation rejection.'
     },
     'lifecycle:connect:per-request-version-retry': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#protocol-version-negotiation',
         behavior:
             "When the server/discover probe is answered with -32004 (UnsupportedProtocolVersionError), the client retries exactly once with a mutually supported version from error.data.supported and completes the per-request-era connect at that version; the retried request's _meta (and HTTP header) claim the new version, and the client never falls back to initialize for a -32004.",
@@ -1831,11 +1856,38 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Pins the opt-in boundary: by default (SUPPORTED_PROTOCOL_VERSIONS) the connect flow is byte-identical to the 2025 line.'
     },
     'protocol:envelope:client-stamps-requests': {
+        addedInSpecVersion: '2026-07-28',
         source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
         behavior:
             'On a per-request-era connection, every request the client sends — including the server/discover probe itself — carries the complete _meta envelope: io.modelcontextprotocol/protocolVersion (the governing version), io.modelcontextprotocol/clientInfo, and io.modelcontextprotocol/clientCapabilities, declared per request. On HTTP the MCP-Protocol-Version header is sent on every POST and matches the _meta claim. Caller-supplied _meta keys are preserved alongside the envelope.',
         transports: ['stdio', 'streamableHttp', 'streamableHttpStateless'],
         note: 'Conformance: sep-2575-client-populates-meta + sep-2575-http-client-sends-version-header + sep-2575-http-version-header-matches-meta (request-metadata scenario). The streamableHttp cells hand-wire a header-recording fetch around the hosting helpers so the header obligation is asserted alongside the body envelope.'
+    },
+
+    // Cross-era compatibility (2025 initialize era ↔ 2026 per-request era)
+
+    'lifecycle:compat:mixed-era-one-pipe': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#backward-compatibility-with-initialization-based-versions',
+        behavior:
+            'A dual-stack stdio server (listing both initialize-era and per-request protocol versions) serves both eras interleaved on a single pipe: an enveloped per-request request is served on the stateless dispatch path before any handshake, a legacy initialize then establishes a 2025-era session on the same pipe, un-enveloped requests are served on that session, and a further enveloped request is again served per-request — each request observing its own era in the handler context, with neither era disturbing the other.',
+        transports: ['stdio'],
+        note: "stdio routes per message on the _meta protocolVersion claim, so one long-lived process serves both eras concurrently — the draft back-compat story for spawned servers. HTTP needs no one-pipe equivalent: every POST routes independently (lifecycle:compat:era-parity drives both eras through one per-session deployment). The body is raw-wire (hand-framed messages against an in-process StdioServerTransport); the matrix transport arg is the cell's transport."
+    },
+    'lifecycle:compat:modern-only-client-hard-fail': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#backward-compatibility-with-initialization-based-versions',
+        behavior:
+            'A client listing only per-request (non-stateful) protocol versions fails connect() against a server that does not share one — with a clear error and never an initialize handshake: whether discovery is answered with initialize-era versions only, the probe is rejected with -32601 (no discovery), or it dies with an uncorrelatable HTTP 400, no initialize request ever appears on the wire.',
+        note: 'The hard-fail half of the back-compat detection: the initialize fallback requires the client to list a stateful version — connect() must not invent an initialize attempt with versions the server did not agree to. The -32004 path (server speaks a per-request revision, just not this one) is owned by lifecycle:connect:per-request-version-retry.'
+    },
+    'lifecycle:compat:era-parity': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#backward-compatibility-with-initialization-based-versions',
+        behavior:
+            'One dual-stack server configuration yields identical feature results across eras: the same factory serving an initialize-era client (2025 session) and a per-request-era client (2026, no handshake) returns deep-equal tools/list and tools/call results — including structured output — while each connection negotiates its own era.',
+        transports: ['stdio', 'streamableHttp', 'streamableHttpStateless'],
+        note: 'The parity contract behind the dual-stack rollout: opting a deployment into a per-request revision must not change what 2025 clients receive, and 2026 clients must see the same feature surface. On the HTTP transports both clients are driven through the SAME hosting deployment (per-session hosting serves the initialize-era session and the sessionless per-request POSTs side by side — the dual-stack-server-answers-initialize coverage); on stdio each client gets its own pipe from the shared factory (the one-pipe interleaving is lifecycle:compat:mixed-era-one-pipe). inMemory and sse are excluded: no per-request routing seam exists on them.'
     },
 
     'hosting:express-app-helper': {

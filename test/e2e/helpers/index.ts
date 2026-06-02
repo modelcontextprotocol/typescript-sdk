@@ -267,9 +267,11 @@ export function hostStateless(makeServer: ServerFactory): { handleRequest: HttpH
 // format (uses the SDK's `serializeMessage`/`ReadBuffer`), but over PassThrough
 // streams instead of a spawned process. Tests that specifically exercise spawn,
 // env, signals, or stderr must use the real `StdioClientTransport`.
+// Exported for bodies that wire stdio without `wire()` (e.g. connect-failure
+// cases, where `wire()` would leak its half-built host on the throw).
 // ───────────────────────────────────────────────────────────────────────────────
 
-function stdioClientOverPipes(serverStdout: NodeJS.ReadableStream, serverStdin: NodeJS.WritableStream) {
+export function stdioClientOverPipes(serverStdout: NodeJS.ReadableStream, serverStdin: NodeJS.WritableStream) {
     const buf = new ReadBuffer();
     return {
         onmessage: undefined as ((m: JSONRPCMessage) => void) | undefined,

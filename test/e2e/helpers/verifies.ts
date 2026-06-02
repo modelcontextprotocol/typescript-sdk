@@ -19,7 +19,7 @@ import { describe, test } from 'vitest';
 
 import { REQUIREMENTS } from '../requirements.js';
 import type { TestArgs } from '../types.js';
-import { ALL_SPEC_VERSIONS, ALL_TRANSPORTS } from '../types.js';
+import { ALL_SPEC_VERSIONS, ALL_TRANSPORTS, BASELINE_SPEC_VERSION } from '../types.js';
 
 type TestBody = (args: TestArgs) => Promise<void>;
 
@@ -34,9 +34,12 @@ function registerOne(id: string, fn: TestBody, opts?: { title?: string }): void 
     if (req.deferred) throw new Error(`verifies('${id}'): requirement is deferred — drop the deferral or the test`);
 
     const transports = req.transports ?? ALL_TRANSPORTS;
+    // A requirement without an explicit addedInSpecVersion registers at the baseline revision
+    // only: its body drives the SDK's default (initialize-era) negotiation, and a later-revision
+    // label would claim coverage the body does not exercise (see BASELINE_SPEC_VERSION).
     const versions = ALL_SPEC_VERSIONS.filter(
         v =>
-            (req.addedInSpecVersion === undefined || v >= req.addedInSpecVersion) &&
+            (req.addedInSpecVersion === undefined ? v === BASELINE_SPEC_VERSION : v >= req.addedInSpecVersion) &&
             (req.removedInSpecVersion === undefined || v < req.removedInSpecVersion)
     );
     const cells = versions.flatMap(v => transports.map(t => [t, v] as const));
