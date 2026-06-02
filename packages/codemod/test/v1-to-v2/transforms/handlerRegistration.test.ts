@@ -208,7 +208,6 @@ describe('handler-registration transform', () => {
         expect(result.diagnostics.length).toBe(0);
     });
 
-
     it('replaces ElicitationCompleteNotificationSchema with method string', () => {
         const input = [
             `import { ElicitationCompleteNotificationSchema } from '@modelcontextprotocol/sdk/types.js';`,
