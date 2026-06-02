@@ -1,7 +1,7 @@
 import { Readable, Writable } from 'node:stream';
 
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import { ReadBuffer, SdkError, SdkErrorCode, serializeMessage } from '@modelcontextprotocol/core';
 
 import { StdioServerTransport } from '../../src/server/stdio.js';
 
@@ -178,4 +178,37 @@ test('should fire onerror before onclose on stdout error', async () => {
     output.emit('error', new Error('EPIPE'));
 
     expect(events).toEqual(['error', 'close']);
+});
+
+test('should surface MessageTooLarge via onerror and keep running when maxMessageBytes is exceeded', async () => {
+    const server = new StdioServerTransport(input, output, { maxMessageBytes: 64 });
+
+    const errors: Error[] = [];
+    server.onerror = error => {
+        errors.push(error);
+    };
+
+    const messages: JSONRPCMessage[] = [];
+    server.onmessage = message => {
+        messages.push(message);
+    };
+
+    await server.start();
+
+    // An oversized line is dropped and reported exactly once...
+    input.push('x'.repeat(200) + '\n');
+    await new Promise(resolve => setImmediate(resolve));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toBeInstanceOf(SdkError);
+    expect((errors[0] as SdkError).code).toBe(SdkErrorCode.MessageTooLarge);
+    expect(messages).toHaveLength(0);
+
+    // ...and the transport keeps processing subsequent messages.
+    const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'small' };
+    input.push(serializeMessage(message));
+    await new Promise(resolve => setImmediate(resolve));
+    expect(messages).toEqual([message]);
+    expect(errors).toHaveLength(1);
+
+    await server.close();
 });

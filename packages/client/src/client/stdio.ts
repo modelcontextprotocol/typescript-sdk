@@ -7,6 +7,22 @@ import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
 import { ReadBuffer, SdkError, SdkErrorCode, serializeMessage } from '@modelcontextprotocol/core';
 import spawn from 'cross-spawn';
 
+export type StdioClientTransportOptions = {
+    /**
+     * Maximum size, in bytes, that a single inbound message may occupy.
+     *
+     * Protects against a misbehaving server flooding the client with an unbounded
+     * amount of data on a single line (e.g. accidental binary or log output on
+     * stdout), which would otherwise grow client memory without limit. When a
+     * message exceeds this size it is dropped, an {@linkcode SdkError} with code
+     * `SdkErrorCode.MessageTooLarge` is reported via `onerror`, and the transport
+     * recovers at the next newline boundary.
+     *
+     * Defaults to undefined (no limit), matching previous behavior.
+     */
+    maxMessageBytes?: number;
+};
+
 export type StdioServerParameters = {
     /**
      * The executable to run to start the server.
@@ -92,7 +108,7 @@ export function getDefaultEnvironment(): Record<string, string> {
  */
 export class StdioClientTransport implements Transport {
     private _process?: ChildProcess;
-    private _readBuffer: ReadBuffer = new ReadBuffer();
+    private _readBuffer: ReadBuffer;
     private _serverParams: StdioServerParameters;
     private _stderrStream: PassThrough | null = null;
 
@@ -100,8 +116,9 @@ export class StdioClientTransport implements Transport {
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
 
-    constructor(server: StdioServerParameters) {
+    constructor(server: StdioServerParameters, options?: StdioClientTransportOptions) {
         this._serverParams = server;
+        this._readBuffer = new ReadBuffer({ maxMessageBytes: options?.maxMessageBytes });
         if (server.stderr === 'pipe' || server.stderr === 'overlapped') {
             this._stderrStream = new PassThrough();
         }

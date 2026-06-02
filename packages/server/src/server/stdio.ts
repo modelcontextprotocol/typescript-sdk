@@ -16,15 +16,33 @@ import { process } from '@modelcontextprotocol/server/_shims';
  * await server.connect(transport);
  * ```
  */
+export type StdioServerTransportOptions = {
+    /**
+     * Maximum size, in bytes, that a single inbound message may occupy.
+     *
+     * Protects against a misbehaving client flooding the server with an unbounded
+     * amount of data on a single line, which would otherwise grow server memory
+     * without limit. When a message exceeds this size it is dropped, an
+     * {@linkcode SdkError} with code `SdkErrorCode.MessageTooLarge` is reported via
+     * `onerror`, and the transport recovers at the next newline boundary.
+     *
+     * Defaults to undefined (no limit), matching previous behavior.
+     */
+    maxMessageBytes?: number;
+};
+
 export class StdioServerTransport implements Transport {
-    private _readBuffer: ReadBuffer = new ReadBuffer();
+    private _readBuffer: ReadBuffer;
     private _started = false;
     private _closed = false;
 
     constructor(
         private _stdin: Readable = process.stdin,
-        private _stdout: Writable = process.stdout
-    ) {}
+        private _stdout: Writable = process.stdout,
+        options?: StdioServerTransportOptions
+    ) {
+        this._readBuffer = new ReadBuffer({ maxMessageBytes: options?.maxMessageBytes });
+    }
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
