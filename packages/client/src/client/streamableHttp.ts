@@ -1,12 +1,13 @@
 import type { ReadableWritablePair } from 'node:stream/web';
 
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import type { FetchLike, JSONRPCErrorResponse, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
 import {
     createFetchWithInit,
     isInitializedNotification,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
+    isStatefulProtocolVersion,
     JSONRPCMessageSchema,
     normalizeHeaders,
     SdkError,
@@ -25,6 +26,27 @@ const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOp
     reconnectionDelayGrowFactor: 1.5,
     maxRetries: 2
 };
+
+/**
+ * Parses a non-OK HTTP response body as a single correlatable JSON-RPC error response.
+ *
+ * Returns the error response when the body is `application/json` and parses as a JSON-RPC
+ * error response carrying a request id (per-request protocol revisions echo the originating
+ * request's id on every transport-built error). Returns `undefined` otherwise — notably for
+ * the `"id": null` bodies legacy servers use for connection-level rejections, which must
+ * keep failing the POST instead of being delivered.
+ */
+function parseErrorResponseBody(response: Response, text: string | null): JSONRPCErrorResponse | undefined {
+    if (text === null || text === '' || !response.headers.get('content-type')?.includes('application/json')) {
+        return undefined;
+    }
+    try {
+        const message = JSONRPCMessageSchema.parse(JSON.parse(text));
+        return isJSONRPCErrorResponse(message) && message.id !== undefined ? message : undefined;
+    } catch {
+        return undefined;
+    }
+}
 
 /**
  * Options for starting or authenticating an SSE connection
@@ -222,6 +244,8 @@ export class StreamableHTTPClientTransport implements Transport {
         if (this._protocolVersion) {
             headers['mcp-protocol-version'] = this._protocolVersion;
         }
+        // The `Mcp-Method` / `Mcp-Name` request headers belong to the HTTP header
+        // standardization work (SEP-2243) and are not emitted here yet.
 
         const extraHeaders = normalizeHeaders(this._requestInit?.headers);
 
@@ -592,6 +616,20 @@ export class StreamableHTTPClientTransport implements Transport {
                 }
 
                 const text = await response.text?.().catch(() => null);
+
+                // Per-request protocol revisions: servers answer pre-dispatch failures with an
+                // HTTP error status whose body is a single JSON-RPC error response echoing the
+                // request id (e.g. -32004 UnsupportedProtocolVersion on 400, -32601 on 404).
+                // Deliver those to onmessage so the protocol layer can correlate them with the
+                // originating request; anything else (legacy rejections carry `"id": null`)
+                // keeps failing the POST below.
+                if (this._protocolVersion !== undefined && !isStatefulProtocolVersion(this._protocolVersion)) {
+                    const errorResponse = parseErrorResponseBody(response, text);
+                    if (errorResponse !== undefined) {
+                        this.onmessage?.(errorResponse);
+                        return;
+                    }
+                }
 
                 if (response.status === 403 && this._oauthProvider) {
                     const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);

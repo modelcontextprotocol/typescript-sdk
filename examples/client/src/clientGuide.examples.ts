@@ -16,12 +16,14 @@ import {
     createMiddleware,
     CrossAppAccessProvider,
     discoverAndRequestJwtAuthGrant,
+    DRAFT_PROTOCOL_VERSION,
     PrivateKeyJwtProvider,
     ProtocolError,
     SdkError,
     SdkErrorCode,
     SSEClientTransport,
-    StreamableHTTPClientTransport
+    StreamableHTTPClientTransport,
+    SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 //#endregion imports
@@ -86,6 +88,27 @@ async function disconnect_streamableHttp(client: Client, transport: StreamableHT
     await transport.terminateSession(); // notify the server (recommended)
     await client.close();
     //#endregion disconnect_streamableHttp
+}
+
+// ---------------------------------------------------------------------------
+// Protocol versions
+// ---------------------------------------------------------------------------
+
+/** Example: opt in to the per-request (draft) protocol revision. */
+async function protocolVersions_perRequestOptIn(url: string) {
+    //#region protocolVersions_perRequestOptIn
+    const client = new Client(
+        { name: 'my-client', version: '1.0.0' },
+        // Listing the draft revision is the opt-in. Keeping the default versions in the
+        // list lets connect() fall back to the initialize handshake for servers that do
+        // not speak a per-request revision.
+        { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS] }
+    );
+
+    await client.connect(new StreamableHTTPClientTransport(new URL(url)));
+
+    console.log(client.getNegotiatedProtocolVersion());
+    //#endregion protocolVersions_perRequestOptIn
 }
 
 // ---------------------------------------------------------------------------
@@ -565,6 +588,7 @@ void connect_streamableHttp;
 void connect_stdio;
 void connect_sseFallback;
 void disconnect_streamableHttp;
+void protocolVersions_perRequestOptIn;
 void serverInstructions_basic;
 void auth_tokenProvider;
 void auth_clientCredentials;

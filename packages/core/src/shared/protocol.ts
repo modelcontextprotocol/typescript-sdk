@@ -25,6 +25,7 @@ import type {
     Request,
     RequestId,
     RequestMeta,
+    RequestMetaEnvelope,
     RequestMethod,
     RequestTypeMap,
     Result,
@@ -329,10 +330,21 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
     /**
      * The protocol version negotiated for the current connection, set by the concrete role at its
-     * negotiation point (the client when it receives InitializeResult; the server when it responds
+     * negotiation point (the client when it receives InitializeResult, or when discovery-based
+     * version selection completes under a per-request revision; the server when it responds
      * to initialize), or `undefined` before negotiation has completed.
      */
     protected _negotiatedProtocolVersion?: string;
+
+    /**
+     * The per-request `_meta` envelope stamped onto every outgoing request, or `undefined` when
+     * the governing protocol revision carries no envelope (the 2025 line and older).
+     *
+     * Set by the concrete role when a per-request (non-stateful) protocol revision governs the
+     * connection — the client, on completing discovery-based version selection. The reserved
+     * envelope keys are authoritative: they overwrite same-named keys in caller-supplied `_meta`.
+     */
+    protected _requestMetaEnvelope?: RequestMetaEnvelope;
 
     /**
      * Callback for when the connection is closed for any reason.
@@ -806,11 +818,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             if (options?.onprogress) {
                 this._progressHandlers.set(messageId, options.onprogress);
+            }
+
+            if (options?.onprogress || this._requestMetaEnvelope !== undefined) {
                 jsonrpcRequest.params = {
                     ...request.params,
                     _meta: {
                         ...request.params?._meta,
-                        progressToken: messageId
+                        ...this._requestMetaEnvelope,
+                        ...(options?.onprogress && { progressToken: messageId })
                     }
                 };
             }

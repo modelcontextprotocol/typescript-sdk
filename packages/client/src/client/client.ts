@@ -7,6 +7,8 @@ import type {
     ClientNotification,
     ClientRequest,
     CompleteRequest,
+    DiscoverResult,
+    EmptyResult,
     GetPromptRequest,
     Implementation,
     JSONRPCRequest,
@@ -31,14 +33,18 @@ import type {
     SubscribeRequest,
     Tool,
     Transport,
-    UnsubscribeRequest
+    UnsubscribeRequest,
+    UnsupportedProtocolVersionErrorData
 } from '@modelcontextprotocol/core';
 import {
     CallToolResultSchema,
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     CompleteResultSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    DiscoverResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
@@ -50,14 +56,17 @@ import {
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
     ListToolsResultSchema,
+    LOG_LEVEL_META_KEY,
     mergeCapabilities,
     parseSchema,
     Protocol,
+    PROTOCOL_VERSION_META_KEY,
     ProtocolError,
     ProtocolErrorCode,
     ReadResourceResultSchema,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    SdkHttpError
 } from '@modelcontextprotocol/core';
 
 /**
@@ -379,7 +388,15 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Connects to a server via the given transport and performs the MCP initialization handshake.
+     * Connects to a server via the given transport and negotiates the protocol version.
+     *
+     * By default the client performs the MCP initialize handshake. When `supportedProtocolVersions`
+     * lists a per-request (non-stateful) protocol revision such as `DRAFT_PROTOCOL_VERSION` —
+     * listing one is the opt-in — the client probes with `server/discover` first and, when the
+     * server shares a per-request version, connects without any initialize handshake: every
+     * subsequent request carries the `_meta` envelope (protocol version, client info, client
+     * capabilities) instead. When the server does not share a per-request version, the client
+     * falls back to the initialize handshake.
      *
      * @example Basic usage (stdio)
      * ```ts source="./client.examples.ts#Client_connect_stdio"
@@ -419,6 +436,15 @@ export class Client extends Protocol<ClientContext> {
             return;
         }
         try {
+            // Per-request (non-stateful) protocol revisions the client is configured for, in
+            // preference order. Listing one is the opt-in: connect() then negotiates via
+            // server/discover first, and only initializes when the server does not share a
+            // per-request revision.
+            const perRequestVersions = this._supportedProtocolVersions.filter(version => !isStatefulProtocolVersion(version));
+            if (perRequestVersions.length > 0 && (await this._connectPerRequestEra(transport, perRequestVersions, options))) {
+                return;
+            }
+
             const statefulVersions = this._supportedProtocolVersions.filter(version => isStatefulProtocolVersion(version));
             const requestedProtocolVersion = statefulVersions[0];
             if (requestedProtocolVersion === undefined) {
@@ -472,6 +498,123 @@ export class Client extends Protocol<ClientContext> {
             void this.close();
             throw error;
         }
+    }
+
+    /**
+     * Discovery-based connect for per-request protocol revisions (no initialize handshake).
+     *
+     * Sends `server/discover` claiming the preferred per-request version. Returns `true` when a
+     * mutual per-request version was selected: the connection is established, the discover result
+     * populates the server facts, and every subsequent request is stamped with the `_meta`
+     * envelope. Returns `false` when the server does not speak a mutual per-request version and
+     * the initialize handshake should be attempted instead (the draft spec's back-compat
+     * detection): the server answered `-32601` (no discovery — a legacy server), rejected the
+     * probe with an HTTP 400 that carries no correlatable JSON-RPC error (a legacy HTTP server's
+     * header or session validation), or answered discovery with versions that do not intersect
+     * the client's per-request list.
+     */
+    private async _connectPerRequestEra(transport: Transport, perRequestVersions: string[], options?: RequestOptions): Promise<boolean> {
+        this._stampRequestEnvelope(transport, perRequestVersions[0]!);
+        let result: DiscoverResult;
+        try {
+            result = await this._discoverWithVersionRetry(transport, perRequestVersions, options);
+        } catch (error) {
+            if (this._isLegacyServerSignal(error)) {
+                this._requestMetaEnvelope = undefined;
+                return false;
+            }
+            throw error;
+        }
+
+        const selected = perRequestVersions.find(version => result.supportedVersions.includes(version));
+        if (selected === undefined) {
+            this._requestMetaEnvelope = undefined;
+            if (result.supportedVersions.some(version => isStatefulProtocolVersion(version))) {
+                // The server answers discovery but shares no per-request version (e.g. an
+                // initialize-era server reporting its stateful versions): negotiate via the
+                // handshake instead.
+                return false;
+            }
+            throw new Error(`No mutually supported protocol version (server supports: ${result.supportedVersions.join(', ') || 'none'})`);
+        }
+
+        this._stampRequestEnvelope(transport, selected);
+        this._negotiatedProtocolVersion = selected;
+        this._serverCapabilities = result.capabilities;
+        this._serverVersion = result.serverInfo;
+        this._instructions = result.instructions;
+
+        // Set up list changed handlers now that we know server capabilities
+        if (this._pendingListChangedConfig) {
+            this._setupListChangedHandlers(this._pendingListChangedConfig);
+            this._pendingListChangedConfig = undefined;
+        }
+        return true;
+    }
+
+    /**
+     * Sends the discovery probe, retrying exactly once with a mutually supported per-request
+     * version when the server answers `-32004` (UnsupportedProtocolVersionError) listing one.
+     */
+    private async _discoverWithVersionRetry(
+        transport: Transport,
+        perRequestVersions: string[],
+        options?: RequestOptions
+    ): Promise<DiscoverResult> {
+        try {
+            return await this._requestWithSchema({ method: 'server/discover' }, DiscoverResultSchema, options);
+        } catch (error) {
+            const supported = this._supportedVersionsFromError(error);
+            const mutual = supported === undefined ? undefined : perRequestVersions.find(version => supported.includes(version));
+            if (mutual === undefined) {
+                throw error;
+            }
+            this._stampRequestEnvelope(transport, mutual);
+            return await this._requestWithSchema({ method: 'server/discover' }, DiscoverResultSchema, options);
+        }
+    }
+
+    /**
+     * The `supported` version list carried by a `-32004` (UnsupportedProtocolVersionError)
+     * response, or `undefined` for any other error.
+     */
+    private _supportedVersionsFromError(error: unknown): string[] | undefined {
+        if (!(error instanceof ProtocolError) || error.code !== ProtocolErrorCode.UnsupportedProtocolVersion) {
+            return undefined;
+        }
+        const supported = (error.data as Partial<UnsupportedProtocolVersionErrorData> | undefined)?.supported;
+        return Array.isArray(supported) && supported.every(version => typeof version === 'string') ? supported : undefined;
+    }
+
+    /**
+     * Whether a failed discovery probe indicates a server that predates per-request protocol
+     * revisions, so connect() should fall back to the initialize handshake (the draft spec's
+     * back-compat detection). A `-32004` is NOT such a signal: that server speaks a per-request
+     * revision — the version retry handles it, and falling back to initialize would be wrong.
+     */
+    private _isLegacyServerSignal(error: unknown): boolean {
+        // The server does not implement server/discover.
+        if (error instanceof ProtocolError && error.code === ProtocolErrorCode.MethodNotFound) {
+            return true;
+        }
+        // An HTTP 400 whose body carried no correlatable JSON-RPC error (those are delivered as
+        // protocol errors by the transport): a legacy HTTP server rejecting the probe before
+        // dispatch, e.g. header validation or a session requirement.
+        return error instanceof SdkHttpError && error.status === 400;
+    }
+
+    /**
+     * Sets the per-request `_meta` envelope (and, on HTTP transports, the matching
+     * `MCP-Protocol-Version` header) that every outgoing request carries while `version`
+     * governs the connection.
+     */
+    private _stampRequestEnvelope(transport: Transport, version: string): void {
+        this._requestMetaEnvelope = {
+            [PROTOCOL_VERSION_META_KEY]: version,
+            [CLIENT_INFO_META_KEY]: this._clientInfo,
+            [CLIENT_CAPABILITIES_META_KEY]: this._capabilities
+        };
+        transport.setProtocolVersion?.(version);
     }
 
     /**
@@ -635,8 +778,18 @@ export class Client extends Protocol<ClientContext> {
         return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
-    /** Sets the minimum severity level for log messages sent by the server. */
+    /**
+     * Sets the minimum severity level for log messages sent by the server.
+     *
+     * Under a per-request protocol revision the `logging/setLevel` method does not exist:
+     * the level is declared on each request via the `_meta` envelope instead, so this
+     * updates the envelope stamped onto subsequent requests and sends nothing.
+     */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
+        if (this._requestMetaEnvelope !== undefined) {
+            this._requestMetaEnvelope = { ...this._requestMetaEnvelope, [LOG_LEVEL_META_KEY]: level };
+            return {} as EmptyResult;
+        }
         return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
 

@@ -16,9 +16,11 @@ import {
     Client,
     ClientCredentialsProvider,
     CrossAppAccessProvider,
+    DRAFT_PROTOCOL_VERSION,
     PrivateKeyJwtProvider,
     requestJwtAuthorizationGrant,
-    StreamableHTTPClientTransport
+    StreamableHTTPClientTransport,
+    SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/client';
 import * as z from 'zod/v4';
 
@@ -143,6 +145,40 @@ async function runToolsCallClient(serverUrl: string): Promise<void> {
 
 registerScenario('initialize', runBasicClient);
 registerScenario('tools_call', runToolsCallClient);
+
+// ============================================================================
+// Request metadata scenario (SEP-2575: per-request _meta envelope + header)
+// ============================================================================
+
+async function runRequestMetadataClient(serverUrl: string): Promise<void> {
+    // Listing per-request (non-stateful) revisions is the 2026-era opt-in: connect()
+    // then negotiates via server/discover and stamps the _meta envelope + the
+    // MCP-Protocol-Version header on every request. 'DRAFT-2026-v1' is the label the
+    // pinned conformance CLI (0.2.0-alpha.1) uses for the draft revision; the scenario
+    // rejects the first request with -32004 listing it, exercising the version retry.
+    const client = new Client(
+        { name: 'conformance-request-metadata', version: '1.0.0' },
+        {
+            capabilities: {},
+            supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION, 'DRAFT-2026-v1']
+        }
+    );
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
+
+    await client.connect(transport);
+    logger.debug('Connected on the per-request era; negotiated version:', client.getNegotiatedProtocolVersion());
+
+    // A post-connect request, so the scenario observes the envelope and header on a
+    // normal (non-discover) request at the selected version.
+    const result = await client.callTool({ name: 'test-tool', arguments: {} });
+    logger.debug('Tool call result:', JSON.stringify(result));
+
+    await transport.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenario('request-metadata', runRequestMetadataClient);
 
 // ============================================================================
 // Auth scenarios - well-behaved client

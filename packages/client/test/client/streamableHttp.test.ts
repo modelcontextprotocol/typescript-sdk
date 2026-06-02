@@ -2019,4 +2019,59 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onclose).toHaveBeenCalledTimes(1);
         });
     });
+
+    describe('per-request protocol revisions: HTTP error bodies', () => {
+        const request: JSONRPCMessage = { jsonrpc: '2.0', method: 'server/discover', id: 3 };
+
+        const errorBodyResponse = (body: unknown, status = 400) => ({
+            ok: false,
+            status,
+            statusText: 'Bad Request',
+            headers: new Headers({ 'content-type': 'application/json' }),
+            text: () => Promise.resolve(JSON.stringify(body))
+        });
+
+        it('delivers a correlatable JSON-RPC error body to onmessage instead of throwing', async () => {
+            // Under a per-request (non-stateful) revision, servers answer pre-dispatch failures
+            // with an HTTP error whose body echoes the request id — the protocol layer needs the
+            // message (e.g. -32004 with data.supported) to retry or fall back.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { protocolVersion: '2026-07-28' });
+            const errorBody = {
+                jsonrpc: '2.0',
+                id: 3,
+                error: { code: -32_004, message: 'Unsupported protocol version', data: { supported: ['2026-07-28'] } }
+            };
+            (globalThis.fetch as Mock).mockResolvedValueOnce(errorBodyResponse(errorBody));
+            const messageSpy = vi.fn();
+            transport.onmessage = messageSpy;
+
+            await transport.send(request);
+
+            expect(messageSpy).toHaveBeenCalledWith(errorBody);
+        });
+
+        it('keeps throwing for error bodies without a request id (legacy connection-level rejections)', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { protocolVersion: '2026-07-28' });
+            (globalThis.fetch as Mock).mockResolvedValueOnce(
+                errorBodyResponse({ jsonrpc: '2.0', id: null, error: { code: -32_000, message: 'Bad Request: Server not initialized' } })
+            );
+            const messageSpy = vi.fn();
+            transport.onmessage = messageSpy;
+
+            await expect(transport.send(request)).rejects.toThrow(SdkHttpError);
+            expect(messageSpy).not.toHaveBeenCalled();
+        });
+
+        it('keeps throwing under stateful protocol versions (behavior unchanged for the 2025 line)', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { protocolVersion: '2025-11-25' });
+            (globalThis.fetch as Mock).mockResolvedValueOnce(
+                errorBodyResponse({ jsonrpc: '2.0', id: 3, error: { code: -32_004, message: 'Unsupported protocol version' } })
+            );
+            const messageSpy = vi.fn();
+            transport.onmessage = messageSpy;
+
+            await expect(transport.send(request)).rejects.toThrow(SdkHttpError);
+            expect(messageSpy).not.toHaveBeenCalled();
+        });
+    });
 });

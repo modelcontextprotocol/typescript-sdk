@@ -12,9 +12,9 @@
 
 client:
     # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-    # SEP-2575 (request metadata / _meta envelope): client does not populate the
-    # _meta envelope or the MCP-Protocol-Version header semantics yet.
-    - request-metadata
+    # SEP-2575 (request-metadata) passes since the client 2026 mode landed: connect()
+    # negotiates via server/discover (retrying once on -32004) and stamps the _meta
+    # envelope + MCP-Protocol-Version header on every request.
     # SEP-2322 (multi-round-trip requests): client does not echo requestState /
     # handle IncompleteResult yet.
     - sep-2322-client-request-state

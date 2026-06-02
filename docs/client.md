@@ -21,12 +21,14 @@ import {
     createMiddleware,
     CrossAppAccessProvider,
     discoverAndRequestJwtAuthGrant,
+    DRAFT_PROTOCOL_VERSION,
     PrivateKeyJwtProvider,
     ProtocolError,
     SdkError,
     SdkErrorCode,
     SSEClientTransport,
-    StreamableHTTPClientTransport
+    StreamableHTTPClientTransport,
+    SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 ```
@@ -115,7 +117,29 @@ console.log(systemPrompt);
 
 During initialization the client requests the first stateful entry of its supported version list and accepts a response within that stateful subset — by default the versions in {@linkcode @modelcontextprotocol/client!index.SUPPORTED_PROTOCOL_VERSIONS | SUPPORTED_PROTOCOL_VERSIONS}. Pass `supportedProtocolVersions` in the client options to restrict or reorder that list.
 
-Only the stateful protocol versions in {@linkcode @modelcontextprotocol/client!index.STATEFUL_PROTOCOL_VERSIONS | STATEFUL_PROTOCOL_VERSIONS} negotiate via the initialize handshake. Every revision after 2025-11-25 — including the draft revision {@linkcode @modelcontextprotocol/client!index.DRAFT_PROTOCOL_VERSION | DRAFT_PROTOCOL_VERSION} — is stateless and negotiates per-request, which arrives with a later release.
+Only the stateful protocol versions in {@linkcode @modelcontextprotocol/client!index.STATEFUL_PROTOCOL_VERSIONS | STATEFUL_PROTOCOL_VERSIONS} negotiate via the initialize handshake. Every revision after 2025-11-25 — including the draft revision {@linkcode @modelcontextprotocol/client!index.DRAFT_PROTOCOL_VERSION | DRAFT_PROTOCOL_VERSION} — is stateless and negotiates per-request.
+
+#### Per-request protocol revisions (draft opt-in)
+
+Listing a per-request revision such as {@linkcode @modelcontextprotocol/client!index.DRAFT_PROTOCOL_VERSION | DRAFT_PROTOCOL_VERSION} in `supportedProtocolVersions` opts the client in to per-request negotiation:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#protocolVersions_perRequestOptIn"
+const client = new Client(
+    { name: 'my-client', version: '1.0.0' },
+    // Listing the draft revision is the opt-in. Keeping the default versions in the
+    // list lets connect() fall back to the initialize handshake for servers that do
+    // not speak a per-request revision.
+    { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS] }
+);
+
+await client.connect(new StreamableHTTPClientTransport(new URL(url)));
+
+console.log(client.getNegotiatedProtocolVersion());
+```
+
+An opted-in `connect()` probes with `server/discover` instead of `initialize`. When the server shares a per-request revision, the connection is established without any handshake: the discover result supplies the server's capabilities, info, and instructions, and every subsequent request carries its own `_meta` envelope (protocol version, client info, client capabilities) plus, on HTTP, the matching `MCP-Protocol-Version` header. If the server rejects the probed version with error `-32004`, the client retries once with a mutually supported version from the error's `supported` list.
+
+When the server does not speak a per-request revision — it answers the probe with `-32601`, rejects it at the HTTP layer, or reports only initialize-era versions — the client falls back to the regular initialize handshake, so an opted-in client still connects to today's servers. Per-request negotiation applies to the Streamable HTTP and stdio transports; the legacy SSE transport always negotiates via initialize.
 
 ## Authentication
 

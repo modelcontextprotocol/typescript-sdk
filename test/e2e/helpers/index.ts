@@ -16,10 +16,17 @@ import { PassThrough } from 'node:stream';
 import type { Client } from '@modelcontextprotocol/client';
 import { SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { EventStore, JSONRPCMessage, McpServer, Server } from '@modelcontextprotocol/server';
-import { InMemoryTransport, ReadBuffer, serializeMessage, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import {
+    DRAFT_PROTOCOL_VERSION,
+    InMemoryTransport,
+    ReadBuffer,
+    serializeMessage,
+    SUPPORTED_PROTOCOL_VERSIONS,
+    WebStandardStreamableHTTPServerTransport
+} from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
-import type { Transport } from '../types.js';
+import type { SpecVersion, Transport } from '../types.js';
 import { startLegacySseHost } from './sse-host.js';
 import type { SnifferOptions } from './wire-sniffer.js';
 import { sniffTransport } from './wire-sniffer.js';
@@ -82,6 +89,46 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
             };
         }
     }
+}
+
+/**
+ * The per-cell force-version knob: the `supportedProtocolVersions` list that pins a
+ * client/server pair to the given spec version. `'2026-07-28'` returns only the draft
+ * revision, so the pair can only meet on the per-request era (no initialize fallback);
+ * `'2025-11-25'` returns the SDK default list (initialize-era negotiation).
+ */
+export function protocolVersionsFor(specVersion: SpecVersion): string[] {
+    return specVersion === '2026-07-28' ? [DRAFT_PROTOCOL_VERSION] : [...SUPPORTED_PROTOCOL_VERSIONS];
+}
+
+export interface ConnectTapEntry {
+    direction: 'client-to-server' | 'server-to-client';
+    message: JSONRPCMessage;
+}
+
+/**
+ * Patch `client.connect` so the transport `wire()` hands it is tapped from the very
+ * first message — {@link tapWire} can only attach after connect, too late to observe
+ * the version-negotiation traffic (discover probe / initialize handshake). The tap
+ * stays attached for the connection's lifetime, so post-connect requests are recorded
+ * too. Call before `wire()`.
+ */
+export function tapConnect(client: Client): ConnectTapEntry[] {
+    const log: ConnectTapEntry[] = [];
+    const originalConnect = client.connect.bind(client);
+    client.connect = (clientTransport, options) => {
+        const originalSend = clientTransport.send.bind(clientTransport);
+        clientTransport.send = (message, sendOptions) => {
+            log.push({ direction: 'client-to-server', message });
+            return originalSend(message, sendOptions);
+        };
+        // Protocol.connect chains a pre-set onmessage, so inbound messages are logged before the client reacts to them.
+        clientTransport.onmessage = message => {
+            log.push({ direction: 'server-to-client', message });
+        };
+        return originalConnect(clientTransport, options);
+    };
+    return log;
 }
 
 /**

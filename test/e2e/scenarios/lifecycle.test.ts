@@ -546,39 +546,66 @@ verifies('lifecycle:version:no-overlap-rejects', async ({ transport }: TestArgs)
 });
 
 verifies('lifecycle:version:initialize-stateful-versions-only', async ({ transport }: TestArgs) => {
-    // The draft revision sits at a different position on each side: the outcome is order-agnostic.
-    const makeServer = () =>
-        new McpServer(
-            { name: 'stateful-only-server', version: '0.0.0' },
-            { supportedProtocolVersions: [LATEST_PROTOCOL_VERSION, DRAFT_PROTOCOL_VERSION] }
+    /** Finds the initialize request/response pair in the log and asserts both sides carry `version` and never the draft revision. */
+    const expectInitializeExchangeAt = (log: HandshakeLogEntry[], version: string) => {
+        const initRequest = log.find(
+            e => e.direction === 'client-to-server' && isJSONRPCRequest(e.message) && e.message.method === 'initialize'
         );
-    const client = new Client(
-        { name: 'stateful-only-client', version: '0.0.0' },
-        { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION] }
-    );
-    const log = tapHandshake(client);
+        if (!initRequest || !isJSONRPCRequest(initRequest.message)) throw new Error('expected an initialize request on the wire');
+        expect(initRequest.message.params?.protocolVersion).toBe(version);
+        const initRequestId = initRequest.message.id;
 
-    await using _ = await wire(transport, makeServer, client);
+        const initResponse = log.find(
+            e => e.direction === 'server-to-client' && isJSONRPCResultResponse(e.message) && e.message.id === initRequestId
+        );
+        if (!initResponse || !isJSONRPCResultResponse(initResponse.message)) {
+            throw new Error('expected a result for the initialize request');
+        }
+        expect(initResponse.message.result.protocolVersion).toBe(version);
 
-    const initRequest = log.find(
-        e => e.direction === 'client-to-server' && isJSONRPCRequest(e.message) && e.message.method === 'initialize'
-    );
-    if (!initRequest || !isJSONRPCRequest(initRequest.message)) throw new Error('expected an initialize request on the wire');
-    expect(initRequest.message.params?.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
-    const initRequestId = initRequest.message.id;
+        // The guard itself: nothing newer than 2025-11-25 anywhere in the initialize exchange.
+        expect(JSON.stringify(initRequest.message)).not.toContain(DRAFT_PROTOCOL_VERSION);
+        expect(JSON.stringify(initResponse.message)).not.toContain(DRAFT_PROTOCOL_VERSION);
+    };
 
-    const initResponse = log.find(
-        e => e.direction === 'server-to-client' && isJSONRPCResultResponse(e.message) && e.message.id === initRequestId
-    );
-    if (!initResponse || !isJSONRPCResultResponse(initResponse.message)) throw new Error('expected a result for the initialize request');
-    expect(initResponse.message.result.protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+    {
+        // Client side: the draft revision listed first never enters the initialize request. The
+        // server shares no per-request version, so the client's discover probe falls back to the
+        // handshake (the probe itself legitimately claims the draft revision — see
+        // lifecycle:connect:per-request-era-fallback).
+        const client = new Client(
+            { name: 'stateful-only-client', version: '0.0.0' },
+            { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION] }
+        );
+        const log = tapHandshake(client);
 
-    for (const entry of log) {
-        expect(JSON.stringify(entry.message)).not.toContain(DRAFT_PROTOCOL_VERSION);
+        await using _ = await wire(transport, () => new McpServer({ name: 'stateful-only-server', version: '0.0.0' }), client);
+
+        expectInitializeExchangeAt(log, LATEST_PROTOCOL_VERSION);
+        expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+        expect(client.getServerVersion()).toEqual({ name: 'stateful-only-server', version: '0.0.0' });
     }
 
-    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
-    expect(client.getServerVersion()).toEqual({ name: 'stateful-only-server', version: '0.0.0' });
+    {
+        // Server side: a server listing the draft revision first still answers initialize with
+        // the newest mutually-supported stateful version. The client is not opted in, so no
+        // probe precedes the handshake.
+        const makeServer = () =>
+            new McpServer(
+                { name: 'draft-listing-server', version: '0.0.0' },
+                { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION] }
+            );
+        const client = new Client({ name: 'stateful-only-client', version: '0.0.0' });
+        const log = tapHandshake(client);
+
+        await using _ = await wire(transport, makeServer, client);
+
+        expect(
+            log.some(e => e.direction === 'client-to-server' && isJSONRPCRequest(e.message) && e.message.method === 'server/discover')
+        ).toBe(false);
+        expectInitializeExchangeAt(log, LATEST_PROTOCOL_VERSION);
+        expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+    }
 });
 
 verifies('lifecycle:capability:list-empty-when-not-advertised', async ({ transport }: TestArgs) => {

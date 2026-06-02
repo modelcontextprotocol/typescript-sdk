@@ -1659,6 +1659,42 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Conformance: sep-2575-server-sends-{prompts,tools}-list-changed-on-subscription (server-stateless scenario) treat a discover result advertising listChanged without delivering on a listen stream as a SHOULD violation, so the flags are withheld from discover (not from the initialize result, whose stateful-era notification flow delivers them). When subscriptions/listen lands, the flags are advertised again and this entry is superseded.'
     },
 
+    // Client 2026 mode: dual-era connect + per-request envelope stamping (draft spec)
+
+    'lifecycle:connect:per-request-era': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#protocol-version-negotiation',
+        behavior:
+            'A client that lists a per-request (non-stateful) protocol version connects to a server listing the same version without any initialize handshake: connect() sends server/discover, selects the mutual per-request version, populates the server facts (capabilities, serverInfo, instructions, negotiated version) from the discover result, and subsequent requests are served. No initialize request and no notifications/initialized appears on the wire.',
+        transports: ['stdio', 'streamableHttp', 'streamableHttpStateless'],
+        note: 'Listing a non-stateful version in supportedProtocolVersions is the opt-in on both sides — no separate flag. inMemory and sse are excluded: those transports have no per-request routing seam, so a server cannot serve the stateless dispatch path on them.'
+    },
+    'lifecycle:connect:per-request-era-fallback': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#backward-compatibility-with-initialization-based-versions',
+        behavior:
+            "A client that lists a per-request protocol version still connects to servers that do not speak one: the server/discover probe is answered with -32601 (no discovery), rejected with an HTTP 400 carrying no correlatable JSON-RPC error (legacy header/session validation), or answered with initialize-era versions only — and in every case the client falls back to the initialize handshake, completing on the newest mutually-supported stateful version. After the fallback no _meta envelope is stamped on the connection's requests.",
+        note: 'The draft back-compat detection, exercised against a legacy-shaped server (no discover handler): stdio/inMemory/sse fall back on -32601, per-session streamable HTTP hosting on the 400 pre-session rejection, stateless hosting on the 400 header-validation rejection.'
+    },
+    'lifecycle:connect:per-request-version-retry': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/lifecycle#protocol-version-negotiation',
+        behavior:
+            "When the server/discover probe is answered with -32004 (UnsupportedProtocolVersionError), the client retries exactly once with a mutually supported version from error.data.supported and completes the per-request-era connect at that version; the retried request's _meta (and HTTP header) claim the new version, and the client never falls back to initialize for a -32004.",
+        transports: ['stdio', 'streamableHttp', 'streamableHttpStateless'],
+        note: 'Conformance: sep-2575-client-retry-supported-version (request-metadata scenario). The -32004 is produced by the server-side stateless dispatch, which exists on the stdio and streamable HTTP routing seams only.'
+    },
+    'lifecycle:connect:discover-requires-opt-in': {
+        source: 'sdk',
+        behavior:
+            'A client whose supportedProtocolVersions contains no per-request (non-stateful) version never probes: connect() sends initialize as its first request and no server/discover appears on the wire, even when the server lists a per-request version.',
+        note: 'Pins the opt-in boundary: by default (SUPPORTED_PROTOCOL_VERSIONS) the connect flow is byte-identical to the 2025 line.'
+    },
+    'protocol:envelope:client-stamps-requests': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/index#meta',
+        behavior:
+            'On a per-request-era connection, every request the client sends — including the server/discover probe itself — carries the complete _meta envelope: io.modelcontextprotocol/protocolVersion (the governing version), io.modelcontextprotocol/clientInfo, and io.modelcontextprotocol/clientCapabilities, declared per request. On HTTP the MCP-Protocol-Version header is sent on every POST and matches the _meta claim. Caller-supplied _meta keys are preserved alongside the envelope.',
+        transports: ['stdio', 'streamableHttp', 'streamableHttpStateless'],
+        note: 'Conformance: sep-2575-client-populates-meta + sep-2575-http-client-sends-version-header + sep-2575-http-version-header-matches-meta (request-metadata scenario). The streamableHttp cells hand-wire a header-recording fetch around the hosting helpers so the header obligation is asserted alongside the body envelope.'
+    },
+
     'hosting:express-app-helper': {
         transports: ['streamableHttp'],
         source: 'sdk',
@@ -2439,8 +2475,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'lifecycle:version:initialize-stateful-versions-only': {
         source: 'sdk',
         behavior:
-            'The initialize handshake negotiates only stateful protocol versions (2025-11-25 and older): a client and server whose supportedProtocolVersions lists contain newer revisions in any position complete the handshake on the newest mutually-supported stateful version, and no revision newer than 2025-11-25 appears anywhere in the handshake.',
-        note: 'Protocol revisions after 2025-11-25 are stateless and negotiate per-request, arriving with a later release.'
+            'The initialize handshake negotiates only stateful protocol versions (2025-11-25 and older), whichever side lists newer revisions: a client listing the draft revision first still requests the newest stateful version in its initialize request, a server listing the draft revision first still answers with the newest mutually-supported stateful version, and no revision newer than 2025-11-25 appears anywhere in the initialize exchange.',
+        note: 'Protocol revisions after 2025-11-25 are stateless and negotiate per-request via server/discover (see lifecycle:connect:per-request-era). A client that lists one probes with server/discover before falling back to initialize, so the guard is observed per side against a counterpart that does not share a per-request version.'
     },
     'lifecycle:capability:list-empty-when-not-advertised': {
         source: 'sdk',
