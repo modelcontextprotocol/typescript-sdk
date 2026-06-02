@@ -1725,6 +1725,27 @@ export const BooleanSchemaSchema = z.object({
 });
 
 /**
+ * Value of the `mcpFile` JSON Schema extension keyword. When present on a
+ * `{"type": "string", "format": "uri"}` property, it marks the property as a
+ * file input that clients SHOULD render as a native file picker. Selected
+ * files are encoded as RFC 2397 data URIs. See {@link StringSchema.mcpFile}.
+ */
+export const FileInputDescriptorSchema = z.object({
+    /**
+     * Media type patterns and/or file extensions the client SHOULD filter the
+     * picker to (HTML `accept` attribute grammar). If omitted, any file type
+     * is accepted.
+     */
+    accept: z.array(z.string()).optional(),
+    /**
+     * Maximum decoded file size in bytes that the server will accept inline as
+     * a data URI. Servers MUST reject larger payloads with the
+     * `"file_too_large"` structured error reason.
+     */
+    maxSize: z.number().int().optional()
+});
+
+/**
  * Primitive schema definition for string fields.
  */
 export const StringSchemaSchema = z.object({
@@ -1734,7 +1755,13 @@ export const StringSchemaSchema = z.object({
     minLength: z.number().optional(),
     maxLength: z.number().optional(),
     format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
-    default: z.string().optional()
+    default: z.string().optional(),
+    /**
+     * Marks this string as a file input when `format` is `"uri"`. Clients SHOULD
+     * render a native file picker and populate the field with an RFC 2397 data
+     * URI for the selected file.
+     */
+    mcpFile: FileInputDescriptorSchema.optional()
 });
 
 /**

@@ -44,6 +44,7 @@ import type {
     EmbeddedResourceSchema,
     EmptyResultSchema,
     EnumSchemaSchema,
+    FileInputDescriptorSchema,
     GetPromptRequestParamsSchema,
     GetPromptRequestSchema,
     GetPromptResultSchema,
@@ -300,6 +301,7 @@ export type PromptListChangedNotification = Infer<typeof PromptListChangedNotifi
 /* Tools */
 export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
 export type ToolExecution = Infer<typeof ToolExecutionSchema>;
+export type FileInputDescriptor = Infer<typeof FileInputDescriptorSchema>;
 export type Tool = Infer<typeof ToolSchema>;
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
