@@ -53,8 +53,8 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/server/index.js`          | `@modelcontextprotocol/server`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/stdio.js`          | `@modelcontextprotocol/server/stdio`                                                                                                                                                                                     |
 | `@modelcontextprotocol/sdk/server/streamableHttp.js` | `@modelcontextprotocol/node` (class renamed to `NodeStreamableHTTPServerTransport`) OR `@modelcontextprotocol/server` (web-standard `WebStandardStreamableHTTPServerTransport` for Cloudflare Workers, Deno, etc.) |
-| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP)                                                                                                                                                                               |
-| `@modelcontextprotocol/sdk/server/auth/*`            | RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers removed (use external IdP/OAuth library)                                             |
+| `@modelcontextprotocol/sdk/server/sse.js`            | REMOVED (migrate to Streamable HTTP); legacy bridge: `@modelcontextprotocol/server-legacy/sse`                                                                                                                     |
+| `@modelcontextprotocol/sdk/server/auth/*`            | RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers (`mcpAuthRouter`, `OAuthServerProvider`, etc.) → `@modelcontextprotocol/server-legacy/auth` (deprecated); migrate AS to an external IdP/OAuth library |
 | `@modelcontextprotocol/sdk/server/middleware.js`     | `@modelcontextprotocol/express` (signature changed, see section 8)                                                                                                                                                 |
 
 ### Types / shared imports
@@ -328,11 +328,11 @@ new URL(ctx.http?.req?.url).searchParams.get('debug')
 
 ### SSE server transport
 
-`SSEServerTransport` removed entirely. Migrate to `NodeStreamableHTTPServerTransport` (from `@modelcontextprotocol/node`). Client-side `SSEClientTransport` still available for connecting to legacy servers.
+`SSEServerTransport` removed entirely. Migrate to `NodeStreamableHTTPServerTransport` (from `@modelcontextprotocol/node`). Client-side `SSEClientTransport` still available for connecting to legacy servers. Legacy bridge: `import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse'` (deprecated, frozen v1 copy).
 
 ### Server-side auth
 
-Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) are removed from the core SDK; use an external IdP/OAuth library. See `examples/server/src/` for demos.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`. Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) are available from `@modelcontextprotocol/server-legacy/auth` (deprecated, frozen v1 copy). Migrate AS to an external IdP/OAuth library for production use. See `examples/server/src/` for demos.
 
 ### Host header validation (Express)
 
@@ -509,8 +509,8 @@ Type changes in handler context:
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
 
-- Node.js → `AjvJsonSchemaValidator` (no change from v1)
-- Cloudflare Workers (workerd) → `CfWorkerJsonSchemaValidator` (previously required manual config)
+- Node.js → AJV (no change from v1)
+- Cloudflare Workers (workerd) → `@cfworker/json-schema` (previously required manual config)
 
 **No action required** for most users. Cloudflare Workers users can remove explicit `jsonSchemaValidator` configuration:
 
@@ -527,11 +527,12 @@ new McpServer(
 new McpServer({ name: 'server', version: '1.0.0' }, {});
 ```
 
-Access validators explicitly:
+Validator behavior:
 
-- Runtime-aware default: `import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';`
-- AJV (Node.js): `import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';`
-- CF Worker: `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';`
+- Do not add validator imports for normal migrations.
+- Do not install `ajv`, `ajv-formats`, or `@cfworker/json-schema` for the default path; client/server bundle the runtime-selected defaults and the root entry point does not pull either dep in.
+- To customize the built-in backend (e.g. register custom AJV formats, change `@cfworker/json-schema` draft), import the named class from the package subpath: `@modelcontextprotocol/{client,server}/validators/ajv` for `AjvJsonSchemaValidator`, `@modelcontextprotocol/{client,server}/validators/cf-worker` for `CfWorkerJsonSchemaValidator`. Importing from a subpath means the corresponding peer dep must be in your `package.json`.
+- To replace validation entirely, pass `jsonSchemaValidator: myCustomValidator` with your own implementation of the `jsonSchemaValidator` interface.
 
 ## 15. Migration Steps (apply in this order)
 
@@ -543,6 +544,6 @@ Access validators explicitly:
 6. Replace plain header objects with `new Headers({...})` and bracket access (`headers['x']`) with `.get()` calls per section 7
 7. If using `hostHeaderValidation` from server, update import and signature per section 8
 8. If using server SSE transport, migrate to Streamable HTTP
-9. If using server auth from the SDK: RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`) → `@modelcontextprotocol/express`; AS helpers → external IdP/OAuth library
+9. If using server auth from the SDK: RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers → `@modelcontextprotocol/server-legacy/auth` (deprecated); migrate AS to external IdP/OAuth library
 10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
 11. Verify: build with `tsc` / run tests

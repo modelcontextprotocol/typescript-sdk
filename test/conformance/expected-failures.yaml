@@ -1,4 +1,93 @@
 # Conformance scenarios not yet implemented in the v2 TypeScript SDK.
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
+#
+# Baseline established against @modelcontextprotocol/conformance 0.2.0-alpha.1,
+# which adds the draft-spec scenario suite (SEP-2575, SEP-2322, SEP-2243, SEP-2549,
+# SEP-2468, ...) plus new checks on existing scenarios (SEP-837 application_type
+# during DCR).
+#
+# Entries are grouped by SEP. As each SEP/milestone is implemented in the SDK the
+# corresponding scenarios start passing and MUST be removed from this list (the
+# runner fails on stale entries), so the baseline burns down per milestone.
 
-client: []
+client:
+    # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
+    # SEP-2575 (request metadata / _meta envelope): client does not populate the
+    # _meta envelope or the MCP-Protocol-Version header semantics yet.
+    - request-metadata
+    # SEP-2322 (multi-round-trip requests): client does not echo requestState /
+    # handle IncompleteResult yet.
+    - sep-2322-client-request-state
+    # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
+    - http-custom-headers
+    - http-invalid-tool-headers
+    # SEP-2106 (JSON Schema $ref handling): client still dereferences network $refs.
+    - json-schema-ref-no-deref
+    # SEP-2468 (authorization response iss parameter): not implemented in the client.
+    - auth/iss-supported
+    - auth/iss-not-advertised
+    - auth/iss-supported-missing
+    - auth/iss-wrong-issuer
+    - auth/iss-unexpected
+    - auth/iss-normalized
+    - auth/metadata-issuer-mismatch
+    # SEP-2352 (authorization server migration): client does not re-register when
+    # PRM authorization_servers changes.
+    - auth/authorization-server-migration
+    # SEP-2207 (offline_access scope) scenario, currently failing only on the new
+    # SEP-837 application_type check (see the SEP-837 group below).
+    - auth/offline-access-not-supported
+
+    # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
+    # SEP-837: client MUST send application_type during Dynamic Client Registration.
+    # Single new check; everything else in these scenarios passes.
+    - auth/metadata-default
+    - auth/metadata-var1
+    - auth/metadata-var2
+    - auth/metadata-var3
+    - auth/scope-from-www-authenticate
+    - auth/scope-from-scopes-supported
+    - auth/scope-omitted-when-undefined
+    - auth/scope-step-up
+    - auth/scope-retry-limit
+    - auth/token-endpoint-auth-basic
+    - auth/token-endpoint-auth-post
+    - auth/token-endpoint-auth-none
+    - auth/2025-03-26-oauth-metadata-backcompat
+    # SEP-990 (enterprise-managed authorization extension): no fixture handler /
+    # client support for the token-exchange + JWT bearer flow.
+    - auth/enterprise-managed-authorization
+
+server:
+    # --- Draft-spec scenarios (in `--suite draft`; the default `active` suite is green) ---
+    # SEP-2575 (stateless HTTP / _meta envelope): server has no stateless mode,
+    # _meta-derived capabilities, error-code mappings, or server/discover yet.
+    - server-stateless
+    # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented;
+    # most scenarios currently fail early with "Session ID required" because the
+    # fixture only runs in stateful mode.
+    - input-required-result-basic-elicitation
+    - input-required-result-basic-sampling
+    - input-required-result-basic-list-roots
+    - input-required-result-request-state
+    - input-required-result-multiple-input-requests
+    - input-required-result-multi-round
+    - input-required-result-non-tool-request
+    - input-required-result-result-type
+    - input-required-result-tampered-state
+    - input-required-result-capability-check
+    # SEP-2549 (caching): no ttlMs/cacheScope support; scenario also hits the
+    # stateful-mode "Session ID required" error.
+    - caching
+    # SEP-2243 (HTTP header standardization): -32001 HeaderMismatch handling and
+    # case-insensitive/whitespace-trimmed header validation not implemented.
+    - http-header-validation
+    - http-custom-header-server-validation
+    # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
+    # WARNINGs, but the expected-failures evaluator counts WARNINGs as failures.
+    # SEP-2164: server returns -32002 without the requested URI in error.data.
+    - sep-2164-resource-not-found
+    # SEP-2322 SHOULD-level behaviours (re-request missing inputResponses, ignore
+    # unrecognized inputResponses keys).
+    - input-required-result-missing-input-response
+    - input-required-result-ignore-extra-params

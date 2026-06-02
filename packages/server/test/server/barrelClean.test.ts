@@ -8,6 +8,8 @@ import { beforeAll, describe, expect, test } from 'vitest';
 const pkgDir = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const distDir = join(pkgDir, 'dist');
 const NODE_ONLY = /\b(child_process|cross-spawn|node:stream|node:child_process)\b/;
+// Anchored at start-of-line so JSDoc-example `from 'ajv'` strings in vendored chunks don't match.
+const VALIDATOR_BACKEND_IMPORT = /^import[^\n]*?from\s+["'](?:ajv|ajv-formats|@cfworker\/json-schema)["']/m;
 
 function chunkImportsOf(entryPath: string): string[] {
     const visited = new Set<string>();
@@ -52,5 +54,18 @@ describe('@modelcontextprotocol/server root entry is browser-safe', () => {
     test('dist/stdio.mjs exists and exports StdioServerTransport', () => {
         const stdio = readFileSync(join(distDir, 'stdio.mjs'), 'utf8');
         expect(stdio).toMatch(/\bStdioServerTransport\b/);
+    });
+
+    test('runtime shims vendor default validator backends instead of requiring consumers to install them', () => {
+        for (const shim of ['shimsNode.mjs', 'shimsWorkerd.mjs']) {
+            const entry = join(distDir, shim);
+            expect(readFileSync(entry, 'utf8')).not.toMatch(VALIDATOR_BACKEND_IMPORT);
+
+            for (const chunk of chunkImportsOf(entry)) {
+                expect({ chunk, content: readFileSync(chunk, 'utf8') }).not.toEqual(
+                    expect.objectContaining({ content: expect.stringMatching(VALIDATOR_BACKEND_IMPORT) })
+                );
+            }
+        }
     });
 });

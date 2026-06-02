@@ -113,6 +113,14 @@ const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: ()
 
 The SSE transport has been removed from the server. Servers should migrate to Streamable HTTP. The client-side SSE transport remains available for connecting to legacy SSE servers.
 
+If you need a temporary bridge during migration, `@modelcontextprotocol/server-legacy/sse` provides a frozen copy of the v1 `SSEServerTransport`:
+
+```typescript
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
+```
+
+This package is deprecated and will not receive new features.
+
 ### `WebSocketClientTransport` removed
 
 `WebSocketClientTransport` has been removed. WebSocket is not a spec-defined MCP transport, and keeping it in the SDK encouraged transport proliferation without a conformance baseline.
@@ -135,7 +143,7 @@ const transport = new StreamableHTTPClientTransport(new URL('http://localhost:30
 
 ### Server auth split
 
-Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are now first-class in `@modelcontextprotocol/express`.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`.
 
 Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) have been removed from the core SDK; new code should use a dedicated IdP/OAuth library. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
 
@@ -812,6 +820,14 @@ The following individual error classes have been removed in favor of `OAuthError
 
 The `OAUTH_ERRORS` constant has also been removed.
 
+If you need the v1 OAuth error classes and `mcpAuthRouter` during migration, `@modelcontextprotocol/server-legacy/auth` provides a frozen copy:
+
+```typescript
+import { mcpAuthRouter, InvalidClientError } from '@modelcontextprotocol/server-legacy/auth';
+```
+
+This package is deprecated and will not receive new features. Use a dedicated OAuth provider in production.
+
 **Before (v1):**
 
 ```typescript
@@ -901,8 +917,8 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 
 The SDK now automatically selects the appropriate JSON Schema validator based on your runtime environment:
 
-- **Node.js**: Uses `AjvJsonSchemaValidator` (same as v1 default)
-- **Cloudflare Workers**: Uses `CfWorkerJsonSchemaValidator` (previously required manual configuration)
+- **Node.js**: Uses AJV (same as v1 default)
+- **Cloudflare Workers**: Uses `@cfworker/json-schema` (previously required manual configuration)
 
 This means Cloudflare Workers users no longer need to explicitly pass the validator:
 
@@ -933,16 +949,44 @@ const server = new McpServer(
 );
 ```
 
-You can still explicitly override the validator if needed:
+You do not need to install or import validator packages for the default behavior. The client and server packages bundle the validator backend selected by the runtime shim, so a normal `import { McpServer } from '@modelcontextprotocol/server'` does not pull `ajv` or `@cfworker/json-schema` into your bundle until you choose to customize.
+
+If you want to customize the **built-in** backend (for example, pre-register schemas by `$id`, register custom AJV formats, or change the `@cfworker/json-schema` draft), import the named class from the explicit subpath and pass an instance through `jsonSchemaValidator`:
 
 ```typescript
-// Runtime-aware default (auto-selects AjvJsonSchemaValidator or CfWorkerJsonSchemaValidator)
-import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
+import { Ajv } from 'ajv';
+import addFormats from 'ajv-formats';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 
-// Specific validators
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
-import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
+const ajv = new Ajv({ strict: true, allErrors: true });
+addFormats(ajv);
+
+const server = new McpServer(
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {} },
+        jsonSchemaValidator: new AjvJsonSchemaValidator(ajv)
+    }
+);
 ```
+
+```typescript
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
+
+const server = new McpServer(
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {} },
+        jsonSchemaValidator: new CfWorkerJsonSchemaValidator({ draft: '2020-12', shortcircuit: false })
+    }
+);
+```
+
+(both subpaths are also available on `@modelcontextprotocol/client/validators/...`)
+
+If you import from one of these subpaths in your own code, the corresponding peer dep (`ajv` + `ajv-formats`, or `@cfworker/json-schema`) needs to be installed in your `package.json`. The runtime shim continues to vendor a copy for the default code path, so you can use the subpath in some files and rely on the default in others.
+
+To replace validation wholesale rather than customizing the built-in classes, implement the `jsonSchemaValidator` interface and pass your own implementation through the option above.
 
 ## Unchanged APIs
 

@@ -7,6 +7,13 @@ export interface ImportMapping {
     removalMessage?: string;
     /** No entries currently set this; scaffolding for when a v1 symbol has no v2 equivalent yet. */
     isV2Gap?: boolean;
+    /** Emitted as an info diagnostic after a successful move, suggesting eventual migration to v2 equivalents. */
+    migrationHint?: string;
+    /**
+     * Subpath suffix appended after `RESOLVE_BY_CONTEXT` resolves the base package (e.g. `/validators/ajv`).
+     * The final target becomes `@modelcontextprotocol/{client,server}<subpathSuffix>`.
+     */
+    subpathSuffix?: string;
 }
 
 export const IMPORT_MAP: Record<string, ImportMapping> = {
@@ -63,9 +70,10 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         status: 'moved'
     },
     '@modelcontextprotocol/sdk/server/sse.js': {
-        target: '',
-        status: 'removed',
-        removalMessage: 'SSE server transport removed in v2. Migrate to NodeStreamableHTTPServerTransport from @modelcontextprotocol/node.'
+        target: '@modelcontextprotocol/server-legacy/sse',
+        status: 'moved',
+        migrationHint:
+            'SSEServerTransport is deprecated. Migrate to NodeStreamableHTTPServerTransport from @modelcontextprotocol/node or WebStandardStreamableHTTPServerTransport from @modelcontextprotocol/server.'
     },
     '@modelcontextprotocol/sdk/server/middleware.js': {
         target: '@modelcontextprotocol/express',
@@ -79,34 +87,29 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
 
     '@modelcontextprotocol/sdk/server/auth/types.js': {
-        target: '',
-        status: 'removed',
-        removalMessage:
-            'Server auth removed in v2. AuthInfo is now re-exported by @modelcontextprotocol/client and @modelcontextprotocol/server.'
+        target: '@modelcontextprotocol/server-legacy/auth',
+        status: 'moved',
+        migrationHint: 'Legacy auth types. AuthInfo is also re-exported by @modelcontextprotocol/server.'
     },
     '@modelcontextprotocol/sdk/server/auth/provider.js': {
-        target: '',
-        status: 'removed',
-        removalMessage:
-            'Server auth provider removed in v2. For Resource-Server auth (token verification), see @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
+        target: '@modelcontextprotocol/server-legacy/auth',
+        status: 'moved',
+        migrationHint: 'Legacy OAuth AS provider. For RS-only auth, see requireBearerAuth from @modelcontextprotocol/express.'
     },
     '@modelcontextprotocol/sdk/server/auth/router.js': {
-        target: '',
-        status: 'removed',
-        removalMessage:
-            'Server auth router removed in v2. For metadata endpoints, see mcpAuthMetadataRouter from @modelcontextprotocol/express. For full OAuth AS router, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
+        target: '@modelcontextprotocol/server-legacy/auth',
+        status: 'moved',
+        migrationHint: 'Legacy OAuth AS router. For metadata-only endpoints, see mcpAuthMetadataRouter from @modelcontextprotocol/express.'
     },
     '@modelcontextprotocol/sdk/server/auth/middleware.js': {
-        target: '',
-        status: 'removed',
-        removalMessage:
-            'Server auth middleware removed in v2. For bearer token validation, see requireBearerAuth from @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
+        target: '@modelcontextprotocol/server-legacy/auth',
+        status: 'moved',
+        migrationHint: 'Legacy OAuth AS middleware. For bearer-only auth, see requireBearerAuth from @modelcontextprotocol/express.'
     },
     '@modelcontextprotocol/sdk/server/auth/errors.js': {
-        target: '',
-        status: 'removed',
-        removalMessage:
-            'Auth error subclasses consolidated in v2. Use OAuthError + OAuthErrorCode from @modelcontextprotocol/server. See also @modelcontextprotocol/server-auth-legacy (PR #1908).'
+        target: '@modelcontextprotocol/server-legacy/auth',
+        status: 'moved',
+        migrationHint: 'Legacy error subclasses. v2 consolidates to OAuthError + OAuthErrorCode in @modelcontextprotocol/server.'
     },
 
     '@modelcontextprotocol/sdk/types.js': {
@@ -156,6 +159,27 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         status: 'moved'
     }
 };
+
+// v1 `validation/*` paths → v2 `validators/*` subpaths. The canonical `*-provider.js` filename and
+// the short aliases from the v1 README, with and without `.js` suffix.
+const VALIDATOR_V1_VARIANTS: Record<string, readonly string[]> = {
+    '/validators/ajv': ['validation/ajv-provider.js', 'validation/ajv.js', 'validation/ajv'],
+    '/validators/cf-worker': ['validation/cfworker-provider.js', 'validation/cfworker.js', 'validation/cfworker']
+};
+for (const [subpathSuffix, v1Specifiers] of Object.entries(VALIDATOR_V1_VARIANTS)) {
+    for (const v1Specifier of v1Specifiers) {
+        IMPORT_MAP[`@modelcontextprotocol/sdk/${v1Specifier}`] = {
+            target: 'RESOLVE_BY_CONTEXT',
+            status: 'moved',
+            subpathSuffix
+        };
+    }
+}
+
+// `validation/index` / `validation/types` carry only the `jsonSchemaValidator` interface + helpers.
+for (const barrelSpecifier of ['@modelcontextprotocol/sdk/validation/index.js', '@modelcontextprotocol/sdk/validation/types.js']) {
+    IMPORT_MAP[barrelSpecifier] = { target: 'RESOLVE_BY_CONTEXT', status: 'moved' };
+}
 
 export function isAuthImport(specifier: string): boolean {
     return specifier.includes('/server/auth/') || specifier.includes('/server/auth.');
