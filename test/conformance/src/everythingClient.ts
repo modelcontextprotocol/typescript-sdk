@@ -435,6 +435,12 @@ async function runMrtrClient(serverUrl: string): Promise<void> {
 registerScenario('sep-2322-client-request-state', runMrtrClient);
 
 // ============================================================================
+// JSON Schema $ref scenario (SEP-2106)
+// ============================================================================
+
+registerScenario('json-schema-ref-no-deref', runBasicClient);
+
+// ============================================================================
 // Auth scenarios - well-behaved client
 // ============================================================================
 
