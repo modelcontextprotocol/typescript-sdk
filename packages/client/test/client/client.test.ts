@@ -1,4 +1,4 @@
-import type { JSONRPCRequest } from '@modelcontextprotocol/core';
+import type { JSONRPCRequest, Transport } from '@modelcontextprotocol/core';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -251,6 +251,109 @@ describe('Client', () => {
 
             expect(requests.map(request => request.method)).toEqual(['server/discover', 'initialize']);
             expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+            await client.close();
+        });
+
+        it('falls back to initialize when a -32004 lists a mutually supported stateful version', async () => {
+            // The same server facts as "discovery reports only stateful versions",
+            // delivered via the error path: the -32004's supported list shares no
+            // per-request version but does share a stateful one. The outcome must
+            // match the success path — handshake fallback, not failure.
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const requests: JSONRPCRequest[] = [];
+            serverTransport.onmessage = message => {
+                if (!isJSONRPCRequest(message)) {
+                    return;
+                }
+                requests.push(message);
+                if (message.method === 'server/discover') {
+                    void serverTransport.send({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        error: {
+                            code: -32_004,
+                            message: 'Unsupported protocol version',
+                            data: { supported: ['2099-01-01', LATEST_PROTOCOL_VERSION], requested: DRAFT_PROTOCOL_VERSION }
+                        }
+                    });
+                    return;
+                }
+                if (message.method === 'initialize') {
+                    const params = message.params as { protocolVersion: string };
+                    void serverTransport.send({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: {
+                            protocolVersion: params.protocolVersion,
+                            capabilities: {},
+                            serverInfo: { name: 'rejecting-server', version: '0.0.0' }
+                        }
+                    });
+                    return;
+                }
+                void serverTransport.send({ jsonrpc: '2.0', id: message.id, result: {} });
+            };
+            const client = new Client(
+                { name: 'test-client', version: '1.0.0' },
+                { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION] }
+            );
+
+            await client.connect(clientTransport);
+
+            expect(requests.map(request => request.method)).toEqual(['server/discover', 'initialize']);
+            // The fallback handshake goes out clean: no per-request envelope keys.
+            const initialize = requests[1]!;
+            expect(initialize.params?._meta?.[PROTOCOL_VERSION_META_KEY]).toBeUndefined();
+            expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+            await client.close();
+        });
+
+        it('keeps the -32004 failure when its supported list shares neither a per-request nor a stateful version', async () => {
+            const client = new Client(
+                { name: 'test-client', version: '1.0.0' },
+                { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION] }
+            );
+            const { clientTransport, requests } = fakeDiscoverServer(['2099-01-01'], [DRAFT_PROTOCOL_VERSION]);
+
+            await expect(client.connect(clientTransport)).rejects.toThrow('Unsupported protocol version');
+
+            // No initialize attempt: the server told us its versions and none is usable.
+            expect(requests.map(request => request.method)).toEqual(['server/discover']);
+            expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
+        });
+
+        it('clears the transport version pin before the fallback initialize', async () => {
+            const client = new Client(
+                { name: 'test-client', version: '1.0.0' },
+                { supportedProtocolVersions: [DRAFT_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION] }
+            );
+            const { clientTransport, requests } = fakeInitializeServer();
+
+            // Record the pin in effect at the moment each request hits the wire —
+            // on HTTP transports this is exactly the MCP-Protocol-Version header.
+            const transport: Transport = clientTransport;
+            let pin: string | undefined;
+            transport.setProtocolVersion = (version?: string) => {
+                pin = version;
+            };
+            const pinAtSend: Array<string | undefined> = [];
+            const originalSend = clientTransport.send.bind(clientTransport);
+            transport.send = (message, options) => {
+                if (isJSONRPCRequest(message)) {
+                    pinAtSend.push(pin);
+                }
+                return originalSend(message, options);
+            };
+
+            await client.connect(clientTransport);
+
+            expect(requests.map(request => request.method)).toEqual(['server/discover', 'initialize']);
+            // The probe carried the claimed draft pin; the fallback initialize went
+            // out with the pin cleared (a strict legacy server would reject the
+            // stale draft header on the very handshake meant for it).
+            expect(pinAtSend).toEqual([DRAFT_PROTOCOL_VERSION, undefined]);
+            // After the handshake the negotiated stateful version is pinned.
+            expect(pin).toBe(LATEST_PROTOCOL_VERSION);
             await client.close();
         });
     });

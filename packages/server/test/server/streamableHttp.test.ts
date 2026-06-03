@@ -1033,6 +1033,103 @@ describe('Zod v4', () => {
             await transport.close();
         });
 
+        it('routes on the body _meta claim when the header is absent and the body is not pre-parsed', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            // Same incomplete-envelope trick as the pre-parsed test: only the
+            // stateless path answers -32602. Without routing-time body parsing this
+            // request would silently run on the stateful machinery.
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'tools/list',
+                        params: { _meta: { 'io.modelcontextprotocol/protocolVersion': DRAFT_PROTOCOL_VERSION } },
+                        id: 'route-raw-1'
+                    })
+                })
+            );
+
+            expect(response.status).toBe(400);
+            expect(await response.json()).toMatchObject({ id: 'route-raw-1', error: { code: -32_602 } });
+
+            await transport.close();
+        });
+
+        it('serves a header-less raw-body claim end to end (the body is parsed once by routing)', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'tools/list',
+                        params: { _meta: validEnvelope() },
+                        id: 'route-raw-2'
+                    })
+                })
+            );
+
+            expect(response.status).toBe(200);
+            expect(await response.json()).toMatchObject({ id: 'route-raw-2', result: { tools: [{ name: 'noop' }] } });
+
+            await transport.close();
+        });
+
+        it('routes the body _meta claim on a session-mode transport too (no session header present)', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => 'session-route-1' });
+            await connectDraftServer(transport);
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        method: 'tools/list',
+                        params: { _meta: { 'io.modelcontextprotocol/protocolVersion': DRAFT_PROTOCOL_VERSION } },
+                        id: 'route-raw-3'
+                    })
+                })
+            );
+
+            // The stateless -32602, not the stateful "Server not initialized" rejection.
+            expect(response.status).toBe(400);
+            expect(await response.json()).toMatchObject({ id: 'route-raw-3', error: { code: -32_602 } });
+
+            await transport.close();
+        });
+
+        it('keeps header-less traffic with no body claim on the stateful path', async () => {
+            const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await connectDraftServer(transport);
+
+            // No version header, no _meta claim: legitimate 2025 traffic. The
+            // stateful machinery serves it (an envelope -32602 here would mean the
+            // routing sniff hijacked it).
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                    body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', params: {}, id: 'route-raw-4' })
+                })
+            );
+
+            expect(response.status).toBe(200);
+            // The stateful request path answers over SSE.
+            expect(response.headers.get('content-type')).toBe('text/event-stream');
+            const body = parseSSEData(await readSSEEvent(response));
+            expect(body).toMatchObject({ id: 'route-raw-4', result: { tools: [{ name: 'noop' }] } });
+
+            await transport.close();
+        });
+
         it('serves a routed request with a complete envelope as a single JSON response', async () => {
             const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
             await connectDraftServer(transport);
@@ -1101,6 +1198,46 @@ describe('Zod v4', () => {
                 { jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 'tok', progress: 1 } },
                 { jsonrpc: '2.0', id: 'route-1', result: {} }
             ]);
+
+            await transport.close();
+        });
+
+        it('drops notifications sent after the response settled instead of buffering into a dead stream', async () => {
+            const errors: Error[] = [];
+            const transport = new WebStandardStreamableHTTPServerTransport({
+                sessionIdGenerator: undefined,
+                supportedProtocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS, DRAFT_PROTOCOL_VERSION]
+            });
+            transport.onerror = error => {
+                errors.push(error);
+            };
+            let lateNotify!: () => Promise<void>;
+            transport.setStatelessHandlers({
+                dispatch: async (request, ctx) => {
+                    // Capture the callback so a "leaked task" can fire it after the
+                    // JSON response has already been produced.
+                    lateNotify = () =>
+                        ctx.sendNotification!({
+                            jsonrpc: '2.0',
+                            method: 'notifications/progress',
+                            params: { progressToken: 'late', progress: 1 }
+                        });
+                    return { jsonrpc: '2.0', id: request.id, result: {} };
+                }
+            });
+
+            const response = await transport.handleRequest(
+                new Request('http://localhost/mcp', { method: 'POST', headers: draftHeaders, body: JSON.stringify(toolsListDraft) })
+            );
+
+            // No notification before settling: a plain JSON response.
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toContain('application/json');
+
+            // Late notifications are dropped (surfaced once via onerror), never buffered.
+            await lateNotify();
+            await lateNotify();
+            expect(errors.filter(error => error.message.includes('after the response settled'))).toHaveLength(1);
 
             await transport.close();
         });

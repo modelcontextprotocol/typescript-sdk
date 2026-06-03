@@ -313,7 +313,7 @@ export class SSEClientTransport implements Transport {
         }
     }
 
-    setProtocolVersion(version: string): void {
+    setProtocolVersion(version?: string): void {
         this._protocolVersion = version;
     }
 }

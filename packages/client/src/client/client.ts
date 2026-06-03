@@ -520,7 +520,19 @@ export class Client extends Protocol<ClientContext> {
             result = await this._discoverWithVersionRetry(transport, perRequestVersions, options);
         } catch (error) {
             if (this._isLegacyServerSignal(error)) {
-                this._requestMetaEnvelope = undefined;
+                this._clearRequestEnvelope(transport);
+                return false;
+            }
+            // A `-32004` resolves to the handshake under the same rule as a discover
+            // result: when its `supported` list shares no per-request version (the
+            // single retry would have used one) but does share a stateful version
+            // the client also supports, fall back to initialize instead of failing.
+            const supported = this._supportedVersionsFromError(error);
+            if (
+                supported !== undefined &&
+                supported.some(version => isStatefulProtocolVersion(version) && this._supportedProtocolVersions.includes(version))
+            ) {
+                this._clearRequestEnvelope(transport);
                 return false;
             }
             throw error;
@@ -528,7 +540,7 @@ export class Client extends Protocol<ClientContext> {
 
         const selected = perRequestVersions.find(version => result.supportedVersions.includes(version));
         if (selected === undefined) {
-            this._requestMetaEnvelope = undefined;
+            this._clearRequestEnvelope(transport);
             if (result.supportedVersions.some(version => isStatefulProtocolVersion(version))) {
                 // The server answers discovery but shares no per-request version (e.g. an
                 // initialize-era server reporting its stateful versions): negotiate via the
@@ -615,6 +627,18 @@ export class Client extends Protocol<ClientContext> {
             [CLIENT_CAPABILITIES_META_KEY]: this._capabilities
         };
         transport.setProtocolVersion?.(version);
+    }
+
+    /**
+     * Undoes {@linkcode _stampRequestEnvelope} when discovery resolves to the initialize
+     * handshake: clears the `_meta` envelope AND the transport's version pin, so the fallback
+     * `initialize` goes out exactly like a fresh stateful connect — without the probed
+     * per-request version in the `MCP-Protocol-Version` header (a strict legacy server would
+     * reject that header on the very handshake meant for it).
+     */
+    private _clearRequestEnvelope(transport: Transport): void {
+        this._requestMetaEnvelope = undefined;
+        transport.setProtocolVersion?.(undefined);
     }
 
     /**

@@ -4,7 +4,6 @@ import type { FetchLike, JSONRPCErrorResponse, JSONRPCMessage, Transport } from 
 import {
     createFetchWithInit,
     isInitializedNotification,
-    isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -584,11 +583,11 @@ export class StreamableHTTPClientTransport implements Transport {
             // Handle session ID received during initialization. Per-request protocol
             // revisions are sessionless: while this transport is pinned to one, an
             // Mcp-Session-Id a server (or intermediary) emits is ignored — never
-            // stored, never replayed. Initialize requests stay exempt: on the
-            // back-compat fallback the handshake response arrives while the probed
-            // per-request version is still set, and its session id must be kept.
+            // stored, never replayed. (The back-compat fallback needs no exemption:
+            // the client clears the per-request pin before sending the initialize
+            // handshake, so its session id is captured by this branch normally.)
             const sessionId = response.headers.get('mcp-session-id');
-            if (sessionId && (!this._isSessionlessVersion() || this._containsInitializeRequest(message))) {
+            if (sessionId && !this._isSessionlessVersion()) {
                 this._sessionId = sessionId;
             }
 
@@ -751,11 +750,6 @@ export class StreamableHTTPClientTransport implements Transport {
         return this._protocolVersion !== undefined && !isStatefulProtocolVersion(this._protocolVersion);
     }
 
-    /** Whether the POSTed body contains an `initialize` request. */
-    private _containsInitializeRequest(message: JSONRPCMessage | JSONRPCMessage[]): boolean {
-        return (Array.isArray(message) ? message : [message]).some(m => isInitializeRequest(m));
-    }
-
     /**
      * Terminates the current session by sending a `DELETE` request to the server.
      *
@@ -805,7 +799,7 @@ export class StreamableHTTPClientTransport implements Transport {
         }
     }
 
-    setProtocolVersion(version: string): void {
+    setProtocolVersion(version?: string): void {
         this._protocolVersion = version;
     }
     get protocolVersion(): string | undefined {

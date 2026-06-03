@@ -40,11 +40,11 @@ export type StreamId = string;
 export type EventId = string;
 
 /**
- * Extracts the protocol version claimed by a pre-parsed POST body's first
+ * Extracts the protocol version claimed by a parsed POST body's first
  * request via `params._meta` (see {@linkcode PROTOCOL_VERSION_META_KEY}).
- * Only pre-parsed bodies are sniffed (`options.parsedBody`, set by
- * body-parsing middleware) — the raw body stream stays untouched for the
- * downstream handler.
+ * The body is either pre-parsed by middleware (`options.parsedBody`) or, when
+ * routing needs the claim and no header carries one, parsed once by
+ * `handleRequest` itself and handed to the chosen path.
  */
 function versionFromParsedBody(body: unknown): string | undefined {
     const first = Array.isArray(body) ? body.find(message => isJSONRPCRequest(message)) : body;
@@ -402,8 +402,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
      *    version-locked at initialize, so a version claim never bypasses
      *    session validation.
      * 2. Otherwise the claimed version is resolved: the
-     *    `MCP-Protocol-Version` header first, falling back to the pre-parsed
-     *    body's first request `_meta`.
+     *    `MCP-Protocol-Version` header first, falling back to the body's first
+     *    request `_meta` — pre-parsed by middleware when available, otherwise
+     *    parsed here once (POST only, when the stateless path is eligible) and
+     *    passed along so the body stream is never read twice.
      * 3. A claimed non-stateful (per-request) version is handled on the
      *    stateless path when stateless handlers are installed AND the server
      *    has opted in by listing at least one non-stateful version in its
@@ -421,14 +423,46 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
 
         if (req.headers.get('mcp-session-id') === null) {
-            const claimedVersion = req.headers.get('mcp-protocol-version') ?? versionFromParsedBody(options?.parsedBody);
-            if (
-                claimedVersion !== undefined &&
-                !isStatefulProtocolVersion(claimedVersion) &&
-                this._statelessHandlers &&
-                this._supportedProtocolVersions.some(version => !isStatefulProtocolVersion(version))
-            ) {
-                return this.handleStatelessRequest(req, this._statelessHandlers, options);
+            const statelessHandlers = this._statelessHandlers;
+            const statelessEligible =
+                statelessHandlers !== undefined && this._supportedProtocolVersions.some(version => !isStatefulProtocolVersion(version));
+            let claimedVersion = req.headers.get('mcp-protocol-version') ?? versionFromParsedBody(options?.parsedBody);
+
+            // A request may claim its revision solely via `params._meta`. When no
+            // header is present and no middleware pre-parsed the body, read the
+            // body here once (POST only) so the claim is visible to routing —
+            // whichever path is chosen receives the parsed body and never re-reads
+            // the stream. The accept/content-type/parse validations below mirror
+            // the identical checks both POST paths perform first, so rejections
+            // are byte-identical to what the chosen path would have answered.
+            if (claimedVersion === undefined && statelessEligible && req.method === 'POST' && options?.parsedBody === undefined) {
+                const acceptHeader = req.headers.get('accept');
+                if (!acceptHeader?.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
+                    this.onerror?.(new Error('Not Acceptable: Client must accept both application/json and text/event-stream'));
+                    return this.createJsonErrorResponse(
+                        406,
+                        -32_000,
+                        'Not Acceptable: Client must accept both application/json and text/event-stream'
+                    );
+                }
+                const contentType = req.headers.get('content-type');
+                if (!contentType || !contentType.includes('application/json')) {
+                    this.onerror?.(new Error('Unsupported Media Type: Content-Type must be application/json'));
+                    return this.createJsonErrorResponse(415, -32_000, 'Unsupported Media Type: Content-Type must be application/json');
+                }
+                let parsedBody: unknown;
+                try {
+                    parsedBody = await req.json();
+                } catch (error) {
+                    this.onerror?.(error as Error);
+                    return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON');
+                }
+                options = { ...options, parsedBody };
+                claimedVersion = versionFromParsedBody(parsedBody);
+            }
+
+            if (claimedVersion !== undefined && !isStatefulProtocolVersion(claimedVersion) && statelessEligible && statelessHandlers) {
+                return this.handleStatelessRequest(req, statelessHandlers, options);
             }
         }
 
@@ -573,9 +607,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         return new Promise<Response>(resolve => {
             const encoder = new TextEncoder();
             let controller: ReadableStreamDefaultController<Uint8Array> | undefined;
+            // Set once the response has settled (JSON resolved, or the final SSE
+            // event written). Notifications arriving after that point come from a
+            // handler task that outlived its request: they are dropped rather than
+            // buffered into a stream nothing will ever read.
+            let settled = false;
+            let warnedLateNotification = false;
 
             const openStream = (): void => {
-                if (controller !== undefined) {
+                if (settled || controller !== undefined) {
                     return;
                 }
                 const readable = new ReadableStream<Uint8Array>({
@@ -603,6 +643,17 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         // Client disconnect = cancellation of the request under this revision.
                         signal: req.signal,
                         sendNotification: async notification => {
+                            if (settled) {
+                                if (!warnedLateNotification) {
+                                    warnedLateNotification = true;
+                                    this.onerror?.(
+                                        new Error(
+                                            'Notification sent after the response settled; dropping it (a handler task outlived its request).'
+                                        )
+                                    );
+                                }
+                                return;
+                            }
                             openStream();
                             this.writeSSEEvent(controller!, encoder, notification);
                         }
@@ -610,6 +661,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 )
                 .then(
                     response => {
+                        settled = true;
                         if (controller !== undefined) {
                             this.writeSSEEvent(controller, encoder, response);
                             try {
@@ -627,6 +679,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                         );
                     },
                     (error: unknown) => {
+                        settled = true;
                         // dispatch() maps handler failures to error responses; a rejection is
                         // an internal fault. The wire gets a generic message (nothing leaks).
                         this.onerror?.(error as Error);

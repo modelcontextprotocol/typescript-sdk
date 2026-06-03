@@ -2099,11 +2099,14 @@ describe('StreamableHTTPClientTransport', () => {
             expect((lastCall[1].headers as Headers).get('mcp-session-id')).toBeNull();
         });
 
-        it('still captures the session id from an initialize response (the back-compat fallback handshake)', async () => {
-            // On the fallback path the initialize request goes out while the probed
-            // per-request version is still set on the transport (the handshake
-            // overwrites it only after the result arrives) — its session id is real.
+        it('captures the session id from the fallback initialize once the per-request pin is cleared', async () => {
+            // On the fallback path the client clears the probed per-request pin
+            // before sending the initialize handshake (a strict legacy server must
+            // never see the stale draft header on the very handshake meant for it);
+            // the handshake's session id is then captured by the normal un-pinned
+            // branch — no initialize-specific exemption exists.
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { protocolVersion: '2026-07-28' });
+            transport.setProtocolVersion(undefined); // what Client does before the fallback handshake
             const initialize: JSONRPCMessage = {
                 jsonrpc: '2.0',
                 method: 'initialize',
@@ -2115,6 +2118,9 @@ describe('StreamableHTTPClientTransport', () => {
             );
 
             await transport.send(initialize);
+            // The cleared pin means the handshake itself carries no version header.
+            const handshakeCall = (globalThis.fetch as Mock).mock.calls.at(-1)!;
+            expect((handshakeCall[1].headers as Headers).get('mcp-protocol-version')).toBeNull();
             expect(transport.sessionId).toBe('handshake-session');
 
             // After the handshake pins a stateful version, the session id is replayed as today.

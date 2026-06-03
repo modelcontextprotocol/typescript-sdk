@@ -174,9 +174,12 @@ export interface Transport {
     sessionId?: string | undefined;
 
     /**
-     * Sets the protocol version used for the connection (called when the initialize response is received).
+     * Sets the protocol version used for the connection (called when the initialize response is
+     * received, or while a per-request revision governs the connection). Called with `undefined`
+     * to clear the pin — e.g. when a discovery probe resolves to the initialize fallback and the
+     * handshake must go out without the probed version.
      */
-    setProtocolVersion?: ((version: string) => void) | undefined;
+    setProtocolVersion?: ((version?: string) => void) | undefined;
 
     /**
      * Sets the supported protocol versions for header validation (called during connect).
