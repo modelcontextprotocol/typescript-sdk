@@ -5,10 +5,10 @@ import express from 'express';
 import type { Options as RateLimitOptions } from 'express-rate-limit';
 import { rateLimit } from 'express-rate-limit';
 
-import { InvalidRequestError, OAuthError, ServerError, TooManyRequestsError } from '../errors.js';
-import { allowedMethods } from '../middleware/allowedMethods.js';
-import { authenticateClient } from '../middleware/clientAuth.js';
-import type { OAuthServerProvider } from '../provider.js';
+import { InvalidRequestError, OAuthError, ServerError, TooManyRequestsError } from '../errors';
+import { allowedMethods } from '../middleware/allowedMethods';
+import { authenticateClient } from '../middleware/clientAuth';
+import type { OAuthServerProvider } from '../provider';
 
 export type RevocationHandlerOptions = {
     provider: OAuthServerProvider;

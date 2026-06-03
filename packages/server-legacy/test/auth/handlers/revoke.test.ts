@@ -1,11 +1,11 @@
-import { revocationHandler, RevocationHandlerOptions } from '../../../src/auth/handlers/revoke.js';
-import { OAuthServerProvider, AuthorizationParams } from '../../../src/auth/provider.js';
-import { OAuthRegisteredClientsStore } from '../../../src/auth/clients.js';
+import { revocationHandler, RevocationHandlerOptions } from '../../../src/auth/handlers/revoke';
+import { OAuthServerProvider, AuthorizationParams } from '../../../src/auth/provider';
+import { OAuthRegisteredClientsStore } from '../../../src/auth/clients';
 import { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
 import express, { Response } from 'express';
 import supertest from 'supertest';
-import { AuthInfo } from '../../../src/auth/types.js';
-import { InvalidTokenError } from '../../../src/auth/errors.js';
+import { AuthInfo } from '../../../src/auth/types';
+import { InvalidTokenError } from '../../../src/auth/errors';
 import { MockInstance } from 'vitest';
 
 describe('Revocation Handler', () => {

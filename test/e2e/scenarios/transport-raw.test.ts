@@ -23,9 +23,9 @@ import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { hostPerSession, hostStateless } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { hostPerSession, hostStateless } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 /** Absolute path to the runnable stdio fixture server (executed with tsx). */
 const FIXTURE_PATH = fileURLToPath(new URL('../fixtures/stdio-server.ts', import.meta.url));

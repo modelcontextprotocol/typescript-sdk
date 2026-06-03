@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { type Mocked } from 'vitest';
 
-import { SSEServerTransport } from '../../src/sse/sse.js';
+import { SSEServerTransport } from '../../src/sse/sse';
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 
 const createMockResponse = () => {

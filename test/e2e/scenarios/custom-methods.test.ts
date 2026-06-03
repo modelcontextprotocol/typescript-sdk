@@ -15,9 +15,9 @@ import { McpServer, ProtocolErrorCode, Server } from '@modelcontextprotocol/serv
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 verifies('custom-methods:server-handler:roundtrip', async ({ transport }: TestArgs) => {
     const SearchParams = z.object({ query: z.string(), limit: z.number().int().default(5) });
