@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { ProtocolErrorCode } from '../../src/types/enums.js';
-import { ProtocolError, UnsupportedProtocolVersionError } from '../../src/types/errors.js';
+import { ProtocolErrorCode } from '../../src/types/enums';
+import { ProtocolError, UnsupportedProtocolVersionError } from '../../src/types/errors';
 
 describe('UnsupportedProtocolVersionError', () => {
     const data = { supported: ['2025-11-25', '2025-06-18'], requested: '2026-07-28' };

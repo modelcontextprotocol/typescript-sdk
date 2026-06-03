@@ -1,8 +1,8 @@
 import type { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
 import type { Response } from 'express';
 
-import type { OAuthRegisteredClientsStore } from './clients.js';
-import type { AuthInfo } from './types.js';
+import type { OAuthRegisteredClientsStore } from './clients';
+import type { AuthInfo } from './types';
 
 export type AuthorizationParams = {
     state?: string;

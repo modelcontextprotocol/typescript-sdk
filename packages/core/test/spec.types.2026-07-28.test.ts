@@ -18,16 +18,16 @@ import {
     LATEST_PROTOCOL_VERSION,
     MISSING_REQUIRED_CLIENT_CAPABILITY,
     UNSUPPORTED_PROTOCOL_VERSION
-} from '../src/types/spec.types.2026-07-28.js';
-import type * as SpecTypes from '../src/types/spec.types.2026-07-28.js';
-import type * as SDKTypes from '../src/types/index.js';
+} from '../src/types/spec.types.2026-07-28';
+import type * as SpecTypes from '../src/types/spec.types.2026-07-28';
+import type * as SDKTypes from '../src/types/index';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     LOG_LEVEL_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     ProtocolErrorCode
-} from '../src/types/index.js';
+} from '../src/types/index';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
