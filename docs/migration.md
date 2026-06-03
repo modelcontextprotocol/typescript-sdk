@@ -113,6 +113,14 @@ const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: ()
 
 The SSE transport has been removed from the server. Servers should migrate to Streamable HTTP. The client-side SSE transport remains available for connecting to legacy SSE servers.
 
+If you need a temporary bridge during migration, `@modelcontextprotocol/server-legacy/sse` provides a frozen copy of the v1 `SSEServerTransport`:
+
+```typescript
+import { SSEServerTransport } from '@modelcontextprotocol/server-legacy/sse';
+```
+
+This package is deprecated and will not receive new features.
+
 ### `WebSocketClientTransport` removed
 
 `WebSocketClientTransport` has been removed. WebSocket is not a spec-defined MCP transport, and keeping it in the SDK encouraged transport proliferation without a conformance baseline.
@@ -135,9 +143,10 @@ const transport = new StreamableHTTPClientTransport(new URL('http://localhost:30
 
 ### Server auth split
 
-Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are now first-class in `@modelcontextprotocol/express`.
+Resource Server helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `getOAuthProtectedResourceMetadataUrl`, `OAuthTokenVerifier`) are first-class in `@modelcontextprotocol/express`.
 
-Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) have been removed from the core SDK; new code should use a dedicated IdP/OAuth library. See the [examples](../examples/server/src/) for a working demo with `better-auth`.
+Authorization Server helpers (`mcpAuthRouter`, `OAuthServerProvider`, `ProxyOAuthServerProvider`, `authenticateClient`, `allowedMethods`, etc.) have been removed from the core SDK; new code should use a dedicated IdP/OAuth library. See the [examples](../examples/server/src/) for
+a working demo with `better-auth`.
 
 Note: `AuthInfo` has moved from `server/auth/types.ts` to the core types and is now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
 
@@ -379,7 +388,11 @@ const AcmeSearch = z.object({
     params: z.object({ query: z.string(), limit: z.number().int() })
 });
 server.setRequestHandler(AcmeSearch, async request => {
-    return { items: [/* ... */] };
+    return {
+        items: [
+            /* ... */
+        ]
+    };
 });
 ```
 
@@ -390,7 +403,11 @@ const SearchParams = z.object({ query: z.string(), limit: z.number().int() });
 const SearchResult = z.object({ items: z.array(z.string()) });
 
 server.setRequestHandler('acme/search', { params: SearchParams, result: SearchResult }, async (params, ctx) => {
-    return { items: [/* ... */] };
+    return {
+        items: [
+            /* ... */
+        ]
+    };
 });
 ```
 
@@ -429,8 +446,8 @@ Common method string replacements:
 
 ### `Protocol.request()`, `ctx.mcpReq.send()`, and `Client.callTool()` no longer require a schema parameter for spec methods
 
-For **spec** methods, the public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer require a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to import result schemas
-like `CallToolResultSchema` or `ElicitResultSchema` when making spec-method requests.
+For **spec** methods, the public `Protocol.request()`, `BaseContext.mcpReq.send()`, and `Client.callTool()` methods no longer require a Zod result schema argument. The SDK now resolves the correct result schema internally based on the method name. This means you no longer need to
+import result schemas like `CallToolResultSchema` or `ElicitResultSchema` when making spec-method requests.
 
 **`client.request()` — Before (v1):**
 
@@ -485,7 +502,7 @@ const result = await client.callTool({ name: 'my-tool', arguments: {} }, Compati
 const result = await client.callTool({ name: 'my-tool', arguments: {} });
 ```
 
-The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult | CreateTaskResult>`.
+The return type is now inferred from the method name via `ResultTypeMap`. For example, `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult>`.
 
 For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
@@ -505,12 +522,13 @@ if (isSpecType.CallToolResult(value)) {
 }
 const blocks = mixed.filter(isSpecType.ContentBlock);
 
-// v2: or get the StandardSchemaV1 validator object directly
+// v2: or get the StandardSchemaV1Sync validator object directly
 import { specTypeSchemas } from '@modelcontextprotocol/client';
-const result = await specTypeSchemas.CallToolResult['~standard'].validate(value);
+const result = specTypeSchemas.CallToolResult['~standard'].validate(value);
 ```
 
-`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1<In, Out>`, which composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
+`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1Sync<In, Out>` — `validate()` returns the result synchronously,
+so you can access `.issues` / `.value` without `await`. It composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
 
 ### Client list methods return empty results for missing capabilities
 
@@ -577,23 +595,21 @@ import { JSONRPCErrorResponse, ResourceTemplateReference, isJSONRPCErrorResponse
 
 The `RequestHandlerExtra` type has been replaced with a structured context type hierarchy using nested groups:
 
-| v1                                       | v2                                                                     |
-| ---------------------------------------- | ---------------------------------------------------------------------- |
-| `RequestHandlerExtra` (flat, all fields) | `ServerContext` (server handlers) or `ClientContext` (client handlers) |
-| `extra` parameter name                   | `ctx` parameter name                                                   |
-| `extra.signal`                           | `ctx.mcpReq.signal`                                                    |
-| `extra.requestId`                        | `ctx.mcpReq.id`                                                        |
-| `extra._meta`                            | `ctx.mcpReq._meta`                                                     |
-| `extra.sendRequest(...)`                 | `ctx.mcpReq.send(...)`                                                 |
-| `extra.sendNotification(...)`            | `ctx.mcpReq.notify(...)`                                               |
-| `extra.authInfo`                         | `ctx.http?.authInfo`                                                   |
-| `extra.requestInfo`                      | `ctx.http?.req` (standard Web `Request`, only on `ServerContext`)      |
-| `extra.closeSSEStream`                   | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
-| `extra.closeStandaloneSSEStream`         | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
-| `extra.sessionId`                        | `ctx.sessionId`                                                        |
-| `extra.taskStore`                        | `ctx.task?.store`                                                      |
-| `extra.taskId`                           | `ctx.task?.id`                                                         |
-| `extra.taskRequestedTtl`                 | `ctx.task?.requestedTtl`                                               |
+| v1                                                | v2                                                                     |
+| ------------------------------------------------- | ---------------------------------------------------------------------- |
+| `RequestHandlerExtra` (flat, all fields)          | `ServerContext` (server handlers) or `ClientContext` (client handlers) |
+| `extra` parameter name                            | `ctx` parameter name                                                   |
+| `extra.signal`                                    | `ctx.mcpReq.signal`                                                    |
+| `extra.requestId`                                 | `ctx.mcpReq.id`                                                        |
+| `extra._meta`                                     | `ctx.mcpReq._meta`                                                     |
+| `extra.sendRequest(...)`                          | `ctx.mcpReq.send(...)`                                                 |
+| `extra.sendNotification(...)`                     | `ctx.mcpReq.notify(...)`                                               |
+| `extra.authInfo`                                  | `ctx.http?.authInfo`                                                   |
+| `extra.requestInfo`                               | `ctx.http?.req` (standard Web `Request`, only on `ServerContext`)      |
+| `extra.closeSSEStream`                            | `ctx.http?.closeSSE` (only on `ServerContext`)                         |
+| `extra.closeStandaloneSSEStream`                  | `ctx.http?.closeStandaloneSSE` (only on `ServerContext`)               |
+| `extra.sessionId`                                 | `ctx.sessionId`                                                        |
+| `extra.taskStore` / `taskId` / `taskRequestedTtl` | _removed — see "Experimental tasks interception removed" below_        |
 
 **Before (v1):**
 
@@ -611,17 +627,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
 ```typescript
 server.setRequestHandler('tools/call', async (request, ctx) => {
     const headers = ctx.http?.req?.headers; // standard Web Request object
-    const taskStore = ctx.task?.store;
     await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken: 'abc', progress: 50, total: 100 } });
     return { content: [{ type: 'text', text: 'result' }] };
 });
 ```
 
-Context fields are organized into 4 groups:
+Context fields are organized into 3 groups:
 
 - **`mcpReq`** — request-level concerns: `id`, `method`, `_meta`, `signal`, `send()`, `notify()`, plus server-only `log()`, `elicitInput()`, and `requestSampling()`
 - **`http?`** — HTTP transport concerns (undefined for stdio): `authInfo`, plus server-only `req`, `closeSSE`, `closeStandaloneSSE`
-- **`task?`** — task lifecycle: `id`, `store`, `requestedTtl`
+- **`sessionId?`** — transport session identifier (top-level)
 
 `BaseContext` is the common base type shared by both `ServerContext` and `ClientContext`. `ServerContext` extends each group with server-specific additions via type intersection.
 
@@ -652,10 +667,11 @@ These replace the pattern of calling `server.sendLoggingMessage()`, `server.crea
 
 ### Error hierarchy refactoring
 
-The SDK now distinguishes between two types of errors:
+The SDK now distinguishes between three types of errors:
 
 1. **`ProtocolError`** (renamed from `McpError`): Protocol errors that cross the wire as JSON-RPC error responses
 2. **`SdkError`**: Local SDK errors that never cross the wire (timeouts, connection issues, capability checks)
+3. **`SdkHttpError`** (extends `SdkError`): HTTP transport errors with typed `.status` and `.statusText` accessors
 
 #### Renamed exports
 
@@ -706,26 +722,26 @@ try {
 
 The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 
-| Code                                              | Description                                 |
-| ------------------------------------------------- | ------------------------------------------- |
-| `SdkErrorCode.NotConnected`                       | Transport is not connected                  |
-| `SdkErrorCode.AlreadyConnected`                   | Transport is already connected              |
-| `SdkErrorCode.NotInitialized`                     | Protocol is not initialized                 |
-| `SdkErrorCode.CapabilityNotSupported`             | Required capability is not supported        |
-| `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response      |
-| `SdkErrorCode.ConnectionClosed`                   | Connection was closed                       |
-| `SdkErrorCode.SendFailed`                         | Failed to send message                      |
+| Code                                              | Description                                    |
+| ------------------------------------------------- | ---------------------------------------------- |
+| `SdkErrorCode.NotConnected`                       | Transport is not connected                     |
+| `SdkErrorCode.AlreadyConnected`                   | Transport is already connected                 |
+| `SdkErrorCode.NotInitialized`                     | Protocol is not initialized                    |
+| `SdkErrorCode.CapabilityNotSupported`             | Required capability is not supported           |
+| `SdkErrorCode.RequestTimeout`                     | Request timed out waiting for response         |
+| `SdkErrorCode.ConnectionClosed`                   | Connection was closed                          |
+| `SdkErrorCode.SendFailed`                         | Failed to send message                         |
 | `SdkErrorCode.InvalidResult`                      | Response result failed local schema validation |
-| `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                    |
-| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication |
-| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping  |
-| `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response    |
-| `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                   |
-| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                 |
+| `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                       |
+| `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication    |
+| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping     |
+| `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response       |
+| `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                      |
+| `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                    |
 
 #### `StreamableHTTPError` removed
 
-The `StreamableHTTPError` class has been removed. HTTP transport errors are now thrown as `SdkError` with specific `SdkErrorCode` values that provide more granular error information:
+The `StreamableHTTPError` class has been removed. HTTP transport errors are now thrown as `SdkHttpError` (a subclass of `SdkError` with typed `.status` and `.statusText` accessors) with specific `SdkErrorCode` values that provide more granular error information:
 
 **Before (v1):**
 
@@ -744,12 +760,14 @@ try {
 **After (v2):**
 
 ```typescript
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/client';
+import { SdkHttpError, SdkErrorCode } from '@modelcontextprotocol/client';
 
 try {
     await transport.send(message);
 } catch (error) {
-    if (error instanceof SdkError) {
+    if (error instanceof SdkHttpError) {
+        console.log('HTTP status:', error.status); // number — no cast needed
+        console.log('Status text:', error.statusText); // string | undefined
         switch (error.code) {
             case SdkErrorCode.ClientHttpAuthentication:
                 console.log('Auth failed — server rejected token after re-auth');
@@ -764,8 +782,6 @@ try {
                 console.log('HTTP request failed');
                 break;
         }
-        // Access HTTP status code from error.data if needed
-        const httpStatus = (error.data as { status?: number })?.status;
     }
 }
 ```
@@ -811,6 +827,14 @@ The following individual error classes have been removed in favor of `OAuthError
 
 The `OAUTH_ERRORS` constant has also been removed.
 
+If you need the v1 OAuth error classes and `mcpAuthRouter` during migration, `@modelcontextprotocol/server-legacy/auth` provides a frozen copy:
+
+```typescript
+import { mcpAuthRouter, InvalidClientError } from '@modelcontextprotocol/server-legacy/auth';
+```
+
+This package is deprecated and will not receive new features. Use a dedicated OAuth provider in production.
+
 **Before (v1):**
 
 ```typescript
@@ -853,46 +877,26 @@ try {
 }
 ```
 
-### Experimental: `TaskCreationParams.ttl` no longer accepts `null`
+### Experimental tasks interception removed
 
-The `ttl` field in `TaskCreationParams` (used when requesting the server to create a task) no longer accepts `null`. Per the MCP spec, `null` TTL (meaning unlimited lifetime) is only valid in server responses (`Task.ttl`), not in client requests. Clients should omit `ttl` to let
-the server decide the lifetime.
+The 2025-11 experimental tasks side-channel woven through `Protocol` has been removed in preparation for the SEP-2663 Tasks Extension. The following are gone with no in-place replacement:
 
-This also narrows the type of `requestedTtl` in `TaskContext`, `CreateTaskServerContext`, and `TaskServerContext` from `number | null | undefined` to `number | undefined`.
+- `ProtocolOptions.tasks` (the `{ taskStore, taskMessageQueue }` constructor option)
+- `protocol.taskManager` getter, `Protocol#_bindTaskManager`
+- `RequestOptions.task` / `RequestOptions.relatedTask`, `NotificationOptions.relatedTask`
+- `BaseContext.task` (`ctx.task?.store` / `ctx.task?.id` / `ctx.task?.requestedTtl`)
+- abstract `assertTaskCapability` / `assertTaskHandlerCapability`
+- `client.experimental.tasks.*` / `server.experimental.tasks.*` / `mcpServer.experimental.tasks.*` accessors and the `Experimental{Client,Server,McpServer}Tasks` classes
+- streaming methods (`requestStream`, `callToolStream`, `createMessageStream`, `elicitInputStream`) and the `ResponseMessage` types they yielded (`BaseResponseMessage`, `ErrorMessage`, `AsyncGeneratorValue`)
+- `mcpServer.experimental.tasks.registerToolTask(...)`, `ToolTaskHandler`, `TaskRequestHandler`, `CreateTaskRequestHandler`
+- `TaskMessageQueue`, `InMemoryTaskMessageQueue`, `BaseQueuedMessage` and the `Queued*` message types, `CreateTaskServerContext`, `TaskServerContext`, `TaskToolExecution`
+- `examples/{client,server}/src/simpleTaskInteractive*.ts`
 
-**Before (v1):**
+**Also removed:** the storage layer (`TaskStore`, `InMemoryTaskStore`, `CreateTaskOptions`, `isTerminal`). It will return as part of the SEP-2663 server-directed plugin in a follow-up.
 
-```typescript
-// Requesting unlimited lifetime by passing null
-const result = await client.callTool({
-    name: 'long-task',
-    arguments: {},
-    task: { ttl: null }
-});
+**Wire types remain.** The task wire surface defined by the 2025-11-25 protocol revision is still exported, for interoperability with peers on that revision: the task Zod schemas and their inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `GetTaskPayload*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), the task members of the request/result/notification unions, the `tasks` capability key, the `isTaskAugmentedRequestParams` guard, and `RELATED_TASK_META_KEY`. Only the behavior is gone: servers built on this SDK do not advertise the `tasks` capability, and inbound `tasks/*` requests receive a standard `-32601` (method not found) error.
 
-// Handler context had number | null | undefined
-server.setRequestHandler('tools/call', async (request, ctx) => {
-    const ttl: number | null | undefined = ctx.task?.requestedTtl;
-});
-```
-
-**After (v2):**
-
-```typescript
-// Omit ttl to let the server decide (server may return null for unlimited)
-const result = await client.callTool({
-    name: 'long-task',
-    arguments: {},
-    task: {}
-});
-
-// Handler context is now number | undefined
-server.setRequestHandler('tools/call', async (request, ctx) => {
-    const ttl: number | undefined = ctx.task?.requestedTtl;
-});
-```
-
-> **Note:** These task APIs are marked `@experimental` and may change without notice.
+There is no migration path for the removed surface; it was always `@experimental`. Task support is planned to return as an opt-in extension plugin per SEP-2663.
 
 ## Enhancements
 
@@ -900,8 +904,8 @@ server.setRequestHandler('tools/call', async (request, ctx) => {
 
 The SDK now automatically selects the appropriate JSON Schema validator based on your runtime environment:
 
-- **Node.js**: Uses `AjvJsonSchemaValidator` (same as v1 default)
-- **Cloudflare Workers**: Uses `CfWorkerJsonSchemaValidator` (previously required manual configuration)
+- **Node.js**: Uses AJV (same as v1 default)
+- **Cloudflare Workers**: Uses `@cfworker/json-schema` (previously required manual configuration)
 
 This means Cloudflare Workers users no longer need to explicitly pass the validator:
 
@@ -932,16 +936,46 @@ const server = new McpServer(
 );
 ```
 
-You can still explicitly override the validator if needed:
+You do not need to install or import validator packages for the default behavior. The client and server packages bundle the validator backend selected by the runtime shim, so a normal `import { McpServer } from '@modelcontextprotocol/server'` does not pull `ajv` or
+`@cfworker/json-schema` into your bundle until you choose to customize.
+
+If you want to customize the **built-in** backend (for example, pre-register schemas by `$id`, register custom AJV formats, or change the `@cfworker/json-schema` draft), import the named class from the explicit subpath and pass an instance through `jsonSchemaValidator`:
 
 ```typescript
-// Runtime-aware default (auto-selects AjvJsonSchemaValidator or CfWorkerJsonSchemaValidator)
-import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
+import { Ajv } from 'ajv';
+import addFormats from 'ajv-formats';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 
-// Specific validators
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server';
-import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
+const ajv = new Ajv({ strict: true, allErrors: true });
+addFormats(ajv);
+
+const server = new McpServer(
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {} },
+        jsonSchemaValidator: new AjvJsonSchemaValidator(ajv)
+    }
+);
 ```
+
+```typescript
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/validators/cf-worker';
+
+const server = new McpServer(
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {} },
+        jsonSchemaValidator: new CfWorkerJsonSchemaValidator({ draft: '2020-12', shortcircuit: false })
+    }
+);
+```
+
+(both subpaths are also available on `@modelcontextprotocol/client/validators/...`)
+
+If you import from one of these subpaths in your own code, the corresponding peer dep (`ajv` + `ajv-formats`, or `@cfworker/json-schema`) needs to be installed in your `package.json`. The runtime shim continues to vendor a copy for the default code path, so you can use the
+subpath in some files and rely on the default in others.
+
+To replace validation wholesale rather than customizing the built-in classes, implement the `jsonSchemaValidator` interface and pass your own implementation through the option above.
 
 ## Unchanged APIs
 
