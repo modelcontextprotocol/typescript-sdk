@@ -145,6 +145,12 @@ registerScenario('initialize', runBasicClient);
 registerScenario('tools_call', runToolsCallClient);
 
 // ============================================================================
+// JSON Schema $ref scenario (SEP-2106)
+// ============================================================================
+
+registerScenario('json-schema-ref-no-deref', runBasicClient);
+
+// ============================================================================
 // Auth scenarios - well-behaved client
 // ============================================================================
 
