@@ -400,6 +400,15 @@ export abstract class Protocol<SendRequestT extends Request, SendNotificationT e
                 const handleTaskResult = async (): Promise<SendResultT> => {
                     const taskId = request.params.taskId;
 
+                    // Verify the task exists and is visible to this session before
+                    // touching the message queue. Queues are keyed by taskId alone,
+                    // so draining before this check would let a request bound to a
+                    // different session consume (and receive) messages queued for
+                    // another session's task.
+                    if (!(await this._taskStore!.getTask(taskId, extra.sessionId))) {
+                        throw new McpError(ErrorCode.InvalidParams, `Task not found: ${taskId}`);
+                    }
+
                     // Deliver queued messages
                     if (this._taskMessageQueue) {
                         let queuedMessage: QueuedMessage | undefined;

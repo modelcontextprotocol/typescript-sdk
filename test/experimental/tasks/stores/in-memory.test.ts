@@ -645,6 +645,204 @@ describe('InMemoryTaskStore', () => {
         });
     });
 
+    describe('session isolation', () => {
+        const request: Request = {
+            method: 'tools/call',
+            params: { name: 'test-tool' }
+        };
+
+        describe('cross-session access', () => {
+            it('should return null from getTask for a task owned by another session', async () => {
+                const task = await store.createTask({}, 1, request, 'session-a');
+
+                expect(await store.getTask(task.taskId, 'session-b')).toBeNull();
+            });
+
+            it('should reject getTaskResult for a task owned by another session with the unknown-task error', async () => {
+                const task = await store.createTask({}, 1, request, 'session-a');
+                await store.storeTaskResult(
+                    task.taskId,
+                    'completed',
+                    { content: [{ type: 'text' as const, text: 'secret' }] },
+                    'session-a'
+                );
+
+                // Exact same message as a nonexistent taskId - existence is not leaked
+                await expect(store.getTaskResult(task.taskId, 'session-b')).rejects.toThrow(`Task with ID ${task.taskId} not found`);
+            });
+
+            it('should reject updateTaskStatus from another session and leave the task unchanged', async () => {
+                const task = await store.createTask({}, 1, request, 'session-a');
+
+                await expect(store.updateTaskStatus(task.taskId, 'cancelled', undefined, 'session-b')).rejects.toThrow(
+                    `Task with ID ${task.taskId} not found`
+                );
+
+                const owned = await store.getTask(task.taskId, 'session-a');
+                expect(owned?.status).toBe('working');
+            });
+
+            it('should reject storeTaskResult from another session and not store the result', async () => {
+                const task = await store.createTask({}, 1, request, 'session-a');
+
+                await expect(
+                    store.storeTaskResult(task.taskId, 'completed', { content: [{ type: 'text' as const, text: 'forged' }] }, 'session-b')
+                ).rejects.toThrow(`Task with ID ${task.taskId} not found`);
+
+                const owned = await store.getTask(task.taskId, 'session-a');
+                expect(owned?.status).toBe('working');
+                await expect(store.getTaskResult(task.taskId, 'session-a')).rejects.toThrow(`Task ${task.taskId} has no result stored`);
+            });
+
+            it('should not list tasks owned by another session', async () => {
+                await store.createTask({}, 1, request, 'session-a');
+                await store.createTask({}, 2, request, 'session-a');
+
+                const result = await store.listTasks(undefined, 'session-b');
+                expect(result.tasks).toEqual([]);
+                expect(result.nextCursor).toBeUndefined();
+            });
+
+            it('should reject a cursor that refers to another session task', async () => {
+                const taskA = await store.createTask({}, 1, request, 'session-a');
+                await store.createTask({}, 2, request, 'session-b');
+
+                await expect(store.listTasks(taskA.taskId, 'session-b')).rejects.toThrow(`Invalid cursor: ${taskA.taskId}`);
+            });
+        });
+
+        describe('same-session access', () => {
+            it('should support the full task lifecycle within the owning session', async () => {
+                const task = await store.createTask({}, 1, request, 'session-a');
+
+                const retrieved = await store.getTask(task.taskId, 'session-a');
+                expect(retrieved?.taskId).toBe(task.taskId);
+
+                await store.updateTaskStatus(task.taskId, 'input_required', undefined, 'session-a');
+                expect((await store.getTask(task.taskId, 'session-a'))?.status).toBe('input_required');
+
+                const result = { content: [{ type: 'text' as const, text: 'done' }] };
+                await store.storeTaskResult(task.taskId, 'completed', result, 'session-a');
+                expect(await store.getTaskResult(task.taskId, 'session-a')).toEqual(result);
+            });
+
+            it('should list and paginate tasks per session', async () => {
+                // 15 tasks for session-a (page size is 10), 5 for session-b
+                for (let i = 1; i <= 15; i++) {
+                    await store.createTask({}, i, request, 'session-a');
+                }
+                for (let i = 16; i <= 20; i++) {
+                    await store.createTask({}, i, request, 'session-b');
+                }
+
+                const page1 = await store.listTasks(undefined, 'session-a');
+                expect(page1.tasks).toHaveLength(10);
+                expect(page1.nextCursor).toBeDefined();
+
+                const page2 = await store.listTasks(page1.nextCursor, 'session-a');
+                expect(page2.tasks).toHaveLength(5);
+                expect(page2.nextCursor).toBeUndefined();
+
+                const listB = await store.listTasks(undefined, 'session-b');
+                expect(listB.tasks).toHaveLength(5);
+                expect(listB.nextCursor).toBeUndefined();
+            });
+        });
+
+        describe('sessionless access', () => {
+            it('should keep sessionless tasks accessible to sessionless callers', async () => {
+                const task = await store.createTask({}, 1, request);
+
+                const retrieved = await store.getTask(task.taskId);
+                expect(retrieved?.taskId).toBe(task.taskId);
+
+                await store.storeTaskResult(task.taskId, 'completed', { content: [] });
+                expect(await store.getTaskResult(task.taskId)).toEqual({ content: [] });
+
+                const listed = await store.listTasks();
+                expect(listed.tasks).toHaveLength(1);
+            });
+
+            it('should hide sessionless tasks from sessioned callers', async () => {
+                const task = await store.createTask({}, 1, request);
+
+                expect(await store.getTask(task.taskId, 'session-a')).toBeNull();
+                await expect(store.getTaskResult(task.taskId, 'session-a')).rejects.toThrow(`Task with ID ${task.taskId} not found`);
+                expect((await store.listTasks(undefined, 'session-a')).tasks).toEqual([]);
+            });
+
+            it('should hide sessioned tasks from callers without a sessionId (fail closed)', async () => {
+                const task = await store.createTask({}, 1, request, 'session-a');
+
+                // A call path that fails to thread the session id must never
+                // gain cross-session access.
+                expect(await store.getTask(task.taskId)).toBeNull();
+                await expect(store.getTaskResult(task.taskId)).rejects.toThrow(`Task with ID ${task.taskId} not found`);
+                await expect(store.updateTaskStatus(task.taskId, 'cancelled')).rejects.toThrow(`Task with ID ${task.taskId} not found`);
+                await expect(store.storeTaskResult(task.taskId, 'completed', { content: [] })).rejects.toThrow(
+                    `Task with ID ${task.taskId} not found`
+                );
+            });
+
+            it('should list only sessionless tasks for callers without a sessionId', async () => {
+                await store.createTask({}, 1, request, 'session-a');
+                const sessionless = await store.createTask({}, 2, request);
+
+                const listed = await store.listTasks();
+                expect(listed.tasks).toHaveLength(1);
+                expect(listed.tasks[0].taskId).toBe(sessionless.taskId);
+            });
+
+            it('should keep getAllTasks as the unfiltered debugging view', async () => {
+                await store.createTask({}, 1, request, 'session-a');
+                await store.createTask({}, 2, request);
+
+                expect(store.getAllTasks()).toHaveLength(2);
+            });
+        });
+
+        describe('mixed-mode warning', () => {
+            afterEach(() => {
+                vi.restoreAllMocks();
+            });
+
+            it('should warn once when sessionless and sessioned tasks are mixed', async () => {
+                const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+                await store.createTask({}, 1, request, 'session-a');
+                await store.createTask({}, 2, request);
+                expect(warnSpy).toHaveBeenCalledTimes(1);
+                expect(warnSpy.mock.calls[0][0]).toContain('mix of sessionless and session-scoped tasks');
+
+                // Further mixed creations do not warn again on the same instance
+                await store.createTask({}, 3, request);
+                await store.createTask({}, 4, request, 'session-b');
+                expect(warnSpy).toHaveBeenCalledTimes(1);
+            });
+
+            it('should warn when a sessioned task lands in a sessionless store', async () => {
+                const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+                await store.createTask({}, 1, request);
+                await store.createTask({}, 2, request, 'session-a');
+                expect(warnSpy).toHaveBeenCalledTimes(1);
+            });
+
+            it('should not warn for purely sessionless stores', async () => {
+                const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+                await store.createTask({}, 1, request);
+                await store.createTask({}, 2, request);
+                expect(warnSpy).not.toHaveBeenCalled();
+            });
+
+            it('should not warn for purely sessioned stores', async () => {
+                const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+                await store.createTask({}, 1, request, 'session-a');
+                await store.createTask({}, 2, request, 'session-b');
+                await store.createTask({}, 3, request, 'session-a');
+                expect(warnSpy).not.toHaveBeenCalled();
+            });
+        });
+    });
+
     describe('cleanup', () => {
         it('should clear all timers and tasks', async () => {
             await store.createTask({ ttl: 1000 }, 1, {

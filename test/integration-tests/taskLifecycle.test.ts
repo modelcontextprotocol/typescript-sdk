@@ -248,19 +248,19 @@ describe('Task Lifecycle Integration Tests', () => {
 
             // Verify task is stored in taskStore
             const taskId = createResult.task.taskId;
-            const storedTask = await taskStore.getTask(taskId);
+            const storedTask = await taskStore.getTask(taskId, transport.sessionId);
             expect(storedTask).toBeDefined();
             expect(storedTask?.taskId).toBe(taskId);
             expect(storedTask?.status).toBe('working');
 
             // Wait for completion
-            const completedTask = await waitForTaskStatus(id => taskStore.getTask(id), taskId, 'completed');
+            const completedTask = await waitForTaskStatus(id => taskStore.getTask(id, transport.sessionId), taskId, 'completed');
 
             // Verify task completed
             expect(completedTask.status).toBe('completed');
 
             // Verify result is stored
-            const result = await taskStore.getTaskResult(taskId);
+            const result = await taskStore.getTaskResult(taskId, transport.sessionId);
             expect(result).toBeDefined();
             expect(result.content).toEqual([{ type: 'text', text: 'Completed after 500ms' }]);
 
@@ -297,13 +297,13 @@ describe('Task Lifecycle Integration Tests', () => {
             const taskId = createResult.task.taskId;
 
             // Wait for failure
-            const task = await waitForTaskStatus(id => taskStore.getTask(id), taskId, 'failed');
+            const task = await waitForTaskStatus(id => taskStore.getTask(id, transport.sessionId), taskId, 'failed');
 
             // Verify task failed
             expect(task.status).toBe('failed');
 
             // Verify error result is stored
-            const result = await taskStore.getTaskResult(taskId);
+            const result = await taskStore.getTaskResult(taskId, transport.sessionId);
             expect(result.content).toEqual([{ type: 'text', text: 'Task failed as requested' }]);
             expect(result.isError).toBe(true);
 
@@ -341,7 +341,7 @@ describe('Task Lifecycle Integration Tests', () => {
             const taskId = createResult.task.taskId;
 
             // Verify task is working
-            let task = await taskStore.getTask(taskId);
+            let task = await taskStore.getTask(taskId, transport.sessionId);
             expect(task?.status).toBe('working');
 
             // Cancel the task via client.experimental.tasks.cancelTask - per spec, returns Result & Task
@@ -355,7 +355,7 @@ describe('Task Lifecycle Integration Tests', () => {
             expect(cancelResult.ttl).toBeDefined();
 
             // Verify task is cancelled in store as well
-            task = await taskStore.getTask(taskId);
+            task = await taskStore.getTask(taskId, transport.sessionId);
             expect(task?.status).toBe('cancelled');
 
             await transport.close();
@@ -390,7 +390,7 @@ describe('Task Lifecycle Integration Tests', () => {
             const taskId = createResult.task.taskId;
 
             // Wait for completion
-            const task = await waitForTaskStatus(id => taskStore.getTask(id), taskId, 'completed');
+            const task = await waitForTaskStatus(id => taskStore.getTask(id, transport.sessionId), taskId, 'completed');
 
             // Verify task is completed
             expect(task.status).toBe('completed');
@@ -728,7 +728,7 @@ describe('Task Lifecycle Integration Tests', () => {
             }
 
             // List tasks using taskStore
-            const listResult = await taskStore.listTasks();
+            const listResult = await taskStore.listTasks(undefined, transport.sessionId);
 
             expect(listResult.tasks.length).toBeGreaterThanOrEqual(3);
             expect(listResult.tasks.some(t => taskIds.includes(t.taskId))).toBe(true);
@@ -765,13 +765,13 @@ describe('Task Lifecycle Integration Tests', () => {
             }
 
             // Get first page using taskStore
-            const page1 = await taskStore.listTasks();
+            const page1 = await taskStore.listTasks(undefined, transport.sessionId);
 
             expect(page1.tasks.length).toBe(10);
             expect(page1.nextCursor).toBeDefined();
 
             // Get second page
-            const page2 = await taskStore.listTasks(page1.nextCursor);
+            const page2 = await taskStore.listTasks(page1.nextCursor, transport.sessionId);
 
             expect(page2.tasks.length).toBeGreaterThanOrEqual(5);
 
@@ -1454,7 +1454,7 @@ describe('Task Lifecycle Integration Tests', () => {
             const taskId = createResult.task.taskId;
 
             // Wait for task to complete and messages to be queued
-            const task = await waitForTaskStatus(id => taskStore.getTask(id), taskId, 'completed');
+            const task = await waitForTaskStatus(id => taskStore.getTask(id, transport.sessionId), taskId, 'completed');
 
             // Verify task is in terminal status (completed)
             expect(task.status).toBe('completed');
