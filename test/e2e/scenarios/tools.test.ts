@@ -158,16 +158,16 @@ function rawSchemaServer(): Server {
     return s;
 }
 
-verifies('tools:call:content:text', async ({ transport }: TestArgs) => {
+verifies('tools:call:content:text', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, echoServer, client);
+    await using _ = await wire({ transport, protocolVersion }, echoServer, client);
 
     const r = await client.callTool({ name: 'echo', arguments: { text: 'hi' } });
     expect(r.isError).toBeFalsy();
     expect(r.content).toEqual([{ type: 'text', text: 'hi' }]);
 });
 
-verifies('tools:call:content:image', async ({ transport }: TestArgs) => {
+verifies('tools:call:content:image', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('image', { inputSchema: z.object({}) }, () => ({
@@ -176,14 +176,14 @@ verifies('tools:call:content:image', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'image', arguments: {} });
     expect(r.isError).toBeFalsy();
     expect(r.content).toEqual([{ type: 'image', data: TINY_PNG_BASE64, mimeType: 'image/png' }]);
 });
 
-verifies('tools:call:content:audio', async ({ transport }: TestArgs) => {
+verifies('tools:call:content:audio', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('audio', { inputSchema: z.object({}) }, () => ({
@@ -192,14 +192,14 @@ verifies('tools:call:content:audio', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'audio', arguments: {} });
     expect(r.isError).toBeFalsy();
     expect(r.content).toEqual([{ type: 'audio', data: TINY_WAV_BASE64, mimeType: 'audio/wav' }]);
 });
 
-verifies('tools:call:content:embedded-resource', async ({ transport }: TestArgs) => {
+verifies('tools:call:content:embedded-resource', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('embedded-resource', { inputSchema: z.object({ kind: z.enum(['text', 'blob']) }) }, ({ kind }) => ({
@@ -216,7 +216,7 @@ verifies('tools:call:content:embedded-resource', async ({ transport }: TestArgs)
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const text = await client.callTool({ name: 'embedded-resource', arguments: { kind: 'text' } });
     expect(text.content).toEqual([
@@ -229,7 +229,7 @@ verifies('tools:call:content:embedded-resource', async ({ transport }: TestArgs)
     ]);
 });
 
-verifies('tools:call:content:resource-link', async ({ transport }: TestArgs) => {
+verifies('tools:call:content:resource-link', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('resource-link', { inputSchema: z.object({}) }, () => ({
@@ -246,7 +246,7 @@ verifies('tools:call:content:resource-link', async ({ transport }: TestArgs) => 
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'resource-link', arguments: {} });
     expect(r.content).toEqual([
@@ -260,7 +260,7 @@ verifies('tools:call:content:resource-link', async ({ transport }: TestArgs) => 
     ]);
 });
 
-verifies('tools:call:content:mixed', async ({ transport }: TestArgs) => {
+verifies('tools:call:content:mixed', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('mixed-content', { inputSchema: z.object({}) }, () => ({
@@ -274,7 +274,7 @@ verifies('tools:call:content:mixed', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'mixed-content', arguments: {} });
     expect(r.content).toEqual([
@@ -285,7 +285,7 @@ verifies('tools:call:content:mixed', async ({ transport }: TestArgs) => {
     ]);
 });
 
-verifies('tools:call:sampling-roundtrip', async ({ transport }: TestArgs) => {
+verifies('tools:call:sampling-roundtrip', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('ask-llm', { inputSchema: z.object({ prompt: z.string() }) }, async ({ prompt }) => {
@@ -311,7 +311,7 @@ verifies('tools:call:sampling-roundtrip', async ({ transport }: TestArgs) => {
         } satisfies CreateMessageResult;
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'ask-llm', arguments: { prompt: 'ping' } });
     expect(r.isError).toBeFalsy();
@@ -322,7 +322,7 @@ verifies('tools:call:sampling-roundtrip', async ({ transport }: TestArgs) => {
     expect(received[0].params.maxTokens).toBe(100);
 });
 
-verifies('tools:call:elicitation-roundtrip', async ({ transport }: TestArgs) => {
+verifies('tools:call:elicitation-roundtrip', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('ask-name', { inputSchema: z.object({}) }, async () => {
@@ -344,7 +344,7 @@ verifies('tools:call:elicitation-roundtrip', async ({ transport }: TestArgs) => 
         return { action: 'accept', content: { name: 'Ada' } };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'ask-name', arguments: {} });
 
@@ -360,7 +360,7 @@ verifies('tools:call:elicitation-roundtrip', async ({ transport }: TestArgs) => 
     expect(r.content).toEqual([{ type: 'text', text: 'Hello, Ada' }]);
 });
 
-verifies('tools:call:logging-mid-execution', async ({ transport }: TestArgs) => {
+verifies('tools:call:logging-mid-execution', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} } });
         s.registerTool('log-then-ok', { inputSchema: z.object({}) }, async (_args, extra) => {
@@ -379,7 +379,7 @@ verifies('tools:call:logging-mid-execution', async ({ transport }: TestArgs) => 
         logs.push(n.params);
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'log-then-ok', arguments: {} });
 
@@ -388,7 +388,7 @@ verifies('tools:call:logging-mid-execution', async ({ transport }: TestArgs) => 
     expect(r.content).toEqual([{ type: 'text', text: 'logged' }]);
 });
 
-verifies('tools:call:progress', async ({ transport }: TestArgs) => {
+verifies('tools:call:progress', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, extra) => {
@@ -406,7 +406,7 @@ verifies('tools:call:progress', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const steps = 3;
     const received: Array<{ progress: number; total?: number; message?: string }> = [];
@@ -430,7 +430,7 @@ verifies('tools:call:progress', async ({ transport }: TestArgs) => {
     expect(r.content).toEqual([{ type: 'text', text: `done after ${steps} steps` }]);
 });
 
-verifies('tools:call:concurrent', async ({ transport }: TestArgs) => {
+verifies('tools:call:concurrent', async ({ transport, protocolVersion }: TestArgs) => {
     // Both handlers park on a shared release barrier after recording that they started; a server
     // that dispatched calls sequentially would never start the second handler before the first
     // returns, so the started-length wait below would time out instead of passing.
@@ -450,7 +450,7 @@ verifies('tools:call:concurrent', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const settled: string[] = [];
     const firstCall = client.callTool({ name: 'lookup-order-status', arguments: { orderId: 'order-1001' } }).then(r => {
@@ -478,7 +478,7 @@ verifies('tools:call:concurrent', async ({ transport }: TestArgs) => {
     expect(settled.slice().sort()).toEqual(['order-1001', 'order-2002']);
 });
 
-verifies('tools:call:is-error', async ({ transport }: TestArgs) => {
+verifies('tools:call:is-error', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('returns-is-error', { inputSchema: z.object({ message: z.string() }) }, ({ message }) => ({
@@ -488,7 +488,7 @@ verifies('tools:call:is-error', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // Tap inbound wire messages so we can assert the JSON-RPC envelope shape.
     const inbound: JSONRPCMessage[] = [];
@@ -515,12 +515,12 @@ verifies('tools:call:is-error', async ({ transport }: TestArgs) => {
 
 verifies(
     'tools:call:unknown-name',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         // Spec: unknown tool is a protocol error → JSON-RPC error envelope, so
         // callTool() rejects. Known SDK gap: McpServer's catch wraps it as
         // {isError:true} instead — this body asserts the spec-correct behavior.
         const client = newClient();
-        await using _ = await wire(transport, echoServer, client);
+        await using _ = await wire({ transport, protocolVersion }, echoServer, client);
 
         const call = client.callTool({ name: 'no-such-tool', arguments: {} });
         await expect(call).rejects.toBeInstanceOf(McpError);
@@ -533,7 +533,7 @@ verifies(
 
 verifies(
     'tools:call:unknown-name',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
             s.setRequestHandler(ListToolsRequestSchema, () => ({
@@ -548,7 +548,7 @@ verifies(
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const ok = await client.callTool({ name: 'echo', arguments: { text: 'hi' } });
         expect(ok.content).toEqual([{ type: 'text', text: 'hi' }]);
@@ -561,9 +561,9 @@ verifies(
     { title: 'raw server' }
 );
 
-verifies('tools:call:structured-content', async ({ transport }: TestArgs) => {
+verifies('tools:call:structured-content', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, schemaServer, client);
+    await using _ = await wire({ transport, protocolVersion }, schemaServer, client);
 
     const { tools } = await client.listTools();
     const tool = tools.find(t => t.name === 'structured');
@@ -581,20 +581,20 @@ verifies('tools:call:structured-content', async ({ transport }: TestArgs) => {
     expect(v.valid, v.errorMessage).toBe(true);
 });
 
-verifies('tools:call:structured-content:text-mirror', async ({ transport }: TestArgs) => {
+verifies('tools:call:structured-content:text-mirror', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, schemaServer, client);
+    await using _ = await wire({ transport, protocolVersion }, schemaServer, client);
 
     const r = await client.callTool({ name: 'structured', arguments: { n: 21 } });
     expect(r.structuredContent).toEqual({ doubled: 42 });
     expect(r.content).toContainEqual({ type: 'text', text: JSON.stringify({ doubled: 42 }) });
 });
 
-verifies(['client:output-schema:validate', 'client:output-schema:missing-structured'], async ({ transport }: TestArgs) => {
+verifies(['client:output-schema:validate', 'client:output-schema:missing-structured'], async ({ transport, protocolVersion }: TestArgs) => {
     // Client-side validation is only observable when the server does NOT
     // pre-validate (raw Server) — McpServer would intercept first.
     const client = newClient();
-    await using _ = await wire(transport, rawSchemaServer, client);
+    await using _ = await wire({ transport, protocolVersion }, rawSchemaServer, client);
 
     // Prime the validator cache.
     const { tools } = await client.listTools();
@@ -614,9 +614,9 @@ verifies(['client:output-schema:validate', 'client:output-schema:missing-structu
     await expect(missing).rejects.toThrow(/did not return structured content/i);
 });
 
-verifies('client:output-schema:skip-on-error', async ({ transport }: TestArgs) => {
+verifies('client:output-schema:skip-on-error', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, schemaServer, client);
+    await using _ = await wire({ transport, protocolVersion }, schemaServer, client);
 
     const { tools } = await client.listTools();
     expect(tools.find(t => t.name === 'structured-error-skip')?.outputSchema).toMatchObject({
@@ -630,9 +630,9 @@ verifies('client:output-schema:skip-on-error', async ({ transport }: TestArgs) =
     expect(r.content).toEqual([{ type: 'text', text: 'handler-returned-isError' }]);
 });
 
-verifies('typescript:mcpserver:output-schema:server-validate', async ({ transport }: TestArgs) => {
+verifies('typescript:mcpserver:output-schema:server-validate', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, schemaServer, client);
+    await using _ = await wire({ transport, protocolVersion }, schemaServer, client);
 
     // Cold call — no listTools() — so any validation observed is server-side.
     const r = await client.callTool({ name: 'structured-mismatch', arguments: {} });
@@ -641,9 +641,9 @@ verifies('typescript:mcpserver:output-schema:server-validate', async ({ transpor
     expect(r.content).toEqual([{ type: 'text', text: expect.stringMatching(/Output validation error.*structured-mismatch/i) }]);
 });
 
-verifies('mcpserver:output-schema:missing-structured', async ({ transport }: TestArgs) => {
+verifies('mcpserver:output-schema:missing-structured', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, schemaServer, client);
+    await using _ = await wire({ transport, protocolVersion }, schemaServer, client);
 
     const r = await client.callTool({ name: 'structured-missing', arguments: {} });
     expect(r.isError).toBe(true);
@@ -659,9 +659,9 @@ verifies('mcpserver:output-schema:missing-structured', async ({ transport }: Tes
     });
 });
 
-verifies('mcpserver:output-schema:skip-on-error', async ({ transport }: TestArgs) => {
+verifies('mcpserver:output-schema:skip-on-error', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, schemaServer, client);
+    await using _ = await wire({ transport, protocolVersion }, schemaServer, client);
 
     const { tools } = await client.listTools();
     expect(tools.find(t => t.name === 'structured-error-skip')?.outputSchema).toMatchObject({
@@ -675,7 +675,7 @@ verifies('mcpserver:output-schema:skip-on-error', async ({ transport }: TestArgs
     expect(r.structuredContent).toBeUndefined();
 });
 
-verifies('tools:list:basic', async ({ transport }: TestArgs) => {
+verifies('tools:list:basic', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool(
@@ -687,7 +687,7 @@ verifies('tools:list:basic', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const { tools } = await client.listTools();
     expect(tools.length).toBeGreaterThanOrEqual(2);
@@ -703,7 +703,7 @@ verifies('tools:list:basic', async ({ transport }: TestArgs) => {
     });
 });
 
-verifies('tools:list:metadata', async ({ transport }: TestArgs) => {
+verifies('tools:list:metadata', async ({ transport, protocolVersion }: TestArgs) => {
     const annotated: Tool = {
         name: 'annotated',
         title: 'Annotated Tool',
@@ -727,7 +727,7 @@ verifies('tools:list:metadata', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const { tools } = await client.listTools();
     const tool = tools.find(t => t.name === 'annotated');
@@ -741,7 +741,7 @@ verifies('tools:list:metadata', async ({ transport }: TestArgs) => {
 
 verifies(
     'tools:list:pagination',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const TOTAL = 25;
         const makeServer = () => {
             const s = new McpServer({ name: 's', version: '0' });
@@ -751,7 +751,7 @@ verifies(
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const first = await client.listTools();
         expect(first.tools.length).toBeLessThan(TOTAL);
@@ -774,7 +774,7 @@ verifies(
 
 verifies(
     'tools:list:pagination',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const TOTAL = 25;
         const PAGE = 10;
         const all = Array.from({ length: TOTAL }, (_, i) => `bulk_${String(i).padStart(2, '0')}`);
@@ -796,7 +796,7 @@ verifies(
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const seen = new Set<string>();
         const cursorsSent: string[] = [];
@@ -826,7 +826,7 @@ verifies(
     { title: 'raw server' }
 );
 
-verifies('tools:list-changed', async ({ transport }: TestArgs) => {
+verifies('tools:list-changed', async ({ transport, protocolVersion }: TestArgs) => {
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' });
@@ -840,7 +840,7 @@ verifies('tools:list-changed', async ({ transport }: TestArgs) => {
         listChanged++;
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect((await client.listTools()).tools.length).toBe(1);
 
@@ -854,7 +854,7 @@ verifies('tools:list-changed', async ({ transport }: TestArgs) => {
     expect((await client.listTools()).tools.length).toBe(1);
 });
 
-verifies('tools:capability:declared', async ({ transport }: TestArgs) => {
+verifies('tools:capability:declared', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         // Ctor declares only `tools: {}`. McpServer.registerTool must derive
         // `listChanged: true` itself via registerCapabilities.
@@ -863,7 +863,7 @@ verifies('tools:capability:declared', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const caps = client.getServerCapabilities();
     expect(caps?.tools).toBeDefined();
@@ -872,9 +872,9 @@ verifies('tools:capability:declared', async ({ transport }: TestArgs) => {
     expect(caps?.tools?.listChanged).toBe(true);
 });
 
-verifies('tools:input-schema:json-schema-2020-12', async ({ transport }: TestArgs) => {
+verifies('tools:input-schema:json-schema-2020-12', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, rawJsonSchemaServer, client);
+    await using _ = await wire({ transport, protocolVersion }, rawJsonSchemaServer, client);
 
     const { tools } = await client.listTools();
     const tool = tools.find(t => t.name === 'json-schema');
@@ -886,9 +886,9 @@ verifies('tools:input-schema:json-schema-2020-12', async ({ transport }: TestArg
     expect(r.content).toEqual([{ type: 'text', text: '(3, 4)' }]);
 });
 
-verifies('tools:input-schema:preserve-defs', async ({ transport }: TestArgs) => {
+verifies('tools:input-schema:preserve-defs', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, rawJsonSchemaServer, client);
+    await using _ = await wire({ transport, protocolVersion }, rawJsonSchemaServer, client);
 
     const { tools } = await client.listTools();
     const schema = tools.find(t => t.name === 'json-schema')!.inputSchema as Record<string, unknown>;
@@ -898,7 +898,7 @@ verifies('tools:input-schema:preserve-defs', async ({ transport }: TestArgs) => 
     expect(schema).not.toHaveProperty('definitions');
 });
 
-verifies('tools:input-schema:preserve-schema-dialect', async ({ transport }: TestArgs) => {
+verifies('tools:input-schema:preserve-schema-dialect', async ({ transport, protocolVersion }: TestArgs) => {
     // Two distinct dialects must round-trip verbatim — guards against the
     // SDK's listing path stamping a single default $schema onto every schema.
     const makeServer = () => {
@@ -913,7 +913,7 @@ verifies('tools:input-schema:preserve-schema-dialect', async ({ transport }: Tes
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const { tools } = await client.listTools();
     const draft07 = tools.find(t => t.name === 'draft07')!.inputSchema.$schema;
@@ -923,7 +923,7 @@ verifies('tools:input-schema:preserve-schema-dialect', async ({ transport }: Tes
     expect(draft07).not.toBe(v2020);
 });
 
-verifies('tools:input-schema:preserve-additional-properties', async ({ transport }: TestArgs) => {
+verifies('tools:input-schema:preserve-additional-properties', async ({ transport, protocolVersion }: TestArgs) => {
     // Three explicit values must round-trip verbatim — guards against the
     // SDK's listing path stamping a single constant onto every schema.
     const makeServer = () => {
@@ -939,7 +939,7 @@ verifies('tools:input-schema:preserve-additional-properties', async ({ transport
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const { tools } = await client.listTools();
     const get = (name: string) => tools.find(t => t.name === name)!.inputSchema as Record<string, unknown>;
@@ -949,7 +949,7 @@ verifies('tools:input-schema:preserve-additional-properties', async ({ transport
     expect(get('strict').additionalProperties).not.toBe(get('open').additionalProperties);
 });
 
-verifies('typescript:mcpserver:tool:handler-throws', async ({ transport }: TestArgs) => {
+verifies('typescript:mcpserver:tool:handler-throws', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('throws', { inputSchema: z.object({ message: z.string() }) }, ({ message }) => {
@@ -958,14 +958,14 @@ verifies('typescript:mcpserver:tool:handler-throws', async ({ transport }: TestA
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'throws', arguments: { message: 'kaboom' } });
     expect(r.isError).toBe(true);
     expect(r.content).toEqual([{ type: 'text', text: 'kaboom' }]);
 });
 
-verifies('mcpserver:tool:duplicate-name', async ({ transport }: TestArgs) => {
+verifies('mcpserver:tool:duplicate-name', async ({ transport, protocolVersion }: TestArgs) => {
     let dupError: unknown;
     const makeServer = () => {
         const s = echoServer();
@@ -980,7 +980,7 @@ verifies('mcpserver:tool:duplicate-name', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect(dupError).toBeInstanceOf(Error);
     expect(String(dupError)).toMatch(/already registered/i);
@@ -993,7 +993,7 @@ verifies('mcpserver:tool:duplicate-name', async ({ transport }: TestArgs) => {
     expect(r.content).toEqual([{ type: 'text', text: 'still here' }]);
 });
 
-verifies('mcpserver:tool:handle-update', async ({ transport }: TestArgs) => {
+verifies('mcpserver:tool:handle-update', async ({ transport, protocolVersion }: TestArgs) => {
     let handle!: RegisteredTool;
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -1008,7 +1008,7 @@ verifies('mcpserver:tool:handle-update', async ({ transport }: TestArgs) => {
     client.setNotificationHandler(ToolListChangedNotificationSchema, () => {
         listChanged++;
     });
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const beforeList = (await client.listTools()).tools;
     expect(beforeList.length).toBe(1);
@@ -1035,7 +1035,7 @@ verifies('mcpserver:tool:handle-update', async ({ transport }: TestArgs) => {
     expect(r.content).toEqual([{ type: 'text', text: 'echo-v2-handler' }]);
 });
 
-verifies('mcpserver:tool:input-validation', async ({ transport }: TestArgs) => {
+verifies('mcpserver:tool:input-validation', async ({ transport, protocolVersion }: TestArgs) => {
     // Shared across factory calls so stateless still observes the count.
     const handlerCalls = { n: 0 };
     const makeServer = () => {
@@ -1047,7 +1047,7 @@ verifies('mcpserver:tool:input-validation', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const ok = await client.callTool({ name: 'typed', arguments: { prompt: 'hello' } });
     expect(ok.isError).toBeFalsy();
@@ -1064,7 +1064,7 @@ verifies('mcpserver:tool:input-validation', async ({ transport }: TestArgs) => {
     expect(handlerCalls.n).toBe(1);
 });
 
-verifies('mcpserver:tool:naming-validation', async ({ transport }: TestArgs) => {
+verifies('mcpserver:tool:naming-validation', async ({ transport, protocolVersion }: TestArgs) => {
     const INVALID = ['has space', 'has/slash', 'has:colon', 'naïve'] as const;
     const VALID = ['A.b-c_1', 'snake_case_ok'] as const;
 
@@ -1091,7 +1091,7 @@ verifies('mcpserver:tool:naming-validation', async ({ transport }: TestArgs) => 
     };
 
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     for (const bad of INVALID) expect(warnedFor).toContain(bad);
     for (const good of VALID) expect(cleanFor).toContain(good);
@@ -1100,7 +1100,7 @@ verifies('mcpserver:tool:naming-validation', async ({ transport }: TestArgs) => 
     for (const good of VALID) expect(names).toContain(good);
 });
 
-verifies('mcpserver:tool:url-elicitation-error', async ({ transport }: TestArgs) => {
+verifies('mcpserver:tool:url-elicitation-error', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('needs-auth', { inputSchema: z.object({}) }, () => {
@@ -1116,7 +1116,7 @@ verifies('mcpserver:tool:url-elicitation-error', async ({ transport }: TestArgs)
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const err = await client.callTool({ name: 'needs-auth', arguments: {} }).catch((e: unknown) => e);
     if (!(err instanceof UrlElicitationRequiredError)) {
@@ -1134,7 +1134,7 @@ verifies('mcpserver:tool:url-elicitation-error', async ({ transport }: TestArgs)
 });
 
 /** Zod union/intersection/transform/preprocess/pipe schemas: discoverable in tools/list and validate+coerce before the handler. */
-verifies('typescript:mcpserver:tool:schema-variants', async ({ transport }: TestArgs) => {
+verifies('typescript:mcpserver:tool:schema-variants', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool(
@@ -1174,7 +1174,7 @@ verifies('typescript:mcpserver:tool:schema-variants', async ({ transport }: Test
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect((await client.callTool({ name: 'zod-union', arguments: { kind: 'a', a: 'hello' } })).content).toEqual([
         { type: 'text', text: 'a:hello' }
@@ -1199,7 +1199,7 @@ verifies('typescript:mcpserver:tool:schema-variants', async ({ transport }: Test
     expect((await client.callTool({ name: 'zod-coerce', arguments: { n: '-3' } })).isError).toBe(true);
 });
 
-verifies('typescript:mcpserver:tool:extra', async ({ transport }: TestArgs) => {
+verifies('typescript:mcpserver:tool:extra', async ({ transport, protocolVersion }: TestArgs) => {
     // Asserts the always-present RequestHandlerExtra fields. authInfo /
     // requestInfo need a bearer-auth host (not provided by `wire()`); see
     // hosting tests for those. Recorder lives outside the factory so every
@@ -1219,7 +1219,7 @@ verifies('typescript:mcpserver:tool:extra', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     await client.callTool({ name: 'report-extra', arguments: {} });
     await client.callTool({ name: 'report-extra', arguments: {} });
@@ -1235,7 +1235,7 @@ verifies('typescript:mcpserver:tool:extra', async ({ transport }: TestArgs) => {
     expect(seen[1].requestId).not.toBe(seen[0].requestId);
 });
 
-verifies('client:call-tool:compat-result-schema', async ({ transport }: TestArgs) => {
+verifies('client:call-tool:compat-result-schema', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
         s.setRequestHandler(ListToolsRequestSchema, () => ({
@@ -1246,13 +1246,13 @@ verifies('client:call-tool:compat-result-schema', async ({ transport }: TestArgs
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'legacy', arguments: {} }, CompatibilityCallToolResultSchema);
     expect(r).toHaveProperty('toolResult', 'plain string');
 });
 
-verifies('mcpserver:tool:variadic-forms', async ({ transport }: TestArgs) => {
+verifies('mcpserver:tool:variadic-forms', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         // (name, cb)
@@ -1273,7 +1273,7 @@ verifies('mcpserver:tool:variadic-forms', async ({ transport }: TestArgs) => {
     };
 
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const list = await client.listTools();
     const names = list.tools.map(t => t.name).sort();
@@ -1301,7 +1301,7 @@ verifies('mcpserver:tool:variadic-forms', async ({ transport }: TestArgs) => {
     });
 });
 
-verifies('mcpserver:tool:metadata-roundtrip', async ({ transport }: TestArgs) => {
+verifies('mcpserver:tool:metadata-roundtrip', async ({ transport, protocolVersion }: TestArgs) => {
     // registerTool's public config carries title, description, annotations and _meta (no icons field), so those are asserted verbatim.
     const annotations = {
         title: 'Annotated Echo',
@@ -1327,7 +1327,7 @@ verifies('mcpserver:tool:metadata-roundtrip', async ({ transport }: TestArgs) =>
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const { tools } = await client.listTools();
     expect(tools).toHaveLength(1);
@@ -1339,7 +1339,7 @@ verifies('mcpserver:tool:metadata-roundtrip', async ({ transport }: TestArgs) =>
     expect(tool._meta).toEqual(meta);
 });
 
-verifies('client:call-tool:undefined-result-schema', async ({ transport }: TestArgs) => {
+verifies('client:call-tool:undefined-result-schema', async ({ transport, protocolVersion }: TestArgs) => {
     // Released in finally so the parked handler never outlives the test, even on assertion failure.
     let releaseHang!: () => void;
     const hangUntilReleased = new Promise<void>(resolve => {
@@ -1364,7 +1364,7 @@ verifies('client:call-tool:undefined-result-schema', async ({ transport }: TestA
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     try {
         // Explicit 3-argument form: result schema is literally `undefined`, the per-request options must still apply.

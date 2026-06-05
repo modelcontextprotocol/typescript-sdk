@@ -18,7 +18,7 @@ import { verifies } from '../helpers/verifies.js';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 
-verifies('pagination:invalid-cursor', async ({ transport }: TestArgs) => {
+verifies('pagination:invalid-cursor', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('echo', { inputSchema: z.object({}) }, () => ({ content: [] }));
@@ -33,7 +33,7 @@ verifies('pagination:invalid-cursor', async ({ transport }: TestArgs) => {
     };
 
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const badCursor = 'not-a-cursor-the-server-ever-issued';
     const invalidParams = expect.objectContaining({ code: ErrorCode.InvalidParams });
@@ -45,7 +45,7 @@ verifies('pagination:invalid-cursor', async ({ transport }: TestArgs) => {
     await expect(client.listPrompts({ cursor: badCursor })).rejects.toEqual(invalidParams);
 });
 
-verifies('pagination:client:cursor-handling', async ({ transport }: TestArgs) => {
+verifies('pagination:client:cursor-handling', async ({ transport, protocolVersion }: TestArgs) => {
     // Cursors are deliberately base64-padded / URL-unsafe / JSON-looking so any client-side parsing or normalization would corrupt them.
     const cursorToPage2 = 'eyJvZmZzZXQiOjMsInYiOjF9==/page-2?after=get_alerts';
     const cursorToPage3 = 'YWZ0ZXI+Y29udmVydF91bml0cw==';
@@ -94,7 +94,7 @@ verifies('pagination:client:cursor-handling', async ({ transport }: TestArgs) =>
     };
 
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
     const tap = tapWire(client);
 
     const collectedPages: string[][] = [];

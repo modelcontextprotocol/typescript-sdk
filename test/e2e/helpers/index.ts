@@ -23,9 +23,10 @@ import { SSEServerTransport } from '../../../src/server/sse.js';
 import { StdioServerTransport } from '../../../src/server/stdio.js';
 import { WebStandardStreamableHTTPServerTransport, type EventStore } from '../../../src/server/webStandardStreamableHttp.js';
 import { ReadBuffer, serializeMessage } from '../../../src/shared/stdio.js';
-import type { JSONRPCMessage } from '../../../src/types.js';
+import type { Transport as ClientTransport } from '../../../src/shared/transport.js';
+import { type InitializeRequest, isJSONRPCRequest, type JSONRPCMessage } from '../../../src/types.js';
 
-import type { Transport } from '../types.js';
+import type { SpecVersion, TestArgs, Transport } from '../types.js';
 
 import { sniffTransport, type SnifferOptions } from './wire-sniffer.js';
 
@@ -37,19 +38,35 @@ export interface Wired extends AsyncDisposable {
 }
 
 /**
+ * The first argument is either a bare transport name or the cell's full
+ * `TestArgs`. Passing `TestArgs` threads the cell's spec version into the
+ * wiring: after connect, `wire()` asserts the client both REQUESTED that
+ * version in `initialize` and NEGOTIATED it (accepted it as the response
+ * version), so a cell labeled e.g. [stdio 2025-11-25] can never silently run
+ * at a different protocol version after a constant bump. Tests that
+ * deliberately negotiate something other than the cell's labeled version
+ * (downgrade / fallback / rejection scenarios) pass the bare transport name.
+ *
  * The fourth argument controls the wire-format sniffer (see wire-sniffer.ts):
  * every message the client sends or receives is validated against the SDK's
  * spec-anchored Zod schemas. Tests that intentionally use vendor-extension
  * methods pass `{ allowCustomMethods: true }`; tests that deliberately put
  * malformed MCP on the wire pass `{ strictValidation: false }`.
  */
-export async function wire(transport: Transport, makeServer: ServerFactory, client: Client, sniff: SnifferOptions = {}): Promise<Wired> {
+export async function wire(
+    target: Transport | TestArgs,
+    makeServer: ServerFactory,
+    client: Client,
+    sniff: SnifferOptions = {}
+): Promise<Wired> {
+    const transport = typeof target === 'string' ? target : target.transport;
+    const cellVersion = typeof target === 'string' ? undefined : target.protocolVersion;
     switch (transport) {
         case 'inMemory': {
             const server = makeServer();
             const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
             await server.connect(serverTx);
-            await client.connect(sniffTransport(clientTx, 'client', sniff));
+            await connectCell(client, sniffTransport(clientTx, 'client', sniff), cellVersion);
             return { [Symbol.asyncDispose]: () => Promise.all([client.close(), server.close()]).then(() => {}) };
         }
         case 'stdio': {
@@ -57,7 +74,7 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
             const c2s = new PassThrough();
             const s2c = new PassThrough();
             await server.connect(new StdioServerTransport(c2s, s2c));
-            await client.connect(sniffTransport(stdioClientOverPipes(s2c, c2s), 'client', sniff));
+            await connectCell(client, sniffTransport(stdioClientOverPipes(s2c, c2s), 'client', sniff), cellVersion);
             return { [Symbol.asyncDispose]: () => Promise.all([client.close(), server.close()]).then(() => {}) };
         }
         case 'streamableHttp':
@@ -65,7 +82,7 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
             const handle = transport === 'streamableHttpStateless' ? hostStateless(makeServer) : hostPerSession(makeServer);
             const url = new URL('http://in-process/mcp');
             const fetch = (u: URL | string, init?: RequestInit) => handle.handleRequest(new Request(u, init));
-            await client.connect(sniffTransport(new StreamableHTTPClientTransport(url, { fetch }), 'client', sniff));
+            await connectCell(client, sniffTransport(new StreamableHTTPClientTransport(url, { fetch }), 'client', sniff), cellVersion);
             return {
                 fetch,
                 url,
@@ -108,7 +125,7 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
             const address = httpServer.address();
             if (address === null || typeof address === 'string') throw new Error('expected the SSE host to listen on a TCP port');
             const url = new URL(`http://127.0.0.1:${address.port}/sse`);
-            await client.connect(sniffTransport(new SSEClientTransport(url), 'client', sniff));
+            await connectCell(client, sniffTransport(new SSEClientTransport(url), 'client', sniff), cellVersion);
             return {
                 url,
                 [Symbol.asyncDispose]: async () => {
@@ -124,6 +141,52 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
             };
         }
     }
+}
+
+/**
+ * Connect `client` over `tx`; when the call site passed its cell's `TestArgs`,
+ * additionally assert the handshake ran at the cell's labeled spec version —
+ * both the version the client REQUESTED and the version it NEGOTIATED.
+ */
+async function connectCell(client: Client, tx: ClientTransport, cellVersion: SpecVersion | undefined): Promise<void> {
+    if (cellVersion === undefined) {
+        await client.connect(tx);
+        return;
+    }
+    const handshake = tapNegotiation(tx);
+    await client.connect(tx);
+    if (handshake.negotiated !== cellVersion) {
+        throw new Error(`[wire] cell is labeled ${cellVersion} but the negotiated protocol version is ${handshake.negotiated}`);
+    }
+    if (handshake.requested !== cellVersion) {
+        throw new Error(`[wire] cell is labeled ${cellVersion} but the client requested ${handshake.requested} in initialize`);
+    }
+}
+
+/**
+ * Record both halves of the version handshake on a client transport, before
+ * `client.connect()` is called: `requested` is the protocolVersion in the
+ * initialize request the client puts on the wire; `negotiated` is the version
+ * the client ACCEPTED from the initialize result — observed via
+ * `setProtocolVersion`, which the client invokes on its transport after
+ * validating the server's reply (the one transport-agnostic public seam that
+ * carries the negotiated version).
+ */
+function tapNegotiation(tx: ClientTransport): { requested?: string; negotiated?: string } {
+    const captured: { requested?: string; negotiated?: string } = {};
+    const origSend = tx.send.bind(tx);
+    tx.send = (message, opts) => {
+        if (captured.requested === undefined && isJSONRPCRequest(message) && message.method === 'initialize') {
+            captured.requested = (message.params as InitializeRequest['params'] | undefined)?.protocolVersion;
+        }
+        return origSend(message, opts);
+    };
+    const origSetProtocolVersion = tx.setProtocolVersion?.bind(tx);
+    tx.setProtocolVersion = version => {
+        captured.negotiated = version;
+        origSetProtocolVersion?.(version);
+    };
+    return captured;
 }
 
 /**

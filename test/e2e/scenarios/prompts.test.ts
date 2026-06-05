@@ -48,16 +48,16 @@ function explainCommitServer(): McpServer {
     return s;
 }
 
-verifies('prompts:capability:declared', async ({ transport }: TestArgs) => {
+verifies('prompts:capability:declared', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, explainCommitServer, client);
+    await using _ = await wire({ transport, protocolVersion }, explainCommitServer, client);
 
     const caps = client.getServerCapabilities();
     expect(caps?.prompts).toBeDefined();
     expect(caps?.prompts?.listChanged).toBe(true);
 });
 
-verifies('prompts:list:basic', async ({ transport }: TestArgs) => {
+verifies('prompts:list:basic', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerPrompt('summarize', { description: 'Summarize the provided text.', argsSchema: { text: z.string() } }, ({ text }) => ({
@@ -89,7 +89,7 @@ verifies('prompts:list:basic', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.listPrompts();
 
@@ -116,7 +116,7 @@ verifies('prompts:list:basic', async ({ transport }: TestArgs) => {
 
 verifies(
     'prompts:list:pagination',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const TOTAL = 25;
         const makeServer = () => {
             const s = new McpServer({ name: 's', version: '0' });
@@ -126,7 +126,7 @@ verifies(
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const first = await client.listPrompts();
         expect(first.prompts.length).toBeLessThan(TOTAL);
@@ -149,7 +149,7 @@ verifies(
 
 verifies(
     'prompts:list:pagination',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const TOTAL = 25;
         const PAGE = 10;
         const all = Array.from({ length: TOTAL }, (_, i) => `prompt_${String(i).padStart(2, '0')}`);
@@ -172,7 +172,7 @@ verifies(
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const seen = new Set<string>();
         const cursorsSent: string[] = [];
@@ -201,7 +201,7 @@ verifies(
     { title: 'raw server' }
 );
 
-verifies('prompts:list-changed', async ({ transport }: TestArgs) => {
+verifies('prompts:list-changed', async ({ transport, protocolVersion }: TestArgs) => {
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' });
@@ -215,7 +215,7 @@ verifies('prompts:list-changed', async ({ transport }: TestArgs) => {
         listChanged++;
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect((await client.listPrompts()).prompts).toHaveLength(1);
 
@@ -229,9 +229,9 @@ verifies('prompts:list-changed', async ({ transport }: TestArgs) => {
     expect((await client.listPrompts()).prompts).toHaveLength(1);
 });
 
-verifies('prompts:get:no-args', async ({ transport }: TestArgs) => {
+verifies('prompts:get:no-args', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, explainCommitServer, client);
+    await using _ = await wire({ transport, protocolVersion }, explainCommitServer, client);
 
     const result = await client.getPrompt({ name: 'explain-last-commit' });
 
@@ -240,9 +240,9 @@ verifies('prompts:get:no-args', async ({ transport }: TestArgs) => {
     ]);
 });
 
-verifies('prompts:get:with-args', async ({ transport }: TestArgs) => {
+verifies('prompts:get:with-args', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, summarizeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, summarizeServer, client);
 
     const result = await client.getPrompt({
         name: 'summarize',
@@ -257,7 +257,7 @@ verifies('prompts:get:with-args', async ({ transport }: TestArgs) => {
     ]);
 });
 
-verifies('prompts:get:multi-message', async ({ transport }: TestArgs) => {
+verifies('prompts:get:multi-message', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerPrompt('geography-quiz', { description: 'A short multi-turn geography quiz.' }, () => ({
@@ -270,7 +270,7 @@ verifies('prompts:get:multi-message', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.getPrompt({ name: 'geography-quiz' });
 
@@ -281,9 +281,9 @@ verifies('prompts:get:multi-message', async ({ transport }: TestArgs) => {
     ]);
 });
 
-verifies('prompts:get:missing-required-args', async ({ transport }: TestArgs) => {
+verifies('prompts:get:missing-required-args', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, summarizeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, summarizeServer, client);
 
     await expect(client.getPrompt({ name: 'summarize', arguments: {} })).rejects.toMatchObject({
         code: ErrorCode.InvalidParams,
@@ -291,9 +291,9 @@ verifies('prompts:get:missing-required-args', async ({ transport }: TestArgs) =>
     });
 });
 
-verifies('prompts:get:unknown-name', async ({ transport }: TestArgs) => {
+verifies('prompts:get:unknown-name', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, explainCommitServer, client);
+    await using _ = await wire({ transport, protocolVersion }, explainCommitServer, client);
 
     await expect(client.getPrompt({ name: 'no-such-prompt' })).rejects.toMatchObject({
         code: ErrorCode.InvalidParams,
@@ -301,7 +301,7 @@ verifies('prompts:get:unknown-name', async ({ transport }: TestArgs) => {
     });
 });
 
-verifies('prompts:get:content:image', async ({ transport }: TestArgs) => {
+verifies('prompts:get:content:image', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerPrompt('describe-image', {}, () => ({
@@ -313,7 +313,7 @@ verifies('prompts:get:content:image', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.getPrompt({ name: 'describe-image' });
 
@@ -323,7 +323,7 @@ verifies('prompts:get:content:image', async ({ transport }: TestArgs) => {
     ]);
 });
 
-verifies('prompts:get:content:audio', async ({ transport }: TestArgs) => {
+verifies('prompts:get:content:audio', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerPrompt('transcribe-audio', {}, () => ({
@@ -335,7 +335,7 @@ verifies('prompts:get:content:audio', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.getPrompt({ name: 'transcribe-audio' });
 
@@ -345,7 +345,7 @@ verifies('prompts:get:content:audio', async ({ transport }: TestArgs) => {
     ]);
 });
 
-verifies('prompts:get:content:embedded-resource', async ({ transport }: TestArgs) => {
+verifies('prompts:get:content:embedded-resource', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerPrompt('review-file', { argsSchema: { kind: z.enum(['text', 'blob']) } }, ({ kind }) => ({
@@ -369,7 +369,7 @@ verifies('prompts:get:content:embedded-resource', async ({ transport }: TestArgs
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const text = await client.getPrompt({ name: 'review-file', arguments: { kind: 'text' } });
     expect(text.messages).toEqual([
@@ -393,7 +393,7 @@ verifies('prompts:get:content:embedded-resource', async ({ transport }: TestArgs
     ]);
 });
 
-verifies('mcpserver:prompt:args-validation', async ({ transport }: TestArgs) => {
+verifies('mcpserver:prompt:args-validation', async ({ transport, protocolVersion }: TestArgs) => {
     const handlerCalls = { n: 0 };
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -408,7 +408,7 @@ verifies('mcpserver:prompt:args-validation', async ({ transport }: TestArgs) => 
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const ok = await client.getPrompt({ name: 'code-review', arguments: { language: 'ts' } });
     expect(ok.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'Review the following ts code:' } }]);
@@ -427,7 +427,7 @@ verifies('mcpserver:prompt:args-validation', async ({ transport }: TestArgs) => 
     expect(handlerCalls.n).toBe(1);
 });
 
-verifies('mcpserver:prompt:optional-args', async ({ transport }: TestArgs) => {
+verifies('mcpserver:prompt:optional-args', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerPrompt('summarize', { argsSchema: { text: z.string(), max_words: z.string().optional() } }, ({ text, max_words }) => ({
@@ -446,7 +446,7 @@ verifies('mcpserver:prompt:optional-args', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const withOpt = await client.getPrompt({ name: 'summarize', arguments: { text: 'lorem ipsum', max_words: '10' } });
     expect(withOpt.messages).toEqual([
@@ -457,7 +457,7 @@ verifies('mcpserver:prompt:optional-args', async ({ transport }: TestArgs) => {
     expect(withoutOpt.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'Summarize the following text:\nlorem ipsum' } }]);
 });
 
-verifies('mcpserver:prompt:duplicate-name', async ({ transport }: TestArgs) => {
+verifies('mcpserver:prompt:duplicate-name', async ({ transport, protocolVersion }: TestArgs) => {
     let dupError: unknown;
     const makeServer = () => {
         const s = explainCommitServer();
@@ -470,7 +470,7 @@ verifies('mcpserver:prompt:duplicate-name', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect(dupError).toBeInstanceOf(Error);
     expect(String(dupError)).toMatch(/already registered/i);
@@ -482,7 +482,7 @@ verifies('mcpserver:prompt:duplicate-name', async ({ transport }: TestArgs) => {
     expect(r.messages).toEqual([{ role: 'user', content: { type: 'text', text: 'Explain the most recent commit in this repository.' } }]);
 });
 
-verifies('mcpserver:prompt:handle-update-remove', async ({ transport }: TestArgs) => {
+verifies('mcpserver:prompt:handle-update-remove', async ({ transport, protocolVersion }: TestArgs) => {
     let handle!: RegisteredPrompt;
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -497,7 +497,7 @@ verifies('mcpserver:prompt:handle-update-remove', async ({ transport }: TestArgs
     client.setNotificationHandler(PromptListChangedNotificationSchema, () => {
         listChanged++;
     });
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect((await client.listPrompts()).prompts).toHaveLength(1);
     const before = (await client.listPrompts()).prompts.find(p => p.name === 'probe')!;
@@ -527,7 +527,7 @@ verifies('mcpserver:prompt:handle-update-remove', async ({ transport }: TestArgs
     expect((await client.listPrompts()).prompts.find(p => p.name === 'probe')).toBeUndefined();
 });
 
-verifies('mcpserver:prompt:legacy-overload', async ({ transport }: TestArgs) => {
+verifies('mcpserver:prompt:legacy-overload', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.prompt('legacy-prompt', 'Legacy prompt overload (name, description, cb).', () => ({
@@ -536,7 +536,7 @@ verifies('mcpserver:prompt:legacy-overload', async ({ transport }: TestArgs) => 
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const { prompts } = await client.listPrompts();
     const listed = prompts.find(p => p.name === 'legacy-prompt');

@@ -34,7 +34,7 @@ import {
 } from '../../../src/types.js';
 
 import { tapWire, wire } from '../helpers/index.js';
-import type { TestArgs } from '../types.js';
+import { ALL_SPEC_VERSIONS, type TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
 const OLDER_SUPPORTED_VERSION = SUPPORTED_PROTOCOL_VERSIONS.find(v => v !== LATEST_PROTOCOL_VERSION)!;
@@ -96,7 +96,7 @@ function tapHandshake(client: Client, rewriteOutbound?: (message: JSONRPCMessage
     return log;
 }
 
-verifies('lifecycle:initialize:basic', async ({ transport }: TestArgs) => {
+verifies('lifecycle:initialize:basic', async ({ transport, protocolVersion }: TestArgs) => {
     const SERVER_CAPS: ServerCapabilities = { tools: { listChanged: true }, logging: {} };
 
     const initReqs: InitializeRequest['params'][] = [];
@@ -114,7 +114,7 @@ verifies('lifecycle:initialize:basic', async ({ transport }: TestArgs) => {
     };
     const client = new Client({ name: 'lifecycle-client', version: '0.0.0' }, { capabilities: { roots: {} } });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // Server saw an InitializeRequest with all spec-mandated fields populated.
     expect(initReqs).toHaveLength(1);
@@ -127,16 +127,16 @@ verifies('lifecycle:initialize:basic', async ({ transport }: TestArgs) => {
     expect(client.getServerCapabilities()).toEqual(SERVER_CAPS);
 });
 
-verifies('lifecycle:initialize:instructions', async ({ transport }: TestArgs) => {
+verifies('lifecycle:initialize:instructions', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => new McpServer({ name: 's', version: '0' }, { instructions: DEFAULT_INSTRUCTIONS });
     const client = minimalClient();
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect(client.getInstructions()).toBe(DEFAULT_INSTRUCTIONS);
 });
 
-verifies('lifecycle:initialized-notification', async ({ transport }: TestArgs) => {
+verifies('lifecycle:initialized-notification', async ({ transport, protocolVersion }: TestArgs) => {
     const order: string[] = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' }, { capabilities: { tools: {} } });
@@ -149,7 +149,7 @@ verifies('lifecycle:initialized-notification', async ({ transport }: TestArgs) =
     };
     const client = minimalClient();
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
     expect(order).toContain('initialized');
 
     await client.callTool({ name: 'marker', arguments: {} });
@@ -162,7 +162,7 @@ verifies('lifecycle:initialized-notification', async ({ transport }: TestArgs) =
     expect(order[reqIdx - 1]).toBe('initialized');
 });
 
-verifies('lifecycle:pre-initialization-ordering', async ({ transport }: TestArgs) => {
+verifies('lifecycle:pre-initialization-ordering', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 'weather-server', version: '1.0.0' });
         s.registerTool('get_weather', { inputSchema: z.object({ city: z.string() }) }, ({ city }) => ({
@@ -173,7 +173,7 @@ verifies('lifecycle:pre-initialization-ordering', async ({ transport }: TestArgs
     const client = minimalClient();
     const log = tapHandshake(client);
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.callTool({ name: 'get_weather', arguments: { city: 'Berlin' } });
     expect(result.content).toEqual([{ type: 'text', text: 'Sunny in Berlin' }]);
@@ -199,9 +199,9 @@ verifies('lifecycle:pre-initialization-ordering', async ({ transport }: TestArgs
     ]);
 });
 
-verifies('lifecycle:ping', async ({ transport }: TestArgs) => {
+verifies('lifecycle:ping', async ({ transport, protocolVersion }: TestArgs) => {
     const client = minimalClient();
-    await using _ = await wire(transport, minimalServer, client);
+    await using _ = await wire({ transport, protocolVersion }, minimalServer, client);
 
     const tap = tapWire(client);
     const result = await client.ping();
@@ -216,19 +216,38 @@ verifies('lifecycle:ping', async ({ transport }: TestArgs) => {
     expect(res.result).toEqual({});
 });
 
-verifies('lifecycle:version:match', async ({ transport }: TestArgs) => {
-    const initReqs: InitializeRequest['params'][] = [];
-    const makeServer = () => recordingInitServer(LATEST_PROTOCOL_VERSION, initReqs);
+verifies('lifecycle:version:match', async ({ transport, protocolVersion }: TestArgs) => {
+    // The server runs the SDK's own initialize handler (no custom fixture), so
+    // the echo-requested-version logic under test is the real one; both halves
+    // of the handshake are captured off the wire.
     const client = minimalClient();
+    const log = tapHandshake(client);
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, minimalServer, client);
 
-    expect(initReqs).toHaveLength(1);
-    expect(initReqs[0].protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+    const initRequest = log.find(
+        e => e.direction === 'client-to-server' && isJSONRPCRequest(e.message) && e.message.method === 'initialize'
+    );
+    if (!initRequest || !isJSONRPCRequest(initRequest.message)) throw new Error('expected an initialize request on the wire');
+    const requested = initRequest.message.params?.protocolVersion;
+    const initRequestId = initRequest.message.id;
+
+    const initResponse = log.find(
+        e => e.direction === 'server-to-client' && isJSONRPCResultResponse(e.message) && e.message.id === initRequestId
+    );
+    if (!initResponse || !isJSONRPCResultResponse(initResponse.message)) throw new Error('expected a result for the initialize request');
+
+    // The server supports the requested version, so the response must carry the
+    // SAME version — a server that downgraded would also "connect fine" but must
+    // not pass here (downgrade acceptance is lifecycle:version:downgrade; match
+    // has to discriminate).
+    expect(initResponse.message.result.protocolVersion).toBe(requested);
+    // And the matched version is the cell's labeled spec version.
+    expect(requested).toBe(protocolVersion);
 
     // Connect succeeded at the matched version: server state is populated.
     expect(client.getServerCapabilities()).toEqual({});
-    expect(client.getServerVersion()).toEqual({ name: 's', version: '0' });
+    expect(client.getServerVersion()).toEqual({ name: 'minimal-server', version: '0.0.0' });
 });
 
 verifies('lifecycle:version:downgrade', async ({ transport }: TestArgs) => {
@@ -236,6 +255,8 @@ verifies('lifecycle:version:downgrade', async ({ transport }: TestArgs) => {
     const makeServer = () => recordingInitServer(OLDER_SUPPORTED_VERSION, initReqs);
     const client = minimalClient();
 
+    // Bare transport on purpose: this cell deliberately negotiates an OLDER
+    // version than its label, so wire()'s cell-version assertion must not apply.
     await using _ = await wire(transport, makeServer, client);
 
     // Client requested LATEST; server replied with an older supported version;
@@ -260,6 +281,8 @@ verifies('lifecycle:version:server-fallback-latest', async ({ transport }: TestA
 
     expect(SUPPORTED_PROTOCOL_VERSIONS).not.toContain(BOGUS_VERSION);
 
+    // Bare transport on purpose: the rewritten initialize deliberately requests
+    // a bogus version, so wire()'s cell-version assertion must not apply.
     await using _ = await wire(transport, minimalServer, client);
 
     const initRequest = log.find(
@@ -292,7 +315,29 @@ verifies('lifecycle:version:reject-unsupported', async ({ transport }: TestArgs)
     expect(client.getServerVersion()).toBeUndefined();
 });
 
-verifies('lifecycle:capability:client-not-declared', async ({ transport }: TestArgs) => {
+verifies('typescript:lifecycle:version:supported-back-compat', async ({ protocolVersion }: TestArgs) => {
+    // Guard against the latest-version-bump footgun: SUPPORTED_PROTOCOL_VERSIONS
+    // names the current latest version only via the LATEST_PROTOCOL_VERSION
+    // reference, so bumping that constant silently drops the previous version
+    // from the supported set — breaking every deployed consumer that still
+    // negotiates it. '2025-11-25' must stay supported, independent of what
+    // LATEST_PROTOCOL_VERSION says, until it is consciously retired here.
+    expect(SUPPORTED_PROTOCOL_VERSIONS).toContain('2025-11-25');
+    expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(protocolVersion);
+    for (const version of ALL_SPEC_VERSIONS) {
+        expect(SUPPORTED_PROTOCOL_VERSIONS).toContain(version);
+    }
+});
+
+verifies('typescript:lifecycle:version:matrix-covers-latest', async () => {
+    // A LATEST_PROTOCOL_VERSION bump must be visible inside this suite: the new
+    // latest version has to be added to the matrix's version axis
+    // (ALL_SPEC_VERSIONS, test/e2e/types.ts) in the same change — until then
+    // this cell stays red.
+    expect(ALL_SPEC_VERSIONS).toContain(LATEST_PROTOCOL_VERSION);
+});
+
+verifies('lifecycle:capability:client-not-declared', async ({ transport, protocolVersion }: TestArgs) => {
     let observedCaps: ClientCapabilities | undefined;
     const makeServer = () => {
         const s = minimalServer();
@@ -303,7 +348,7 @@ verifies('lifecycle:capability:client-not-declared', async ({ transport }: TestA
     };
     const client = new Client({ name: 'no-caps-client', version: '0.0.0' }, { capabilities: {} });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // Client side: cannot send notifications / register handlers for undeclared caps.
     await expect(client.sendRootsListChanged()).rejects.toThrow(/roots.*list.?changed/i);
@@ -323,11 +368,11 @@ verifies('lifecycle:capability:client-not-declared', async ({ transport }: TestA
     expect(observedCaps).toEqual({});
 });
 
-verifies('lifecycle:capability:server-not-advertised', async ({ transport }: TestArgs) => {
+verifies('lifecycle:capability:server-not-advertised', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => new McpServer({ name: 's', version: '0' }, { capabilities: {} });
     const client = new Client({ name: 'c', version: '0' }, { enforceStrictCapabilities: true });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const caps = client.getServerCapabilities();
     expect(caps).toEqual({});
@@ -345,17 +390,17 @@ verifies('lifecycle:capability:server-not-advertised', async ({ transport }: Tes
     }
 });
 
-verifies('lifecycle:initialize:capabilities:minimal', async ({ transport }: TestArgs) => {
+verifies('lifecycle:initialize:capabilities:minimal', async ({ transport, protocolVersion }: TestArgs) => {
     // Bare McpServer: no feature handlers registered and no capabilities option passed.
     const client = minimalClient();
 
-    await using _ = await wire(transport, minimalServer, client);
+    await using _ = await wire({ transport, protocolVersion }, minimalServer, client);
 
     // Exactly empty: no tools, resources, prompts, completions, or logging advertised.
     expect(client.getServerCapabilities()).toEqual({});
 });
 
-verifies('lifecycle:capability:experimental-passthrough', async ({ transport }: TestArgs) => {
+verifies('lifecycle:capability:experimental-passthrough', async ({ transport, protocolVersion }: TestArgs) => {
     const SERVER_EXPERIMENTAL = {
         'x-vendor/streaming': { version: 2, modes: ['delta', 'full'] },
         'org.example.preview': { nested: { limit: 42 }, enabled: true }
@@ -378,7 +423,7 @@ verifies('lifecycle:capability:experimental-passthrough', async ({ transport }: 
         { capabilities: { roots: { listChanged: true }, experimental: CLIENT_EXPERIMENTAL } }
     );
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // Server → client direction.
     const serverCaps = client.getServerCapabilities();
@@ -391,7 +436,7 @@ verifies('lifecycle:capability:experimental-passthrough', async ({ transport }: 
     expect(observedClientCaps?.experimental?.['x-vendor/undeclared']).toBeUndefined();
 });
 
-verifies('lifecycle:initialize:server-info', async ({ transport }: TestArgs) => {
+verifies('lifecycle:initialize:server-info', async ({ transport, protocolVersion }: TestArgs) => {
     const extendedServerInfo: Implementation = {
         name: 'everything-extended',
         version: '1.2.3',
@@ -407,12 +452,12 @@ verifies('lifecycle:initialize:server-info', async ({ transport }: TestArgs) => 
     const makeServer = () => new McpServer(extendedServerInfo);
     const client = minimalClient();
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect(client.getServerVersion()).toEqual(extendedServerInfo);
 });
 
-verifies('lifecycle:initialize:client-info', async ({ transport }: TestArgs) => {
+verifies('lifecycle:initialize:client-info', async ({ transport, protocolVersion }: TestArgs) => {
     let observed: { before: Implementation | undefined; after: Implementation | undefined } | undefined;
     const makeServer = () => {
         const s = minimalServer();
@@ -424,13 +469,13 @@ verifies('lifecycle:initialize:client-info', async ({ transport }: TestArgs) => 
     };
     const client = minimalClient();
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect(observed?.before).toBeUndefined();
     expect(observed?.after).toEqual({ name: 'minimal-client', version: '0.0.0' });
 });
 
-verifies('typescript:server:get-client-capabilities', async ({ transport }: TestArgs) => {
+verifies('typescript:server:get-client-capabilities', async ({ transport, protocolVersion }: TestArgs) => {
     const DECLARED = {
         roots: { listChanged: true },
         sampling: {},
@@ -451,7 +496,7 @@ verifies('typescript:server:get-client-capabilities', async ({ transport }: Test
     };
     const client = new Client({ name: 'caps-probe-client', version: '0.0.0' }, { capabilities: DECLARED });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect(observed?.before).toBeUndefined();
     expect(observed?.after).toEqual(DECLARED);

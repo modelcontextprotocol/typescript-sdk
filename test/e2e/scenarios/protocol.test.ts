@@ -80,7 +80,7 @@ function tapOutbound(client: Client): JSONRPCMessage[] {
     return out;
 }
 
-verifies('protocol:cancel:abort-signal', async ({ transport }: TestArgs) => {
+verifies('protocol:cancel:abort-signal', async ({ transport, protocolVersion }: TestArgs) => {
     const stalled: Array<() => void> = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -103,7 +103,7 @@ verifies('protocol:cancel:abort-signal', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const outbound: JSONRPCMessage[] = [];
     const originalSend = client.transport!.send.bind(client.transport!);
@@ -138,7 +138,7 @@ verifies('protocol:cancel:abort-signal', async ({ transport }: TestArgs) => {
     expect(cancelled.params?.reason).toContain('user requested cancellation');
 });
 
-verifies('protocol:cancel:handler-abort-propagates', async ({ transport }: TestArgs) => {
+verifies('protocol:cancel:handler-abort-propagates', async ({ transport, protocolVersion }: TestArgs) => {
     const aborts: Array<{ requestId: RequestId; reason: unknown }> = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -156,7 +156,7 @@ verifies('protocol:cancel:handler-abort-propagates', async ({ transport }: TestA
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const ac = new AbortController();
     const call = client.callTool({ name: 'cancellable', arguments: {} }, undefined, { signal: ac.signal });
@@ -212,7 +212,7 @@ verifies('protocol:cancel:initialize-not-cancellable', async (_: TestArgs) => {
     await client.close();
 });
 
-verifies('protocol:cancel:late-response-ignored', async ({ transport }: TestArgs) => {
+verifies('protocol:cancel:late-response-ignored', async ({ transport, protocolVersion }: TestArgs) => {
     const stalled: Array<() => void> = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -232,7 +232,7 @@ verifies('protocol:cancel:late-response-ignored', async ({ transport }: TestArgs
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const outbound: JSONRPCMessage[] = [];
     const originalSend = client.transport!.send.bind(client.transport!);
@@ -274,7 +274,7 @@ verifies('protocol:cancel:late-response-ignored', async ({ transport }: TestArgs
     await expect(client.ping()).resolves.toBeDefined();
 });
 
-verifies('protocol:cancel:unknown-id-ignored', async ({ transport }: TestArgs) => {
+verifies('protocol:cancel:unknown-id-ignored', async ({ transport, protocolVersion }: TestArgs) => {
     const errors: Error[] = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -285,7 +285,7 @@ verifies('protocol:cancel:unknown-id-ignored', async ({ transport }: TestArgs) =
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.callTool({ name: 'echo', arguments: { text: 'hi' } });
     expect(result.content).toEqual([{ type: 'text', text: 'hi' }]);
@@ -311,9 +311,9 @@ verifies('protocol:cancel:unknown-id-ignored', async ({ transport }: TestArgs) =
     await expect(client.ping()).resolves.toBeDefined();
 });
 
-verifies('typescript:protocol:error:connection-closed', async ({ transport }: TestArgs) => {
+verifies('typescript:protocol:error:connection-closed', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, neverRespondingServer, client);
+    await using _ = await wire({ transport, protocolVersion }, neverRespondingServer, client);
 
     const onclose = vi.fn();
     client.onclose = onclose;
@@ -338,7 +338,7 @@ verifies('typescript:protocol:error:connection-closed', async ({ transport }: Te
     await vi.waitFor(() => expect(onclose).toHaveBeenCalled());
 });
 
-verifies('protocol:error:internal-error', async ({ transport }: TestArgs) => {
+verifies('protocol:error:internal-error', async ({ transport, protocolVersion }: TestArgs) => {
     // Uses raw Server so the throw reaches the protocol layer; McpServer.registerTool
     // catches handler exceptions and wraps as {isError:true} (covered in tools.ts).
     const makeServer = () => {
@@ -350,7 +350,7 @@ verifies('protocol:error:internal-error', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const call = client.callTool({ name: 'any', arguments: {} });
 
@@ -360,7 +360,7 @@ verifies('protocol:error:internal-error', async ({ transport }: TestArgs) => {
     expect(ErrorCode.InternalError).toBe(-32603);
 });
 
-verifies('protocol:error:invalid-params', async ({ transport }: TestArgs) => {
+verifies('protocol:error:invalid-params', async ({ transport, protocolVersion }: TestArgs) => {
     // Raw Server: setRequestHandler parses the inbound request against
     // CallToolRequestSchema; missing the required `name` field should yield
     // -32602 InvalidParams at the protocol layer (not McpServer's tool-arg validation).
@@ -372,7 +372,7 @@ verifies('protocol:error:invalid-params', async ({ transport }: TestArgs) => {
     };
     const client = newClient();
     // strictValidation off so the malformed request reaches the server instead of being rejected by the wire sniffer.
-    await using _ = await wire(transport, makeServer, client, { strictValidation: false });
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client, { strictValidation: false });
 
     const outbound = tapOutbound(client);
 
@@ -389,13 +389,13 @@ verifies('protocol:error:invalid-params', async ({ transport }: TestArgs) => {
     await expect(call).rejects.toMatchObject({ code: ErrorCode.InvalidParams });
 });
 
-verifies('protocol:error:method-not-found', async ({ transport }: TestArgs) => {
+verifies('protocol:error:method-not-found', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client, { allowCustomMethods: true });
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client, { allowCustomMethods: true });
 
     const outbound: JSONRPCMessage[] = [];
     const originalSend = client.transport!.send.bind(client.transport!);
@@ -478,7 +478,7 @@ verifies('protocol:error:reconnect-no-stale-timers', async (_: TestArgs) => {
     await serverB.close();
 });
 
-verifies('protocol:progress:callback', async ({ transport }: TestArgs) => {
+verifies('protocol:progress:callback', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, extra) => {
@@ -501,7 +501,7 @@ verifies('protocol:progress:callback', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const updates: Progress[] = [];
 
@@ -517,7 +517,7 @@ verifies('protocol:progress:callback', async ({ transport }: TestArgs) => {
     expect(updates[0]).not.toHaveProperty('progressToken');
 });
 
-verifies('typescript:protocol:progress:token-injected', async ({ transport }: TestArgs) => {
+verifies('typescript:protocol:progress:token-injected', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CallToolRequest['params'][] = [];
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
@@ -536,7 +536,7 @@ verifies('typescript:protocol:progress:token-injected', async ({ transport }: Te
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const traceKey = 'example.com/trace-id';
     const traceId = 'trace-abc-123';
@@ -557,7 +557,7 @@ verifies('typescript:protocol:progress:token-injected', async ({ transport }: Te
     expect(meta?.[traceKey]).toBe(traceId);
 });
 
-verifies('protocol:progress:token-unique', async ({ transport }: TestArgs) => {
+verifies('protocol:progress:token-unique', async ({ transport, protocolVersion }: TestArgs) => {
     const tokens: Array<string | number> = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -575,7 +575,7 @@ verifies('protocol:progress:token-unique', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const a = client.callTool({ name: 'probe', arguments: {} }, undefined, { onprogress: () => {} });
     const b = client.callTool({ name: 'probe', arguments: {} }, undefined, { onprogress: () => {} });
@@ -586,11 +586,11 @@ verifies('protocol:progress:token-unique', async ({ transport }: TestArgs) => {
     expect(tokens[0]).not.toBe(tokens[1]);
 });
 
-verifies('protocol:timeout:basic', async ({ transport }: TestArgs) => {
+verifies('protocol:timeout:basic', async ({ transport, protocolVersion }: TestArgs) => {
     vi.useFakeTimers();
     try {
         const client = newClient();
-        await using _ = await wire(transport, neverRespondingServer, client);
+        await using _ = await wire({ transport, protocolVersion }, neverRespondingServer, client);
 
         const outbound = tapOutbound(client);
 
@@ -617,7 +617,7 @@ verifies('protocol:timeout:basic', async ({ transport }: TestArgs) => {
     }
 });
 
-verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
+verifies('protocol:timeout:max-total', async ({ transport, protocolVersion }: TestArgs) => {
     vi.useFakeTimers();
     try {
         const makeServer = () => {
@@ -642,7 +642,7 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const perChunk = 500;
         const maxTotal = 1000;
@@ -672,7 +672,7 @@ verifies('protocol:timeout:max-total', async ({ transport }: TestArgs) => {
     }
 });
 
-verifies('protocol:timeout:reset-on-progress', async ({ transport }: TestArgs) => {
+verifies('protocol:timeout:reset-on-progress', async ({ transport, protocolVersion }: TestArgs) => {
     vi.useFakeTimers();
     try {
         const makeServer = () => {
@@ -697,7 +697,7 @@ verifies('protocol:timeout:reset-on-progress', async ({ transport }: TestArgs) =
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const timeout = 200;
         const steps = 3;
@@ -736,11 +736,11 @@ verifies('protocol:timeout:reset-on-progress', async ({ transport }: TestArgs) =
     }
 });
 
-verifies('protocol:timeout:sends-cancellation', async ({ transport }: TestArgs) => {
+verifies('protocol:timeout:sends-cancellation', async ({ transport, protocolVersion }: TestArgs) => {
     vi.useFakeTimers();
     try {
         const client = newClient();
-        await using _ = await wire(transport, neverRespondingServer, client);
+        await using _ = await wire({ transport, protocolVersion }, neverRespondingServer, client);
 
         const outbound = tapOutbound(client);
 
@@ -770,7 +770,7 @@ verifies('protocol:timeout:sends-cancellation', async ({ transport }: TestArgs) 
     }
 });
 
-verifies('mcpserver:onerror:reach-through', async ({ transport }: TestArgs) => {
+verifies('mcpserver:onerror:reach-through', async ({ transport, protocolVersion }: TestArgs) => {
     const errors: Error[] = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -778,7 +778,7 @@ verifies('mcpserver:onerror:reach-through', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client, { strictValidation: false });
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client, { strictValidation: false });
 
     const baseA = errors.length;
     const stray: JSONRPCMessage = { jsonrpc: '2.0', id: 99999, result: {} };
@@ -818,7 +818,7 @@ verifies('mcpserver:onerror:reach-through', async ({ transport }: TestArgs) => {
     await expect(client.ping()).resolves.toBeDefined();
 });
 
-verifies('protocol:custom-method:notification', async ({ transport }: TestArgs) => {
+verifies('protocol:custom-method:notification', async ({ transport, protocolVersion }: TestArgs) => {
     const HEARTBEAT_METHOD = 'myorg/heartbeat';
 
     const CustomNotificationSchema = NotificationSchema.extend({
@@ -835,7 +835,7 @@ verifies('protocol:custom-method:notification', async ({ transport }: TestArgs) 
     const client = newClient();
     client.onerror = e => clientErrors.push(e);
 
-    await using _ = await wire(transport, makeServer, client, { allowCustomMethods: true });
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client, { allowCustomMethods: true });
 
     client.setNotificationHandler(CustomNotificationSchema, n => {
         received.push(n);
@@ -854,7 +854,7 @@ verifies('protocol:custom-method:notification', async ({ transport }: TestArgs) 
     expect(clientErrors).toEqual([]);
 });
 
-verifies('protocol:error:data-roundtrip', async ({ transport }: TestArgs) => {
+verifies('protocol:error:data-roundtrip', async ({ transport, protocolVersion }: TestArgs) => {
     // Raw Server so the McpError reaches the protocol layer's error envelope.
     const data = { detail: 'x', nested: { n: 1 } };
     const makeServer = () => {
@@ -866,7 +866,7 @@ verifies('protocol:error:data-roundtrip', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const call = client.callTool({ name: 'any', arguments: {} });
 
@@ -875,7 +875,7 @@ verifies('protocol:error:data-roundtrip', async ({ transport }: TestArgs) => {
     await expect(call).rejects.toMatchObject({ code: ErrorCode.InternalError, data });
 });
 
-verifies('protocol:fallback-notification-handler', async ({ transport }: TestArgs) => {
+verifies('protocol:fallback-notification-handler', async ({ transport, protocolVersion }: TestArgs) => {
     const NEVER_REGISTERED = 'notifications/_e2e/never-registered';
 
     // Notifications are emitted from inside the tools/call handler so they cross the real wire on every transport, including stateless hosting.
@@ -898,7 +898,7 @@ verifies('protocol:fallback-notification-handler', async ({ transport }: TestArg
     const fallback: Notification[] = [];
     const specific: Notification[] = [];
 
-    await using _ = await wire(transport, makeServer, client, { allowCustomMethods: true });
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client, { allowCustomMethods: true });
 
     client.setNotificationHandler(ToolListChangedNotificationSchema, async n => {
         specific.push(n);
@@ -933,7 +933,7 @@ verifies('protocol:fallback-notification-handler', async ({ transport }: TestArg
     expect(fallback.filter(n => n.method === 'notifications/tools/list_changed')).toHaveLength(0);
 });
 
-verifies('protocol:handler:re-register-replaces', async ({ transport }: TestArgs) => {
+verifies('protocol:handler:re-register-replaces', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('list-roots', { inputSchema: z.object({}) }, async (_a, extra) => {
@@ -943,7 +943,7 @@ verifies('protocol:handler:re-register-replaces', async ({ transport }: TestArgs
         return s;
     };
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { roots: { listChanged: true } } });
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     let firstCalls = 0;
     let secondCalls = 0;
@@ -985,20 +985,20 @@ function customEchoServer(): Server {
     return s;
 }
 
-verifies('protocol:custom-method:request', async ({ transport }: TestArgs) => {
+verifies('protocol:custom-method:request', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, customEchoServer, client, { allowCustomMethods: true });
+    await using _ = await wire({ transport, protocolVersion }, customEchoServer, client, { allowCustomMethods: true });
 
     const result = await client.request({ method: X_ECHO_METHOD, params: { value: 'hi' } }, XEchoResultSchema);
 
     expect(result).toEqual({ echoed: 'hi' });
 });
 
-verifies('protocol:custom-method:roundtrip', async ({ transport }: TestArgs) => {
+verifies('protocol:custom-method:roundtrip', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
     const clientErrors: Error[] = [];
     client.onerror = e => clientErrors.push(e);
-    await using _ = await wire(transport, customEchoServer, client, { allowCustomMethods: true });
+    await using _ = await wire({ transport, protocolVersion }, customEchoServer, client, { allowCustomMethods: true });
 
     // Custom method dispatches to the user handler — not -32601 MethodNotFound.
     const result = await client.request({ method: X_ECHO_METHOD, params: { value: 'round' } }, XEchoResultSchema);
@@ -1012,7 +1012,7 @@ verifies('protocol:custom-method:roundtrip', async ({ transport }: TestArgs) => 
     });
 });
 
-verifies('protocol:custom-notification:roundtrip', async ({ transport }: TestArgs) => {
+verifies('protocol:custom-notification:roundtrip', async ({ transport, protocolVersion }: TestArgs) => {
     const X_EVENT_METHOD = 'x-e2e/event';
     const XEventNotificationSchema = NotificationSchema.extend({
         method: z.literal(X_EVENT_METHOD),
@@ -1032,7 +1032,7 @@ verifies('protocol:custom-notification:roundtrip', async ({ transport }: TestArg
     };
 
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client, { allowCustomMethods: true });
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client, { allowCustomMethods: true });
 
     await client.notification({ method: X_EVENT_METHOD, params: { kind: 'k', id: 42, extra: 'stripped-by-zod' } });
 
@@ -1044,7 +1044,7 @@ verifies('protocol:custom-notification:roundtrip', async ({ transport }: TestArg
     expect(serverErrors).toEqual([]);
 });
 
-verifies('protocol:meta:request-to-handler', async ({ transport }: TestArgs) => {
+verifies('protocol:meta:request-to-handler', async ({ transport, protocolVersion }: TestArgs) => {
     const requestMeta = { 'example.com/trace-id': 'trace-abc-123', 'example.com/tenant': { org: 'acme', region: 'eu-west-1' } };
     const handlerParamsMeta: unknown[] = [];
     const handlerExtraMeta: unknown[] = [];
@@ -1059,7 +1059,7 @@ verifies('protocol:meta:request-to-handler', async ({ transport }: TestArgs) => 
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.callTool({ name: 'traced_call', arguments: {}, _meta: requestMeta });
 
@@ -1069,7 +1069,7 @@ verifies('protocol:meta:request-to-handler', async ({ transport }: TestArgs) => 
     expect(handlerExtraMeta).toEqual([requestMeta]);
 });
 
-verifies('protocol:meta:result-to-client', async ({ transport }: TestArgs) => {
+verifies('protocol:meta:result-to-client', async ({ transport, protocolVersion }: TestArgs) => {
     const resultMeta = { 'example.com/cost-tokens': 42, 'example.com/cache': { hit: true, region: 'eu-west-1' } };
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
@@ -1078,7 +1078,7 @@ verifies('protocol:meta:result-to-client', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.callTool({ name: 'metered_call', arguments: {} });
 
@@ -1087,7 +1087,7 @@ verifies('protocol:meta:result-to-client', async ({ transport }: TestArgs) => {
     expect(result._meta).toEqual(resultMeta);
 });
 
-verifies('protocol:request-id:unique', async ({ transport }: TestArgs) => {
+verifies('protocol:request-id:unique', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
@@ -1096,7 +1096,7 @@ verifies('protocol:request-id:unique', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const tap = tapWire(client);
 
@@ -1120,7 +1120,7 @@ verifies('protocol:request-id:unique', async ({ transport }: TestArgs) => {
     expect(new Set(ids).size).toBe(5);
 });
 
-verifies('protocol:notifications:no-response', async ({ transport }: TestArgs) => {
+verifies('protocol:notifications:no-response', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
@@ -1129,7 +1129,7 @@ verifies('protocol:notifications:no-response', async ({ transport }: TestArgs) =
         return s;
     };
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { roots: { listChanged: true } } });
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const tap = tapWire(client);
 
@@ -1162,7 +1162,7 @@ verifies('protocol:notifications:no-response', async ({ transport }: TestArgs) =
     }
 });
 
-verifies('protocol:progress:monotonic', async ({ transport }: TestArgs) => {
+verifies('protocol:progress:monotonic', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('index_files', { inputSchema: z.object({}) }, async (_a, extra) => {
@@ -1190,7 +1190,7 @@ verifies('protocol:progress:monotonic', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const updates: Progress[] = [];
     const result = await client.callTool({ name: 'index_files', arguments: {} }, undefined, { onprogress: p => updates.push(p) });
@@ -1212,7 +1212,7 @@ verifies('protocol:progress:monotonic', async ({ transport }: TestArgs) => {
     }
 });
 
-verifies('protocol:progress:stops-after-completion', async ({ transport }: TestArgs) => {
+verifies('protocol:progress:stops-after-completion', async ({ transport, protocolVersion }: TestArgs) => {
     let server!: Server;
     let lateProgress: (() => Promise<void>) | undefined;
     const makeServer = () => {
@@ -1236,7 +1236,7 @@ verifies('protocol:progress:stops-after-completion', async ({ transport }: TestA
         return server;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const tap = tapWire(client);
 
@@ -1263,7 +1263,7 @@ verifies('protocol:progress:stops-after-completion', async ({ transport }: TestA
     expect(lateProgressOnWire).toEqual([]);
 });
 
-verifies('protocol:cancel:in-flight', async ({ transport }: TestArgs) => {
+verifies('protocol:cancel:in-flight', async ({ transport, protocolVersion }: TestArgs) => {
     const handlerStarted: RequestId[] = [];
     const handlerAbortReasons: unknown[] = [];
     const makeServer = () => {
@@ -1283,7 +1283,7 @@ verifies('protocol:cancel:in-flight', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const tap = tapWire(client);
 
@@ -1319,7 +1319,7 @@ verifies('protocol:cancel:in-flight', async ({ transport }: TestArgs) => {
     expect(tap.received.filter(isResponse).filter(m => m.id === callRequest.id)).toEqual([]);
 });
 
-verifies('protocol:progress:client-to-server', async ({ transport }: TestArgs) => {
+verifies('protocol:progress:client-to-server', async ({ transport, protocolVersion }: TestArgs) => {
     const serverUpdates: Progress[] = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -1361,7 +1361,7 @@ verifies('protocol:progress:client-to-server', async ({ transport }: TestArgs) =
         };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.callTool({
         name: 'summarize_report',
@@ -1377,7 +1377,7 @@ verifies('protocol:progress:client-to-server', async ({ transport }: TestArgs) =
     ]);
 });
 
-verifies('protocol:request-handler:override-builtin', async ({ transport }: TestArgs) => {
+verifies('protocol:request-handler:override-builtin', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
         // Ping has a built-in handler; this should replace it without throwing.
@@ -1386,7 +1386,7 @@ verifies('protocol:request-handler:override-builtin', async ({ transport }: Test
     };
 
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect(() =>
         new Server({ name: 's', version: '0' }, { capabilities: {} }).setRequestHandler(PingRequestSchema, () => ({}))
@@ -1396,7 +1396,7 @@ verifies('protocol:request-handler:override-builtin', async ({ transport }: Test
     expect(result).toEqual({ _meta: { 'e2e/overridden': true } });
 });
 
-export async function mcpserverOnerrorReachThroughRaw({ transport }: TestArgs) {
+export async function mcpserverOnerrorReachThroughRaw({ transport, protocolVersion }: TestArgs) {
     const errors: Error[] = [];
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
@@ -1404,7 +1404,7 @@ export async function mcpserverOnerrorReachThroughRaw({ transport }: TestArgs) {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const baseA = errors.length;
     const stray: JSONRPCMessage = { jsonrpc: '2.0', id: 99999, result: {} };
@@ -1425,7 +1425,7 @@ export async function mcpserverOnerrorReachThroughRaw({ transport }: TestArgs) {
     await expect(client.ping()).resolves.toBeDefined();
 }
 
-verifies('typescript:protocol:error:not-connected', async ({ transport }: TestArgs) => {
+verifies('typescript:protocol:error:not-connected', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('summarize_document', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
@@ -1442,7 +1442,7 @@ verifies('typescript:protocol:error:not-connected', async ({ transport }: TestAr
     await expect(beforeConnect).rejects.toMatchObject({ message: 'Not connected' });
 
     // Once connected over the matrix transport, the same client serves requests normally.
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
     expect(client.transport).toBeDefined();
     const listed = await client.listTools();
     expect(listed.tools.map(t => t.name)).toEqual(['summarize_document']);
@@ -1550,7 +1550,7 @@ verifies('transport:custom:client-connect', async ({ protocolVersion }: TestArgs
     }
 });
 
-verifies('protocol:transport-callbacks:wrappable-after-connect', async ({ transport }: TestArgs) => {
+verifies('protocol:transport-callbacks:wrappable-after-connect', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
@@ -1559,7 +1559,7 @@ verifies('protocol:transport-callbacks:wrappable-after-connect', async ({ transp
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const tx = client.transport;
     if (!tx) throw new Error('client transport not set after connect');

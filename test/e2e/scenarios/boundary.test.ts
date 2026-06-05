@@ -40,7 +40,7 @@ const newClient = () => new Client({ name: 'c', version: '0' });
 /** Issue codes off a raw validator error, typed loosely so the assertion does not depend on zod's generics. */
 const issueCodes = (err: unknown): string[] => ((err as { issues?: Array<{ code: string }> }).issues ?? []).map(i => i.code);
 
-verifies('typescript:types:empty-result-strict', async ({ transport }: TestArgs) => {
+verifies('typescript:types:empty-result-strict', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: {} });
         // Deliberately violate the empty-result contract: an extra non-_meta key on the ping ack.
@@ -49,7 +49,7 @@ verifies('typescript:types:empty-result-strict', async ({ transport }: TestArgs)
     };
     const client = newClient();
     // The server intentionally puts a non-conforming MCP result on the wire.
-    await using _ = await wire(transport, makeServer, client, { strictValidation: false });
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client, { strictValidation: false });
 
     const err: unknown = await client.ping().then(
         () => undefined,
@@ -131,7 +131,7 @@ verifies('typescript:types:envelope-strict', async ({ transport, protocolVersion
     }
 });
 
-verifies('typescript:types:request-params-strip', async ({ transport }: TestArgs) => {
+verifies('typescript:types:request-params-strip', async ({ transport, protocolVersion }: TestArgs) => {
     const seenParams: unknown[] = [];
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
@@ -142,7 +142,7 @@ verifies('typescript:types:request-params-strip', async ({ transport }: TestArgs
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.request(
         { method: 'tools/call', params: { name: 'echo', arguments: {}, future2026: 1 } },
@@ -155,7 +155,7 @@ verifies('typescript:types:request-params-strip', async ({ transport }: TestArgs
     expect(seenParams[0]).toEqual({ name: 'echo', arguments: {} });
 });
 
-verifies('typescript:types:result-passthrough', async ({ transport }: TestArgs) => {
+verifies('typescript:types:result-passthrough', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
         s.setRequestHandler(CallToolRequestSchema, () => ({
@@ -166,7 +166,7 @@ verifies('typescript:types:result-passthrough', async ({ transport }: TestArgs) 
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.callTool({ name: 'cached_call', arguments: {} });
 
@@ -176,14 +176,14 @@ verifies('typescript:types:result-passthrough', async ({ transport }: TestArgs) 
     expect(result.ttlMs).toBe(5);
 });
 
-verifies('typescript:types:completion-result-loose', async ({ transport }: TestArgs) => {
+verifies('typescript:types:completion-result-loose', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { completions: {} } });
         s.setRequestHandler(CompleteRequestSchema, () => ({ completion: { values: ['alpha'], extraField: 'kept' } }));
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.complete({
         ref: { type: 'ref/prompt', name: 'greeting' },
@@ -195,14 +195,14 @@ verifies('typescript:types:completion-result-loose', async ({ transport }: TestA
     expect(result.completion.extraField).toBe('kept');
 });
 
-verifies('typescript:consumer:result-validation-error', async ({ transport }: TestArgs) => {
+verifies('typescript:consumer:result-validation-error', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
         s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // Sanity: the same request resolves when the consumer-supplied schema matches the result.
     const ok = await client.request({ method: 'tools/list' }, z.object({ tools: z.array(z.unknown()) }));

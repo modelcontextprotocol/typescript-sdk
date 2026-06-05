@@ -38,7 +38,7 @@ import { hostPerSession, hostResumable, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
-verifies('flow:elicitation:multi-step-form', async ({ transport }: TestArgs) => {
+verifies('flow:elicitation:multi-step-form', async ({ transport, protocolVersion }: TestArgs) => {
     // Server: tool that issues three sequential elicitation/create requests
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -106,7 +106,7 @@ verifies('flow:elicitation:multi-step-form', async ({ transport }: TestArgs) => 
         return resp;
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // Happy path: accept all three steps
     queued.push({ action: 'accept', content: { name: 'Ada' } });
@@ -208,7 +208,7 @@ verifies('flow:elicitation:url-at-session-init', async (_args: TestArgs) => {
     }
 });
 
-verifies('flow:elicitation:url-required-then-retry', async ({ transport }: TestArgs) => {
+verifies('flow:elicitation:url-required-then-retry', async ({ transport, protocolVersion }: TestArgs) => {
     // Server: tool that throws UrlElicitationRequiredError until elicitation is completed
     const completed = new Set<string>();
     let server!: McpServer;
@@ -237,7 +237,7 @@ verifies('flow:elicitation:url-required-then-retry', async ({ transport }: TestA
     client.setNotificationHandler(ElicitationCompleteNotificationSchema, async n => {
         completionsSeen.push(n.params.elicitationId);
     });
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // Step 1: first call rejects with UrlElicitationRequiredError
     const err = await client.callTool({ name: 'url-gated', arguments: {} }).catch(e => e);
@@ -727,7 +727,7 @@ verifies('flow:session:terminate-then-reconnect', async (_args: TestArgs) => {
     }
 });
 
-verifies('flow:tool-result:resource-link-follow', async ({ transport }: TestArgs) => {
+verifies('flow:tool-result:resource-link-follow', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('resource-link', { inputSchema: z.object({}) }, () => ({
@@ -747,7 +747,7 @@ verifies('flow:tool-result:resource-link-follow', async ({ transport }: TestArgs
     };
 
     const client = new Client({ name: 'c', version: '0' });
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // Call tool and get resource_link
     const toolResult = (await client.callTool({ name: 'resource-link', arguments: {} })) as CallToolResult;
@@ -769,7 +769,7 @@ verifies('flow:tool-result:resource-link-follow', async ({ transport }: TestArgs
     }
 });
 
-verifies('flow:proxy:forward-tools-resources', async ({ transport }: TestArgs) => {
+verifies('flow:proxy:forward-tools-resources', async ({ transport, protocolVersion }: TestArgs) => {
     // Upstream server with tools and resources
     const upstreamServer = new McpServer({ name: 'upstream', version: '0' });
     upstreamServer.registerTool('echo', { description: 'Echoes text', inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
@@ -816,8 +816,8 @@ verifies('flow:proxy:forward-tools-resources', async ({ transport }: TestArgs) =
     // Wire: downstream client → proxy server → upstream client → upstream server
     const downstreamClient = new Client({ name: 'downstream', version: '0' });
 
-    await using _upstreamW = await wire(transport, () => upstreamServer, upstreamClient);
-    await using _proxyW = await wire(transport, () => proxyServer, downstreamClient);
+    await using _upstreamW = await wire({ transport, protocolVersion }, () => upstreamServer, upstreamClient);
+    await using _proxyW = await wire({ transport, protocolVersion }, () => proxyServer, downstreamClient);
 
     // Downstream sees upstream tools
     const { tools } = await downstreamClient.listTools();

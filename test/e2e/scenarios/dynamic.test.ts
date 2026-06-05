@@ -35,7 +35,7 @@ const newClient = () => new Client({ name: 'c', version: '0' });
 // false result throws and the poll continues.
 const waitUntil = (pred: () => boolean) => vi.waitFor(() => expect(pred()).toBe(true));
 
-verifies('client:list-changed:auto-refresh', async ({ transport }: TestArgs) => {
+verifies('client:list-changed:auto-refresh', async ({ transport, protocolVersion }: TestArgs) => {
     const toolCalls: Array<{ error: Error | null; items: Tool[] | null }> = [];
     const promptCalls: Array<{ error: Error | null; items: Prompt[] | null }> = [];
     const resourceCalls: Array<{ error: Error | null; items: Resource[] | null }> = [];
@@ -60,7 +60,7 @@ verifies('client:list-changed:auto-refresh', async ({ transport }: TestArgs) => 
         }
     );
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     server.registerTool('probe-tool', { inputSchema: z.object({}) }, () => ({ content: [] }));
     await waitUntil(() => toolCalls.some(c => c.items?.some(t => t.name === 'probe-tool')));
@@ -81,7 +81,7 @@ verifies('client:list-changed:auto-refresh', async ({ transport }: TestArgs) => 
     expect(resourceCall?.items?.map(r => r.uri)).toContain('test://probe');
 });
 
-verifies('client:list-changed:capability-gated', async ({ transport }: TestArgs) => {
+verifies('client:list-changed:capability-gated', async ({ transport, protocolVersion }: TestArgs) => {
     const toolsCalls: unknown[] = [];
     const promptsCalls: unknown[] = [];
     const resourcesCalls: unknown[] = [];
@@ -114,7 +114,7 @@ verifies('client:list-changed:capability-gated', async ({ transport }: TestArgs)
         }
     );
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const caps = client.getServerCapabilities();
     expect(caps?.tools?.listChanged).toBe(true);
@@ -137,7 +137,7 @@ verifies('client:list-changed:capability-gated', async ({ transport }: TestArgs)
     expect(resourcesCalls).toHaveLength(0);
 });
 
-verifies('client:list-changed:signal-only', async ({ transport }: TestArgs) => {
+verifies('client:list-changed:signal-only', async ({ transport, protocolVersion }: TestArgs) => {
     const toolCalls: Array<{ error: Error | null; items: Tool[] | null }> = [];
     const promptCalls: Array<{ error: Error | null; items: Prompt[] | null }> = [];
     const resourceCalls: Array<{ error: Error | null; items: Resource[] | null }> = [];
@@ -170,7 +170,7 @@ verifies('client:list-changed:signal-only', async ({ transport }: TestArgs) => {
         }
     );
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const before = await client.listTools();
 
@@ -194,7 +194,7 @@ verifies('client:list-changed:signal-only', async ({ transport }: TestArgs) => {
     expect(after.tools.length).toBe(before.tools.length + 1);
 });
 
-verifies('mcpserver:handle:enable-disable', async ({ transport }: TestArgs) => {
+verifies('mcpserver:handle:enable-disable', async ({ transport, protocolVersion }: TestArgs) => {
     let handle!: RegisteredTool;
     let server!: McpServer;
 
@@ -212,7 +212,7 @@ verifies('mcpserver:handle:enable-disable', async ({ transport }: TestArgs) => {
         listChanged++;
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect((await client.listTools()).tools.map(t => t.name)).toContain('toggle-probe');
     const baseline = await client.callTool({ name: 'toggle-probe', arguments: {} });
@@ -238,7 +238,7 @@ verifies('mcpserver:handle:enable-disable', async ({ transport }: TestArgs) => {
     expect(restored.content).toEqual([{ type: 'text', text: 'toggle-probe' }]);
 });
 
-verifies('mcpserver:list-changed:debounce', async ({ transport }: TestArgs) => {
+verifies('mcpserver:list-changed:debounce', async ({ transport, protocolVersion }: TestArgs) => {
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer(
@@ -266,7 +266,7 @@ verifies('mcpserver:list-changed:debounce', async ({ transport }: TestArgs) => {
     client.setNotificationHandler(ResourceListChangedNotificationSchema, () => void counts.resources++);
     client.setNotificationHandler(PromptListChangedNotificationSchema, () => void counts.prompts++);
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     counts.tools = 0;
     counts.resources = 0;
@@ -293,7 +293,7 @@ verifies('mcpserver:list-changed:debounce', async ({ transport }: TestArgs) => {
     expect(tools.map(t => t.name)).toEqual(expect.arrayContaining(['a', 'b', 'c']));
 });
 
-verifies('mcpserver:register:post-connect', async ({ transport }: TestArgs) => {
+verifies('mcpserver:register:post-connect', async ({ transport, protocolVersion }: TestArgs) => {
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' });
@@ -310,7 +310,7 @@ verifies('mcpserver:register:post-connect', async ({ transport }: TestArgs) => {
     client.setNotificationHandler(ResourceListChangedNotificationSchema, () => void seen.push('resources'));
     client.setNotificationHandler(PromptListChangedNotificationSchema, () => void seen.push('prompts'));
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     seen.length = 0;
     server.registerTool('post-connect-tool', { inputSchema: z.object({}) }, () => ({ content: [] }));
@@ -328,7 +328,7 @@ verifies('mcpserver:register:post-connect', async ({ transport }: TestArgs) => {
     expect((await client.listPrompts()).prompts.map(p => p.name)).toContain('post-connect-prompt');
 });
 
-verifies('mcpserver:reach-through:set-request-handler', async ({ transport }: TestArgs) => {
+verifies('mcpserver:reach-through:set-request-handler', async ({ transport, protocolVersion }: TestArgs) => {
     const handlerHits: string[] = [];
     let server!: McpServer;
 
@@ -342,7 +342,7 @@ verifies('mcpserver:reach-through:set-request-handler', async ({ transport }: Te
     };
 
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     server.server.setRequestHandler(SubscribeRequestSchema, async request => {
         handlerHits.push(request.params.uri);

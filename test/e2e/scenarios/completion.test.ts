@@ -48,9 +48,9 @@ function colorCompletionServer(): McpServer {
     return s;
 }
 
-verifies('completion:capability:declared', async ({ transport }: TestArgs) => {
+verifies('completion:capability:declared', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, colorCompletionServer, client);
+    await using _ = await wire({ transport, protocolVersion }, colorCompletionServer, client);
 
     const caps = client.getServerCapabilities();
     expect(caps?.completions).toBeDefined();
@@ -63,7 +63,7 @@ verifies('completion:capability:declared', async ({ transport }: TestArgs) => {
     expect(Array.isArray(result.completion.values)).toBe(true);
 });
 
-verifies('completion:complete:not-supported', async ({ transport }: TestArgs) => {
+verifies('completion:complete:not-supported', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerPrompt('summarize-code', { argsSchema: { code: z.string() } }, ({ code }) => ({
@@ -72,7 +72,7 @@ verifies('completion:complete:not-supported', async ({ transport }: TestArgs) =>
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const caps = client.getServerCapabilities();
     expect(caps).toBeDefined();
@@ -91,7 +91,7 @@ verifies('completion:complete:not-supported', async ({ transport }: TestArgs) =>
     ).rejects.toMatchObject({ code: ErrorCode.MethodNotFound });
 });
 
-verifies('completion:context-arguments', async ({ transport }: TestArgs) => {
+verifies('completion:context-arguments', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource(
@@ -113,7 +113,7 @@ verifies('completion:context-arguments', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const acme = await client.complete({
         ref: { type: 'ref/resource', uri: 'github://{owner}/{repo}' },
@@ -139,9 +139,9 @@ verifies('completion:context-arguments', async ({ transport }: TestArgs) => {
 
 verifies(
     'completion:error:invalid-ref',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const client = newClient();
-        await using _ = await wire(transport, colorCompletionServer, client);
+        await using _ = await wire({ transport, protocolVersion }, colorCompletionServer, client);
 
         await expect(
             client.complete({ ref: { type: 'ref/prompt', name: 'no-such-prompt' }, argument: { name: 'whatever', value: '' } })
@@ -156,7 +156,7 @@ verifies(
 
 verifies(
     'completion:error:invalid-ref',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { completions: {} } });
             s.setRequestHandler(CompleteRequestSchema, req => {
@@ -168,7 +168,7 @@ verifies(
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const known = await client.complete({ ref: { type: 'ref/prompt', name: 'known' }, argument: { name: 'a', value: '' } });
         expect(known.completion.values).toEqual(['ok']);
@@ -180,9 +180,9 @@ verifies(
     { title: 'raw server' }
 );
 
-verifies('completion:prompt-arg', async ({ transport }: TestArgs) => {
+verifies('completion:prompt-arg', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, colorCompletionServer, client);
+    await using _ = await wire({ transport, protocolVersion }, colorCompletionServer, client);
 
     const result = await client.complete({
         ref: { type: 'ref/prompt', name: 'complete-color' },
@@ -194,7 +194,7 @@ verifies('completion:prompt-arg', async ({ transport }: TestArgs) => {
     expect(result.completion.hasMore ?? false).toBe(false);
 });
 
-verifies('completion:resource-template-arg', async ({ transport }: TestArgs) => {
+verifies('completion:resource-template-arg', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource(
@@ -218,7 +218,7 @@ verifies('completion:resource-template-arg', async ({ transport }: TestArgs) => 
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.complete({
         ref: { type: 'ref/resource', uri: 'completion://files/{path}' },
@@ -236,7 +236,7 @@ verifies('completion:resource-template-arg', async ({ transport }: TestArgs) => 
     expect(other.completion.values).toEqual([]);
 });
 
-verifies('completion:result-shape', async ({ transport }: TestArgs) => {
+verifies('completion:result-shape', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerPrompt(
@@ -253,7 +253,7 @@ verifies('completion:result-shape', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const small = await client.complete({
         ref: { type: 'ref/prompt', name: 'complete-color' },
@@ -291,7 +291,7 @@ verifies('completion:result-shape', async ({ transport }: TestArgs) => {
 
 verifies(
     'mcpserver:completion:capability-auto',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const makeServer = () => {
             const s = new McpServer({ name: 's', version: '0' });
             s.registerPrompt('non-completable', { argsSchema: { arg: z.string() } }, ({ arg }) => ({
@@ -307,7 +307,7 @@ verifies(
         };
 
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const caps = client.getServerCapabilities();
         expect(caps).toBeDefined();
@@ -327,7 +327,7 @@ verifies(
 
 verifies(
     'mcpserver:completion:capability-auto',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const makeServer = () => {
             const s = new Server({ name: 's', version: '0' }, { capabilities: { prompts: {}, resources: {} } });
             s.setRequestHandler(ListPromptsRequestSchema, () => ({ prompts: [{ name: 'plain', arguments: [] }] }));
@@ -337,7 +337,7 @@ verifies(
         };
 
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const caps = client.getServerCapabilities();
         expect(caps?.completions).toBeUndefined();

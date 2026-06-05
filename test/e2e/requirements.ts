@@ -107,6 +107,20 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed.'
     },
+    'typescript:lifecycle:version:supported-back-compat': {
+        source: 'sdk',
+        behavior:
+            "SUPPORTED_PROTOCOL_VERSIONS contains '2025-11-25' — and every version on the e2e matrix axis — independent of LATEST_PROTOCOL_VERSION. The supported list names the current latest version only via the LATEST_PROTOCOL_VERSION reference, so a naive bump of that constant silently drops the previous version, breaking every deployed consumer that still negotiates it. A version leaves the supported set only by being consciously retired from this requirement.",
+        transports: ['inMemory'],
+        note: 'Pure constant check with no wire traffic; registered on a single transport so it runs once per spec version.'
+    },
+    'typescript:lifecycle:version:matrix-covers-latest': {
+        source: 'sdk',
+        behavior:
+            'LATEST_PROTOCOL_VERSION appears in the e2e version axis (ALL_SPEC_VERSIONS, test/e2e/types.ts), so bumping the latest protocol version is a conscious, e2e-visible act: the bump goes red here until the matrix axis is extended in the same change. Sharp edge, not runtime-testable: the client offers no supported option to REQUEST an older protocol version, so the axis can only label versions the client actually requests; if such an option is ever added (it would pass typecheck unnoticed), version selection must start threading through wire().',
+        transports: ['inMemory'],
+        note: 'Pure constant check with no wire traffic; registered on a single transport so it runs once per spec version.'
+    },
 
     // Protocol primitives: cancellation, timeout, progress, errors, _meta
 

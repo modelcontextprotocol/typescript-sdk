@@ -658,7 +658,7 @@ verifies('hosting:stateless:get-delete-405', async (_args: TestArgs) => {
     expect(deleteRes.status).toBe(405);
 });
 
-verifies('hosting:stateless:progress-in-post-stream', async ({ transport }: TestArgs) => {
+verifies('hosting:stateless:progress-in-post-stream', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('progress-tool', { inputSchema: z.object({ steps: z.number() }) }, async ({ steps }, extra) => {
@@ -677,7 +677,7 @@ verifies('hosting:stateless:progress-in-post-stream', async ({ transport }: Test
     };
 
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const progressEvents: Array<{ progress: number; total?: number }> = [];
     let receivedAtResolve = -1;

@@ -42,7 +42,7 @@ const formClientWithDefaults = () =>
 /** Client with URL-mode elicitation support. */
 const urlClient = () => new Client({ name: 'c', version: '0' }, { capabilities: { elicitation: { url: {} } } });
 
-verifies('elicitation:form:basic', async ({ transport }: TestArgs) => {
+verifies('elicitation:form:basic', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('ask-name', { inputSchema: z.object({}) }, async () => {
@@ -64,7 +64,7 @@ verifies('elicitation:form:basic', async ({ transport }: TestArgs) => {
         return { action: 'accept', content: { name: 'Ada' } };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'ask-name', arguments: {} });
 
@@ -80,7 +80,7 @@ verifies('elicitation:form:basic', async ({ transport }: TestArgs) => {
     expect(r.content).toEqual([{ type: 'text', text: 'Hello, Ada' }]);
 });
 
-verifies('elicitation:form:action:accept', async ({ transport }: TestArgs) => {
+verifies('elicitation:form:action:accept', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('ask', { inputSchema: z.object({}) }, async () => {
@@ -101,13 +101,13 @@ verifies('elicitation:form:action:accept', async ({ transport }: TestArgs) => {
         return { action: 'accept', content: { name: 'Ada' } };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'ask', arguments: {} });
     expect(r.content).toEqual([{ type: 'text', text: 'Ada' }]);
 });
 
-verifies('elicitation:form:action:cancel', async ({ transport }: TestArgs) => {
+verifies('elicitation:form:action:cancel', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('ask', { inputSchema: z.object({}) }, async () => {
@@ -128,13 +128,13 @@ verifies('elicitation:form:action:cancel', async ({ transport }: TestArgs) => {
         return { action: 'cancel' };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'ask', arguments: {} });
     expect(r.content).toEqual([{ type: 'text', text: 'action:cancel,hasContent:false' }]);
 });
 
-verifies('elicitation:form:action:decline', async ({ transport }: TestArgs) => {
+verifies('elicitation:form:action:decline', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('ask', { inputSchema: z.object({}) }, async () => {
@@ -155,13 +155,13 @@ verifies('elicitation:form:action:decline', async ({ transport }: TestArgs) => {
         return { action: 'decline' };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'ask', arguments: {} });
     expect(r.content).toEqual([{ type: 'text', text: 'action:decline,hasContent:false' }]);
 });
 
-verifies('elicitation:form:defaults', async ({ transport }: TestArgs) => {
+verifies('elicitation:form:defaults', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('ask', { inputSchema: z.object({}) }, async () => {
@@ -185,13 +185,13 @@ verifies('elicitation:form:defaults', async ({ transport }: TestArgs) => {
     const client = formClientWithDefaults();
     client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'accept', content: { name: 'Ada' } }));
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'ask', arguments: {} });
     expect(r.structuredContent).toEqual({ name: 'Ada', age: 42, subscribe: true });
 });
 
-verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs) => {
+verifies('elicitation:form:mode-omitted-default', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
         s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [{ name: 'ask', inputSchema: { type: 'object' } }] }));
@@ -223,7 +223,7 @@ verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs
         return { action: 'accept', content: { name: 'Test' } };
     });
 
-    await using _1 = await wire(transport, makeServer, formClientInstance);
+    await using _1 = await wire({ transport, protocolVersion }, makeServer, formClientInstance);
 
     const formResult = await formClientInstance.callTool({ name: 'ask', arguments: {} });
 
@@ -238,14 +238,14 @@ verifies('elicitation:form:mode-omitted-default', async ({ transport }: TestArgs
         return { action: 'accept' };
     });
 
-    await using _2 = await wire(transport, makeServer, urlClientInstance);
+    await using _2 = await wire({ transport, protocolVersion }, makeServer, urlClientInstance);
 
     const urlResult = await urlClientInstance.callTool({ name: 'ask', arguments: {} });
     expect(urlResult.content).toEqual([{ type: 'text', text: `error:${ErrorCode.InvalidParams}` }]);
     expect(urlHandlerInvoked).toBe(0);
 });
 
-verifies('elicitation:form:schema:primitives', async ({ transport }: TestArgs) => {
+verifies('elicitation:form:schema:primitives', async ({ transport, protocolVersion }: TestArgs) => {
     const requestedSchema: ElicitRequestFormParams['requestedSchema'] = {
         type: 'object',
         properties: {
@@ -273,7 +273,7 @@ verifies('elicitation:form:schema:primitives', async ({ transport }: TestArgs) =
         return { action: 'accept', content: expected };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'ask', arguments: {} });
     expect(received).toHaveLength(1);
@@ -281,7 +281,7 @@ verifies('elicitation:form:schema:primitives', async ({ transport }: TestArgs) =
     expect(r.structuredContent).toEqual(expected);
 });
 
-verifies('elicitation:form:schema:enum-variants', async ({ transport }: TestArgs) => {
+verifies('elicitation:form:schema:enum-variants', async ({ transport, protocolVersion }: TestArgs) => {
     const requestedSchema: ElicitRequestFormParams['requestedSchema'] = {
         type: 'object',
         properties: {
@@ -321,7 +321,7 @@ verifies('elicitation:form:schema:enum-variants', async ({ transport }: TestArgs
         return { action: 'accept', content: expected };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'ask', arguments: {} });
     expect(received).toHaveLength(1);
@@ -329,7 +329,7 @@ verifies('elicitation:form:schema:enum-variants', async ({ transport }: TestArgs
     expect(r.structuredContent).toEqual(expected);
 });
 
-verifies('elicitation:form:response-validation', async ({ transport }: TestArgs) => {
+verifies('elicitation:form:response-validation', async ({ transport, protocolVersion }: TestArgs) => {
     const requestedSchema: ElicitRequestFormParams['requestedSchema'] = {
         type: 'object',
         properties: { username: { type: 'string' } },
@@ -362,7 +362,7 @@ verifies('elicitation:form:response-validation', async ({ transport }: TestArgs)
         return { action: 'accept', content };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const schemaRejection = expect.stringMatching(new RegExp(`^rejected:${ErrorCode.InvalidParams}:.*does not match requested schema`));
 
@@ -377,7 +377,7 @@ verifies('elicitation:form:response-validation', async ({ transport }: TestArgs)
     expect(handlerInvoked).toBe(2);
 });
 
-verifies('elicitation:form:schema:restricted-subset', async ({ transport }: TestArgs) => {
+verifies('elicitation:form:schema:restricted-subset', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
         s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [{ name: 'profile', inputSchema: { type: 'object' } }] }));
@@ -423,7 +423,7 @@ verifies('elicitation:form:schema:restricted-subset', async ({ transport }: Test
     });
 
     // strictValidation off: the nested requestedSchema deliberately violates the spec's flat-primitive restriction on the wire.
-    await using _ = await wire(transport, makeServer, client, { strictValidation: false });
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client, { strictValidation: false });
 
     const r = await client.callTool({ name: 'profile', arguments: {} });
     expect(r.isError).toBeFalsy();
@@ -431,7 +431,7 @@ verifies('elicitation:form:schema:restricted-subset', async ({ transport }: Test
     expect(handlerInvoked).toBe(0);
 });
 
-verifies('elicitation:url:basic', async ({ transport }: TestArgs) => {
+verifies('elicitation:url:basic', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('auth', { inputSchema: z.object({}) }, async () => {
@@ -453,7 +453,7 @@ verifies('elicitation:url:basic', async ({ transport }: TestArgs) => {
         return { action: 'accept' };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'auth', arguments: {} });
 
@@ -467,7 +467,7 @@ verifies('elicitation:url:basic', async ({ transport }: TestArgs) => {
     expect(r.content).toEqual([{ type: 'text', text: 'accept' }]);
 });
 
-verifies('elicitation:url:action:accept-no-content', async ({ transport }: TestArgs) => {
+verifies('elicitation:url:action:accept-no-content', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('auth', { inputSchema: z.object({}) }, async () => {
@@ -487,13 +487,13 @@ verifies('elicitation:url:action:accept-no-content', async ({ transport }: TestA
     const client = urlClient();
     client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'accept' }));
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'auth', arguments: {} });
     expect(r.content).toEqual([{ type: 'text', text: 'action:accept,hasContent:false' }]);
 });
 
-verifies('elicitation:url:action:cancel', async ({ transport }: TestArgs) => {
+verifies('elicitation:url:action:cancel', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('auth', { inputSchema: z.object({}) }, async () => {
@@ -513,14 +513,14 @@ verifies('elicitation:url:action:cancel', async ({ transport }: TestArgs) => {
     const client = urlClient();
     client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'cancel' }));
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'auth', arguments: {} });
     expect(r.isError).toBeFalsy();
     expect(r.content).toEqual([{ type: 'text', text: 'action:cancel,hasContent:false' }]);
 });
 
-verifies('elicitation:url:action:decline', async ({ transport }: TestArgs) => {
+verifies('elicitation:url:action:decline', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('auth', { inputSchema: z.object({}) }, async () => {
@@ -540,14 +540,14 @@ verifies('elicitation:url:action:decline', async ({ transport }: TestArgs) => {
     const client = urlClient();
     client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'decline' }));
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'auth', arguments: {} });
     expect(r.isError).toBeFalsy();
     expect(r.content).toEqual([{ type: 'text', text: 'action:decline,hasContent:false' }]);
 });
 
-verifies('elicitation:url:complete-notification', async ({ transport }: TestArgs) => {
+verifies('elicitation:url:complete-notification', async ({ transport, protocolVersion }: TestArgs) => {
     const notifications: Array<{ method: string; params: unknown }> = [];
 
     const makeServer = () => {
@@ -575,7 +575,7 @@ verifies('elicitation:url:complete-notification', async ({ transport }: TestArgs
         notifications.push({ method: n.method, params: n.params });
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const err = await client.callTool({ name: 'auth', arguments: {} }).catch(e => e);
     if (!(err instanceof UrlElicitationRequiredError)) throw new Error(`expected UrlElicitationRequiredError, got ${err}`);
@@ -590,7 +590,7 @@ verifies('elicitation:url:complete-notification', async ({ transport }: TestArgs
     });
 });
 
-verifies('elicitation:url:complete-unknown-ignored', async ({ transport }: TestArgs) => {
+verifies('elicitation:url:complete-unknown-ignored', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('auth', { inputSchema: z.object({}) }, () => {
@@ -619,7 +619,7 @@ verifies('elicitation:url:complete-unknown-ignored', async ({ transport }: TestA
         notifications.push({ method: n.method, params: n.params });
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const err = await client.callTool({ name: 'auth', arguments: {} }).catch(e => e);
     if (!(err instanceof UrlElicitationRequiredError)) throw new Error(`expected UrlElicitationRequiredError, got ${err}`);
@@ -642,7 +642,7 @@ verifies('elicitation:url:complete-unknown-ignored', async ({ transport }: TestA
     expect(after.content).toEqual([]);
 });
 
-verifies('elicitation:url:required-error', async ({ transport }: TestArgs) => {
+verifies('elicitation:url:required-error', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('auth-required', { inputSchema: z.object({}) }, () => {
@@ -659,7 +659,7 @@ verifies('elicitation:url:required-error', async ({ transport }: TestArgs) => {
     };
 
     const client = urlClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const err = await client.callTool({ name: 'auth-required', arguments: {} }).catch(e => e);
     if (!(err instanceof UrlElicitationRequiredError)) throw new Error(`expected UrlElicitationRequiredError, got ${err}`);
@@ -673,7 +673,7 @@ verifies('elicitation:url:required-error', async ({ transport }: TestArgs) => {
     });
 });
 
-verifies('elicitation:capability:empty-is-form', async ({ transport }: TestArgs) => {
+verifies('elicitation:capability:empty-is-form', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('ask', { inputSchema: z.object({}) }, async () => {
@@ -692,13 +692,13 @@ verifies('elicitation:capability:empty-is-form', async ({ transport }: TestArgs)
         return { action: 'accept', content: { name: 'Test' } };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'ask', arguments: {} });
     expect(r.content).toEqual([{ type: 'text', text: 'accept' }]);
 });
 
-verifies('elicitation:capability:mode-mismatch', async ({ transport }: TestArgs) => {
+verifies('elicitation:capability:mode-mismatch', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
         s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [{ name: 'auth', inputSchema: { type: 'object' } }] }));
@@ -727,14 +727,14 @@ verifies('elicitation:capability:mode-mismatch', async ({ transport }: TestArgs)
         return { action: 'accept', content: {} };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'auth', arguments: {} });
     expect(r.content).toEqual([{ type: 'text', text: `error:${ErrorCode.InvalidParams}` }]);
     expect(handlerInvoked).toBe(0);
 });
 
-verifies('elicitation:capability:server-respects-mode', async ({ transport }: TestArgs) => {
+verifies('elicitation:capability:server-respects-mode', async ({ transport, protocolVersion }: TestArgs) => {
     let reachedClient = 0;
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -760,7 +760,7 @@ verifies('elicitation:capability:server-respects-mode', async ({ transport }: Te
         return { action: 'accept' };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const r = await client.callTool({ name: 'auth', arguments: {} });
     expect(r.isError).toBeFalsy();
@@ -768,7 +768,7 @@ verifies('elicitation:capability:server-respects-mode', async ({ transport }: Te
     expect(reachedClient).toBe(0);
 });
 
-verifies('elicitation:capability:not-declared', async ({ transport }: TestArgs) => {
+verifies('elicitation:capability:not-declared', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('ask-form', { inputSchema: z.object({}) }, async () => {
@@ -802,7 +802,7 @@ verifies('elicitation:capability:not-declared', async ({ transport }: TestArgs) 
     // No elicitation capability declared at all — neither mode may reach the wire.
     const client = new Client({ name: 'c', version: '0' });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
     const tap = tapWire(client);
 
     const form = await client.callTool({ name: 'ask-form', arguments: {} });

@@ -43,14 +43,14 @@ function loggingServer(): McpServer {
     return s;
 }
 
-verifies('logging:capability:declared', async ({ transport }: TestArgs) => {
+verifies('logging:capability:declared', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
-    await using _ = await wire(transport, loggingServer, client);
+    await using _ = await wire({ transport, protocolVersion }, loggingServer, client);
 
     expect(client.getServerCapabilities()?.logging).toEqual({});
 });
 
-verifies('logging:message:fields', async ({ transport }: TestArgs) => {
+verifies('logging:message:fields', async ({ transport, protocolVersion }: TestArgs) => {
     const logs: Array<{ level: LoggingLevel; logger?: string; data: unknown }> = [];
 
     const makeServer = () => {
@@ -83,7 +83,7 @@ verifies('logging:message:fields', async ({ transport }: TestArgs) => {
         logs.push(n.params);
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     await client.setLoggingLevel('debug');
     await client.callTool({ name: 'emit-logs', arguments: { withLogger: true } });
@@ -99,7 +99,7 @@ verifies('logging:message:fields', async ({ transport }: TestArgs) => {
     expect(logs[1 + ALL_LEVELS.length]).not.toHaveProperty('logger');
 });
 
-verifies('logging:message:all-levels', async ({ transport }: TestArgs) => {
+verifies('logging:message:all-levels', async ({ transport, protocolVersion }: TestArgs) => {
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} } });
@@ -118,7 +118,7 @@ verifies('logging:message:all-levels', async ({ transport }: TestArgs) => {
         received.push(n.params);
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // No logging/setLevel is sent: with no threshold configured, every severity must be deliverable.
     const result = await client.callTool({ name: 'run-diagnostics', arguments: {} });
@@ -128,7 +128,7 @@ verifies('logging:message:all-levels', async ({ transport }: TestArgs) => {
     expect(received).toEqual(ALL_LEVELS.map(level => ({ level, logger: 'diagnostics', data: `a ${level} event` })));
 });
 
-verifies(['logging:message:filtered', 'logging:set-level'], async ({ transport }: TestArgs) => {
+verifies(['logging:message:filtered', 'logging:set-level'], async ({ transport, protocolVersion }: TestArgs) => {
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' }, { capabilities: { logging: {} } });
@@ -142,7 +142,7 @@ verifies(['logging:message:filtered', 'logging:set-level'], async ({ transport }
     };
 
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     for (const threshold of ALL_LEVELS) {
         const thresholdRank = ALL_LEVELS.indexOf(threshold);
@@ -162,9 +162,9 @@ verifies(['logging:message:filtered', 'logging:set-level'], async ({ transport }
 
 verifies(
     'logging:set-level:invalid-level',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const client = newClient();
-        await using _ = await wire(transport, loggingServer, client);
+        await using _ = await wire({ transport, protocolVersion }, loggingServer, client);
 
         const tap = tapWire(client);
 
@@ -182,7 +182,7 @@ verifies(
 
 verifies(
     'logging:set-level:invalid-level',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         // The user-shaped manual implementation of spec-correct invalid-level handling:
         // a handler registered with a loose params schema so the dispatch-time parse
         // succeeds, validating the level itself and throwing InvalidParams.
@@ -206,7 +206,7 @@ verifies(
         };
 
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client, { strictValidation: false });
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client, { strictValidation: false });
 
         await client.setLoggingLevel('warning');
         expect(applied).toEqual(['warning']);
@@ -221,7 +221,7 @@ verifies(
     { title: 'raw server' }
 );
 
-verifies('logging:out-of-band:basic', async ({ transport }: TestArgs) => {
+verifies('logging:out-of-band:basic', async ({ transport, protocolVersion }: TestArgs) => {
     const received: Array<{ level: LoggingLevel; logger?: string; data: unknown }> = [];
     let server!: McpServer;
     const makeServer = () => {
@@ -234,7 +234,7 @@ verifies('logging:out-of-band:basic', async ({ transport }: TestArgs) => {
         received.push(n.params);
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // No request is in flight: this is a server-initiated, out-of-band notification.
     await server.sendLoggingMessage({ level: 'info', logger: 'job-runner', data: 'nightly index rebuild started' });

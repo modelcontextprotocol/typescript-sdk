@@ -5,6 +5,17 @@
 export const ALL_TRANSPORTS = ['inMemory', 'stdio', 'streamableHttp', 'streamableHttpStateless', 'sse'] as const;
 export type Transport = (typeof ALL_TRANSPORTS)[number];
 
+/**
+ * Spec versions on the matrix's version axis. The axis is tied to the SDK's
+ * version constants by the typescript:lifecycle:version:* requirements
+ * (every entry must remain in SUPPORTED_PROTOCOL_VERSIONS, and
+ * LATEST_PROTOCOL_VERSION must appear here), and each cell that hands its
+ * `TestArgs` to `wire()` asserts the handshake actually ran at the cell's
+ * labeled version. Sharp edge: the client has no supported option to request
+ * an older protocol version — it always requests the latest — so today the
+ * only self-consistent axis is the single latest version; adding an older
+ * label requires client-side version selection to thread through `wire()`.
+ */
 export const ALL_SPEC_VERSIONS = ['2025-11-25'] as const;
 export type SpecVersion = (typeof ALL_SPEC_VERSIONS)[number];
 

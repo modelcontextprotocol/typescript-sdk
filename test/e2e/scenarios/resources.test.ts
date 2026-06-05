@@ -34,7 +34,7 @@ const FIXTURE_LAST_MODIFIED = '2024-01-15T10:30:00.000Z';
 
 const newClient = () => new Client({ name: 'c', version: '0' });
 
-verifies('resources:list:basic', async ({ transport }: TestArgs) => {
+verifies('resources:list:basic', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource('text', 'file:///fixture.txt', { description: 'A plain-text resource.', mimeType: 'text/plain' }, () => ({
@@ -49,7 +49,7 @@ verifies('resources:list:basic', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.listResources();
 
@@ -73,7 +73,7 @@ verifies('resources:list:basic', async ({ transport }: TestArgs) => {
 
 verifies(
     'resources:list:pagination',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const TOTAL = 25;
         const makeServer = () => {
             const s = new McpServer({ name: 's', version: '0' });
@@ -88,7 +88,7 @@ verifies(
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const first = await client.listResources();
         expect(first.resources.length).toBeLessThan(TOTAL);
@@ -111,7 +111,7 @@ verifies(
 
 verifies(
     'resources:list:pagination',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const TOTAL = 25;
         const PAGE = 10;
         const all = Array.from({ length: TOTAL }, (_, i) => `bulk://item/${String(i).padStart(2, '0')}`);
@@ -132,7 +132,7 @@ verifies(
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const seen = new Set<string>();
         const cursorsSent: string[] = [];
@@ -162,7 +162,7 @@ verifies(
     { title: 'raw server' }
 );
 
-verifies('resources:read:text', async ({ transport }: TestArgs) => {
+verifies('resources:read:text', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource('text', 'file:///fixture.txt', { mimeType: 'text/plain' }, () => ({
@@ -171,7 +171,7 @@ verifies('resources:read:text', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.readResource({ uri: 'file:///fixture.txt' });
     expect(result.contents).toHaveLength(1);
@@ -183,7 +183,7 @@ verifies('resources:read:text', async ({ transport }: TestArgs) => {
     expect(entry).not.toHaveProperty('blob');
 });
 
-verifies('resources:read:blob', async ({ transport }: TestArgs) => {
+verifies('resources:read:blob', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource('blob', 'file:///fixture.png', { mimeType: 'image/png' }, () => ({
@@ -192,7 +192,7 @@ verifies('resources:read:blob', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.readResource({ uri: 'file:///fixture.png' });
     expect(result.contents).toHaveLength(1);
@@ -202,7 +202,7 @@ verifies('resources:read:blob', async ({ transport }: TestArgs) => {
     expect(entry).not.toHaveProperty('text');
 });
 
-verifies('resources:read:unknown-uri', async ({ transport }: TestArgs) => {
+verifies('resources:read:unknown-uri', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource('text', 'file:///exists.txt', { mimeType: 'text/plain' }, () => ({
@@ -211,7 +211,7 @@ verifies('resources:read:unknown-uri', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     await expect(client.readResource({ uri: 'file:///no-such-resource' })).rejects.toMatchObject({
         code: -32002,
@@ -219,7 +219,7 @@ verifies('resources:read:unknown-uri', async ({ transport }: TestArgs) => {
     });
 });
 
-verifies('resources:read:template-vars', async ({ transport }: TestArgs) => {
+verifies('resources:read:template-vars', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource(
@@ -237,7 +237,7 @@ verifies('resources:read:template-vars', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const greet = await client.readResource({ uri: 'greet://hello/Ada' });
     expect(greet.contents).toEqual([{ uri: 'greet://hello/Ada', mimeType: 'text/plain', text: 'Hello, Ada!' }]);
@@ -248,7 +248,7 @@ verifies('resources:read:template-vars', async ({ transport }: TestArgs) => {
     ]);
 });
 
-verifies('resources:list-changed', async ({ transport }: TestArgs) => {
+verifies('resources:list-changed', async ({ transport, protocolVersion }: TestArgs) => {
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' });
@@ -264,7 +264,7 @@ verifies('resources:list-changed', async ({ transport }: TestArgs) => {
         listChanged++;
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect((await client.listResources()).resources).toHaveLength(1);
 
@@ -280,7 +280,7 @@ verifies('resources:list-changed', async ({ transport }: TestArgs) => {
     expect((await client.listResources()).resources).toHaveLength(1);
 });
 
-verifies('resources:annotations', async ({ transport }: TestArgs) => {
+verifies('resources:annotations', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource(
@@ -304,7 +304,7 @@ verifies('resources:annotations', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const { resources } = await client.listResources();
     const resource = resources.find(r => r.uri === 'file:///annotated.md');
@@ -325,7 +325,7 @@ verifies('resources:annotations', async ({ transport }: TestArgs) => {
     expect(result.contents[0].uri).toBe('file:///annotated.md');
 });
 
-verifies('resources:capability:declared', async ({ transport }: TestArgs) => {
+verifies('resources:capability:declared', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' }, { capabilities: { resources: {} } });
         s.registerResource('echo', 'file:///echo.txt', { mimeType: 'text/plain' }, () => ({
@@ -334,7 +334,7 @@ verifies('resources:capability:declared', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const caps = client.getServerCapabilities();
     expect(caps?.resources).toBeDefined();
@@ -342,7 +342,7 @@ verifies('resources:capability:declared', async ({ transport }: TestArgs) => {
     expect(caps?.resources?.listChanged).toBe(true);
 });
 
-verifies('resources:subscribe:capability-required', async ({ transport }: TestArgs) => {
+verifies('resources:subscribe:capability-required', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' }, { capabilities: { resources: { listChanged: true } } });
         s.registerResource('text', 'file:///fixture.txt', { mimeType: 'text/plain' }, () => ({
@@ -351,7 +351,7 @@ verifies('resources:subscribe:capability-required', async ({ transport }: TestAr
         return s;
     };
     const client = new Client({ name: 'c', version: '0' }, { enforceStrictCapabilities: true });
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const caps = client.getServerCapabilities();
     expect(caps?.resources).toBeDefined();
@@ -360,7 +360,7 @@ verifies('resources:subscribe:capability-required', async ({ transport }: TestAr
     await expect(client.subscribeResource({ uri: 'file:///fixture.txt' })).rejects.toThrow(/does not support.*subscri/i);
 });
 
-verifies('resources:subscribe:updated', async ({ transport }: TestArgs) => {
+verifies('resources:subscribe:updated', async ({ transport, protocolVersion }: TestArgs) => {
     let server!: Server;
     const subscriptions = new Set<string>();
     const makeServer = () => {
@@ -384,7 +384,7 @@ verifies('resources:subscribe:updated', async ({ transport }: TestArgs) => {
         updates.push(n.params.uri);
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     await client.subscribeResource({ uri: 'counter://subscribable' });
     expect(subscriptions.has('counter://subscribable')).toBe(true);
@@ -394,7 +394,7 @@ verifies('resources:subscribe:updated', async ({ transport }: TestArgs) => {
     await vi.waitFor(() => expect(updates).toContain('counter://subscribable'));
 });
 
-verifies('resources:unsubscribe:stops-updates', async ({ transport }: TestArgs) => {
+verifies('resources:unsubscribe:stops-updates', async ({ transport, protocolVersion }: TestArgs) => {
     let server!: Server;
     const subscriptions = new Set<string>();
     const makeServer = () => {
@@ -423,7 +423,7 @@ verifies('resources:unsubscribe:stops-updates', async ({ transport }: TestArgs) 
         updates.push(n.params.uri);
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     await client.subscribeResource({ uri: 'counter://target' });
     await client.subscribeResource({ uri: 'counter://sentinel' });
@@ -446,7 +446,7 @@ verifies('resources:unsubscribe:stops-updates', async ({ transport }: TestArgs) 
     expect(updates.filter(u => u === 'counter://target')).toHaveLength(0);
 });
 
-verifies('resources:templates:list', async ({ transport }: TestArgs) => {
+verifies('resources:templates:list', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource(
@@ -466,7 +466,7 @@ verifies('resources:templates:list', async ({ transport }: TestArgs) => {
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.listResourceTemplates();
 
@@ -488,7 +488,7 @@ verifies('resources:templates:list', async ({ transport }: TestArgs) => {
 
 verifies(
     'resources:templates:pagination',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const TOTAL = 25;
         const makeServer = () => {
             const s = new McpServer({ name: 's', version: '0' });
@@ -503,7 +503,7 @@ verifies(
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const first = await client.listResourceTemplates();
         expect(first.resourceTemplates.length).toBeLessThan(TOTAL);
@@ -526,7 +526,7 @@ verifies(
 
 verifies(
     'resources:templates:pagination',
-    async ({ transport }: TestArgs) => {
+    async ({ transport, protocolVersion }: TestArgs) => {
         const TOTAL = 25;
         const PAGE = 10;
         const all = Array.from({ length: TOTAL }, (_, i) => `bulk-tpl://t${String(i).padStart(2, '0')}/{x}`);
@@ -544,7 +544,7 @@ verifies(
             return s;
         };
         const client = newClient();
-        await using _ = await wire(transport, makeServer, client);
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
         const seen = new Set<string>();
         let pages = 0;
@@ -569,7 +569,7 @@ verifies(
     { title: 'raw server' }
 );
 
-verifies('mcpserver:resource:duplicate-name', async ({ transport }: TestArgs) => {
+verifies('mcpserver:resource:duplicate-name', async ({ transport, protocolVersion }: TestArgs) => {
     let server!: McpServer;
     const makeServer = () => {
         server = new McpServer({ name: 's', version: '0' });
@@ -579,7 +579,7 @@ verifies('mcpserver:resource:duplicate-name', async ({ transport }: TestArgs) =>
         return server;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const before = await client.listResources();
     expect(before.resources.filter(r => r.uri === 'file:///fixture.txt')).toHaveLength(1);
@@ -595,7 +595,7 @@ verifies('mcpserver:resource:duplicate-name', async ({ transport }: TestArgs) =>
     expect(result.contents).toEqual([{ uri: 'file:///fixture.txt', mimeType: 'text/plain', text: 'hello, world' }]);
 });
 
-verifies('mcpserver:resource:handle-update-remove', async ({ transport }: TestArgs) => {
+verifies('mcpserver:resource:handle-update-remove', async ({ transport, protocolVersion }: TestArgs) => {
     let handle!: RegisteredResource;
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -610,7 +610,7 @@ verifies('mcpserver:resource:handle-update-remove', async ({ transport }: TestAr
     client.setNotificationHandler(ResourceListChangedNotificationSchema, () => {
         listChanged++;
     });
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     expect((await client.listResources()).resources).toHaveLength(1);
     const before = (await client.listResources()).resources.find(r => r.uri === 'file:///probe.txt');
@@ -645,7 +645,7 @@ verifies('mcpserver:resource:handle-update-remove', async ({ transport }: TestAr
     expect(gone).toBeUndefined();
 });
 
-verifies('mcpserver:resource:read-throws-surfaced', async ({ transport }: TestArgs) => {
+verifies('mcpserver:resource:read-throws-surfaced', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource('throws', 'file:///throws', { mimeType: 'text/plain' }, () => {
@@ -657,7 +657,7 @@ verifies('mcpserver:resource:read-throws-surfaced', async ({ transport }: TestAr
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     await expect(client.readResource({ uri: 'file:///throws' })).rejects.toMatchObject({
         code: ErrorCode.InternalError,
@@ -668,7 +668,7 @@ verifies('mcpserver:resource:read-throws-surfaced', async ({ transport }: TestAr
     expect(ok.contents).toEqual([{ uri: 'file:///ok.txt', mimeType: 'text/plain', text: 'ok' }]);
 });
 
-verifies('mcpserver:resource:template-list-callback', async ({ transport }: TestArgs) => {
+verifies('mcpserver:resource:template-list-callback', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource('static', 'file:///static.txt', { mimeType: 'text/plain' }, () => ({
@@ -691,7 +691,7 @@ verifies('mcpserver:resource:template-list-callback', async ({ transport }: Test
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const { resources } = await client.listResources();
     expect(resources.some(r => r.uri === 'file:///static.txt')).toBe(true);
@@ -708,7 +708,7 @@ verifies('mcpserver:resource:template-list-callback', async ({ transport }: Test
     });
 });
 
-verifies('mcpserver:resource:metadata-override', async ({ transport }: TestArgs) => {
+verifies('mcpserver:resource:metadata-override', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource(
@@ -727,7 +727,7 @@ verifies('mcpserver:resource:metadata-override', async ({ transport }: TestArgs)
         return s;
     };
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const { resources } = await client.listResources();
     const alpha = resources.find(r => r.uri === 'listed://items/alpha');
@@ -751,7 +751,7 @@ verifies('mcpserver:resource:metadata-override', async ({ transport }: TestArgs)
     });
 });
 
-verifies('mcpserver:resource:legacy-overload', async ({ transport }: TestArgs) => {
+verifies('mcpserver:resource:legacy-overload', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         // (name, uri, readCallback)
@@ -777,7 +777,7 @@ verifies('mcpserver:resource:legacy-overload', async ({ transport }: TestArgs) =
     };
 
     const client = newClient();
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const list = await client.listResources();
     const fixed = list.resources.map(r => r.uri).sort();

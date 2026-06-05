@@ -24,7 +24,7 @@ import { wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
-verifies('roots:list:basic', async ({ transport }: TestArgs) => {
+verifies('roots:list:basic', async ({ transport, protocolVersion }: TestArgs) => {
     const received: Array<{ method: string }> = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -45,7 +45,7 @@ verifies('roots:list:basic', async ({ transport }: TestArgs) => {
         };
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.callTool({ name: 'list-roots', arguments: {} });
 
@@ -61,7 +61,7 @@ verifies('roots:list:basic', async ({ transport }: TestArgs) => {
     });
 });
 
-verifies('roots:list:empty', async ({ transport }: TestArgs) => {
+verifies('roots:list:empty', async ({ transport, protocolVersion }: TestArgs) => {
     const results: ListRootsResult[] = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -76,7 +76,7 @@ verifies('roots:list:empty', async ({ transport }: TestArgs) => {
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { roots: {} } });
     client.setRequestHandler(ListRootsRequestSchema, async () => ({ roots: [] }));
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.callTool({ name: 'list-roots', arguments: {} });
 
@@ -85,7 +85,7 @@ verifies('roots:list:empty', async ({ transport }: TestArgs) => {
     expect(results[0].roots).toEqual([]);
 });
 
-verifies('roots:list:client-error', async ({ transport }: TestArgs) => {
+verifies('roots:list:client-error', async ({ transport, protocolVersion }: TestArgs) => {
     const failures: McpError[] = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -106,7 +106,7 @@ verifies('roots:list:client-error', async ({ transport }: TestArgs) => {
         throw new McpError(ErrorCode.InternalError, 'roots provider crashed');
     });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.callTool({ name: 'list-roots', arguments: {} });
 
@@ -117,7 +117,7 @@ verifies('roots:list:client-error', async ({ transport }: TestArgs) => {
     expect(failures[0].message).toMatch(/roots provider crashed/);
 });
 
-verifies('roots:list:not-supported', async ({ transport }: TestArgs) => {
+verifies('roots:list:not-supported', async ({ transport, protocolVersion }: TestArgs) => {
     const failures: McpError[] = [];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -136,7 +136,7 @@ verifies('roots:list:not-supported', async ({ transport }: TestArgs) => {
     // The client deliberately declares no roots capability and registers no roots/list handler.
     const client = new Client({ name: 'c', version: '0' });
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     const result = await client.callTool({ name: 'list-roots', arguments: {} });
 
@@ -146,7 +146,7 @@ verifies('roots:list:not-supported', async ({ transport }: TestArgs) => {
     expect(failures[0].message).toMatch(/Method not found/);
 });
 
-verifies('roots:list-changed', async ({ transport }: TestArgs) => {
+verifies('roots:list-changed', async ({ transport, protocolVersion }: TestArgs) => {
     const refetched: ListRootsResult[] = [];
     let server!: McpServer;
     const makeServer = () => {
@@ -161,7 +161,7 @@ verifies('roots:list-changed', async ({ transport }: TestArgs) => {
     const client = new Client({ name: 'c', version: '0' }, { capabilities: { roots: { listChanged: true } } });
     client.setRequestHandler(ListRootsRequestSchema, async () => ({ roots }));
 
-    await using _ = await wire(transport, makeServer, client);
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
     // Change roots, signal the server, and observe the server's re-request
     // returning the *new* roots.

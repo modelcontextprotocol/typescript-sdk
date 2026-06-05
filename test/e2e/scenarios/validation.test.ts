@@ -72,9 +72,9 @@ function forecastServer(): Server {
  * exercise the accept and reject paths once each. Returns what the provider
  * decided so callers can compare providers against each other.
  */
-async function runForecastOutcomes(transport: Transport, makeClient: () => Client) {
+async function runForecastOutcomes(cell: TestArgs, makeClient: () => Client) {
     const client = makeClient();
-    await using _ = await wire(transport, forecastServer, client);
+    await using _ = await wire(cell, forecastServer, client);
 
     // listTools() primes the client's output-schema validator cache — this is
     // where the configured provider compiles the schema.
@@ -94,10 +94,10 @@ async function runForecastOutcomes(transport: Transport, makeClient: () => Clien
     return { acceptedStructuredContent: accepted.structuredContent, rejection };
 }
 
-verifies('validation:cfworker-provider', async ({ transport }: TestArgs) => {
-    const ajv = await runForecastOutcomes(transport, () => new Client({ name: 'c', version: '0' }));
+verifies('validation:cfworker-provider', async ({ transport, protocolVersion }: TestArgs) => {
+    const ajv = await runForecastOutcomes({ transport, protocolVersion }, () => new Client({ name: 'c', version: '0' }));
     const cfworker = await runForecastOutcomes(
-        transport,
+        { transport, protocolVersion },
         () => new Client({ name: 'c', version: '0' }, { jsonSchemaValidator: new CfWorkerJsonSchemaValidator() })
     );
 
@@ -134,10 +134,10 @@ class RecordingValidatorProvider implements jsonSchemaValidator {
     }
 }
 
-verifies('validation:pluggable-provider', async ({ transport }: TestArgs) => {
+verifies('validation:pluggable-provider', async ({ transport, protocolVersion }: TestArgs) => {
     const recorder = new RecordingValidatorProvider();
     const client = new Client({ name: 'c', version: '0' }, { jsonSchemaValidator: recorder });
-    await using _ = await wire(transport, forecastServer, client);
+    await using _ = await wire({ transport, protocolVersion }, forecastServer, client);
 
     await client.listTools();
 

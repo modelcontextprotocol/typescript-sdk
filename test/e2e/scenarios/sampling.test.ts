@@ -72,7 +72,7 @@ function passthroughServer(options?: ServerOptions) {
     return s;
 }
 
-verifies('sampling:capability:declare', async ({ transport }: TestArgs) => {
+verifies('sampling:capability:declare', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient({ sampling: {} });
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -80,13 +80,13 @@ verifies('sampling:capability:declare', async ({ transport }: TestArgs) => {
         return { model: 'stub', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
 
-    await using _ = await wire(transport, samplingServer, client);
+    await using _ = await wire({ transport, protocolVersion }, samplingServer, client);
 
     await client.callTool({ name: 'ask-llm', arguments: { prompt: 'hi' } });
     expect(received).toHaveLength(1);
 });
 
-verifies('sampling:create:basic', async ({ transport }: TestArgs) => {
+verifies('sampling:create:basic', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -94,7 +94,7 @@ verifies('sampling:create:basic', async ({ transport }: TestArgs) => {
         return { model: 'test-model', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'Paris' } };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const r = await client.callTool({
         name: 'sampling-passthrough',
@@ -111,7 +111,7 @@ verifies('sampling:create:basic', async ({ transport }: TestArgs) => {
     });
 });
 
-verifies('sampling:create:include-context', async ({ transport }: TestArgs) => {
+verifies('sampling:create:include-context', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -119,7 +119,7 @@ verifies('sampling:create:include-context', async ({ transport }: TestArgs) => {
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     for (const val of ['none', 'thisServer', 'allServers'] as const) {
         await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10, includeContext: val } });
@@ -133,7 +133,7 @@ verifies('sampling:create:include-context', async ({ transport }: TestArgs) => {
     expect(received[3].params.includeContext).toBeUndefined();
 });
 
-verifies('sampling:create:model-preferences', async ({ transport }: TestArgs) => {
+verifies('sampling:create:model-preferences', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -141,7 +141,7 @@ verifies('sampling:create:model-preferences', async ({ transport }: TestArgs) =>
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const prefs = { hints: [{ name: 'sonnet' }], costPriority: 0.3, speedPriority: 0.7, intelligencePriority: 0.5 };
     await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10, modelPreferences: prefs } });
@@ -150,7 +150,7 @@ verifies('sampling:create:model-preferences', async ({ transport }: TestArgs) =>
     expect(received[0].params.modelPreferences).toEqual(prefs);
 });
 
-verifies('sampling:create:system-prompt', async ({ transport }: TestArgs) => {
+verifies('sampling:create:system-prompt', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -158,7 +158,7 @@ verifies('sampling:create:system-prompt', async ({ transport }: TestArgs) => {
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10, systemPrompt: 'Be helpful' } });
 
@@ -166,7 +166,7 @@ verifies('sampling:create:system-prompt', async ({ transport }: TestArgs) => {
     expect(received[0].params.systemPrompt).toBe('Be helpful');
 });
 
-verifies('sampling:create:tools', async ({ transport }: TestArgs) => {
+verifies('sampling:create:tools', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient({ sampling: { tools: {} } });
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -183,7 +183,7 @@ verifies('sampling:create:tools', async ({ transport }: TestArgs) => {
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'sunny' } };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const tools = [
         { name: 'weather', description: 'Get weather', inputSchema: { type: 'object' as const, properties: { city: { type: 'string' } } } }
@@ -201,13 +201,13 @@ verifies('sampling:create:tools', async ({ transport }: TestArgs) => {
     }
 });
 
-verifies('sampling:error:user-rejected', async ({ transport }: TestArgs) => {
+verifies('sampling:error:user-rejected', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
     client.setRequestHandler(CreateMessageRequestSchema, async () => {
         throw new McpError(-1, 'User rejected sampling request');
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const r = await client.callTool({ name: 'sampling-passthrough', arguments: { messages: [], maxTokens: 10 } });
 
@@ -215,7 +215,7 @@ verifies('sampling:error:user-rejected', async ({ transport }: TestArgs) => {
     expect((r.structuredContent as { message?: string }).message).toMatch(/User rejected sampling request/);
 });
 
-verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs) => {
+verifies('sampling:message:content-cardinality', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -223,7 +223,7 @@ verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs)
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
 
-    await using _ = await wire(transport, samplingServer, client);
+    await using _ = await wire({ transport, protocolVersion }, samplingServer, client);
 
     await client.callTool({ name: 'ask-llm', arguments: { prompt: 'one' } });
 
@@ -239,7 +239,7 @@ verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs)
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
 
-    await using _2 = await wire(transport, passthroughServer, client2);
+    await using _2 = await wire({ transport, protocolVersion }, passthroughServer, client2);
 
     await client2.callTool({
         name: 'sampling-passthrough',
@@ -266,7 +266,7 @@ verifies('sampling:message:content-cardinality', async ({ transport }: TestArgs)
     ]);
 });
 
-verifies('sampling:result:no-tools-single-content', async ({ transport }: TestArgs) => {
+verifies('sampling:result:no-tools-single-content', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
     // No tools/toolChoice in the request, so the client's wrapped sampling handler validates against CreateMessageResultSchema and rejects array content with -32602.
     client.setRequestHandler(CreateMessageRequestSchema, async () => ({
@@ -276,7 +276,7 @@ verifies('sampling:result:no-tools-single-content', async ({ transport }: TestAr
         content: [{ type: 'text', text: 'array-content' }]
     }));
 
-    await using _ = await wire(transport, samplingServer, client);
+    await using _ = await wire({ transport, protocolVersion }, samplingServer, client);
 
     const r = await client.callTool({ name: 'ask-llm', arguments: { prompt: 'hi' } });
 
@@ -286,7 +286,7 @@ verifies('sampling:result:no-tools-single-content', async ({ transport }: TestAr
     expect((r.content as [{ text: string }])[0].text).not.toContain('array-content');
 });
 
-verifies('sampling:result:with-tools-array-content', async ({ transport }: TestArgs) => {
+verifies('sampling:result:with-tools-array-content', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient({ sampling: { tools: {} } });
     client.setRequestHandler(CreateMessageRequestSchema, async () => {
         return {
@@ -300,7 +300,7 @@ verifies('sampling:result:with-tools-array-content', async ({ transport }: TestA
         } satisfies CreateMessageResultWithTools;
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const r = await client.callTool({
         name: 'sampling-passthrough',
@@ -319,13 +319,13 @@ verifies('sampling:result:with-tools-array-content', async ({ transport }: TestA
     });
 });
 
-verifies('sampling:tool-result:no-mixed-content', async ({ transport }: TestArgs) => {
+verifies('sampling:tool-result:no-mixed-content', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
     client.setRequestHandler(CreateMessageRequestSchema, async () => {
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'unreachable' } };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const r = await client.callTool({
         name: 'sampling-passthrough',
@@ -348,7 +348,7 @@ verifies('sampling:tool-result:no-mixed-content', async ({ transport }: TestArgs
     expect((r.structuredContent as { message?: string }).message).toMatch(/tool.?result/i);
 });
 
-verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => {
+verifies('sampling:tool-use:result-balance', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient({ sampling: { tools: {} } });
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -356,7 +356,7 @@ verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => 
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const tools = [{ name: 'weather', inputSchema: { type: 'object' as const } }];
 
@@ -414,7 +414,7 @@ verifies('sampling:tool-use:result-balance', async ({ transport }: TestArgs) => 
     expect(received).toHaveLength(1);
 });
 
-verifies('sampling:tools:server-gated-by-capability', async ({ transport }: TestArgs) => {
+verifies('sampling:tools:server-gated-by-capability', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient({ sampling: {} });
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -422,7 +422,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'unreachable' } };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const withTools = await client.callTool({
         name: 'sampling-passthrough',
@@ -452,7 +452,7 @@ verifies('sampling:tools:server-gated-by-capability', async ({ transport }: Test
     expect(received).toHaveLength(0);
 });
 
-verifies('sampling:create:image-content', async ({ transport }: TestArgs) => {
+verifies('sampling:create:image-content', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -465,7 +465,7 @@ verifies('sampling:create:image-content', async ({ transport }: TestArgs) => {
         };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const r = await client.callTool({
         name: 'sampling-passthrough',
@@ -490,7 +490,7 @@ verifies('sampling:create:image-content', async ({ transport }: TestArgs) => {
     });
 });
 
-verifies('sampling:create:audio-content', async ({ transport }: TestArgs) => {
+verifies('sampling:create:audio-content', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient();
     client.setRequestHandler(CreateMessageRequestSchema, async req => {
@@ -503,7 +503,7 @@ verifies('sampling:create:audio-content', async ({ transport }: TestArgs) => {
         };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const r = await client.callTool({
         name: 'sampling-passthrough',
@@ -528,7 +528,7 @@ verifies('sampling:create:audio-content', async ({ transport }: TestArgs) => {
     });
 });
 
-verifies('sampling:context:server-gated-by-capability', async ({ transport }: TestArgs) => {
+verifies('sampling:context:server-gated-by-capability', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     // Client declares plain sampling but not the sampling.context sub-capability.
     const client = newClient({ sampling: {} });
@@ -537,7 +537,7 @@ verifies('sampling:context:server-gated-by-capability', async ({ transport }: Te
         return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'ok' } };
     });
 
-    await using _ = await wire(transport, passthroughServer, client);
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
 
     const none = await client.callTool({
         name: 'sampling-passthrough',
@@ -564,11 +564,11 @@ verifies('sampling:context:server-gated-by-capability', async ({ transport }: Te
     expect(received).toHaveLength(1);
 });
 
-verifies('sampling:create:not-supported', async ({ transport }: TestArgs) => {
+verifies('sampling:create:not-supported', async ({ transport, protocolVersion }: TestArgs) => {
     // Client declares no sampling capability at all and registers no sampling handler.
     const client = newClient({});
 
-    await using _ = await wire(transport, () => passthroughServer({ enforceStrictCapabilities: true }), client);
+    await using _ = await wire({ transport, protocolVersion }, () => passthroughServer({ enforceStrictCapabilities: true }), client);
     const tap = tapWire(client);
 
     const r = await client.callTool({
