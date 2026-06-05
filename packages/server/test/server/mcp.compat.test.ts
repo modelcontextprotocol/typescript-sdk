@@ -127,3 +127,61 @@ describe('InferRawShape', () => {
         expectTypeOf<S>().toEqualTypeOf<{ a: string; b?: string | undefined }>();
     });
 });
+
+// SEP-2106 / R-2106-3: when a tool declares an `outputSchema`, `registerTool` infers it as the
+// `Output` type param so the handler's returned `structuredContent` is checked against the schema's
+// inferred output at compile time. These cases pin that contract: correct shapes compile, wrong
+// shapes fail to type-check (guarded by @ts-expect-error so a regression that loosens the typing
+// turns these into compile errors). Type-only — registration side effects are covered above.
+describe('registerTool compile-time outputSchema typing (SEP-2106)', () => {
+    it('accepts structuredContent matching a Standard Schema outputSchema', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+
+        server.registerTool('bmi', { outputSchema: z.object({ bmi: z.number() }) }, async () => ({
+            content: [{ type: 'text' as const, text: '22.9' }],
+            structuredContent: { bmi: 22.9 }
+        }));
+    });
+
+    it('rejects structuredContent that does not match the outputSchema', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+
+        // The return-type mismatch surfaces at the registerTool call (the handler's return type is
+        // contextually checked against ToolResultFor<Output>), so the directive sits on this line.
+        // @ts-expect-error - bmi must be a number, not a string
+        server.registerTool('bmi', { outputSchema: z.object({ bmi: z.number() }) }, async () => ({
+            content: [{ type: 'text' as const, text: 'x' }],
+            structuredContent: { bmi: 'not-a-number' }
+        }));
+    });
+
+    it('allows omitting structuredContent at compile time (the MUST-return rule is runtime-enforced)', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+
+        // CallToolResultWithStructuredContent<T> types structuredContent as optional (`?: T`), so a
+        // handler that omits it still compiles. The "outputSchema implies structuredContent" rule is
+        // enforced at runtime by validateToolOutput (covered in client/server runtime tests), not by
+        // the type system — this documents and pins that boundary.
+        server.registerTool('bmi', { outputSchema: z.object({ bmi: z.number() }) }, async () => ({
+            content: [{ type: 'text' as const, text: 'x' }]
+        }));
+    });
+
+    it('supports a non-object (array) outputSchema per SEP-2106', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+
+        server.registerTool('forecast', { outputSchema: z.array(z.object({ temp: z.number() })) }, async () => ({
+            content: [{ type: 'text' as const, text: '[]' }],
+            structuredContent: [{ temp: 1 }]
+        }));
+    });
+
+    it('allows any JSON value in structuredContent when no outputSchema is declared', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+
+        server.registerTool('free', {}, async () => ({
+            content: [{ type: 'text' as const, text: '42' }],
+            structuredContent: 42
+        }));
+    });
+});

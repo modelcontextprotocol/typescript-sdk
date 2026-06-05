@@ -2,7 +2,8 @@
  * AJV-based JSON Schema validator provider
  */
 
-import { Ajv } from 'ajv';
+import type { Ajv } from 'ajv';
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import _addFormats from 'ajv-formats';
 
 import { assertSchemaSafeToCompile } from './schemaBounds.js';
@@ -23,7 +24,13 @@ interface AjvValidateFunction {
 }
 
 function createDefaultAjvInstance(): Ajv {
-    const ajv = new Ajv({
+    // SEP-2106: MCP tool schemas default to the JSON Schema 2020-12 dialect when no `$schema` is
+    // declared. Plain `Ajv` is draft-07 and *silently ignores* 2020-12 keywords such as
+    // `prefixItems` (e.g. it would accept `[1, "a"]` for a `[string, number]` tuple), which would
+    // make validation disagree with the declared schema. `Ajv2020` runs the 2020-12 meta-schema and
+    // vocabulary, matching the cfworker default (`draft: '2020-12'`) used in the browser/workerd
+    // builds.
+    const ajv = new Ajv2020({
         strict: false,
         validateFormats: true,
         validateSchema: false,

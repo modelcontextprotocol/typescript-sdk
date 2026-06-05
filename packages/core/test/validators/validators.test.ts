@@ -391,6 +391,22 @@ describe('JSON Schema Validators', () => {
                 expect(validator('specific-value').valid).toBe(true);
                 expect(validator('other-value').valid).toBe(false);
             });
+
+            // SEP-2106 / R-2106-2: the default validators MUST run the 2020-12 dialect, not draft-07.
+            // `prefixItems` is a 2020-12 keyword; draft-07 silently ignores it (accepting any tuple),
+            // so this is the canonical guard that the default dialect is wired correctly. A plain
+            // draft-07 `new Ajv()` would let `[1, 'a']` validate against a `[string, number]` tuple.
+            it('honors prefixItems (2020-12 tuple) on the default dialect', () => {
+                const schema: JsonSchemaType = {
+                    type: 'array',
+                    prefixItems: [{ type: 'string' }, { type: 'number' }]
+                };
+                const validator = provider.getValidator(schema);
+
+                expect(validator(['a', 1]).valid).toBe(true);
+                // draft-07 would (incorrectly) accept this because it ignores prefixItems.
+                expect(validator([1, 'a']).valid).toBe(false);
+            });
         });
 
         describe('Complex real-world schemas', () => {

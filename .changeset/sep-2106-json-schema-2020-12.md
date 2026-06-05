@@ -13,3 +13,4 @@ Implement SEP-2106: tool `inputSchema`/`outputSchema` conform to JSON Schema 202
 - `McpServer.registerTool` type-checks a handler's returned `structuredContent` against the tool's `outputSchema` inferred output.
 - Servers returning array or primitive `structuredContent` automatically also emit a serialized `TextContent` block, so pre-SEP clients can fall back to the text content.
 - Built-in validators refuse to dereference non-same-document `$ref`/`$dynamicRef` (SSRF guard) and reject schemas exceeding depth / subschema-count bounds (composition-DoS guard).
+- The default Node validator now uses `Ajv2020`, so the 2020-12 dialect is honored by default (previously `new Ajv()` ran draft-07 semantics and silently ignored keywords such as `prefixItems`). Both built-in validators now default to the `2020-12` dialect (`MCP_DEFAULT_SCHEMA_DIALECT`).

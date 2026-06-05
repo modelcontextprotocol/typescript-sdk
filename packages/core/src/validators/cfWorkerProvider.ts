@@ -12,6 +12,7 @@ import { Validator } from '@cfworker/json-schema';
 
 import { assertSchemaSafeToCompile } from './schemaBounds.js';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types.js';
+import { MCP_DEFAULT_SCHEMA_DIALECT } from './types.js';
 
 /**
  * JSON Schema draft version supported by `@cfworker/json-schema`.
@@ -48,7 +49,8 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
      */
     constructor(options?: { shortcircuit?: boolean; draft?: CfWorkerSchemaDraft }) {
         this.shortcircuit = options?.shortcircuit ?? true;
-        this.draft = options?.draft ?? '2020-12';
+        // SEP-2106: default to the MCP-wide dialect (2020-12) when the caller does not pin one.
+        this.draft = options?.draft ?? MCP_DEFAULT_SCHEMA_DIALECT;
     }
 
     /**
