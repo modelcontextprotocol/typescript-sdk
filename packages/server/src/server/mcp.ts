@@ -1,4 +1,5 @@
 import type {
+    BaseContext,
     BaseMetadata,
     CallToolRequest,
     CallToolResult,
@@ -9,6 +10,7 @@ import type {
     CreateTaskServerContext,
     GetPromptResult,
     Implementation,
+    JSONRPCRequest,
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
@@ -30,6 +32,7 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    HandlerRegistry,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
@@ -66,6 +69,7 @@ export class McpServer {
      */
     public readonly server: Server;
 
+    private _registry: HandlerRegistry<ServerContext>;
     private _registeredResources: { [uri: string]: RegisteredResource } = {};
     private _registeredResourceTemplates: {
         [name: string]: RegisteredResourceTemplate;
@@ -75,7 +79,13 @@ export class McpServer {
     private _experimental?: { tasks: ExperimentalMcpServerTasks };
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
-        this.server = new Server(serverInfo, options);
+        this._registry = new HandlerRegistry<ServerContext>();
+        this.server = new Server(serverInfo, {
+            ...options,
+            // Cast: HandlerRegistry is invariant on ContextT due to Map, but
+            // Protocol's constructor casts back to HandlerRegistry<ContextT>.
+            registry: this._registry as unknown as HandlerRegistry<BaseContext>
+        });
     }
 
     /**
@@ -92,6 +102,86 @@ export class McpServer {
             };
         }
         return this._experimental;
+    }
+
+    /**
+     * The shared handler registry that stores all request and notification handlers.
+     * This is the same registry instance used by the underlying Server.
+     */
+    get registry(): HandlerRegistry<ServerContext> {
+        return this._registry;
+    }
+
+    /**
+     * Dispatch a JSON-RPC request directly to the appropriate handler.
+     * This is the modern (2026-06) path -- no Protocol, no transport, no session.
+     */
+    async dispatch(method: string, request: JSONRPCRequest, ctx?: Partial<ServerContext>): Promise<Result> {
+        this._ensureHandlersInitialized();
+
+        const handler = this._registry.getRequestHandler(method);
+        if (!handler) {
+            throw new ProtocolError(ProtocolErrorCode.MethodNotFound, `Method not found: ${method}`);
+        }
+
+        const abortController = new AbortController();
+        const baseCtx: ServerContext = {
+            sessionId: ctx?.sessionId,
+            mcpReq: {
+                id: request.id,
+                method,
+                _meta: request.params?._meta,
+                signal: abortController.signal,
+                send:
+                    ctx?.mcpReq?.send ??
+                    (async () => {
+                        throw new Error('Server-to-client requests not supported in dispatch mode');
+                    }),
+                notify: ctx?.mcpReq?.notify ?? (async () => {}),
+                log: ctx?.mcpReq?.log ?? (async () => {}),
+                elicitInput:
+                    ctx?.mcpReq?.elicitInput ??
+                    (async () => {
+                        throw new Error('Elicitation not supported in dispatch mode');
+                    }),
+                requestSampling:
+                    ctx?.mcpReq?.requestSampling ??
+                    (async () => {
+                        throw new Error('Sampling not supported in dispatch mode');
+                    })
+            },
+            http: ctx?.http
+        };
+
+        return handler(request, baseCtx);
+    }
+
+    /**
+     * Ensures all registered tools, resources, and prompts have their request
+     * handlers and capabilities set up. Idempotent -- safe to call multiple times.
+     *
+     * This is called automatically by {@linkcode dispatch}, but version routers
+     * may need to call it earlier so that {@linkcode Server.getCapabilities | server.getCapabilities()}
+     * reflects all registered tools/resources/prompts before a `server/discover` response is built.
+     */
+    ensureInitialized(): void {
+        this._ensureHandlersInitialized();
+    }
+
+    /**
+     * Triggers the lazy-init methods that McpServer uses for tool/resource/prompt
+     * handler registration. Each method is idempotent (checks its own flag).
+     */
+    private _ensureHandlersInitialized(): void {
+        if (Object.keys(this._registeredTools).length > 0) {
+            this.setToolRequestHandlers();
+        }
+        if (Object.keys(this._registeredResources).length > 0 || Object.keys(this._registeredResourceTemplates).length > 0) {
+            this.setResourceRequestHandlers();
+        }
+        if (Object.keys(this._registeredPrompts).length > 0) {
+            this.setPromptRequestHandlers();
+        }
     }
 
     /**

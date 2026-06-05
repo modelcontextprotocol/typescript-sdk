@@ -31,6 +31,9 @@ export { Server } from './server/server.js';
 // StdioServerTransport is exported from the './stdio' subpath — server stdio has only type-level Node
 // imports (erased at compile time), but matching the client's `./stdio` subpath gives consumers a
 // consistent shape across packages.
+export { BridgeTransport } from './server/bridgeTransport.js';
+export { HttpVersionRouter } from './server/httpVersionRouter.js';
+export { StdioVersionRouter } from './server/stdioVersionRouter.js';
 export type {
     EventId,
     EventStore,
@@ -39,6 +42,8 @@ export type {
     WebStandardStreamableHTTPServerTransportOptions
 } from './server/streamableHttp.js';
 export { WebStandardStreamableHTTPServerTransport } from './server/streamableHttp.js';
+export type { DiscoverResult, LegacySession, McpEra, TransportMeta, VersionRouterOptions } from './server/versionRouter.js';
+export { McpVersionRouter } from './server/versionRouter.js';
 
 // experimental exports
 export type { CreateTaskRequestHandler, TaskRequestHandler, ToolTaskHandler } from './experimental/tasks/interfaces.js';

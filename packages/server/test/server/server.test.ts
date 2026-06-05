@@ -1,5 +1,6 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import type { BaseContext, JSONRPCMessage } from '@modelcontextprotocol/core';
+import { HandlerRegistry, InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import type { ServerContext } from '@modelcontextprotocol/core';
 import { Server } from '../../src/server/server.js';
 
 describe('Server', () => {
@@ -37,6 +38,22 @@ describe('Server', () => {
             expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
 
             await server.close();
+        });
+    });
+
+    describe('shared HandlerRegistry', () => {
+        it('uses an externally-provided registry', () => {
+            const registry = new HandlerRegistry<ServerContext>();
+            const server = new Server(
+                { name: 'test', version: '1.0' },
+                { capabilities: { tools: {} }, registry: registry as unknown as HandlerRegistry<BaseContext> }
+            );
+
+            // Server registers initialize handler in its constructor.
+            // That handler should be in the shared registry.
+            expect(registry.hasRequestHandler('initialize')).toBe(true);
+
+            void server;
         });
     });
 });

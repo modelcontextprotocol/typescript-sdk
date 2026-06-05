@@ -453,10 +453,24 @@ export class Server extends Protocol<ServerContext> {
     }
 
     /**
+     * Returns the server implementation info (name and version).
+     */
+    public getServerInfo(): Implementation {
+        return this._serverInfo;
+    }
+
+    /**
      * Returns the current server capabilities.
      */
     public getCapabilities(): ServerCapabilities {
         return this._capabilities;
+    }
+
+    /**
+     * Returns the server instructions, if any.
+     */
+    public getInstructions(): string | undefined {
+        return this._instructions;
     }
 
     async ping() {

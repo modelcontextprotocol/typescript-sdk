@@ -35,6 +35,10 @@ export type {
 // Auth utilities
 export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/authUtils.js';
 
+// Handler registry
+export type { NotificationHandlerFn, RequestHandlerFn } from '../../shared/handlerRegistry.js';
+export { HandlerRegistry } from '../../shared/handlerRegistry.js';
+
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils.js';
 

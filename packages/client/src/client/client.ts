@@ -481,7 +481,7 @@ export class Client extends Protocol<ClientContext> {
      * }
      * ```
      */
-    override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
+    override async connect(transport: Transport, options?: RequestOptions & { skipInitialize?: boolean }): Promise<void> {
         await super.connect(transport);
         // When transport sessionId is already set this means we are trying to reconnect.
         // Restore the protocol version negotiated during the original initialize handshake
@@ -492,6 +492,22 @@ export class Client extends Protocol<ClientContext> {
             }
             return;
         }
+
+        if (options?.skipInitialize) {
+            return;
+        }
+
+        await this.initialize(options);
+    }
+
+    /**
+     * Performs the MCP initialization handshake with the server.
+     *
+     * This is automatically called by {@linkcode connect} unless `skipInitialize: true` is passed.
+     * When using `skipInitialize`, call this method explicitly after any pre-initialization
+     * probing (e.g., `server/discover`) is complete.
+     */
+    async initialize(options?: RequestOptions): Promise<void> {
         try {
             const result = await this._requestWithSchema(
                 {
@@ -518,8 +534,8 @@ export class Client extends Protocol<ClientContext> {
             this._serverVersion = result.serverInfo;
             this._negotiatedProtocolVersion = result.protocolVersion;
             // HTTP transports must set the protocol version in each header after initialization.
-            if (transport.setProtocolVersion) {
-                transport.setProtocolVersion(result.protocolVersion);
+            if (this.transport?.setProtocolVersion) {
+                this.transport.setProtocolVersion(result.protocolVersion);
             }
 
             this._instructions = result.instructions;
@@ -568,6 +584,32 @@ export class Client extends Protocol<ClientContext> {
      */
     getInstructions(): string | undefined {
         return this._instructions;
+    }
+
+    /**
+     * Returns the client info (name and version) provided at construction time.
+     */
+    getClientInfo(): Implementation {
+        return this._clientInfo;
+    }
+
+    /**
+     * Returns the client capabilities, including any registered after construction.
+     */
+    getClientCapabilities(): ClientCapabilities {
+        return this._capabilities;
+    }
+
+    /**
+     * Stores server info without performing an initialize handshake.
+     *
+     * This is used by version routers that obtain server capabilities from
+     * a `server/discover` response rather than from the standard initialize flow.
+     */
+    setServerInfo(info: { capabilities: ServerCapabilities; serverInfo: Implementation; instructions?: string }): void {
+        this._serverCapabilities = info.capabilities;
+        this._serverVersion = info.serverInfo;
+        this._instructions = info.instructions;
     }
 
     protected assertCapabilityForMethod(method: RequestMethod | string): void {

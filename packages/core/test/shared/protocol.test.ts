@@ -11,6 +11,7 @@ import type {
     TaskStore
 } from '../../src/experimental/tasks/interfaces.js';
 import { InMemoryTaskMessageQueue } from '../../src/experimental/tasks/stores/inMemory.js';
+import { HandlerRegistry } from '../../src/shared/handlerRegistry.js';
 import type { BaseContext } from '../../src/shared/protocol.js';
 import { mergeCapabilities, Protocol } from '../../src/shared/protocol.js';
 import type { ErrorMessage, ResponseMessage } from '../../src/shared/responseMessage.js';
@@ -5676,5 +5677,130 @@ describe('TaskManager always present (NullTaskManager pattern)', () => {
         const mockTaskModule = { getTask: vi.fn() };
         const mockClient = { taskManager: mockTaskModule } as any;
         expect(mockClient.taskManager).toBe(mockTaskModule);
+    });
+});
+
+describe('shared HandlerRegistry', () => {
+    it('uses an externally-provided registry', async () => {
+        const registry = new HandlerRegistry<BaseContext>();
+        const protocol1 = new TestProtocolImpl({ registry });
+        const protocol2 = new TestProtocolImpl({ registry });
+
+        const handler = async () => ({});
+        protocol1.setRequestHandler('tools/list', { params: z.object({}) }, handler);
+
+        // protocol2 shares the registry, should see the handler
+        const transport2 = new MockTransport();
+        const sendSpy = vi.spyOn(transport2, 'send');
+        await protocol2.connect(transport2);
+
+        transport2.onmessage!({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/list',
+            params: {}
+        });
+
+        await vi.waitFor(() => {
+            expect(sendSpy).toHaveBeenCalledWith(expect.objectContaining({ id: 1, result: expect.anything() }));
+        });
+    });
+
+    it('creates its own registry when none provided', async () => {
+        const protocol = new TestProtocolImpl();
+        protocol.setRequestHandler('tools/list', { params: z.object({}) }, async () => ({}));
+        // Should not throw
+    });
+
+    it('assertCanSetRequestHandler checks the shared registry', () => {
+        const registry = new HandlerRegistry<BaseContext>();
+        const protocol1 = new TestProtocolImpl({ registry });
+        const protocol2 = new TestProtocolImpl({ registry });
+
+        protocol1.setRequestHandler('tools/list', { params: z.object({}) }, async () => ({}));
+
+        expect(() => protocol2.assertCanSetRequestHandler('tools/list')).toThrow('A request handler for tools/list already exists');
+    });
+});
+
+describe('requestMeta injection', () => {
+    it('merges requestMeta into outgoing request _meta', async () => {
+        const protocol = createTestProtocol();
+        const transport = new MockTransport();
+        const sendSpy = vi.spyOn(transport, 'send');
+        await protocol.connect(transport);
+
+        protocol.setRequestMeta({
+            protocolVersion: '2026-06-30',
+            clientInfo: { name: 'test', version: '1.0' }
+        });
+
+        sendSpy.mockImplementation(async message => {
+            if ('id' in message && 'method' in message) {
+                transport.onmessage!({ jsonrpc: '2.0', id: (message as any).id, result: {} });
+            }
+        });
+
+        await protocol.request({ method: 'tools/list', params: {} }, z.object({}));
+
+        expect(sendSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                method: 'tools/list',
+                params: expect.objectContaining({
+                    _meta: expect.objectContaining({
+                        protocolVersion: '2026-06-30',
+                        clientInfo: { name: 'test', version: '1.0' }
+                    })
+                })
+            }),
+            expect.anything()
+        );
+    });
+
+    it('per-request _meta overrides requestMeta', async () => {
+        const protocol = createTestProtocol();
+        const transport = new MockTransport();
+        const sendSpy = vi.spyOn(transport, 'send');
+        await protocol.connect(transport);
+
+        protocol.setRequestMeta({ protocolVersion: '2026-06-30' });
+
+        sendSpy.mockImplementation(async message => {
+            if ('id' in message && 'method' in message) {
+                transport.onmessage!({ jsonrpc: '2.0', id: (message as any).id, result: {} });
+            }
+        });
+
+        await protocol.request({ method: 'tools/list', params: { _meta: { logLevel: 'debug' } } }, z.object({}));
+
+        expect(sendSpy).toHaveBeenCalledWith(
+            expect.objectContaining({
+                params: expect.objectContaining({
+                    _meta: expect.objectContaining({
+                        protocolVersion: '2026-06-30',
+                        logLevel: 'debug'
+                    })
+                })
+            }),
+            expect.anything()
+        );
+    });
+
+    it('does nothing when requestMeta is not set', async () => {
+        const protocol = createTestProtocol();
+        const transport = new MockTransport();
+        const sendSpy = vi.spyOn(transport, 'send');
+        await protocol.connect(transport);
+
+        sendSpy.mockImplementation(async message => {
+            if ('id' in message && 'method' in message) {
+                transport.onmessage!({ jsonrpc: '2.0', id: (message as any).id, result: {} });
+            }
+        });
+
+        await protocol.request({ method: 'tools/list', params: {} }, z.object({}));
+
+        const sentMessage = sendSpy.mock.calls[0]![0] as any;
+        expect(sentMessage.params?._meta?.protocolVersion).toBeUndefined();
     });
 });

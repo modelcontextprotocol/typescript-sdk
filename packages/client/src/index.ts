@@ -63,6 +63,10 @@ export type { SSEClientTransportOptions } from './client/sse.js';
 export { SSEClientTransport, SseError } from './client/sse.js';
 // StdioClientTransport, getDefaultEnvironment, DEFAULT_INHERITED_ENV_VARS, StdioServerParameters are exported from
 // the './stdio' subpath to keep the root entry free of process-spawning runtime dependencies (child_process, cross-spawn).
+export type { ClientVersionRouterOptions } from './client/clientVersionRouter.js';
+export { ClientVersionRouter } from './client/clientVersionRouter.js';
+export { HttpClientVersionRouter } from './client/httpClientVersionRouter.js';
+export { StdioClientVersionRouter } from './client/stdioClientVersionRouter.js';
 export type {
     ReconnectionScheduler,
     StartSSEOptions,

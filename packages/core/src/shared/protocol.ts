@@ -46,6 +46,7 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
+import { HandlerRegistry } from './handlerRegistry.js';
 import type { TaskContext, TaskManagerHost, TaskManagerOptions, TaskRequestOptions } from './taskManager.js';
 import { NullTaskManager, TaskManager } from './taskManager.js';
 import type { Transport, TransportSendOptions } from './transport.js';
@@ -92,6 +93,12 @@ export type ProtocolOptions = {
      * so they should NOT be included here.
      */
     tasks?: TaskManagerOptions;
+
+    /**
+     * External handler registry. When provided, this Protocol instance shares
+     * handlers with any other consumer of the same registry.
+     */
+    registry?: HandlerRegistry<BaseContext>;
 };
 
 /**
@@ -311,15 +318,15 @@ type TimeoutInfo = {
 export abstract class Protocol<ContextT extends BaseContext> {
     private _transport?: Transport;
     private _requestMessageId = 0;
-    private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
+    private _registry: HandlerRegistry<ContextT>;
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
-    private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
     private _taskManager: TaskManager;
+    private _requestMeta?: Record<string, unknown>;
 
     protected _supportedProtocolVersions: string[];
 
@@ -348,6 +355,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     fallbackNotificationHandler?: (notification: Notification) => Promise<void>;
 
     constructor(private _options?: ProtocolOptions) {
+        this._registry = (_options?.registry as HandlerRegistry<ContextT> | undefined) ?? new HandlerRegistry<ContextT>();
         this._supportedProtocolVersions = _options?.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
 
         // Create TaskManager from protocol options
@@ -377,6 +385,20 @@ export abstract class Protocol<ContextT extends BaseContext> {
         return this._taskManager;
     }
 
+    /**
+     * Sets metadata fields to be merged into every outgoing request's `_meta`.
+     *
+     * Per-request `_meta` fields (e.g., progressToken) take precedence over
+     * these base fields.
+     */
+    setRequestMeta(meta: Record<string, unknown> | undefined): void {
+        this._requestMeta = meta;
+    }
+
+    protected get registry(): HandlerRegistry<ContextT> {
+        return this._registry;
+    }
+
     private _bindTaskManager(): void {
         const taskManager = this._taskManager;
         const host: TaskManagerHost = {
@@ -386,7 +408,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             removeProgressHandler: token => this._progressHandlers.delete(token),
             registerHandler: (method, handler) => {
                 const schema = getRequestSchema(method as RequestMethod);
-                this._requestHandlers.set(method, (request, ctx) => {
+                this._registry.setRequestHandler(method, (request, ctx) => {
                     // Validate request params via Zod (strips jsonrpc/id, so we pass original to handler)
                     schema.parse(request);
                     return handler(request, ctx);
@@ -539,7 +561,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onnotification(notification: JSONRPCNotification): void {
-        const handler = this._notificationHandlers.get(notification.method) ?? this.fallbackNotificationHandler;
+        const handler = this._registry.getNotificationHandler(notification.method) ?? this.fallbackNotificationHandler;
 
         // Ignore notifications not being subscribed to.
         if (handler === undefined) {
@@ -553,7 +575,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
-        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+        const handler = this._registry.getRequestHandler(request.method) ?? this.fallbackRequestHandler;
 
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
@@ -963,6 +985,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 return;
             }
 
+            if (this._requestMeta) {
+                jsonrpcRequest.params = {
+                    ...jsonrpcRequest.params,
+                    _meta: {
+                        ...this._requestMeta,
+                        ...jsonrpcRequest.params?._meta
+                    }
+                };
+            }
+
             if (!outboundQueued) {
                 // No related task or no module - send through transport normally
                 this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
@@ -1105,7 +1137,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new TypeError('setRequestHandler: handler is required');
         }
 
-        this._requestHandlers.set(method, this._wrapHandler(method, stored));
+        this._registry.setRequestHandler(method, this._wrapHandler(method, stored));
     }
 
     /**
@@ -1127,14 +1159,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Removes the request handler for the given method.
      */
     removeRequestHandler(method: RequestMethod | string): void {
-        this._requestHandlers.delete(method);
+        this._registry.removeRequestHandler(method);
     }
 
     /**
      * Asserts that a request handler has not already been set for the given method, in preparation for a new one being automatically installed.
      */
     assertCanSetRequestHandler(method: RequestMethod | string): void {
-        if (this._requestHandlers.has(method)) {
+        if (this._registry.hasRequestHandler(method)) {
             throw new Error(`A request handler for ${method} already exists, which would be overridden`);
         }
     }
@@ -1171,14 +1203,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     `'${method}' is not a spec notification method; pass schemas as the second argument to setNotificationHandler().`
                 );
             }
-            this._notificationHandlers.set(method, notification => Promise.resolve(schemasOrHandler(schema.parse(notification))));
+            this._registry.setNotificationHandler(method, notification => Promise.resolve(schemasOrHandler(schema.parse(notification))));
             return;
         }
 
         if (!maybeHandler) {
             throw new TypeError('setNotificationHandler: handler is required');
         }
-        this._notificationHandlers.set(method, async notification => {
+        this._registry.setNotificationHandler(method, async notification => {
             const userParams = { ...notification.params };
             delete userParams._meta;
             const parsed = await validateStandardSchema(schemasOrHandler.params, userParams);
@@ -1193,7 +1225,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Removes the notification handler for the given method.
      */
     removeNotificationHandler(method: NotificationMethod | string): void {
-        this._notificationHandlers.delete(method);
+        this._registry.removeNotificationHandler(method);
     }
 }
 

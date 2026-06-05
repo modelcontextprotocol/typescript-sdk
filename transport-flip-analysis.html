@@ -1,0 +1,1802 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Transport Flip: McpVersionRouter Architecture Proposal</title>
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+mermaid.initialize({ startOnLoad: true, theme: 'default', securityLevel: 'loose' });
+</script>
+<style>
+body { font-family: -apple-system, system-ui, sans-serif; max-width: 1400px; margin: 1.5em auto; padding: 0 1.5em; line-height: 1.6; color: #1a1a1a; }
+h1 { border-bottom: 3px solid #333; padding-bottom: .3em; font-size: 1.8em; }
+h2 { margin-top: 2.5em; border-bottom: 2px solid #0366d6; padding-bottom: .2em; color: #0366d6; }
+h3 { margin-top: 1.8em; color: #333; }
+h4 { margin-top: 1.4em; color: #555; }
+code { background: #f3f3f3; padding: 1px 5px; border-radius: 3px; font-size: .92em; }
+pre { background: #f6f8fa; border: 1px solid #e1e4e8; border-radius: 6px; padding: 1em; overflow-x: auto; font-size: .88em; line-height: 1.5; }
+pre code { background: none; padding: 0; }
+table { border-collapse: collapse; width: 100%; margin: 1em 0; font-size: .93em; }
+th, td { border: 1px solid #ddd; padding: .55em .7em; text-align: left; vertical-align: top; }
+th { background: #f0f4ff; font-weight: 600; }
+hr { margin: 2.5em 0; border: none; border-top: 2px solid #eee; }
+blockquote { border-left: 4px solid #0366d6; margin: 1em 0; padding: .5em 1em; background: #f0f6ff; color: #333; }
+ul, ol { padding-left: 1.4em; }
+.mermaid { margin: 1.5em 0; }
+.concern-box { border: 2px solid #e1e4e8; border-radius: 8px; padding: 1em 1.2em; margin: 1em 0; }
+.concern-box.transport { border-color: #28a745; background: #f0fff4; }
+.concern-box.routing { border-color: #0366d6; background: #f0f6ff; }
+.concern-box.handlers { border-color: #6f42c1; background: #f5f0ff; }
+.concern-box h4 { margin-top: 0; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: .82em; font-weight: 600; margin-right: .3em; }
+.tag-modern { background: #dafbe1; color: #116329; }
+.tag-legacy { background: #fff8c5; color: #735c0f; }
+.tag-both { background: #ddf4ff; color: #0550ae; }
+.tag-future { background: #fbefff; color: #8250df; }
+.verification { border: 2px solid #28a745; border-radius: 8px; padding: 1em 1.2em; margin: 1.5em 0; background: #f0fff4; }
+.verification h4 { margin-top: 0; color: #116329; }
+.verification .pass { color: #116329; font-weight: 600; }
+.verification .note { color: #735c0f; font-style: italic; }
+a { color: #0366d6; text-decoration: none; } a:hover { text-decoration: underline; }
+@media (max-width: 900px) { body { padding: 0 .8em; } table { font-size: .85em; } }
+</style>
+</head>
+<body>
+
+<h1>Transport Flip: McpVersionRouter Architecture Proposal</h1>
+
+<p><strong>Goal:</strong> Separate three concerns that are currently entangled in the SDK: <em>wire transport</em>, <em>protocol version routing</em>, and <em>handler registration</em>. Make the codebase stateless-first for 2026-06 while preserving legacy 2025-11 support via a frozen, routable code path.</p>
+
+<p><strong>Scope:</strong> Server-side architecture (the client-side story is simpler and follows the same principles). MRTR is conceptually accounted for but not deeply designed here.</p>
+
+<p><strong>Based on:</strong> <a href="./transport-changes.html">transport-changes.html</a> (spec diff), SEPs <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2575">2575</a>, <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2567">2567</a>, <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2322">2322</a>, <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2260">2260</a>, <a href="https://github.com/modelcontextprotocol/modelcontextprotocol/pull/2243">2243</a></p>
+
+<hr/>
+
+<h2>1. The Problem: Current Architecture Is Stateful-First</h2>
+
+<h3>1.1 Current class hierarchy</h3>
+
+<pre class="mermaid">
+classDiagram
+    class Protocol {
+        -_transport: Transport
+        -_requestMessageId: number
+        -_requestHandlers: Map
+        -_responseHandlers: Map
+        -_progressHandlers: Map
+        +connect(transport) void
+        +request(req, schema) Result
+        +notification(n) void
+        +setRequestHandler(method, handler) void
+        #assertCapabilityForMethod(method)*
+        #buildContext(ctx, info)* ContextT
+    }
+
+    class Server {
+        -_clientCapabilities: ClientCapabilities
+        -_clientVersion: Implementation
+        -_capabilities: ServerCapabilities
+        -_loggingLevels: Map
+        +_oninitialize(req) InitializeResult
+        +createMessage(params) Result
+        +elicitInput(params) ElicitResult
+        +listRoots() ListRootsResult
+        +registerCapabilities(caps) void
+    }
+
+    class McpServer {
+        -_registeredTools: Map
+        -_registeredResources: Map
+        -_registeredPrompts: Map
+        +server: Server
+        +connect(transport) void
+        +registerTool(name, config, cb) RegisteredTool
+        +registerResource(name, uri, config, cb) RegisteredResource
+        +registerPrompt(name, config, cb) RegisteredPrompt
+    }
+
+    class Transport {
+        &lt;&lt;interface&gt;&gt;
+        +start() void
+        +send(message, options) void
+        +close() void
+        +onmessage callback
+        +sessionId string
+        +setProtocolVersion(v) void
+    }
+
+    Protocol <|-- Server
+    Server <-- McpServer : wraps
+    Protocol --> Transport : owns 1 to 1
+</pre>
+
+<h3>1.2 Where stateful assumptions live</h3>
+
+<table>
+<thead><tr><th>Location</th><th>Stateful state</th><th>Problem for 2026-06</th></tr></thead>
+<tbody>
+<tr><td><code>Protocol._transport</code></td><td>Single transport per Protocol instance</td><td>1:1 coupling means one Protocol = one connection. Modern stateless HTTP has no persistent connection.</td></tr>
+<tr><td><code>Protocol._requestMessageId</code></td><td>Monotonically increasing per instance</td><td>Assumes single connection scope for IDs. 2026-06 says IDs are unique per outstanding request, not per session.</td></tr>
+<tr><td><code>Protocol._responseHandlers</code></td><td>Maps message ID to pending response</td><td>Server-side: only relevant for bidirectional (server-to-client requests). Modern mode forbids unsolicited s-to-c (SEP-2260). Correlation moves to MRTR.</td></tr>
+<tr><td><code>Server._clientCapabilities</code></td><td>Set once during <code>initialize</code></td><td>2026-06: "Servers MUST NOT infer capabilities from prior requests." Capabilities come from <code>_meta.clientCapabilities</code> per-request.</td></tr>
+<tr><td><code>Server._clientVersion</code></td><td>Set once during <code>initialize</code></td><td>2026-06: <code>_meta.clientInfo</code> per-request.</td></tr>
+<tr><td><code>Server._loggingLevels</code></td><td>Per-session log level via <code>logging/setLevel</code></td><td>2026-06: <code>_meta.logLevel</code> per-request. No <code>setLevel</code>.</td></tr>
+<tr><td><code>Transport.sessionId</code></td><td>Set during <code>initialize</code>, echoed in headers</td><td>2026-06: No <code>Mcp-Session-Id</code>. Explicit state handles instead.</td></tr>
+<tr><td><code>McpServer.server</code></td><td>McpServer pushes handlers INTO Server</td><td>Handlers are trapped inside Server's Protocol._requestHandlers. Can't be consumed independently.</td></tr>
+</tbody>
+</table>
+
+<h3>1.3 The core tension</h3>
+
+<blockquote>
+<strong>2025-11 model:</strong> "Handshake establishes state, requests are lightweight."<br/>
+<strong>2026-06 model:</strong> "Every request is self-describing, no connection state."<br/>
+The SDK must support both on one server instance.
+</blockquote>
+
+<p>The existing class hierarchy makes the 2025-11 model the <em>only</em> path. Every request flows through Protocol, which assumes a connected transport with session state. Adding 2026-06 support by bolting it onto Protocol would mean either:</p>
+<ul>
+<li><strong>Option A:</strong> Scatter version-gates throughout Protocol/Server (maintenance nightmare, violates single-responsibility)</li>
+<li><strong>Option B:</strong> Refactor Protocol to be stateless-first (massive blast radius, breaks existing code)</li>
+<li><strong>Option C: (This proposal)</strong> Separate the concerns, freeze Protocol/Server for legacy, build a clean modern path alongside</li>
+</ul>
+
+<hr/>
+
+<h2>2. Proposed Architecture: Three Separated Concerns</h2>
+
+<div class="concern-box handlers">
+<h4>Layer 1: McpServer &mdash; Handler Registry <span class="tag tag-both">both eras</span></h4>
+<p>Pure definition of <em>what</em> the server can do. Tools, resources, prompts, capabilities, server info. No transport, no connection state, no protocol framing. Both the modern and legacy paths read from this same registry.</p>
+</div>
+
+<div class="concern-box routing">
+<h4>Layer 2: McpVersionRouter &mdash; Protocol Version Routing <span class="tag tag-both">both eras</span></h4>
+<p><strong>An abstract class / interface</strong> with transport-specific implementations. The classification logic differs by transport: HTTP uses <code>Mcp-Method</code> / <code>MCP-Protocol-Version</code> headers; stdio checks the first message method; WebSocket/gRPC may use their own metadata. The SDK ships default implementations for standard transports (<code>HttpVersionRouter</code>, <code>StdioVersionRouter</code>). Custom transport authors <strong>can implement their own router</strong> for transport-specific routing signals.</p>
+<p>For modern (2026-06): builds per-request context from <code>_meta</code>, dispatches to McpServer handlers directly. For legacy (2025-11): delegates to a frozen Protocol/Server instance. Handles <code>server/discover</code>, version negotiation, and is the future hook point for MRTR and <code>subscriptions/listen</code>.</p>
+</div>
+
+<div class="concern-box transport">
+<h4>Layer 3: Transport &mdash; Wire Protocol <span class="tag tag-both">both eras</span></h4>
+<p>How bytes move. HTTP request/response, stdio stdin/stdout, WebSocket frames, gRPC streams. Message framing, serialization, connection lifecycle. <strong>Transport and router form a coupled pair</strong> &mdash; the transport knows what metadata is available for routing, the router knows how to interpret it. Custom transport authors implement their Transport and optionally a matching Router. A transport can support legacy, modern, or both eras.</p>
+</div>
+
+<h3>2.1 Composition diagram</h3>
+
+<pre class="mermaid">
+graph TB
+    subgraph "User Code"
+        UC["const server = new McpServer(serverInfo)
+server.registerTool(...)
+server.registerResource(...)"]
+    end
+
+    subgraph "Layer 1: Handler Registry"
+        MS["McpServer
+---------
+tools, resources, prompts
+capabilities, serverInfo
+dispatch method+params+ctx to Result"]
+        REG["HandlerRegistry
+---------
+shared by modern dispatch
+AND legacy Server instances"]
+        MS --- REG
+    end
+
+    subgraph "Stdio Adapter"
+        SR["StdioVersionRouter
+extends McpVersionRouter"]
+        ST["StdioTransport"]
+        SR <--> ST
+    end
+
+    subgraph "HTTP Adapter"
+        HR["HttpVersionRouter
+extends McpVersionRouter"]
+        HT["HttpTransport"]
+        HR <--> HT
+    end
+
+    subgraph "Custom e.g. WebSocket"
+        CR["CustomVersionRouter
+extends McpVersionRouter"]
+        CT["WebSocketTransport"]
+        CR <--> CT
+    end
+
+    subgraph "Shared Legacy Infrastructure"
+        LS["Server+Protocol
+per-session instances
+share HandlerRegistry"]
+    end
+
+    UC --> MS
+    MS --> SR
+    MS --> HR
+    MS --> CR
+    SR -->|"legacy path"| LS
+    HR -->|"legacy path"| LS
+    CR -->|"legacy path"| LS
+    REG -.->|"shared reference"| LS
+
+    style MS fill:#f5f0ff,stroke:#6f42c1
+    style REG fill:#f5f0ff,stroke:#6f42c1
+    style SR fill:#f0f6ff,stroke:#0366d6
+    style HR fill:#f0f6ff,stroke:#0366d6
+    style CR fill:#f0f6ff,stroke:#0366d6
+    style LS fill:#fff8c5,stroke:#735c0f
+    style ST fill:#f0fff4,stroke:#28a745
+    style HT fill:#f0fff4,stroke:#28a745
+    style CT fill:#f0fff4,stroke:#28a745
+</pre>
+
+<h3>2.2 McpServer changes: handler registry, not server runner</h3>
+
+<p>Today, <code>McpServer</code> pushes handlers INTO <code>Server</code> (which stores them in <code>Protocol._requestHandlers</code>). The handlers are trapped inside the Protocol/Server chain. In the new model, McpServer holds handlers independently and exposes them for consumption:</p>
+
+<pre><code>// New McpServer surface (additions shown)
+class McpServer {
+    // === UNCHANGED: same registration API ===
+    registerTool(name, config, handler): RegisteredTool;
+    registerResource(name, uri, config, handler): RegisteredResource;
+    registerPrompt(name, config, handler): RegisteredPrompt;
+
+    // === NEW: handler registry access ===
+    // Capabilities derived from registrations
+    getCapabilities(): ServerCapabilities;
+    getServerInfo(): Implementation;
+    getInstructions(): string | undefined;
+
+    // Dispatch a request to the appropriate handler
+    // Called by McpVersionRouter for modern requests
+    dispatch(method: string, request: JSONRPCRequest, ctx: ServerContext): Promise&lt;Result&gt;;
+
+    // Enumerate handlers (for legacy bridge to populate frozen Server)
+    getHandlerEntries(): Iterable&lt;[string, RequestHandler]&gt;;
+
+    // === REMOVED: no longer on McpServer ===
+    // connect(transport)  -- moved to McpVersionRouter
+    // server: Server      -- no longer exposed; internal detail of legacy path
+}
+</code></pre>
+
+<p><strong>Key insight:</strong> <code>McpServer.dispatch()</code> is the modern path. No Protocol, no transport, no session. Just: method &rarr; handler &rarr; result. The McpVersionRouter builds the <code>ServerContext</code> from <code>_meta</code> before calling dispatch.</p>
+
+<h3>2.3 McpVersionRouter: abstract class with transport-specific subclasses</h3>
+
+<p>The router is <strong>abstract</strong>. Each transport type provides its own subclass that knows how to read transport-specific routing signals. The base class provides the shared modern dispatch, legacy bridge, <code>server/discover</code>, and future MRTR/subscription infrastructure.</p>
+
+<pre><code>type McpEra = 'legacy' | 'modern';
+
+// Transport-specific metadata passed alongside messages
+interface TransportMeta {
+    // HTTP-specific
+    httpHeaders?: Record&lt;string, string&gt;;
+    httpMethod?: string;  // GET, POST, DELETE
+    // Auth
+    authInfo?: AuthInfo;
+    // Connection identity (for per-connection era locking on persistent transports)
+    connectionId?: string;
+}
+
+abstract class McpVersionRouter {
+    constructor(
+        protected mcpServer: McpServer,
+        protected options?: {
+            // Enable legacy (2025-11) support.
+            // When true, creates internal frozen Server/Protocol for legacy sessions.
+            // When false (default for new code), initialize returns -32601, etc.
+            legacySupport?: boolean;
+
+            // Supported protocol versions (defaults to SUPPORTED_PROTOCOL_VERSIONS)
+            supportedVersions?: string[];
+        }
+    );
+
+    // === ABSTRACT: transport-specific classification ===
+    // Each subclass overrides this to inspect transport-relevant signals.
+    abstract classify(message: JSONRPCMessage, meta?: TransportMeta): McpEra;
+
+    // === CONCRETE: shared infrastructure ===
+    // Modern path: build context from _meta, dispatch to McpServer
+    protected handleModernRequest(request: JSONRPCRequest, meta?: TransportMeta): Promise&lt;Result&gt;;
+
+    // Legacy path: route to frozen Server/Protocol via bridge
+    protected handleLegacyMessage(message: JSONRPCMessage, meta?: TransportMeta): void;
+
+    // server/discover: always modern, reads from McpServer
+    protected handleDiscover(): DiscoverResult;
+
+    // For persistent transports (stdio, WebSocket, etc.)
+    serve(transport: Transport): Promise&lt;void&gt;;
+
+    // Shutdown
+    close(): Promise&lt;void&gt;;
+}
+
+// === SDK-provided implementations ===
+
+class HttpVersionRouter extends McpVersionRouter {
+    classify(message, meta) {
+        // Uses: Mcp-Method header, MCP-Protocol-Version header,
+        //       Mcp-Session-Id header, HTTP method (GET = legacy SSE)
+    }
+
+    // HTTP-specific: request/response entry point
+    handleRequest(req: Request, options?: HandleRequestOptions): Promise&lt;Response&gt;;
+}
+
+class StdioVersionRouter extends McpVersionRouter {
+    classify(message, meta) {
+        // Uses: first message method (initialize vs server/discover),
+        //       _meta.clientCapabilities presence.
+        //       Locks connection to one era after first message.
+    }
+}
+
+// === Custom transport authors implement their own ===
+
+class GrpcVersionRouter extends McpVersionRouter {
+    classify(message, meta) {
+        // Uses: gRPC metadata headers, service method path, etc.
+    }
+}
+</code></pre>
+
+<pre class="mermaid">
+classDiagram
+    class McpVersionRouter {
+        &lt;&lt;abstract&gt;&gt;
+        #mcpServer: McpServer
+        #options: RouterOptions
+        +classify(message, meta)* McpEra
+        #handleModernRequest(request, meta) Result
+        #handleLegacyMessage(message, meta) void
+        #handleDiscover() DiscoverResult
+        +serve(transport) void
+        +close() void
+    }
+
+    class HttpVersionRouter {
+        +classify(message, meta) McpEra
+        +handleRequest(req, opts) Response
+    }
+
+    class StdioVersionRouter {
+        -connectionEra: McpEra or undefined
+        +classify(message, meta) McpEra
+    }
+
+    class CustomRouter {
+        &lt;&lt;user-provided&gt;&gt;
+        +classify(message, meta) McpEra
+    }
+
+    McpVersionRouter <|-- HttpVersionRouter
+    McpVersionRouter <|-- StdioVersionRouter
+    McpVersionRouter <|-- CustomRouter
+</pre>
+
+<h3>2.4 Shared HandlerRegistry: the link between modern and legacy</h3>
+
+<p>A key refinement over "fully frozen Protocol": instead of copying handlers into each legacy Server instance, we extract Protocol's handler maps into a <strong>shared HandlerRegistry</strong> that both paths read from. This is a minimal, targeted change to Protocol &mdash; the maps move from private fields to an external object. Everything else stays the same.</p>
+
+<h4>What gets extracted (handler definitions &mdash; shared)</h4>
+
+<pre><code>// Extracted from Protocol's private fields into a standalone object.
+// Holds handler DEFINITIONS (method &rarr; handler function).
+// Both modern dispatch and legacy Protocol._onrequest read from this.
+class HandlerRegistry&lt;ContextT&gt; {
+    private _requestHandlers = new Map&lt;string, RequestHandler&lt;ContextT&gt;&gt;();
+    private _notificationHandlers = new Map&lt;string, NotificationHandler&gt;();
+
+    getRequestHandler(method: string): RequestHandler&lt;ContextT&gt; | undefined;
+    setRequestHandler(method: string, handler: RequestHandler&lt;ContextT&gt;): void;
+    removeRequestHandler(method: string): void;
+    hasRequestHandler(method: string): boolean;
+
+    getNotificationHandler(method: string): NotificationHandler | undefined;
+    setNotificationHandler(method: string, handler: NotificationHandler): void;
+    removeNotificationHandler(method: string): void;
+}
+</code></pre>
+
+<h4>What stays on Protocol (per-request/per-connection state &mdash; not shared)</h4>
+
+<pre><code>// These maps are per-Protocol-instance. They track in-flight requests
+// on a specific connection, not handler definitions. NOT extracted.
+class Protocol&lt;ContextT&gt; {
+    private _responseHandlers: Map&lt;number, ResponseHandler&gt;;   // outbound request correlation
+    private _progressHandlers: Map&lt;number, ProgressCallback&gt;;  // outbound progress tracking
+    private _requestHandlerAbortControllers: Map&lt;RequestId, AbortController&gt;; // per-request cancellation
+    private _timeoutInfo: Map&lt;number, TimeoutInfo&gt;;            // per-request timeouts
+}
+</code></pre>
+
+<h4>Protocol change (minimal)</h4>
+
+<pre><code>class Protocol&lt;ContextT&gt; {
+    private _registry: HandlerRegistry&lt;ContextT&gt;;
+
+    // NEW: accepts external registry. Creates its own if not provided (backwards compat).
+    constructor(options?: { registry?: HandlerRegistry&lt;ContextT&gt;; /* ...existing options */ }) {
+        this._registry = options?.registry ?? new HandlerRegistry();
+    }
+
+    // CHANGED: delegates to registry. Capability check + wrapping still happen here.
+    setRequestHandler(method, handler) {
+        this.assertRequestHandlerCapability(method);
+        this._registry.setRequestHandler(method, this._wrapHandler(method, handler));
+    }
+
+    // CHANGED: reads from registry instead of private map.
+    private _onrequest(request, extra) {
+        const handler = this._registry.getRequestHandler(request.method)
+            ?? this.fallbackRequestHandler;
+        // ... rest of _onrequest is UNCHANGED
+    }
+
+    // UNCHANGED: setNotificationHandler, removeRequestHandler, etc.
+    // all delegate to this._registry instead of this._notificationHandlers / this._requestHandlers
+
+    // UNCHANGED: _responseHandlers, _progressHandlers, _requestHandlerAbortControllers
+    // stay as private fields on Protocol (per-connection state)
+}
+</code></pre>
+
+<h4>How McpServer uses it</h4>
+
+<pre><code>class McpServer {
+    // McpServer creates the single shared registry
+    private _registry = new HandlerRegistry&lt;ServerContext&gt;();
+
+    // Compound handlers (tools/list, tools/call, etc.) are registered in the shared registry.
+    // These closures read from _registeredTools / _registeredResources / _registeredPrompts
+    // at DISPATCH time, not at registration time &mdash; so tool additions/removals
+    // are automatically visible to all consumers without re-registration.
+    private setToolRequestHandlers() {
+        this._registry.setRequestHandler('tools/list', async (request, ctx) =&gt; {
+            // reads this._registeredTools HERE, at call time
+            return { tools: Object.entries(this._registeredTools).map(...) };
+        });
+        this._registry.setRequestHandler('tools/call', async (request, ctx) =&gt; {
+            // reads this._registeredTools[name] HERE, at call time
+            const tool = this._registeredTools[request.params.name];
+            return tool.executor(request.params.arguments, ctx);
+        });
+    }
+
+    // Modern path: router reads handlers directly from the shared registry
+    get registry(): HandlerRegistry&lt;ServerContext&gt; { return this._registry; }
+
+    // Legacy path: Server constructed WITH the shared registry
+    // &rarr; Protocol._onrequest reads from the same registry
+    // &rarr; handler mutations are instantly visible, no event subscription needed
+}
+</code></pre>
+
+<pre class="mermaid">
+graph LR
+    subgraph "McpServer"
+        REG["HandlerRegistry
+        tools/list, tools/call,
+        resources/read, prompts/get, ..."]
+        RT["_registeredTools
+        _registeredResources
+        _registeredPrompts"]
+    end
+
+    subgraph "Modern Path"
+        DISP["McpVersionRouter
+        dispatch&lpar;&rpar;"]
+    end
+
+    subgraph "Legacy Path"
+        P1["Protocol &lpar;session 1&rpar;"]
+        P2["Protocol &lpar;session 2&rpar;"]
+    end
+
+    REG -->|"getRequestHandler&lpar;&rpar;"| DISP
+    REG -->|"shared reference"| P1
+    REG -->|"shared reference"| P2
+    RT -.->|"closures read at dispatch time"| REG
+
+    style REG fill:#f5f0ff,stroke:#6f42c1
+    style DISP fill:#dafbe1,stroke:#116329
+    style P1 fill:#fff8c5,stroke:#735c0f
+    style P2 fill:#fff8c5,stroke:#735c0f
+</pre>
+
+<p><strong>Why this works:</strong> McpServer's compound handlers (e.g., the <code>tools/call</code> handler registered via <code>setToolRequestHandlers()</code>) already read from <code>_registeredTools</code> at dispatch time, not at registration time. The registry holds the compound handler once. When <code>registerTool()</code> adds a tool to <code>_registeredTools</code>, the next invocation of the compound handler sees it &mdash; regardless of whether the caller is the modern dispatch path or a legacy Protocol._onrequest.</p>
+
+<p><strong>What this eliminates:</strong></p>
+<ul>
+<li>No <code>getHandlerEntries()</code> needed &mdash; consumers share the registry directly</li>
+<li>No handler population step in the legacy bridge &mdash; Server instances are constructed with the shared registry</li>
+<li>No stale handlers &mdash; mutations are instantly visible to all consumers</li>
+<li>No event subscription / change propagation &mdash; the shared reference is the propagation mechanism</li>
+</ul>
+
+<p><strong>Blast radius:</strong> Protocol gains one constructor option (<code>registry?</code>) and reads from <code>this._registry</code> instead of <code>this._requestHandlers</code>. Method signatures, behavior, error handling, timeout machinery, cancellation &mdash; all unchanged. Existing code that creates Protocol/Server without passing a registry gets the same behavior as today (auto-created internal registry).</p>
+
+<hr/>
+
+<h2>3. Version Routing Logic</h2>
+
+<h3>3.1 Classification is the subclass override point</h3>
+
+<p><code>classify()</code> is the single abstract method that transport-specific routers must implement. The algorithm below shows the <strong>shared logic</strong> (body-level signals) that all transports check. Each subclass adds its own transport-level signals <em>before</em> falling through to the shared checks.</p>
+
+<pre class="mermaid">
+flowchart TD
+    MSG["Incoming JSON-RPC Message"] --> TRANSPORT{"Transport-specific<br/>signals? Subclass decides."}
+
+    TRANSPORT -->|"HTTP: Mcp-Method header present,<br/>MCP-Protocol-Version >= 2026-06-30"| MODERN
+    TRANSPORT -->|"HTTP: Mcp-Session-Id present,<br/>GET /mcp"| LEGACY
+    TRANSPORT -->|"Stdio: connection already<br/>locked to an era"| LOCKED["Use locked era"]
+    TRANSPORT -->|"gRPC/WS: custom metadata"| CUSTOM["Custom logic"]
+    TRANSPORT -->|"No transport signal,<br/>fall through to body"| BODY
+
+    BODY --> CHECK_META{"Has _meta.protocolVersion<br/>AND _meta.clientCapabilities?"}
+    CHECK_META -->|Yes| MODERN["MODERN ERA 2026-06"]
+    CHECK_META -->|No| CHECK_METHOD{"method == ?"}
+
+    CHECK_METHOD -->|"initialize"| LEGACY["LEGACY ERA 2025-11"]
+    CHECK_METHOD -->|"server/discover"| MODERN
+    CHECK_METHOD -->|"logging/setLevel"| LEGACY
+    CHECK_METHOD -->|other, no session context| ERR["Return -32600:<br/>Missing required _meta"]
+
+    style MODERN fill:#dafbe1,stroke:#116329
+    style LEGACY fill:#fff8c5,stroke:#735c0f
+    style ERR fill:#ffe3e3,stroke:#d63031
+    style LOCKED fill:#ddf4ff,stroke:#0550ae
+    style CUSTOM fill:#fbefff,stroke:#8250df
+</pre>
+
+<h3>3.2 HTTP-specific routing signals</h3>
+
+<table>
+<thead><tr><th>Signal</th><th>Modern indicator</th><th>Legacy indicator</th></tr></thead>
+<tbody>
+<tr><td><code>Mcp-Method</code> header</td><td>Present (SEP-2243)</td><td>Absent</td></tr>
+<tr><td><code>MCP-Protocol-Version</code> header</td><td>Present and &ge; <code>2026-06-30</code></td><td>Absent or &lt; <code>2026-06-30</code></td></tr>
+<tr><td><code>Mcp-Session-Id</code> header</td><td>Absent</td><td>Present</td></tr>
+<tr><td>Body method <code>initialize</code></td><td>&mdash;</td><td>Legacy handshake</td></tr>
+<tr><td>Body method <code>server/discover</code></td><td>Modern probe</td><td>&mdash;</td></tr>
+<tr><td><code>_meta.clientCapabilities</code> in body</td><td>Present</td><td>Absent</td></tr>
+<tr><td>HTTP <code>GET /mcp</code></td><td>&mdash;</td><td>Legacy standalone SSE</td></tr>
+</tbody>
+</table>
+
+<h3>3.3 Stdio-specific routing signals</h3>
+
+<p>Stdio has no HTTP headers. Routing is based solely on message content:</p>
+
+<table>
+<thead><tr><th>Signal</th><th>Era</th></tr></thead>
+<tbody>
+<tr><td>First message is <code>initialize</code></td><td>Legacy &mdash; entire connection uses legacy path</td></tr>
+<tr><td>First message is <code>server/discover</code> with <code>_meta.protocolVersion</code></td><td>Modern</td></tr>
+<tr><td>Any request with <code>_meta.clientCapabilities</code></td><td>Modern</td></tr>
+<tr><td>Request after <code>initialize</code> handshake completed</td><td>Legacy (for this connection)</td></tr>
+</tbody>
+</table>
+
+<p><strong>Note:</strong> For stdio, the era is typically determined once per connection (the first message disambiguates). HTTP can mix eras across requests if the server supports both (each HTTP request is independent).</p>
+
+<hr/>
+
+<h2>4. Request Flow: Modern vs Legacy</h2>
+
+<h3>4.1 Modern (2026-06) request flow</h3>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant T as Transport
+    participant R as McpVersionRouter
+    participant M as McpServer
+
+    Note over C,M: No handshake. First request goes directly.
+
+    C->>T: POST /mcp with _meta.protocolVersion etc.
+    T->>R: onMessage jsonrpc + transportMeta
+    R->>R: classify = MODERN
+    R->>R: buildModernContext from _meta + transportMeta
+    R->>M: dispatch tools/call request ctx
+    M->>M: find handler, validate input, execute, validate output
+    M-->>R: CallToolResult
+    R-->>T: JSONRPCResponse
+    T-->>C: HTTP 200
+</pre>
+
+<p><strong>Key properties:</strong></p>
+<ul>
+<li>No Protocol instance involved. No <code>_requestHandlers</code> map lookup in Protocol. McpServer dispatches directly.</li>
+<li>Context built entirely from <code>_meta</code> fields + transport metadata (authInfo, HTTP request).</li>
+<li>No session ID. No connection state. Response goes back immediately.</li>
+<li>For stdio: same flow, but transport is persistent. McpVersionRouter correlates request/response via JSON-RPC <code>id</code>.</li>
+</ul>
+
+<h3>4.2 Legacy (2025-11) request flow</h3>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant T as Transport
+    participant R as McpVersionRouter
+    participant S as Frozen Server + Protocol
+
+    C->>T: POST /mcp method initialize
+    T->>R: onMessage initRequest
+    R->>R: classify = LEGACY
+    R->>R: getOrCreateLegacyServer sessionId
+    R->>S: bridge message to frozen Server
+    S->>S: _oninitialize stores clientCapabilities + clientVersion
+    S-->>R: InitializeResult
+    R-->>T: JSONRPCResponse + Mcp-Session-Id header
+    T-->>C: HTTP 200
+
+    Note over C,T: Subsequent requests include Mcp-Session-Id
+
+    C->>T: POST /mcp method tools/call + Mcp-Session-Id
+    T->>R: onMessage request
+    R->>R: classify = LEGACY has session
+    R->>R: lookupLegacyServer sessionId
+    R->>S: bridge message to frozen Server
+    S->>S: Protocol._onrequest full existing flow
+    Note over S: Handlers were populated from McpServer.getHandlerEntries
+    S-->>R: CallToolResult
+    R-->>T: JSONRPCResponse
+    T-->>C: HTTP 200
+</pre>
+
+<p><strong>Key properties:</strong></p>
+<ul>
+<li>Existing Protocol/Server code runs <strong>unchanged</strong>. No modifications needed.</li>
+<li>McpVersionRouter creates a frozen Server instance per session, populates handlers from McpServer.</li>
+<li>The Server instance has its own transport (a bridge transport that routes messages to/from the real transport).</li>
+<li>Session state (<code>_clientCapabilities</code>, <code>_loggingLevels</code>, etc.) is per-Server-instance, just like today.</li>
+</ul>
+
+<h3>4.3 server/discover flow (modern)</h3>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant R as McpVersionRouter
+    participant M as McpServer
+
+    C->>R: method server/discover
+    R->>R: classify = MODERN always
+    R->>M: getCapabilities + getServerInfo + getSupportedVersions + getInstructions
+    R-->>C: supportedVersions + capabilities + serverInfo + instructions
+</pre>
+
+<p><code>server/discover</code> is always handled by the router, never by the legacy path. It reads directly from McpServer's registry.</p>
+
+<h3>4.4 Legacy fallback probe (client perspective)</h3>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Modern Client
+    participant R as McpVersionRouter
+
+    Note over C,R: HTTP probe sequence
+    C->>R: Modern request with _meta.protocolVersion
+    alt Server supports modern
+        R-->>C: Normal response
+    else Server is legacy-only
+        R-->>C: 400 Bad Request or UnsupportedProtocolVersionError
+        C->>R: Fall back to initialize handshake
+        R->>R: classify = LEGACY
+        R-->>C: InitializeResult
+    end
+
+    Note over C,R: Stdio probe sequence
+    C->>R: method server/discover _meta protocolVersion
+    alt Server supports modern
+        R-->>C: DiscoverResult
+    else Server is legacy-only
+        R-->>C: -32601 Method not found
+        C->>R: Fall back to initialize
+        R-->>C: InitializeResult
+    end
+</pre>
+
+<hr/>
+
+<h2>5. The Frozen Legacy Bridge</h2>
+
+<p>The legacy bridge connects the McpVersionRouter to frozen Server/Protocol instances for 2025-11 sessions. With the shared HandlerRegistry (§2.4), the bridge is simpler than it would otherwise be &mdash; it handles <strong>per-session state and transport multiplexing only</strong>, not handler management.</p>
+
+<h3>5.1 What the bridge provides</h3>
+
+<table>
+<thead><tr><th>Concern</th><th>Handled by</th></tr></thead>
+<tbody>
+<tr><td>Handler lookup (<code>tools/call</code> &rarr; handler)</td><td><strong>Shared HandlerRegistry</strong> &mdash; Server's Protocol reads from the same registry as the modern path. No handler copying or synchronization.</td></tr>
+<tr><td>Per-session state (<code>_clientCapabilities</code>, <code>_clientVersion</code>, <code>_loggingLevels</code>)</td><td><strong>Frozen Server instance</strong> per session &mdash; set during <code>initialize</code>, read during requests. Unchanged from today.</td></tr>
+<tr><td>Transport ownership (Protocol expects exclusive <code>onmessage</code>/<code>send</code>)</td><td><strong>BridgeTransport</strong> &mdash; thin in-memory pipe. Router injects messages in, Protocol's outgoing messages come back out. Necessary because <code>Protocol.connect()</code> takes exclusive ownership of its transport.</td></tr>
+<tr><td>Bidirectional requests (server &rarr; client: elicitation, sampling)</td><td><strong>BridgeTransport relays outgoing requests</strong> from Protocol to the router, which forwards to the real transport. Client's response comes back the same path. Protocol's timeout/cancellation machinery works unchanged.</td></tr>
+</tbody>
+</table>
+
+<h3>5.2 Implementation</h3>
+
+<pre><code>// Internal to McpVersionRouter - not public API
+class LegacyBridge {
+    private sessions: Map&lt;string | undefined, { server: Server; bridge: BridgeTransport }&gt;;
+
+    constructor(
+        private registry: HandlerRegistry&lt;ServerContext&gt;,  // shared with McpServer
+        private serverInfo: Implementation,
+        private serverOptions: ServerOptions,
+    ) {}
+
+    getOrCreate(sessionId: string | undefined): { server: Server; bridge: BridgeTransport } {
+        let entry = this.sessions.get(sessionId);
+        if (!entry) {
+            // Server constructed WITH the shared registry.
+            // Protocol._onrequest reads handlers from this registry &mdash;
+            // same handlers as the modern path, always up to date.
+            const server = new Server(this.serverInfo, {
+                capabilities: this.serverOptions.capabilities,
+                instructions: this.serverOptions.instructions,
+                registry: this.registry,  // &larr; shared HandlerRegistry
+            });
+
+            // No handler population loop needed.
+            // The shared registry already has all handlers.
+
+            const bridge = new BridgeTransport();
+            server.connect(bridge);
+
+            entry = { server, bridge };
+            this.sessions.set(sessionId, entry);
+        }
+        return entry;
+    }
+
+    // Inject a message into the legacy Server as if it came from the transport
+    async injectMessage(sessionId: string | undefined,
+                        message: JSONRPCMessage,
+                        extra?: MessageExtraInfo) {
+        const { bridge } = this.getOrCreate(sessionId);
+        bridge.injectIncoming(message, extra);
+    }
+
+    // Receive outgoing messages from the legacy Server
+    // (bidirectional: Protocol.send() &rarr; BridgeTransport.send() &rarr; this callback)
+    onOutgoing(callback: (sessionId: string | undefined,
+                          message: JSONRPCMessage) =&gt; void) {
+        // BridgeTransport.send() calls this callback
+    }
+
+    // Cleanup
+    destroySession(sessionId: string | undefined): void {
+        const entry = this.sessions.get(sessionId);
+        if (entry) {
+            entry.server.close();
+            this.sessions.delete(sessionId);
+        }
+    }
+}
+</code></pre>
+
+<h3>5.3 BridgeTransport: the in-memory pipe</h3>
+
+<pre><code>// Thin adapter that Protocol treats as its Transport.
+// No serialization, no network I/O &mdash; messages pass by reference.
+class BridgeTransport implements Transport {
+    // Router calls this to deliver messages TO Protocol
+    injectIncoming(message: JSONRPCMessage, extra?: MessageExtraInfo) {
+        this.onmessage?.(message, extra);  // Protocol installed this in connect()
+    }
+
+    // Protocol calls this to send messages OUT (responses + bidirectional requests)
+    async send(message: JSONRPCMessage) {
+        this.onOutgoing?.(message);        // Router installed this
+    }
+
+    async start() { /* no-op */ }
+    async close() { this.onclose?.(); }
+
+    // Protocol sets these during connect()
+    onmessage?: (msg: JSONRPCMessage, extra?: MessageExtraInfo) =&gt; void;
+    onclose?: () =&gt; void;
+    onerror?: (error: Error) =&gt; void;
+
+    // Router sets this to receive outgoing messages
+    onOutgoing?: (message: JSONRPCMessage) =&gt; void;
+}
+</code></pre>
+
+<pre class="mermaid">
+graph LR
+    subgraph "Shared"
+        REG["HandlerRegistry"]
+    end
+
+    subgraph "McpVersionRouter legacy path"
+        VR["Router"]
+        LB["LegacyBridge"]
+    end
+
+    subgraph "Legacy Server minimal refactor"
+        BT["BridgeTransport"]
+        S["Server"]
+        P["Protocol"]
+    end
+
+    subgraph "Real Transport"
+        RT["StdioTransport or HttpTransport"]
+    end
+
+    REG -.->|"shared reference"| P
+    RT -->|"incoming message"| VR
+    VR -->|"classified as LEGACY"| LB
+    LB -->|"injectIncoming"| BT
+    BT -->|"onmessage"| P
+    P -->|"_onrequest reads from registry"| REG
+    P -->|"response or bidi request"| BT
+    BT -->|"onOutgoing"| LB
+    LB -->|"outgoing message"| VR
+    VR --> RT
+
+    style REG fill:#f5f0ff,stroke:#6f42c1
+    style BT fill:#fff8c5,stroke:#735c0f
+    style S fill:#fff8c5,stroke:#735c0f
+    style P fill:#fff8c5,stroke:#735c0f
+</pre>
+
+<p><strong>Why a bridge transport?</strong> <code>Protocol.connect()</code> takes exclusive ownership of a Transport's <code>onmessage</code>/<code>onclose</code>/<code>onerror</code> callbacks. We can't share the real transport with Protocol. The bridge is a thin in-memory pipe that relays messages between the router and the frozen Protocol/Server. Messages pass by reference &mdash; no serialization, no copying.</p>
+
+<h3>5.4 Bidirectional round-trip through the bridge</h3>
+
+<p>In legacy mode, the Server can initiate requests to the client (elicitation, sampling, roots). These flow through the bridge as outgoing messages:</p>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant RT as Real Transport
+    participant VR as Router
+    participant BT as BridgeTransport
+    participant P as Protocol
+    participant H as Tool Handler
+
+    C->>RT: tools/call
+    RT->>VR: classify = LEGACY
+    VR->>BT: injectIncoming tools/call
+    BT->>P: onmessage
+    P->>H: invoke handler
+
+    Note over H: Handler needs user input
+    H->>P: server.elicitInput params
+    P->>P: assign msgId, create response promise
+    P->>BT: send elicitation/create request
+    BT->>VR: onOutgoing elicitation/create
+    VR->>RT: forward to real transport
+    RT->>C: elicitation/create
+
+    Note over C: User fills form
+    C->>RT: JSON-RPC response
+    RT->>VR: route by session
+    VR->>BT: injectIncoming response
+    BT->>P: onmessage
+    P->>P: _onresponse resolves promise
+
+    H->>P: elicitInput returns with input
+    H->>P: return CallToolResult
+    P->>BT: send tools/call response
+    BT->>VR: onOutgoing response
+    VR->>RT: forward
+    RT->>C: CallToolResult
+</pre>
+
+<p><strong>Key property:</strong> Protocol's existing timeout and cancellation machinery works unchanged through the bridge. If the client is slow to respond to the elicitation, Protocol's own <code>requestTimeout</code> fires and rejects the promise. If the client disconnects, the router calls <code>bridge.onerror()</code> or <code>bridge.onclose()</code>, and Protocol rejects all pending response handlers. The bridge is transparent to Protocol's error model.</p>
+
+<hr/>
+
+<h2>6. MRTR: Conceptual Hooks (Future)</h2>
+
+<p>MRTR (SEP-2322) replaces server-to-client push (elicitation, sampling) with a return-and-retry pattern. We don't implement it now, but the architecture must accommodate it.</p>
+
+<h3>6.1 How MRTR fits in the modern path</h3>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant R as McpVersionRouter
+    participant M as McpServer
+
+    C->>R: tools/call with _meta
+    R->>M: dispatch tools/call request ctx
+    M->>M: Handler needs user input
+    M-->>R: IncompleteResult result_type input_required with inputRequests and requestState
+    R-->>C: IncompleteResult
+
+    Note over C: Client resolves inputRequests locally, shows elicitation UI to user
+
+    C->>R: tools/call with _meta, requestState, inputResponses
+    R->>M: dispatch tools/call request ctx with requestState + inputResponses
+    M->>M: Handler resumes with user input
+    M-->>R: CallToolResult result_type complete
+    R-->>C: CallToolResult
+</pre>
+
+<p><strong>Where MRTR state lives:</strong> In <code>requestState</code> (opaque token in the request/response). Not in the server, not in the router, not in the transport. Fully stateless.</p>
+
+<p><strong>How it differs from legacy:</strong> In legacy mode, the server pushes <code>elicitation/create</code> over the SSE stream and the client responds on the same connection. This is handled by the frozen Protocol/Server's existing bidirectional request flow. The modern MRTR path is return-and-retry, with no push.</p>
+
+<h3>6.2 Architecture implications</h3>
+
+<ul>
+<li><code>McpServer.dispatch()</code> returns <code>Result</code>, which can be <code>CallToolResult</code> OR <code>IncompleteResult</code> OR <code>CreateTaskResult</code>. The router inspects <code>result_type</code> to determine response handling.</li>
+<li>The router could offer a convenience MRTR loop for transports that want automatic retry handling.</li>
+<li>No new state is needed in McpServer or McpVersionRouter &mdash; <code>requestState</code> round-trips through the client.</li>
+</ul>
+
+<hr/>
+
+<h2>7. subscriptions/listen: Modern Push Channel</h2>
+
+<p>In 2026-06, <code>subscriptions/listen</code> replaces the standalone HTTP GET SSE stream. It's a POST that opens a long-lived response for server-to-client notifications.</p>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant R as McpVersionRouter
+    participant M as McpServer
+
+    C->>R: subscriptions/listen with _meta, toolsListChanged true, resourcesListChanged true
+    R->>R: Open long-lived response stream
+    R-->>C: notifications/subscriptions/acknowledged
+
+    Note over R,M: McpServer emits list-changed events
+
+    M->>R: onToolListChanged
+    R-->>C: notifications/tools/list_changed on subscription stream
+
+    M->>R: onResourceListChanged
+    R-->>C: notifications/resources/list_changed on subscription stream
+</pre>
+
+<p>The McpVersionRouter manages the subscription lifecycle. McpServer just emits events (it already does this today). The router filters and routes them to the appropriate subscription streams.</p>
+
+<h3>7.1 Subscription data model</h3>
+
+<pre><code>// A single subscriptions/listen stream from a client
+interface Subscription {
+    id: string;                            // server-generated subscriptionId
+    types: {                               // what the client opted in to
+        toolsListChanged?: boolean;
+        promptsListChanged?: boolean;
+        resourcesListChanged?: boolean;
+        resourceSubscriptions?: string[];  // specific resource URIs
+    };
+    writer: SubscriptionWriter;            // writes JSON-RPC notifications to the response stream
+    signal: AbortSignal;                   // fires on client disconnect (HTTP) or transport close (stdio)
+    lastEventId?: string;                  // for resumability via EventStore
+}
+
+// SubscriptionWriter abstracts the output format.
+// HTTP: writes SSE events on the long-lived POST response.
+// Stdio: writes JSON-RPC notifications to stdout (interleaved with other messages).
+interface SubscriptionWriter {
+    write(notification: JSONRPCNotification): void;
+    close(): void;
+}
+</code></pre>
+
+<h3>7.2 Router subscription management</h3>
+
+<pre><code>// On McpVersionRouter (base class)
+abstract class McpVersionRouter {
+    private _subscriptions = new Map&lt;string, Subscription&gt;();
+
+    // === Subscription lifecycle ===
+
+    protected handleSubscriptionsListen(
+        request: JSONRPCRequest,
+        writer: SubscriptionWriter,
+        signal: AbortSignal,
+    ): void {
+        const sub: Subscription = {
+            id: generateSubscriptionId(),
+            types: request.params,          // { toolsListChanged, resourcesListChanged, ... }
+            writer,
+            signal,
+        };
+        this._subscriptions.set(sub.id, sub);
+
+        // Send acknowledgement (spec: notifications/subscriptions/acknowledged)
+        writer.write({
+            jsonrpc: '2.0',
+            method: 'notifications/subscriptions/acknowledged',
+            params: { _meta: { subscriptionId: sub.id } },
+        });
+
+        // Auto-cleanup on client disconnect
+        signal.addEventListener('abort', () =&gt; {
+            this._subscriptions.delete(sub.id);
+            writer.close();
+        }, { once: true });
+    }
+
+    // === Fan-out: McpServer events &rarr; matching subscriptions ===
+
+    private _fanOut(filterKey: keyof Subscription['types'], notification: JSONRPCNotification) {
+        for (const sub of this._subscriptions.values()) {
+            if (sub.types[filterKey]) {
+                // Tag notification with subscriptionId per spec
+                notification.params = {
+                    ...notification.params,
+                    _meta: { ...notification.params?._meta, subscriptionId: sub.id },
+                };
+                sub.writer.write(notification);
+            }
+        }
+    }
+
+    // Wired to McpServer's existing event emitters during serve()
+    protected connectMcpServerEvents(mcpServer: McpServer): void {
+        mcpServer.onToolListChanged(() =&gt;
+            this._fanOut('toolsListChanged',
+                { jsonrpc: '2.0', method: 'notifications/tools/list_changed' }));
+
+        mcpServer.onPromptListChanged(() =&gt;
+            this._fanOut('promptsListChanged',
+                { jsonrpc: '2.0', method: 'notifications/prompts/list_changed' }));
+
+        mcpServer.onResourceListChanged(() =&gt;
+            this._fanOut('resourcesListChanged',
+                { jsonrpc: '2.0', method: 'notifications/resources/list_changed' }));
+
+        // Resource-specific subscriptions:
+        mcpServer.onResourceUpdated((uri: string) =&gt; {
+            for (const sub of this._subscriptions.values()) {
+                if (sub.types.resourceSubscriptions?.includes(uri)) {
+                    sub.writer.write({
+                        jsonrpc: '2.0',
+                        method: 'notifications/resources/updated',
+                        params: { uri, _meta: { subscriptionId: sub.id } },
+                    });
+                }
+            }
+        });
+    }
+
+    // === Cleanup ===
+
+    async close(): Promise&lt;void&gt; {
+        for (const sub of this._subscriptions.values()) {
+            sub.writer.close();
+        }
+        this._subscriptions.clear();
+    }
+}
+</code></pre>
+
+<h3>7.3 Transport-specific writers</h3>
+
+<table>
+<thead><tr><th>Transport</th><th>SubscriptionWriter implementation</th><th>Disconnect detection</th></tr></thead>
+<tbody>
+<tr><td><strong>HTTP</strong></td><td>Writes SSE events (<code>data: {json}\n\n</code>) on the long-lived POST response body. Each event gets an incrementing <code>id:</code> field for resumability.</td><td>HTTP response's <code>AbortSignal</code> (from <code>Request.signal</code>) fires when the client closes the connection. Standard <code>fetch</code> / <code>XMLHttpRequest</code> behavior.</td></tr>
+<tr><td><strong>Stdio</strong></td><td>Writes JSON-RPC notification objects to stdout, newline-delimited. Interleaved with other messages (responses, etc.).</td><td>Stdio transport's <code>onclose</code> fires on process exit or stdin EOF.</td></tr>
+<tr><td><strong>WebSocket</strong></td><td>Writes JSON-RPC notification objects as WebSocket text frames on the subscription's connection.</td><td>WebSocket <code>close</code> event on the connection.</td></tr>
+</tbody>
+</table>
+
+<h3>7.4 Resumability</h3>
+
+<p>When the client reconnects with <code>Last-Event-ID</code>, the router replays missed events from the <code>EventStore</code> before switching to live fan-out. This follows the same pattern as the current HTTP SSE transport's resumability, but scoped to the subscription stream rather than the standalone GET endpoint.</p>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Client
+    participant R as Router
+    participant ES as EventStore
+
+    C->>R: subscriptions/listen Last-Event-ID 42
+    R->>ES: getEventsSince 42
+    ES-->>R: events 43, 44, 45
+    R-->>C: replay event 43
+    R-->>C: replay event 44
+    R-->>C: replay event 45
+    R-->>C: notifications/subscriptions/acknowledged
+    Note over R,C: Now live &mdash; new events fan out in real time
+</pre>
+
+<h3>7.5 Design decisions</h3>
+
+<table>
+<thead><tr><th>Decision</th><th>Rationale</th></tr></thead>
+<tbody>
+<tr><td>Subscriptions keyed by <code>subscriptionId</code>, not client identity</td><td>A client could have multiple subscription streams (e.g., different type sets). The spec tags each notification with <code>subscriptionId</code>.</td></tr>
+<tr><td>Fan-out iterates all subscriptions per event</td><td>Expected subscription count is small (one per connected client that opted in). O(n) is fine. If this ever matters, an inverted index from type to subscriptions would be trivial.</td></tr>
+<tr><td>Backpressure is per-stream</td><td>A slow consumer slows its own SSE stream (TCP backpressure), not other subscriptions. If the write buffer fills, the writer can drop or buffer &mdash; this is a per-transport policy.</td></tr>
+<tr><td>Subscription management lives on the base McpVersionRouter</td><td>All transports need fan-out and cleanup. The transport-specific part is only the <code>SubscriptionWriter</code> implementation (SSE vs. stdout vs. WebSocket frames).</td></tr>
+<tr><td>Cleanup on disconnect is automatic via <code>AbortSignal</code></td><td>No explicit "unsubscribe" needed. When the connection drops, the subscription is removed from the map.</td></tr>
+</tbody>
+</table>
+
+<hr/>
+
+<h2>8. Custom Transport Author Experience</h2>
+
+<p>A developer building a WebSocket or gRPC transport implements <strong>two things that form a coupled pair</strong>: the Transport (wire protocol) and optionally a McpVersionRouter subclass (classification logic). They choose which eras to support.</p>
+
+<h3>8.1 What to implement</h3>
+
+<table>
+<thead><tr><th>What</th><th>Modern-only</th><th>Legacy-only</th><th>Dual (both eras)</th></tr></thead>
+<tbody>
+<tr><td><strong>Transport</strong></td><td>Wire protocol. No session state needed.</td><td>Wire protocol + session tracking + push channel (SSE/stream).</td><td>Both: stateless requests + session tracking + push channel when legacy client connects.</td></tr>
+<tr><td><strong>Router subclass</strong></td><td>Optional. If body-level signals suffice, use the base <code>McpVersionRouter</code> with a trivial <code>classify()</code> that always returns <code>'modern'</code>.</td><td>Optional. Trivial <code>classify()</code> that always returns <code>'legacy'</code>.</td><td><strong>Required.</strong> Must inspect transport-specific metadata to distinguish eras. This is where <code>Mcp-Method</code> header logic (HTTP), connection-level era locking (stdio), or gRPC metadata inspection goes.</td></tr>
+</tbody>
+</table>
+
+<h3>8.2 Example: WebSocket transport (dual support)</h3>
+
+<pre><code>// Step 1: Implement the wire protocol
+class WebSocketServerTransport implements Transport {
+    private connections = new Map&lt;string, WebSocket&gt;();
+
+    async start() { /* listen for new WS connections */ }
+
+    async send(message: JSONRPCMessage, options?: TransportSendOptions) {
+        const conn = this.getConnection(options?.relatedRequestId);
+        conn.send(JSON.stringify(message));
+    }
+
+    async close() { /* close all connections */ }
+
+    onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) =&gt; void;
+    onclose?: () =&gt; void;
+    onerror?: (error: Error) =&gt; void;
+}
+
+// Step 2: Implement transport-specific routing logic
+class WebSocketVersionRouter extends McpVersionRouter {
+    // Track which era each WS connection is using
+    private connectionEras = new Map&lt;string, McpEra&gt;();
+
+    classify(message: JSONRPCMessage, meta?: TransportMeta): McpEra {
+        const connId = meta?.connectionId;
+
+        // If this connection already picked an era, stick with it
+        if (connId &amp;&amp; this.connectionEras.has(connId)) {
+            return this.connectionEras.get(connId)!;
+        }
+
+        // First message on this connection determines the era
+        if (isJSONRPCRequest(message)) {
+            if (message.method === 'initialize') {
+                connId &amp;&amp; this.connectionEras.set(connId, 'legacy');
+                return 'legacy';
+            }
+            if (message.params?._meta?.clientCapabilities) {
+                connId &amp;&amp; this.connectionEras.set(connId, 'modern');
+                return 'modern';
+            }
+        }
+
+        // Default: check body-level signals (shared logic in base class)
+        return super.classifyByBody(message);
+    }
+}
+
+// Step 3: Wire it up
+const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+server.registerTool('hello', { ... }, handler);
+
+const router = new WebSocketVersionRouter(server, { legacySupport: true });
+const transport = new WebSocketServerTransport(wsServer);
+await router.serve(transport);
+</code></pre>
+
+<h3>8.3 Example: modern-only gRPC transport (no legacy)</h3>
+
+<pre><code>// Simpler: no router subclass needed, just use a trivial classify
+class GrpcVersionRouter extends McpVersionRouter {
+    classify(): McpEra { return 'modern'; }  // always modern
+}
+
+// Or even simpler: McpVersionRouter could provide a factory
+const router = McpVersionRouter.modernOnly(server);
+const transport = new GrpcServerTransport(grpcServer);
+await router.serve(transport);
+</code></pre>
+
+<h3>8.4 Why the transport and router are coupled</h3>
+
+<p>The routing signals come <em>from</em> the transport layer. HTTP has headers (<code>Mcp-Method</code>, <code>Mcp-Session-Id</code>), stdio has connection state (first message locks the era), gRPC has metadata. The router needs to inspect these transport-specific signals, which is why:</p>
+
+<ul>
+<li>The router <code>classify()</code> method receives <code>TransportMeta</code> alongside the message</li>
+<li>The transport populates <code>TransportMeta</code> with whatever is relevant (headers, connection ID, etc.)</li>
+<li>For dual-support transports, the transport itself may need era-aware behavior (e.g., legacy HTTP needs <code>Mcp-Session-Id</code> header echoing, standalone GET SSE)</li>
+</ul>
+
+<h3>8.5 Comparison: before and after</h3>
+
+<table>
+<thead><tr><th>Aspect</th><th>Before (current SDK)</th><th>After (with McpVersionRouter)</th></tr></thead>
+<tbody>
+<tr><td>What to implement</td><td>Transport interface only; Protocol/Server handles the rest but bakes in stateful assumptions</td><td>Transport + Router subclass (for custom routing signals). Choose which eras to support.</td></tr>
+<tr><td>Version support</td><td>Baked into the one Protocol chain; custom transports get whatever Protocol does</td><td>Router subclass decides. Modern-only? Legacy-only? Both? Transport author chooses.</td></tr>
+<tr><td>Routing logic</td><td>Not customizable. Hardcoded in Protocol/Server.</td><td>Override <code>classify()</code> to use transport-specific signals.</td></tr>
+<tr><td>Session management</td><td>Transport must implement <code>sessionId</code>, <code>setProtocolVersion</code></td><td>Legacy bridge handles sessions. Transport provides connection metadata.</td></tr>
+<tr><td>Legacy support</td><td>Implicit (always on)</td><td>Explicit opt-in per-transport via <code>legacySupport: true</code> + router implementation.</td></tr>
+<tr><td>Adding 2026-06 support</td><td>Would require modifying Protocol/Server</td><td>Built into the base router. Subclasses just provide classification.</td></tr>
+</tbody>
+</table>
+
+<hr/>
+
+<h2>9. Verification Against Transport Types</h2>
+
+<h3>9.1 HTTP Legacy (Streamable HTTP, 2025-11 client)</h3>
+
+<div class="verification">
+<h4>Scenario: Legacy client connects via HTTP with initialize handshake</h4>
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Legacy Client
+    participant H as HttpTransport
+    participant R as McpVersionRouter
+    participant LB as LegacyBridge
+    participant S as Frozen Server
+
+    C->>H: POST /mcp method initialize
+    H->>R: handleRequest req
+    R->>R: No Mcp-Method header, method is initialize -- classify = LEGACY
+    R->>LB: getOrCreate newSessionId
+    LB->>S: create Server, populate handlers, connect bridge
+    R->>LB: injectMessage initRequest
+    S->>S: _oninitialize stores caps
+    S-->>LB: InitializeResult
+    LB-->>R: response
+    R-->>H: Response + Mcp-Session-Id header
+    H-->>C: HTTP 200 with protocolVersion + capabilities
+
+    C->>H: POST /mcp + Mcp-Session-Id tools/call
+    H->>R: handleRequest req
+    R->>R: Has Mcp-Session-Id, no _meta -- classify = LEGACY
+    R->>LB: injectMessage sessionId toolsCallRequest
+    S->>S: Protocol._onrequest handler
+    S-->>LB: CallToolResult
+    LB-->>R: response
+    R-->>H: Response
+    H-->>C: HTTP 200
+
+    C->>H: GET /mcp standalone SSE
+    H->>R: handleRequest req
+    R->>R: GET method = LEGACY
+    R->>LB: openStandaloneSse sessionId
+    Note over S: Server pushes notifications via existing SSE mechanism
+</pre>
+<p class="pass">PASS: Full legacy HTTP flow works unchanged. The frozen Server handles all session state, SSE push, initialize handshake. McpVersionRouter just routes.</p>
+</div>
+
+<h3>9.2 HTTP Modern (2026-06 client)</h3>
+
+<div class="verification">
+<h4>Scenario: Modern client connects via HTTP, no handshake</h4>
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Modern Client
+    participant H as HttpTransport
+    participant R as McpVersionRouter
+    participant M as McpServer
+
+    C->>H: POST /mcp Mcp-Method tools/list MCP-Protocol-Version 2026-06-30 with _meta
+    H->>R: handleRequest req
+    R->>R: Has Mcp-Method header, has _meta -- classify = MODERN
+    R->>R: buildModernContext from _meta + authInfo
+    R->>M: dispatch tools/list request ctx
+    M-->>R: tools list
+    R-->>H: JSONRPCResponse
+    H-->>C: HTTP 200
+
+    C->>H: POST /mcp Mcp-Method tools/call with _meta
+    H->>R: handleRequest req
+    R->>R: classify = MODERN
+    R->>M: dispatch tools/call request ctx
+    M-->>R: CallToolResult
+    R-->>H: JSONRPCResponse
+    H-->>C: HTTP 200
+</pre>
+<p class="pass">PASS: No Protocol involved. No session. No initialization. Each request is self-describing and independently dispatched. MCP-Protocol-Version header validated by router.</p>
+</div>
+
+<h3>9.3 Stdio Legacy (2025-11 client)</h3>
+
+<div class="verification">
+<h4>Scenario: Legacy client over stdio with initialize handshake</h4>
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Legacy Client
+    participant ST as StdioTransport
+    participant R as McpVersionRouter
+    participant LB as LegacyBridge
+    participant S as Frozen Server
+
+    C->>ST: method initialize params
+    ST->>R: onMessage initRequest
+    R->>R: method is initialize -- classify = LEGACY
+    R->>R: Mark this connection as LEGACY era
+    R->>LB: getOrCreate undefined -- stdio has no session ID
+    LB->>S: create Server, populate handlers, connect bridge
+    R->>LB: injectMessage initRequest
+    S-->>LB: InitializeResult
+    LB-->>R: response
+    R-->>ST: JSONRPCResponse
+    ST-->>C: InitializeResult
+
+    C->>ST: method notifications/initialized
+    ST->>R: onMessage notification
+    R->>R: Connection is LEGACY era
+    R->>LB: injectMessage notification
+    S->>S: oninitialized
+
+    C->>ST: method tools/call
+    ST->>R: onMessage request
+    R->>R: Connection is LEGACY era
+    R->>LB: injectMessage request
+    S->>S: Protocol._onrequest handler
+    S-->>LB: CallToolResult
+    LB-->>R: response
+    R-->>ST: JSONRPCResponse
+    ST-->>C: CallToolResult
+</pre>
+<p class="pass">PASS: Stdio legacy works identically to today. Once the first message is <code>initialize</code>, the connection is locked to legacy era. All messages route through the frozen Server/Protocol. Bidirectional (server-to-client requests like sampling/elicitation) work via existing Protocol machinery.</p>
+</div>
+
+<h3>9.4 Stdio Modern (2026-06 client)</h3>
+
+<div class="verification">
+<h4>Scenario: Modern client over stdio, probes with server/discover</h4>
+<pre class="mermaid">
+sequenceDiagram
+    participant C as Modern Client
+    participant ST as StdioTransport
+    participant R as McpVersionRouter
+    participant M as McpServer
+
+    C->>ST: method server/discover _meta protocolVersion 2026-06-30
+    ST->>R: onMessage discoverRequest
+    R->>R: method is server/discover -- classify = MODERN
+    R->>R: Mark this connection as MODERN era
+    R->>M: getCapabilities getServerInfo
+    R-->>ST: supportedVersions capabilities serverInfo
+    ST-->>C: DiscoverResult
+
+    C->>ST: method tools/call _meta protocolVersion clientCapabilities clientInfo
+    ST->>R: onMessage request
+    R->>R: Connection is MODERN era
+    R->>R: buildModernContext from _meta
+    R->>M: dispatch tools/call request ctx
+    M-->>R: CallToolResult
+    R-->>ST: JSONRPCResponse
+    ST-->>C: CallToolResult
+</pre>
+<p class="pass">PASS: Stdio modern works. The probe (server/discover) locks the connection to modern era. Subsequent requests use per-request _meta. No Protocol instance created. No session state.</p>
+<p class="note">Note: For modern stdio, the router handles request/response correlation (matching JSON-RPC IDs) without Protocol. This is simpler than Protocol's full machinery since there are no unsolicited server-to-client requests in modern mode (SEP-2260).</p>
+</div>
+
+<h3>9.5 Custom transport (WebSocket) &mdash; dual era, legacy path verified</h3>
+
+<div class="verification">
+<h4>Scenario: WebSocket transport with WebSocketVersionRouter, serving both legacy and modern clients simultaneously</h4>
+<pre class="mermaid">
+sequenceDiagram
+    participant LC as Legacy Client
+    participant MC as Modern Client
+    participant WS as WebSocketTransport
+    participant R as WebSocketVersionRouter
+    participant LB as LegacyBridge
+    participant S as Frozen Server
+    participant M as McpServer
+
+    Note over LC,M: Legacy client on connection 1
+    LC->>WS: ws message method initialize
+    WS->>R: onMessage initRequest meta connectionId=1
+    R->>R: classify connId=1 first message is initialize = LEGACY
+    R->>R: Lock connId=1 to LEGACY era
+    R->>LB: getOrCreate connId=1
+    LB->>S: create Server populate handlers from McpServer
+    R->>LB: injectMessage initRequest
+    S->>S: _oninitialize stores caps
+    S-->>LB: InitializeResult
+    LB-->>R: response
+    R-->>WS: JSONRPCResponse
+    WS-->>LC: ws message InitializeResult
+
+    LC->>WS: ws message tools/call no _meta
+    WS->>R: onMessage request meta connectionId=1
+    R->>R: connId=1 locked to LEGACY
+    R->>LB: injectMessage connId=1 tools/call
+    S->>S: Protocol._onrequest full legacy flow
+    S-->>LB: CallToolResult
+    R-->>WS: JSONRPCResponse
+    WS-->>LC: ws message CallToolResult
+
+    Note over MC,M: Modern client on connection 2 same server
+    MC->>WS: ws message tools/list _meta protocolVersion 2026-06-30
+    WS->>R: onMessage request meta connectionId=2
+    R->>R: classify connId=2 first message has _meta = MODERN
+    R->>R: Lock connId=2 to MODERN era
+    R->>R: buildModernContext from _meta
+    R->>M: dispatch tools/list request ctx
+    M-->>R: ListToolsResult
+    R-->>WS: JSONRPCResponse
+    WS-->>MC: ws message ListToolsResult
+</pre>
+<p class="pass">PASS: Custom transport handles both eras simultaneously on different connections. The WebSocketVersionRouter's <code>classify()</code> uses connection-level era locking (first message sets the era for that connection). Legacy connections get full frozen Server/Protocol treatment. Modern connections dispatch directly to McpServer. Both paths read handlers from the same McpServer registry.</p>
+</div>
+
+<hr/>
+
+<h2>10. Summary of Architectural Decisions</h2>
+
+<table>
+<thead><tr><th>Decision</th><th>Rationale</th></tr></thead>
+<tbody>
+<tr><td><strong>McpServer becomes a standalone handler registry</strong></td><td>Handlers must be consumable by both modern (direct dispatch) and legacy (frozen Server) paths. Today they're trapped inside Protocol._requestHandlers.</td></tr>
+<tr><td><strong>Shared HandlerRegistry extracted from Protocol</strong></td><td>Protocol's <code>_requestHandlers</code> and <code>_notificationHandlers</code> move to an external <code>HandlerRegistry</code> object. Protocol accepts it via constructor option; creates its own if not provided (backwards compat). McpServer creates one registry, shares it with all consumers. Handler mutations are instantly visible &mdash; no event subscription, no stale copies, no handler population step in the bridge.</td></tr>
+<tr><td><strong>McpServer.connect(transport) is removed</strong></td><td>Transport binding moves to McpVersionRouter. McpServer doesn't know about transports.</td></tr>
+<tr><td><strong>McpVersionRouter is an abstract class</strong> with transport-specific subclasses</td><td>Routing signals are transport-specific (HTTP headers vs. stdio first-message vs. gRPC metadata). The base class provides shared infrastructure (modern dispatch, legacy bridge, server/discover, subscription management). Subclasses override <code>classify()</code> with their transport's signals. SDK ships <code>HttpVersionRouter</code> and <code>StdioVersionRouter</code>; custom transport authors implement their own.</td></tr>
+<tr><td><strong>Protocol/Server get minimal refactor, not frozen</strong></td><td>One targeted change: Protocol reads from an external HandlerRegistry instead of a private Map. Method signatures, error handling, timeout/cancellation machinery &mdash; all unchanged. Server instances for legacy sessions share the same registry as the modern path. This is lower risk than "fully frozen + copy handlers" because it eliminates the handler synchronization problem entirely.</td></tr>
+<tr><td><strong>Legacy support is an explicit opt-in</strong> (<code>legacySupport: true</code>)</td><td>New servers can be 2026-06-only (no legacy overhead). Existing servers opt in to dual support. Matches the spec's "MAY implement both behaviors."</td></tr>
+<tr><td><strong>BridgeTransport connects router to legacy Server</strong></td><td>Protocol.connect() takes exclusive ownership of a Transport. We can't share the real transport with Protocol. The bridge is a thin in-memory pipe for transport multiplexing and per-session state only (not handler management).</td></tr>
+<tr><td><strong>MRTR is not implemented now</strong> but architecture supports it</td><td>McpServer.dispatch() already returns <code>Result</code>, which includes <code>IncompleteResult</code>. The router inspects <code>result_type</code>. MRTR state lives in <code>requestState</code> (stateless). No architectural changes needed later.</td></tr>
+<tr><td><strong>subscriptions/listen: router owns the subscription lifecycle</strong></td><td>Subscriptions keyed by server-generated <code>subscriptionId</code>. McpServer emits events; router fans out to matching subscriptions. Cleanup via <code>AbortSignal</code> on client disconnect. Transport-specific <code>SubscriptionWriter</code> abstracts SSE vs. stdio vs. WebSocket output.</td></tr>
+</tbody>
+</table>
+
+<hr/>
+
+<h2>11. What Changes for Userland Code</h2>
+
+<p>The examples below are based on the real SDK examples in <code>examples/server/src/</code>. Tool/resource/prompt registration is <strong>identical</strong> in before and after &mdash; only the transport wiring changes.</p>
+
+<h3>11.0 Design principle: building blocks, not just convenience</h3>
+
+<blockquote>
+<strong>Problem:</strong> If the router absorbs all session management, users who have custom session stores, per-session auth, custom cleanup, or per-session server configs lose that control. We can't predict what custom code they had in <code>mcpPostHandler</code>. Asking them to delete it and trust our implementation is risky.<br/><br/>
+<strong>Solution:</strong> The router exposes a <strong>two-tier API</strong>: a high-level convenience for simple cases, and building blocks that users compose into their existing handler pattern.
+</blockquote>
+
+<pre><code>// The HttpVersionRouter API surface
+class HttpVersionRouter extends McpVersionRouter {
+
+    // === Tier 1: Building blocks (power users keep their session code) ===
+
+    // Classify an HTTP request by era. Uses headers + body.
+    classify(req: Request): McpEra;
+
+    // Handle a modern (2026-06) request. Stateless, no session.
+    // Builds context from _meta, dispatches to McpServer, writes response.
+    handleModernRequest(req: Request, res: Response): Promise&lt;void&gt;;
+
+    // Create a new legacy session. Returns an object that wraps a frozen
+    // Server/Protocol + BridgeTransport. Handlers read from McpServer.
+    // Users store/lookup/cleanup these objects however they want.
+    createLegacySession(options?: {
+        sessionId?: string;           // custom ID, or auto-generated
+        eventStore?: EventStore;      // for resumability
+    }): LegacySession;
+
+
+    // === Tier 2: Convenience (absorbs everything for simple cases) ===
+
+    // Handles POST/GET/DELETE, manages sessions internally.
+    // Good for getting started. Power users use Tier 1 instead.
+    handleRequest(req: Request, res: Response): Promise&lt;void&gt;;
+
+    close(): Promise&lt;void&gt;;
+}
+
+// LegacySession: what users store in their session map
+// (replaces NodeStreamableHTTPServerTransport in their code)
+interface LegacySession {
+    readonly id: string;
+
+    // Handle an HTTP request within this session.
+    // Same shape as today's transport.handleRequest().
+    handleRequest(req: Request, res: Response, body?: unknown): Promise&lt;void&gt;;
+
+    close(): Promise&lt;void&gt;;
+    onclose?: () =&gt; void;
+}
+</code></pre>
+
+<h3>11.1 Stateful HTTP: incremental migration with building blocks</h3>
+
+<p>Based on <code>simpleStreamableHttp.ts</code>. The user's session management pattern stays intact &mdash; they swap <code>NodeStreamableHTTPServerTransport</code> for <code>LegacySession</code> and add one branch for modern requests.</p>
+
+<pre><code>// ===== BEFORE (current v1 SDK &mdash; from simpleStreamableHttp.ts) =====
+
+const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
+
+app.post('/mcp', async (req, res) =&gt; {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    let transport: NodeStreamableHTTPServerTransport;
+
+    if (sessionId &amp;&amp; transports[sessionId]) {
+        transport = transports[sessionId];
+    } else if (!sessionId &amp;&amp; isInitializeRequest(req.body)) {
+        transport = new NodeStreamableHTTPServerTransport({
+            sessionIdGenerator: () =&gt; randomUUID(),
+            eventStore: new InMemoryEventStore(),
+            onsessioninitialized: sid =&gt; { transports[sid] = transport; }
+        });
+        transport.onclose = () =&gt; {
+            const sid = transport.sessionId;
+            if (sid) delete transports[sid];
+        };
+        const server = getServer();
+        await server.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+        return;
+    } else if (sessionId) {
+        res.status(404).json({/*...*/}); return;
+    } else {
+        res.status(400).json({/*...*/}); return;
+    }
+    await transport.handleRequest(req, res, req.body);
+});
+</code></pre>
+
+<pre><code>// ===== AFTER (building blocks &mdash; user keeps their session pattern) =====
+
+const router = new HttpVersionRouter(server, { legacySupport: true });
+const sessions: { [sessionId: string]: LegacySession } = {};    // was: transports
+
+app.post('/mcp', async (req, res) =&gt; {
+    // NEW: modern requests bypass sessions entirely
+    if (router.classify(req) === 'modern') {
+        await router.handleModernRequest(req, res);
+        return;
+    }
+
+    // SAME PATTERN as before, swapping Transport for LegacySession
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    let session: LegacySession;                                  // was: transport
+
+    if (sessionId &amp;&amp; sessions[sessionId]) {
+        session = sessions[sessionId];
+    } else if (!sessionId &amp;&amp; isInitializeRequest(req.body)) {
+        session = router.createLegacySession({                   // was: new Transport(...)
+            eventStore: new InMemoryEventStore(),                 //       + getServer()
+        });                                                      //       + server.connect(transport)
+        sessions[session.id] = session;
+        session.onclose = () =&gt; { delete sessions[session.id]; };
+        await session.handleRequest(req, res, req.body);
+        return;
+    } else if (sessionId) {
+        res.status(404).json({/*...*/}); return;                 // unchanged
+    } else {
+        res.status(400).json({/*...*/}); return;                 // unchanged
+    }
+    await session.handleRequest(req, res, req.body);
+});
+</code></pre>
+
+<p><strong>What changed:</strong></p>
+<table>
+<thead><tr><th>Before</th><th>After</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><code>transports</code> map of <code>NodeStreamableHTTPServerTransport</code></td><td><code>sessions</code> map of <code>LegacySession</code></td><td>Same pattern, different type. Session wraps frozen Server internally.</td></tr>
+<tr><td><code>new NodeStreamableHTTPServerTransport({...})</code><br/>+ <code>getServer()</code><br/>+ <code>server.connect(transport)</code></td><td><code>router.createLegacySession({...})</code></td><td>Three lines become one. Session already has a Server connected.</td></tr>
+<tr><td>(nothing)</td><td><code>if (router.classify(req) === 'modern') { ... }</code></td><td>One new branch for 2026-06 support. Added at the top.</td></tr>
+<tr><td>All custom session logic</td><td><strong>Unchanged</strong></td><td>Session store, lookup, cleanup, error handling, auth &mdash; all stay.</td></tr>
+</tbody>
+</table>
+
+<p><strong>What the user keeps control of:</strong> Session store (their map, Redis, database), session ID generation, per-session lifecycle callbacks, per-session customization, auth integration, error handling. The router doesn't take over any of this.</p>
+
+<h3>11.2 Stateful HTTP: simple case with convenience API</h3>
+
+<p>For users who DON'T have custom session logic, the convenience API absorbs everything:</p>
+
+<pre><code>// ===== AFTER (convenience &mdash; for simple cases only) =====
+
+const router = new HttpVersionRouter(server, {
+    legacySupport: true,
+    eventStore: new InMemoryEventStore(),
+});
+
+// One handler. POST, GET, DELETE &mdash; the router handles all of it.
+app.all('/mcp', async (req, res) =&gt; {
+    await router.handleRequest(req, res);
+});
+</code></pre>
+
+<p>Internally, <code>handleRequest()</code> is implemented in terms of the same building blocks: <code>classify()</code>, <code>handleModernRequest()</code>, <code>createLegacySession()</code> + an internal session map. Users who need more control use the building blocks directly.</p>
+
+<h3>11.3 Stateless / modern-only HTTP</h3>
+
+<pre><code>// ===== BEFORE (current v1 SDK) =====
+app.post('/mcp', async (req, res) =&gt; {
+    const server = getServer();  // new McpServer per request!
+    const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await server.connect(transport);
+    await transport.handleRequest(req, res, req.body);
+    res.on('close', () =&gt; { transport.close(); server.close(); });
+});
+
+
+// ===== AFTER (modern-only, no legacy) =====
+const server = getServer();  // one McpServer, reused
+const router = new HttpVersionRouter(server);
+
+app.all('/mcp', async (req, res) =&gt; {
+    await router.handleModernRequest(req, res);
+    // Or: await router.handleRequest(req, res);
+    // Both work. No sessions, no GET SSE, no transport management.
+});
+</code></pre>
+
+<h3>11.4 Stdio</h3>
+
+<pre><code>// ===== BEFORE =====
+const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+server.registerTool('hello', { description: 'Say hello' }, handler);
+const transport = new StdioServerTransport();
+await server.connect(transport);
+
+
+// ===== AFTER =====
+const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+server.registerTool('hello', { description: 'Say hello' }, handler);
+const router = new StdioVersionRouter(server, { legacySupport: true });
+const transport = new StdioServerTransport();
+await router.serve(transport);
+</code></pre>
+
+<h3>11.5 Backward compatibility</h3>
+
+<p><code>McpServer.connect(transport)</code> stays as a deprecated convenience. Internally creates a legacy-only router:</p>
+
+<pre><code>// Still works, emits deprecation warning
+await server.connect(transport);
+</code></pre>
+
+<h3>11.6 Codemod feasibility</h3>
+
+<p>The migration has two separable phases. Phase 1 is fully codemod-able because <code>LegacySession</code> is <strong>API-compatible</strong> with the current transport: same <code>handleRequest(req, res, body?)</code>, same <code>onclose</code>, same <code>sessionId</code> (as <code>.id</code>). The user's handler pattern stays structurally identical.</p>
+
+<h4>Phase 1: Swap construction (codemod, zero behavior change)</h4>
+
+<p>The codemod detects the well-known pattern and performs mechanical substitutions. The user's session logic, error handling, auth — all stay in place.</p>
+
+<table>
+<thead><tr><th>Detect</th><th>Replace with</th><th>AST pattern</th></tr></thead>
+<tbody>
+<tr><td><code>new NodeStreamableHTTPServerTransport(opts)</code></td><td><code>router.createLegacySession(opts)</code></td><td>NewExpression with known constructor name</td></tr>
+<tr><td><code>await server.connect(transport)</code><br/> (where <code>transport</code> was a <code>NodeStreamableHTTPServerTransport</code>)</td><td><em>Delete line</em></td><td>CallExpression: <code>*.connect(transportVar)</code> following transport construction</td></tr>
+<tr><td><code>const server = getServer()</code><br/>(inside the handler, per-session)</td><td><em>Delete line</em> (McpServer is now shared, passed to router at module level)</td><td>VariableDeclaration calling <code>getServer()</code> or <code>new McpServer()</code> inside request handler</td></tr>
+<tr><td><code>transport.sessionId</code></td><td><code>session.id</code></td><td>MemberExpression on renamed variable</td></tr>
+<tr><td>Type annotations: <code>NodeStreamableHTTPServerTransport</code></td><td><code>LegacySession</code></td><td>TypeReference</td></tr>
+<tr><td>Import: <code>NodeStreamableHTTPServerTransport</code></td><td>Add import for <code>HttpVersionRouter</code>, <code>LegacySession</code></td><td>ImportDeclaration</td></tr>
+<tr><td><em>(missing)</em></td><td><em>Insert</em>: <code>const router = new HttpVersionRouter(server, { legacySupport: true })</code> at module level</td><td>Hoist server creation, insert router</td></tr>
+</tbody>
+</table>
+
+<p><strong>Result after Phase 1:</strong> User is on the new API. Exact same runtime behavior. All session management code is theirs, unchanged. No modern request support yet (modern clients get the same error they would today).</p>
+
+<pre><code>// Phase 1 codemod output (from simpleStreamableHttp.ts pattern)
+
+const server = getServer();                                           // HOISTED to module level
+const router = new HttpVersionRouter(server, { legacySupport: true }); // INSERTED
+
+const sessions: { [sessionId: string]: LegacySession } = {};          // RENAMED type
+
+app.post('/mcp', async (req, res) =&gt; {
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    let session: LegacySession;                                        // RENAMED type
+
+    if (sessionId &amp;&amp; sessions[sessionId]) {
+        session = sessions[sessionId];
+    } else if (!sessionId &amp;&amp; isInitializeRequest(req.body)) {
+        session = router.createLegacySession({                         // REPLACED constructor
+            eventStore: new InMemoryEventStore(),
+        });
+        sessions[session.id] = session;                                // .sessionId &rarr; .id
+        session.onclose = () =&gt; { delete sessions[session.id]; };
+                                                                       // DELETED: getServer()
+                                                                       // DELETED: server.connect(transport)
+        await session.handleRequest(req, res, req.body);               // UNCHANGED call
+        return;
+    } else if (sessionId) {
+        res.status(404).json({/*...*/}); return;                       // UNCHANGED
+    } else {
+        res.status(400).json({/*...*/}); return;                       // UNCHANGED
+    }
+    await session.handleRequest(req, res, req.body);                   // UNCHANGED call
+});
+</code></pre>
+
+<h4>Phase 2: Add modern support (manual, human-reviewed)</h4>
+
+<p>This is adding <em>new behavior</em>, not migrating old behavior. The user adds one branch at the top of their handler:</p>
+
+<pre><code>app.post('/mcp', async (req, res) =&gt; {
+    // NEW: modern (2026-06) requests bypass sessions entirely
+    if (router.classify(req) === 'modern') {
+        await router.handleModernRequest(req, res);
+        return;
+    }
+
+    // ... rest of their handler, unchanged from Phase 1 ...
+});
+</code></pre>
+
+<p><strong>Why Phase 2 is manual:</strong> Where to insert the branch depends on the handler structure (middleware? try/catch? auth checks first?). This is new behavior that should be reviewed by a human. But it's one <code>if</code> block — not a rewrite.</p>
+
+<h4>Summary</h4>
+
+<table>
+<thead><tr><th>Phase</th><th>Scope</th><th>Codemod?</th><th>Risk</th></tr></thead>
+<tbody>
+<tr><td><strong>Phase 1</strong></td><td>Swap construction: <code>new Transport()</code> &rarr; <code>router.createLegacySession()</code>, delete <code>server.connect()</code>, update types/imports</td><td>Yes, fully mechanical</td><td>Zero &mdash; same runtime behavior, same handler pattern</td></tr>
+<tr><td><strong>Phase 2</strong></td><td>Add <code>router.classify()</code> branch for modern requests</td><td>No &mdash; insertion point is context-dependent</td><td>Low &mdash; one <code>if</code> block, human-reviewed</td></tr>
+</tbody>
+</table>
+
+<p>This is what makes the building-blocks API critical: Phase 1 is codemod-safe <em>because</em> the user's handler pattern doesn't change shape. If we'd taken over session management entirely (<code>router.handleRequest()</code> only), Phase 1 would require deleting user code — which is never safe to automate.</p>
+
+<hr/>
+
+<h2>12. Open Questions</h2>
+
+<table>
+<thead><tr><th>#</th><th>Question</th><th>Status</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Should <code>McpVersionRouter</code> be a separate class or folded into McpServer?</td><td>Separate. McpServer is the handler registry; router is the serving machinery. Separation keeps McpServer testable without transport.</td></tr>
+<tr><td>2</td><td>Where does HTTP response formatting live (SSE vs JSON)?</td><td>In <code>HttpVersionRouter</code> (not the base router). The <code>handleRequest()</code> method on HttpVersionRouter owns the HTTP-specific response formatting. The base class works with JSON-RPC messages only.</td></tr>
+<tr><td>3</td><td>How does the modern path handle request/response correlation for stdio?</td><td>A lightweight correlator inside <code>StdioVersionRouter</code> &mdash; simpler than Protocol's full machinery since modern mode has no unsolicited server-to-client requests. Just match outgoing response IDs to incoming request IDs.</td></tr>
+<tr><td>4</td><td>Should we keep <code>McpServer.connect(transport)</code> as a deprecated convenience?</td><td>Yes, for backwards compatibility. Internally it creates the matching router with <code>legacySupport: true</code> and serves. Deprecation warning guides users to the new API.</td></tr>
+<tr><td>5</td><td><s>How do handler mutations propagate to the legacy bridge?</s></td><td><strong>Resolved (§2.4).</strong> Shared <code>HandlerRegistry</code>. McpServer creates the registry, shares it with all Server instances via constructor option. Both modern dispatch and legacy Protocol._onrequest read from the same registry. Handler mutations are instantly visible &mdash; no event subscription, no copying, no stale state.</td></tr>
+<tr><td>6</td><td>What about the Client side?</td><td>Similar pattern: a <code>ClientVersionRouter</code> that probes the server version and then uses either a modern client (per-request _meta, MRTR) or the frozen Client (initialize handshake). Simpler because it picks one era per connection.</td></tr>
+<tr><td>7</td><td>Should the base class provide a <code>classifyByBody()</code> helper for shared body-level checks?</td><td>Likely unnecessary. HTTP classification uses the <code>Mcp-Method</code> header (present = modern, absent = legacy) &mdash; unambiguous by spec design (SEP-2243). Stdio uses first message method (<code>server/discover</code> = modern, <code>initialize</code> = legacy). Body-level fallback may still be useful as a defensive check, but the primary signals are transport-level and clean.</td></tr>
+<tr><td>8</td><td>Should there be a <code>McpVersionRouter.modernOnly(server)</code> factory?</td><td>Useful for simple cases where custom transports only support modern. Returns a concrete router with <code>classify() =&gt; 'modern'</code>. Avoids needing a subclass for the trivial case.</td></tr>
+</tbody>
+</table>
+
+<hr/>
+
+<h2>13. Relationship to Spec Changes</h2>
+
+<p>Mapping back to the <a href="./transport-changes.html">transport-changes.html</a> behavior table:</p>
+
+<table>
+<thead><tr><th>#</th><th>Behavior</th><th>How this architecture handles it</th></tr></thead>
+<tbody>
+<tr><td>1</td><td>Connection establishment</td><td><span class="tag tag-modern">modern</span> No handshake &mdash; router dispatches directly. <span class="tag tag-legacy">legacy</span> Frozen Server handles <code>initialize</code>.</td></tr>
+<tr><td>2</td><td>Client capabilities</td><td><span class="tag tag-modern">modern</span> Router reads <code>_meta.clientCapabilities</code> per-request, builds context. <span class="tag tag-legacy">legacy</span> Frozen Server stores from <code>initialize</code>.</td></tr>
+<tr><td>3</td><td>Server-to-client requests</td><td><span class="tag tag-modern">modern</span> MRTR <code>IncompleteResult</code> return (future). <span class="tag tag-legacy">legacy</span> Frozen Server pushes over SSE.</td></tr>
+<tr><td>4</td><td>Session identity</td><td><span class="tag tag-modern">modern</span> No session. <span class="tag tag-legacy">legacy</span> Router manages session-to-Server mapping.</td></tr>
+<tr><td>5</td><td>tools/call return shape</td><td><span class="tag tag-both">both</span> <code>McpServer.dispatch()</code> returns polymorphic <code>Result</code> (complete/input_required/task). Router inspects <code>result_type</code>.</td></tr>
+<tr><td>6</td><td>Unsolicited push</td><td><span class="tag tag-modern">modern</span> <code>subscriptions/listen</code> handled by router. <span class="tag tag-legacy">legacy</span> Standalone GET SSE via frozen Server.</td></tr>
+<tr><td>7</td><td>Version negotiation</td><td><span class="tag tag-modern">modern</span> Router validates <code>_meta.protocolVersion</code>, returns <code>UnsupportedProtocolVersionError</code> if needed. <span class="tag tag-legacy">legacy</span> Frozen Server does <code>initialize</code> propose/accept.</td></tr>
+<tr><td>8</td><td>Logging</td><td><span class="tag tag-modern">modern</span> Router reads <code>_meta.logLevel</code>, passes to context. In-band only. <span class="tag tag-legacy">legacy</span> Frozen Server handles <code>setLevel</code>.</td></tr>
+<tr><td>9</td><td>Task creation</td><td><span class="tag tag-both">both</span> <code>result_type: "task"</code> in dispatch result. Extension registered on McpServer.</td></tr>
+<tr><td>10</td><td>Unsolicited s-to-c requests</td><td><span class="tag tag-modern">modern</span> Forbidden. Router never initiates s-to-c. <span class="tag tag-legacy">legacy</span> Frozen Server can (e.g., <code>roots/list</code>).</td></tr>
+<tr><td>11</td><td>HTTP request routing</td><td><span class="tag tag-modern">modern</span> <code>Mcp-Method</code> header used by router for classification and routing. <span class="tag tag-legacy">legacy</span> Single POST endpoint, body parsed.</td></tr>
+<tr><td>12</td><td><code>MCP-Protocol-Version</code> header</td><td><span class="tag tag-modern">modern</span> Required. Router validates match with <code>_meta.protocolVersion</code>. <span class="tag tag-legacy">legacy</span> Optional/advisory.</td></tr>
+<tr><td>13</td><td>Roots/Sampling/Logging in core</td><td><span class="tag tag-modern">modern</span> Moved to extensions, registered on McpServer. <span class="tag tag-legacy">legacy</span> Still in frozen Server.</td></tr>
+<tr><td>14</td><td>JSON-RPC id uniqueness</td><td><span class="tag tag-modern">modern</span> Per-outstanding-request (router tracks). <span class="tag tag-legacy">legacy</span> Per-session (Protocol._requestMessageId).</td></tr>
+<tr><td>15</td><td>List result caching</td><td><span class="tag tag-modern">modern</span> Optional <code>ttl</code> field &mdash; McpServer can return it. <span class="tag tag-legacy">legacy</span> <code>list_changed</code> push.</td></tr>
+</tbody>
+</table>
+
+</body>
+</html>
