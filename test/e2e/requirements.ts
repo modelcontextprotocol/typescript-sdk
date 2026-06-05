@@ -1466,6 +1466,36 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'ClientOptions.jsonSchemaValidator swaps the JSON Schema validator implementation: the configured provider is the one consulted for client-side tool outputSchema validation and its verdicts are honored.'
     },
 
+    // Strict/loose validation boundaries (SDK)
+
+    'typescript:types:empty-result-strict': {
+        source: 'sdk',
+        behavior:
+            'Empty-result acks (e.g. ping) are validated with a strict schema: a server result carrying an extra non-_meta field rejects client-side with the raw validator error instead of resolving.'
+    },
+    'typescript:types:envelope-strict': {
+        source: 'sdk',
+        behavior:
+            'The JSON-RPC envelope schemas are strict: an otherwise-valid request carrying an unknown top-level sibling field is rejected at the wire boundary — HTTP hosting answers 400 with a -32700 error body, and the stdio server transport reports onerror, drops the message, and keeps serving subsequent requests.',
+        transports: ['stdio', 'streamableHttp'],
+        note: 'The envelope schemas run where wire bytes are deserialized: the stdio read buffer and the HTTP POST body parser (exercised against the stateless host under the streamableHttp-labelled cell; the legacy SSE POST path runs the same schema parse). inMemory delivers structured objects with no deserialization, so the boundary does not exist there.'
+    },
+    'typescript:types:request-params-strip': {
+        source: 'sdk',
+        behavior:
+            'Typed request params schemas operate in strip mode: an unknown sibling field sent next to declared params (e.g. on tools/call) is accepted — not rejected — and is absent from the params the server-side handler receives.'
+    },
+    'typescript:types:result-passthrough': {
+        source: 'sdk',
+        behavior:
+            'Typed result schemas are loose per-type: unknown top-level sibling fields a server attaches to a tools/call result survive the client-side result parse and are surfaced to the consumer alongside the declared fields.'
+    },
+    'typescript:types:completion-result-loose': {
+        source: 'sdk',
+        behavior:
+            'The completion object inside a completion/complete result is loose: a raw handler can attach unknown sibling fields next to values and they reach the requesting client intact.'
+    },
+
     // Hosting: session lifecycle
 
     'hosting:session:cors-expose': {
@@ -2349,6 +2379,18 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This is a multi-hop proxy flow that should work across transports; restricted to inMemory and streamableHttp to avoid test matrix bloat.'
     },
     // Consumer-contract additions (sourced from real SDK dependents)
+    'typescript:consumer:result-validation-error': {
+        source: 'sdk',
+        behavior:
+            'When a response result fails the consumer-supplied result schema, client.request rejects with the raw validator error — an issues-bearing error that is not an McpError and has no JSON-RPC error code — so consumers can distinguish local validation failures from remote protocol errors.'
+    },
+    'typescript:consumer:connect-validation-error': {
+        source: 'sdk',
+        behavior:
+            'When the server answers initialize with a schema-invalid body, Client.connect rejects with the raw validator error (issues-bearing, not an McpError) and detaches the transport; consumers branch on this error class to route auth and failure handling.',
+        transports: ['inMemory'],
+        note: 'The test supplies its own custom Transport implementation answering initialize with an invalid body, so the matrix transport arg is ignored; it runs as a single inMemory-labelled cell to avoid duplicate runs.'
+    },
     'client-transport:http:error-status-code': {
         source: 'sdk',
         behavior:
