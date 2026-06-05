@@ -216,6 +216,42 @@ verifies('lifecycle:ping', async ({ transport, protocolVersion }: TestArgs) => {
     expect(res.result).toEqual({});
 });
 
+verifies('typescript:lifecycle:ping:server-to-client', async ({ transport, protocolVersion }: TestArgs) => {
+    // The reverse direction of lifecycle:ping: the SERVER pings and the client's
+    // built-in handler must answer. The recorder lives outside the factory so the
+    // assertion sees the result regardless of which server instance handled it.
+    const pongs: unknown[] = [];
+    const makeServer = () => {
+        const s = new McpServer({ name: 'ping-server', version: '0.0.0' });
+        s.registerTool('server-ping', { inputSchema: z.object({}) }, async () => {
+            const result = await s.server.ping();
+            pongs.push(result);
+            return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+        });
+        return s;
+    };
+
+    // No request handlers registered: the auto-pong under test is the Client's own.
+    const client = minimalClient();
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+    const tap = tapWire(client);
+    const r = await client.callTool({ name: 'server-ping', arguments: {} });
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toEqual([{ type: 'text', text: '{}' }]);
+
+    expect(pongs).toEqual([{}]);
+
+    // The ping really crossed the wire as a server→client request and was answered
+    // with a literally-empty result (not merely a truthy ack).
+    const inbound = tap.received.find(m => isJSONRPCRequest(m) && m.method === 'ping');
+    expect(inbound).toBeDefined();
+    if (!inbound || !isJSONRPCRequest(inbound)) throw new Error('expected inbound ping request');
+    const answer = tap.sent.find(m => isJSONRPCResultResponse(m) && m.id === inbound.id);
+    if (!answer || !isJSONRPCResultResponse(answer)) throw new Error('expected outbound ping result');
+    expect(answer.result).toEqual({});
+});
+
 verifies('lifecycle:version:match', async ({ transport, protocolVersion }: TestArgs) => {
     // The server runs the SDK's own initialize handler (no custom fixture), so
     // the echo-requested-version logic under test is the real one; both halves

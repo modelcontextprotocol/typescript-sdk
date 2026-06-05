@@ -409,7 +409,7 @@ verifies('protocol:error:internal-error', async ({ transport, protocolVersion }:
         return s;
     };
     const client = newClient();
-    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+    await using wired = await wire({ transport, protocolVersion }, makeServer, client);
 
     const call = client.callTool({ name: 'any', arguments: {} });
 
@@ -417,6 +417,52 @@ verifies('protocol:error:internal-error', async ({ transport, protocolVersion }:
     await expect(call).rejects.toMatchObject({ code: ErrorCode.InternalError });
     await expect(call).rejects.toThrow(/handler exploded/);
     expect(ErrorCode.InternalError).toBe(-32603);
+
+    // Wire-level arm (HTTP hosting only): drive a second, raw JSON-RPC session
+    // through the same host without the SDK client, proving -32603 is authored by
+    // the SERVER on the wire — the parsed rejection above cannot distinguish a
+    // server-sent code from a client-side remap.
+    if (wired.fetch && wired.url) {
+        const post = (body: Record<string, unknown>, sessionId?: string) =>
+            wired.fetch!(wired.url!, {
+                method: 'POST',
+                headers: {
+                    'content-type': 'application/json',
+                    accept: 'application/json, text/event-stream',
+                    'mcp-protocol-version': protocolVersion,
+                    ...(sessionId ? { 'mcp-session-id': sessionId } : {})
+                },
+                body: JSON.stringify(body)
+            });
+        const messagesOf = async (res: Response): Promise<unknown[]> => {
+            const text = await res.text();
+            if ((res.headers.get('content-type') ?? '').includes('text/event-stream')) {
+                return text
+                    .split('\n')
+                    .filter(line => line.startsWith('data:'))
+                    .map(line => JSON.parse(line.slice(5)) as unknown);
+            }
+            return text === '' ? [] : [JSON.parse(text) as unknown];
+        };
+
+        const initRes = await post({
+            jsonrpc: '2.0',
+            id: 'raw-init',
+            method: 'initialize',
+            params: { protocolVersion, capabilities: {}, clientInfo: { name: 'raw-probe', version: '0' } }
+        });
+        expect(initRes.status).toBe(200);
+        const sessionId = initRes.headers.get('mcp-session-id') ?? undefined;
+        await post({ jsonrpc: '2.0', method: 'notifications/initialized' }, sessionId);
+
+        const callRes = await post(
+            { jsonrpc: '2.0', id: 'raw-call', method: 'tools/call', params: { name: 'any', arguments: {} } },
+            sessionId
+        );
+        const reply = (await messagesOf(callRes)).find(m => (m as { id?: unknown }).id === 'raw-call');
+        expect(reply).toBeDefined();
+        expect(reply).toMatchObject({ jsonrpc: '2.0', error: { code: -32603, message: expect.stringMatching(/handler exploded/) } });
+    }
 });
 
 verifies('protocol:error:invalid-params', async ({ transport, protocolVersion }: TestArgs) => {

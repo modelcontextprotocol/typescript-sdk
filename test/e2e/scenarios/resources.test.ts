@@ -229,6 +229,52 @@ verifies('resources:read:unknown-uri', async ({ transport, protocolVersion }: Te
     });
 });
 
+verifies('typescript:resources:read:unknown-uri:current-code', async ({ transport, protocolVersion }: TestArgs) => {
+    // Positive pin of the code McpServer emits TODAY (-32602); the spec's -32002
+    // lives in the resources:read:unknown-uri knownFailure. Together they ratchet
+    // both directions: a drift to a third code goes red here, the -32002 fix goes
+    // red here AND flips the sibling. Code only — no message-text pin.
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerResource('text', 'file:///exists.txt', { mimeType: 'text/plain' }, () => ({
+            contents: [{ uri: 'file:///exists.txt', mimeType: 'text/plain', text: 'ok' }]
+        }));
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+    const err: unknown = await client.readResource({ uri: 'file:///no-such-resource' }).then(
+        () => undefined,
+        (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(McpError);
+    expect((err as McpError).code).toBe(ErrorCode.InvalidParams);
+    expect((err as McpError).code).toBe(-32602);
+});
+
+verifies('typescript:resources:read:multi-contents', async ({ transport, protocolVersion }: TestArgs) => {
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerResource('bundle', 'bundle://fixture', { mimeType: 'text/plain' }, () => ({
+            contents: [
+                { uri: 'bundle://fixture/part-1', mimeType: 'text/plain', text: 'first part' },
+                { uri: 'bundle://fixture/part-2', mimeType: 'image/png', blob: TINY_PNG_BASE64 }
+            ]
+        }));
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+    const result = await client.readResource({ uri: 'bundle://fixture' });
+    // Exact deep equality: both entries, handler order, fields verbatim.
+    expect(result.contents).toEqual([
+        { uri: 'bundle://fixture/part-1', mimeType: 'text/plain', text: 'first part' },
+        { uri: 'bundle://fixture/part-2', mimeType: 'image/png', blob: TINY_PNG_BASE64 }
+    ]);
+});
+
 verifies('resources:read:template-vars', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });

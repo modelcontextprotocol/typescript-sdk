@@ -50,6 +50,50 @@ verifies('logging:capability:declared', async ({ transport, protocolVersion }: T
     expect(client.getServerCapabilities()?.logging).toEqual({});
 });
 
+verifies('typescript:logging:no-capability:suppressed', async ({ transport, protocolVersion }: TestArgs) => {
+    const sendResults: unknown[] = [];
+    const notificationErrors: string[] = [];
+    const makeServer = () => {
+        // Deliberately NO logging capability (and none auto-derived by McpServer).
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('try-log', { inputSchema: z.object({}) }, async (_args, extra) => {
+            // Half 1: the public helper is a silent no-op without the capability.
+            sendResults.push(await s.server.sendLoggingMessage({ level: 'error', data: 'must-not-cross' }, extra.sessionId));
+            // Half 2: the raw notification path throws the capability assertion.
+            try {
+                await s.server.notification({ method: 'notifications/message', params: { level: 'error', data: 'must-not-cross' } });
+                notificationErrors.push('no error thrown');
+            } catch (e) {
+                notificationErrors.push(e instanceof Error ? e.message : String(e));
+            }
+            return { content: [{ type: 'text', text: 'done' }] };
+        });
+        return s;
+    };
+
+    const received: unknown[] = [];
+    const client = newClient();
+    client.setNotificationHandler(LoggingMessageNotificationSchema, n => {
+        received.push(n.params);
+    });
+
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+    expect(client.getServerCapabilities()?.logging).toBeUndefined();
+
+    // The tool call resolves — the suppressed emission must not break the request.
+    const r = await client.callTool({ name: 'try-log', arguments: {} });
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toEqual([{ type: 'text', text: 'done' }]);
+
+    expect(sendResults).toEqual([undefined]);
+    expect(notificationErrors).toEqual([expect.stringMatching(/does not support logging/)]);
+
+    // Round-trip barrier, then: nothing was delivered.
+    await client.ping();
+    expect(received).toEqual([]);
+});
+
 verifies('logging:message:fields', async ({ transport, protocolVersion }: TestArgs) => {
     const logs: Array<{ level: LoggingLevel; logger?: string; data: unknown }> = [];
 
@@ -73,6 +117,12 @@ verifies('logging:message:fields', async ({ transport, protocolVersion }: TestAr
                     params: { level, logger: 'sweep', data: `level-${level}` }
                 });
             }
+            // Structured (non-string) data: every other emission in the suite is a
+            // string, so a data-coercing SDK (String(data)) would otherwise pass.
+            await extra.sendNotification({
+                method: 'notifications/message',
+                params: { level: 'error', logger: 'structured', data: { error: 'x', details: { n: 1 } } }
+            });
             return { content: [{ type: 'text', text: 'done' }] };
         });
         return s;
@@ -90,13 +140,16 @@ verifies('logging:message:fields', async ({ transport, protocolVersion }: TestAr
     await client.callTool({ name: 'emit-logs', arguments: { withLogger: false } });
 
     const sweep = ALL_LEVELS.map(level => ({ level, logger: 'sweep', data: `level-${level}` }));
+    const structured = { level: 'error', logger: 'structured', data: { error: 'x', details: { n: 1 } } };
     expect(logs).toEqual([
         { level: 'info', logger: 'test-logger', data: 'with-logger' },
         ...sweep,
+        structured,
         { level: 'warning', data: 'without-logger' },
-        ...sweep
+        ...sweep,
+        structured
     ]);
-    expect(logs[1 + ALL_LEVELS.length]).not.toHaveProperty('logger');
+    expect(logs[2 + ALL_LEVELS.length]).not.toHaveProperty('logger');
 });
 
 verifies('logging:message:all-levels', async ({ transport, protocolVersion }: TestArgs) => {
@@ -220,6 +273,37 @@ verifies(
     },
     { title: 'raw server' }
 );
+
+verifies('typescript:logging:set-level:invalid-level-current', async ({ transport, protocolVersion }: TestArgs) => {
+    // Positive pin of TODAY's behavior, reachable assertions only — the spec-correct
+    // -32602 sibling (logging:set-level:invalid-level, mcpserver arm) runs as a
+    // reason-blind knownFailure and cannot see either half drift.
+    const client = newClient();
+    // The invalid level is deliberately malformed MCP on the wire.
+    await using _ = await wire({ transport, protocolVersion }, loggingServer, client, { strictValidation: false });
+
+    const tap = tapWire(client);
+
+    // @ts-expect-error — sending an invalid enum value is the point of this test.
+    const err: unknown = await client.setLoggingLevel('superduper').then(
+        () => undefined,
+        (e: unknown) => e
+    );
+    expect(err).toBeInstanceOf(McpError);
+    expect((err as McpError).code).toBe(ErrorCode.InternalError);
+    expect((err as McpError).code).toBe(-32603);
+
+    // The request crossed the wire verbatim and the error came back as a response:
+    // a client that grew outbound params validation (rejecting locally) goes red here.
+    const sent = tap.sent.filter(m => isJSONRPCRequest(m) && m.method === 'logging/setLevel');
+    expect(sent).toHaveLength(1);
+    if (!isJSONRPCRequest(sent[0])) throw new Error('expected request');
+    expect(sent[0].params).toEqual({ level: 'superduper' });
+    const requestId = sent[0].id;
+    const reply = tap.received.find(m => 'id' in m && m.id === requestId);
+    expect(reply).toBeDefined();
+    expect(reply).toMatchObject({ error: { code: -32603 } });
+});
 
 verifies('logging:out-of-band:basic', async ({ transport, protocolVersion }: TestArgs) => {
     const received: Array<{ level: LoggingLevel; logger?: string; data: unknown }> = [];

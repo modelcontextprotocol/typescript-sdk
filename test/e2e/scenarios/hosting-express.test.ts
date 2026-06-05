@@ -210,35 +210,118 @@ verifies('hosting:auth:aud-validation', async (_args: TestArgs) => {
         }
     };
 
+    const handlerHits: string[] = [];
     const app = express();
     app.use(express.json());
     app.use(requireBearerAuth({ verifier, resourceMetadataUrl: SERVER_RESOURCE_ID }));
-    app.post('/mcp', (_req, res) => {
+    app.post('/mcp', (req, res) => {
+        handlerHits.push(req.headers.authorization ?? '');
         res.json({ jsonrpc: '2.0', id: 1, result: { ok: true } });
     });
 
     await using host = await startExpressMinimal(app);
 
-    const wrongAud = await fetch(new URL('/mcp', host.baseUrl), {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Accept: 'application/json',
-            Authorization: 'Bearer wrong-aud-token'
-        },
-        body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
-    });
+    const postWithToken = (token: string) =>
+        fetch(new URL('/mcp', host.baseUrl), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+        });
 
-    expect(wrongAud.status).toBeGreaterThanOrEqual(401);
-    expect(wrongAud.status).toBeLessThanOrEqual(403);
+    // Positive control FIRST: a token bound to this server's own resource id is
+    // served. Without it, an SDK that simply 401s every token would satisfy the
+    // rejection arm below.
+    const goodAud = await postWithToken('good-aud-token');
+    expect(goodAud.status).toBe(200);
+    expect(handlerHits).toEqual(['Bearer good-aud-token']);
+
+    // Wrong-audience token: must be rejected by the resource server WITHOUT
+    // reaching the app handler.
+    const wrongAud = await postWithToken('wrong-aud-token');
+    expect(wrongAud.status).toBe(401);
 
     const wwwAuth = wrongAud.headers.get('www-authenticate');
     expect(wwwAuth).toBeTruthy();
     expect(wwwAuth).toMatch(/^Bearer\b/i);
-    expect(wwwAuth).toContain('error=');
+    expect(wwwAuth).toContain('error="invalid_token"');
+    expect(wwwAuth).toMatch(/aud|audience/i);
 
     const body = (await wrongAud.json()) as { error?: string };
-    expect(body.error).toBeTruthy();
+    expect(body.error).toBe('invalid_token');
+    expect(handlerHits).toEqual(['Bearer good-aud-token']);
+});
+
+verifies('typescript:hosting:auth:verifier-audience-isolation', async (_args: TestArgs) => {
+    // Two resource servers, audience enforced in each verifier callback — the
+    // documented user-level pattern while requireBearerAuth itself takes no
+    // expected-resource identifier. Tokens carry their audience in the token
+    // string; each verifier accepts only its own.
+    const TOKENS: Record<string, string> = {
+        'rs-a-token': 'https://rs-a.example.com/mcp',
+        'rs-b-token': 'https://rs-b.example.com/mcp'
+    };
+
+    const makeRs = (resourceId: string) => {
+        const hits: string[] = [];
+        const app = express();
+        app.use(express.json());
+        app.use(
+            requireBearerAuth({
+                verifier: {
+                    verifyAccessToken: async (token: string) => {
+                        const aud = TOKENS[token];
+                        if (aud !== resourceId) {
+                            throw new InvalidTokenError(`Token audience ${aud ?? '(unknown)'} does not match ${resourceId}`);
+                        }
+                        return { token, clientId: 'test-client', scopes: [], expiresAt: Date.now() / 1000 + 3600 };
+                    }
+                },
+                resourceMetadataUrl: `${resourceId}/.well-known/oauth-protected-resource`
+            })
+        );
+        app.post('/mcp', (req, res) => {
+            hits.push(req.headers.authorization ?? '');
+            res.json({ jsonrpc: '2.0', id: 1, result: { ok: true } });
+        });
+        return { app, hits };
+    };
+
+    const rsA = makeRs('https://rs-a.example.com/mcp');
+    const rsB = makeRs('https://rs-b.example.com/mcp');
+    await using hostA = await startExpressMinimal(rsA.app);
+    await using hostB = await startExpressMinimal(rsB.app);
+
+    const post = (host: ExpressHost, token: string) =>
+        fetch(new URL('/mcp', host.baseUrl), {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json',
+                Authorization: `Bearer ${token}`
+            },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
+        });
+
+    // Positive controls: each token is served by its own resource server.
+    expect((await post(hostA, 'rs-a-token')).status).toBe(200);
+    expect((await post(hostB, 'rs-b-token')).status).toBe(200);
+
+    // Cross-presentation: RS-A's token at RS-B is rejected before the handler.
+    const crossed = await post(hostB, 'rs-a-token');
+    expect(crossed.status).toBe(401);
+    const wwwAuth = crossed.headers.get('www-authenticate');
+    expect(wwwAuth).toBeTruthy();
+    expect(wwwAuth).toMatch(/^Bearer\b/i);
+    expect(wwwAuth).toContain('error="invalid_token"');
+    const body = (await crossed.json()) as { error?: string };
+    expect(body.error).toBe('invalid_token');
+
+    expect(rsA.hits).toEqual(['Bearer rs-a-token']);
+    expect(rsB.hits).toEqual(['Bearer rs-b-token']);
 });
 
 verifies('hosting:auth:metadata-endpoints', async (_args: TestArgs) => {

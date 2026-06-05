@@ -151,7 +151,13 @@ function rawSchemaServer(): Server {
             },
             { name: 'structured-mismatch', inputSchema: { type: 'object' }, outputSchema },
             { name: 'structured-missing', inputSchema: { type: 'object' }, outputSchema },
-            { name: 'structured-error-skip', inputSchema: { type: 'object' }, outputSchema }
+            { name: 'structured-error-skip', inputSchema: { type: 'object' }, outputSchema },
+            { name: 'structured-error-skip-invalid', inputSchema: { type: 'object' }, outputSchema },
+            {
+                name: 'structured-extra',
+                inputSchema: { type: 'object' },
+                outputSchema: { ...outputSchema, additionalProperties: false }
+            }
         ]
     }));
     s.setRequestHandler(CallToolRequestSchema, req => {
@@ -167,6 +173,17 @@ function rawSchemaServer(): Server {
                 return { content: [{ type: 'text', text: 'handler-body-no-structured' }] };
             case 'structured-error-skip':
                 return { isError: true, content: [{ type: 'text', text: 'handler-returned-isError' }] };
+            case 'structured-error-skip-invalid':
+                // isError WITH schema-violating structuredContent: the client's skip must
+                // cover present-but-invalid payloads, not just absent ones.
+                return {
+                    isError: true,
+                    structuredContent: { value: 'not-a-number' },
+                    content: [{ type: 'text', text: 'failed with diagnostic payload' }]
+                };
+            case 'structured-extra':
+                // valid `value` plus an extra property the schema forbids via additionalProperties:false
+                return { structuredContent: { value: 1, extra: 'x' }, content: [] };
             default:
                 throw new McpError(ErrorCode.InvalidParams, `unknown tool ${req.params.name}`);
         }
@@ -636,7 +653,7 @@ verifies(['client:output-schema:validate', 'client:output-schema:missing-structu
 
     // Prime the validator cache.
     const { tools } = await client.listTools();
-    for (const name of ['structured', 'structured-mismatch', 'structured-missing']) {
+    for (const name of ['structured', 'structured-mismatch', 'structured-missing', 'structured-extra']) {
         expect(tools.find(t => t.name === name)?.outputSchema).toMatchObject({ type: 'object' });
     }
 
@@ -650,6 +667,13 @@ verifies(['client:output-schema:validate', 'client:output-schema:missing-structu
     const missing = client.callTool({ name: 'structured-missing', arguments: {} });
     await expect(missing).rejects.toBeInstanceOf(McpError);
     await expect(missing).rejects.toThrow(/did not return structured content/i);
+
+    // Third rejection sub-case: extra properties under additionalProperties:false.
+    // A validator that ignores or strips additional properties (e.g. Ajv
+    // removeAdditional, or a relaxed compile) would resolve here instead.
+    const extra = client.callTool({ name: 'structured-extra', arguments: {} });
+    await expect(extra).rejects.toBeInstanceOf(McpError);
+    await expect(extra).rejects.toThrow(/output schema|structured content/i);
 });
 
 verifies('client:output-schema:skip-on-error', async ({ transport, protocolVersion }: TestArgs) => {
@@ -667,6 +691,32 @@ verifies('client:output-schema:skip-on-error', async ({ transport, protocolVersi
     expect(r.structuredContent).toBeUndefined();
     expect(r.content).toEqual([{ type: 'text', text: 'handler-returned-isError' }]);
 });
+
+verifies(
+    'client:output-schema:validate',
+    async ({ transport, protocolVersion }: TestArgs) => {
+        // Pins the exact BOUNDARY of the client's isError skip: it covers only the
+        // missing-structured-content requirement (client:output-schema:skip-on-error),
+        // NOT validation of a payload that is present. An isError result CARRYING
+        // schema-violating structuredContent still rejects client-side — a client
+        // that started skipping all validation on isError results resolves here and
+        // goes red. Raw Server, so no server-side validation can mask the client's.
+        const client = newClient();
+        await using _ = await wire({ transport, protocolVersion }, rawSchemaServer, client);
+
+        // Prime the validator cache.
+        const { tools } = await client.listTools();
+        expect(tools.find(t => t.name === 'structured-error-skip-invalid')?.outputSchema).toMatchObject({
+            type: 'object',
+            properties: { value: { type: 'number' } }
+        });
+
+        const call = client.callTool({ name: 'structured-error-skip-invalid', arguments: {} });
+        await expect(call).rejects.toBeInstanceOf(McpError);
+        await expect(call).rejects.toThrow(/output schema|structured content/i);
+    },
+    { title: 'isError payload still validated' }
+);
 
 verifies('typescript:mcpserver:output-schema:server-validate', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
@@ -1439,3 +1489,59 @@ verifies('client:call-tool:undefined-result-schema', async ({ transport, protoco
         releaseHang();
     }
 });
+
+const EDGE_TOOL_NAMES = ['com.example/tools.search', 'n'.repeat(128)] as const;
+
+verifies(
+    'typescript:tools:name-edge-tolerance',
+    async ({ transport, protocolVersion }: TestArgs) => {
+        const makeServer = () => {
+            const s = new McpServer({ name: 's', version: '0' });
+            for (const name of EDGE_TOOL_NAMES) {
+                s.registerTool(name, { inputSchema: z.object({}) }, () => ({ content: [{ type: 'text', text: `ran:${name}` }] }));
+            }
+            return s;
+        };
+        const client = newClient();
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+        const { tools } = await client.listTools();
+        for (const name of EDGE_TOOL_NAMES) {
+            expect(tools.map(t => t.name)).toContain(name);
+            const r = await client.callTool({ name, arguments: {} });
+            expect(r.isError).toBeFalsy();
+            expect(r.content).toEqual([{ type: 'text', text: `ran:${name}` }]);
+        }
+    },
+    { title: 'mcpserver' }
+);
+
+verifies(
+    'typescript:tools:name-edge-tolerance',
+    async ({ transport, protocolVersion }: TestArgs) => {
+        const makeServer = () => {
+            const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
+            s.setRequestHandler(ListToolsRequestSchema, () => ({
+                tools: EDGE_TOOL_NAMES.map(name => ({ name, inputSchema: { type: 'object' as const } }))
+            }));
+            s.setRequestHandler(CallToolRequestSchema, req => {
+                if (!EDGE_TOOL_NAMES.includes(req.params.name as (typeof EDGE_TOOL_NAMES)[number])) {
+                    throw new McpError(ErrorCode.InvalidParams, `unknown tool ${req.params.name}`);
+                }
+                return { content: [{ type: 'text', text: `ran:${req.params.name}` }] };
+            });
+            return s;
+        };
+        const client = newClient();
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+        const { tools } = await client.listTools();
+        expect(tools.map(t => t.name)).toEqual([...EDGE_TOOL_NAMES]);
+        for (const name of EDGE_TOOL_NAMES) {
+            const r = await client.callTool({ name, arguments: {} });
+            expect(r.isError).toBeFalsy();
+            expect(r.content).toEqual([{ type: 'text', text: `ran:${name}` }]);
+        }
+    },
+    { title: 'raw server' }
+);

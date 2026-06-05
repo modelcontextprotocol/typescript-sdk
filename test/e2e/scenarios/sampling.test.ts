@@ -470,7 +470,40 @@ verifies('typescript:sampling:server-validation:pre-wire', async ({ transport, p
     expect(unbalanced.structuredContent).toMatchObject({ ok: false });
     expect((unbalanced.structuredContent as { code?: number }).code).toBeUndefined();
 
-    // Pre-wire: neither malformed request reached the client handler or crossed the wire.
+    // Mix-in breadth: the validator must flag tool_result mixed with IMAGE and AUDIO
+    // blocks, and a mix where the non-tool_result block comes FIRST — a validator
+    // narrowed to trailing text mix-ins would pass these three through to the wire.
+    const mixIns = [
+        [
+            { type: 'tool_result', toolUseId: 'c1', content: [] },
+            { type: 'image', data: 'aW1n', mimeType: 'image/png' }
+        ],
+        [
+            { type: 'tool_result', toolUseId: 'c1', content: [] },
+            { type: 'audio', data: 'YXVkaW8=', mimeType: 'audio/wav' }
+        ],
+        [
+            { type: 'text', text: 'leading' },
+            { type: 'tool_result', toolUseId: 'c1', content: [] }
+        ]
+    ];
+    for (const content of mixIns) {
+        const mixedVariant = await client.callTool({
+            name: 'sampling-passthrough',
+            arguments: {
+                messages: [
+                    { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'n', input: {} }] },
+                    { role: 'user', content }
+                ],
+                maxTokens: 10
+            }
+        });
+        expect(mixedVariant.structuredContent).toMatchObject({ ok: false });
+        expect((mixedVariant.structuredContent as { code?: number }).code).toBeUndefined();
+        expect((mixedVariant.structuredContent as { message?: string }).message).toMatch(/tool.?result/i);
+    }
+
+    // Pre-wire: none of the malformed requests reached the client handler or crossed the wire.
     expect(received).toHaveLength(0);
     expect(tap.received.filter(m => 'method' in m && m.method === 'sampling/createMessage')).toEqual([]);
 });

@@ -42,6 +42,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements',
         behavior: 'ping in either direction returns an empty result.'
     },
+    'typescript:lifecycle:ping:server-to-client': {
+        transports: STATEFUL_TRANSPORTS,
+        source: 'sdk',
+        behavior:
+            "Server.ping() sent while a client request is being handled is auto-answered by the connected Client's built-in ping handler (no consumer handler registered), and the server-side caller receives a deep-equal {} result. Locks the server→client direction of ping, which the client-initiated lifecycle:ping cell cannot see.",
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+    },
     'lifecycle:version:downgrade': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation',
         behavior:
@@ -468,12 +475,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
 
     'client:output-schema:skip-on-error': {
         source: 'sdk',
-        behavior: 'The client skips structured-content validation when the tool result has isError true.'
+        behavior:
+            'The client skips the missing-structured-content requirement when the tool result has isError true: an isError result with NO structuredContent resolves even though the tool declares an outputSchema. The skip extends no further — structuredContent that IS present on an isError result is still validated (pinned under client:output-schema:validate).'
     },
     'client:output-schema:validate': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#output-schema',
         behavior:
-            "A tool result whose structuredContent does not conform to the tool's declared outputSchema is rejected by the client: the call raises instead of returning the invalid result."
+            "A tool result whose structuredContent does not conform to the tool's declared outputSchema is rejected by the client: the call raises instead of returning the invalid result. Applies whenever structuredContent is present — including extra properties under additionalProperties:false, and including results that also carry isError true (the isError skip covers only ABSENT structuredContent)."
     },
     'client:output-schema:missing-structured': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#output-schema',
@@ -519,6 +527,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'mcpserver:tool:naming-validation': {
         source: 'sdk',
         behavior: "Registering a tool whose name violates the spec's tool-naming conventions emits a warning; registration still succeeds."
+    },
+    'typescript:tools:name-edge-tolerance': {
+        source: 'sdk',
+        behavior:
+            "Edge-case tool names — a dotted/namespaced name ('com.example/tools.search', whose slash today triggers only McpServer's advisory naming warning) and a 128-character name — register, appear verbatim in tools/list, and route tools/call to the right handler, on both McpServer and low-level Server. Locks the current permissive treatment so an additive change that hardens name validation into rejection (e.g. treating SEP-986's SHOULD as a MUST) goes red here instead of silently breaking deployed tools."
     },
     'mcpserver:tool:url-elicitation-error': {
         source: 'sdk',
@@ -593,9 +606,19 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'resources/read for an unknown URI returns JSON-RPC error -32002 (resource not found).',
         knownFailures: [
             {
-                note: 'SDK emits -32602 (InvalidParams) instead of spec-mandated -32002 (ResourceNotFound). ErrorCode enum lacks ResourceNotFound member.'
+                note: 'SDK emits -32602 (InvalidParams) instead of spec-mandated -32002 (ResourceNotFound). ErrorCode enum lacks ResourceNotFound member. The knownFailure run is reason-blind (green for any code ≠ -32002); the current -32602 emission is positively pinned by typescript:resources:read:unknown-uri:current-code — remove that pin when this one flips.'
             }
         ]
+    },
+    'typescript:resources:read:unknown-uri:current-code': {
+        source: 'sdk',
+        behavior:
+            'Pins the CURRENT error code McpServer emits for resources/read on an unknown URI: -32602 (ErrorCode.InvalidParams), as an McpError. The spec mandates -32002 (resource not found) — that lives in resources:read:unknown-uri as a knownFailure; this pin makes drift to any third code red immediately, and goes red itself when the -32002 fix lands (two-directional ratchet). Code only, no message-text pin; note the wire message currently carries a doubled "MCP error -32602: " prefix on this path — consumer-visible ABI, recorded here but deliberately not asserted.'
+    },
+    'typescript:resources:read:multi-contents': {
+        source: 'sdk',
+        behavior:
+            'A ReadResourceResult carrying MULTIPLE contents entries (mixed text and blob) reaches the client intact: both entries present, in handler order, fields verbatim. Every other fixture in the suite returns exactly one entry, so a regression that returns only contents[0], reorders, or caps the array is invisible without this.'
     },
     'resources:subscribe:capability-required': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities',
@@ -780,6 +803,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'MCPServer advertises the completions capability when at least one completion source is registered, and omits it otherwise.'
     },
+    'typescript:completion:values:client-cap': {
+        source: 'sdk',
+        behavior:
+            "CompleteResultSchema caps completion.values at 100 entries CLIENT-side: a server result carrying 101 values fails the client's result parse and complete() rejects with the raw validator error (too_big issue, not a wrapped McpError — same raw-error contract as typescript:consumer:result-validation-error), while a 100-value result resolves. Tooling limitation this pins: an SDK client cannot observe more than 100 values even from a non-SDK server that sends them."
+    },
 
     // Logging
 
@@ -810,9 +838,19 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         knownFailures: [
             {
                 test: 'mcpserver',
-                note: 'Protocol wraps schema-parse failures as -32603 (InternalError), not -32602 (InvalidParams) as required by JSON-RPC 2.0.'
+                note: 'Protocol wraps schema-parse failures as -32603 (InternalError), not -32602 (InvalidParams) as required by JSON-RPC 2.0. The knownFailure run is reason-blind; the CURRENT -32603 wrapping (and proof the request reaches the server at all) is positively pinned by typescript:logging:set-level:invalid-level-current — review both together when the wrapping changes.'
             }
         ]
+    },
+    'typescript:logging:set-level:invalid-level-current': {
+        source: 'sdk',
+        behavior:
+            "Pins the CURRENT (non-spec-compliant) handling of an invalid logging/setLevel level on McpServer so it cannot drift unnoticed: the request crosses the wire verbatim (exactly one logging/setLevel with the invalid level — the client performs no outbound params validation) and the server's dispatch-time schema parse rejects it as -32603 InternalError. The spec-correct -32602 lives in logging:set-level:invalid-level as a knownFailure; when the SDK maps parse failures to -32602, this cell goes red and both entries must be revisited together."
+    },
+    'typescript:logging:no-capability:suppressed': {
+        source: 'sdk',
+        behavior:
+            "A server that did NOT declare the logging capability suppresses log emission instead of erroring: Server.sendLoggingMessage() resolves as a silent no-op and no notifications/message ever crosses the wire, while a direct Server.notification({method:'notifications/message'}) throws 'Server does not support logging' synchronously server-side. Locks the capability gate's two halves (silent skip vs throw) as they behave today."
     },
     'logging:out-of-band:basic': {
         transports: STATEFUL_TRANSPORTS,
@@ -923,7 +961,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         source: 'sdk',
         behavior:
-            "Server.createMessage validates tool_use/tool_result message structure server-side before anything reaches the wire: a last user message mixing tool_result with other content, or tool_result ids that do not match the previous message's tool_use ids, rejects with a plain Error (no JSON-RPC error code) and no sampling/createMessage request is ever sent to the client. This is the only e2e lock on that validation block — the sibling spec cells (sampling:tool-result:no-mixed-content, sampling:tool-use:result-balance) are knownFailures pinned to the -32602 shape and stay reason-blind to the block's deletion.",
+            "Server.createMessage validates tool_use/tool_result message structure server-side before anything reaches the wire: a last user message mixing tool_result with ANY other content type — text, image, or audio, regardless of block order — or tool_result ids that do not match the previous message's tool_use ids, rejects with a plain Error (no JSON-RPC error code) and no sampling/createMessage request is ever sent to the client. The full mix-in breadth is asserted so a validator narrowed to flag only text mix-ins goes red. This is the only e2e lock on that validation block — the sibling spec cells (sampling:tool-result:no-mixed-content, sampling:tool-use:result-balance) are knownFailures pinned to the -32602 shape and stay reason-blind to the block's deletion.",
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'sampling:tools:server-gated-by-capability': {
@@ -1744,9 +1782,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
         knownFailures: [
             {
-                note: 'src/server/auth/middleware/bearerAuth.ts: authInfo.resource is never compared to the resource identifier — audience validation missing. Flip-watch: when audience validation lands, the loose asserts (status >= 401 plus error=) pass and this cell flips red. At flip time, add a positive control (a token with the CORRECT audience still gets 200) before removing this entry — the failing assert alone cannot distinguish real validation from the endpoint rejecting everything.'
+                note: 'src/server/auth/middleware/bearerAuth.ts: authInfo.resource is never compared to the resource identifier — audience validation missing; the wrong-audience request reaches the app handler and gets 200, so the 401 assert is what fails. The body carries its own positive control (correct-audience token → 200, handler invoked) and pins the full challenge shape (401, error="invalid_token", error_description matching /aud|audience/i, handler NOT invoked), so when SDK audience validation lands this cell flips red and the entry can be removed without the reject-everything ambiguity. Until the SDK takes an expected-resource option, the verifier-enforced pattern is locked separately by typescript:hosting:auth:verifier-audience-isolation.'
             }
         ]
+    },
+    'typescript:hosting:auth:verifier-audience-isolation': {
+        source: 'sdk',
+        behavior:
+            'Multi-resource-server audience isolation via the documented user-level pattern (audience enforced in the verifier callback, since requireBearerAuth itself takes no expected-resource identifier): two requireBearerAuth-protected apps whose verifiers bind tokens to distinct resource URIs; presenting RS-A\'s token at RS-B yields 401 with WWW-Authenticate error="invalid_token" and the app handler is never invoked, while each token at its own server yields 200. Locks the cross-RS topology independent of (and before) SDK-level audience validation.',
+        transports: ['streamableHttp'],
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:auth:authinfo-propagates': {
         source: 'sdk',

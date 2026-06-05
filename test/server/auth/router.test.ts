@@ -1,4 +1,10 @@
-import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions } from '../../../src/server/auth/router.js';
+import {
+    mcpAuthRouter,
+    AuthRouterOptions,
+    mcpAuthMetadataRouter,
+    AuthMetadataOptions,
+    getOAuthProtectedResourceMetadataUrl
+} from '../../../src/server/auth/router.js';
 import { OAuthServerProvider, AuthorizationParams } from '../../../src/server/auth/provider.js';
 import { OAuthRegisteredClientsStore } from '../../../src/server/auth/clients.js';
 import { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '../../../src/shared/auth.js';
@@ -459,5 +465,19 @@ describe('MCP Auth Metadata Router', () => {
             expect(resourceResponse.body.resource_name).toBeUndefined();
             expect(resourceResponse.body.resource_documentation).toBeUndefined();
         });
+    });
+});
+
+describe('getOAuthProtectedResourceMetadataUrl', () => {
+    it('returns the root well-known URL for a root server URL', () => {
+        expect(getOAuthProtectedResourceMetadataUrl(new URL('https://api.example.com'))).toBe(
+            'https://api.example.com/.well-known/oauth-protected-resource'
+        );
+    });
+
+    it('appends the server path after the well-known segment for a path-suffixed URL', () => {
+        expect(getOAuthProtectedResourceMetadataUrl(new URL('https://api.example.com/mcp'))).toBe(
+            'https://api.example.com/.well-known/oauth-protected-resource/mcp'
+        );
     });
 });

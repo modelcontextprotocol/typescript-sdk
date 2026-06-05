@@ -9,6 +9,7 @@
 
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
+import { $ZodError } from 'zod/v4/core';
 
 import { Client } from '../../../src/client/index.js';
 import { Server } from '../../../src/server/index.js';
@@ -92,6 +93,10 @@ verifies('completion:complete:not-supported', async ({ transport, protocolVersio
 });
 
 verifies('completion:context-arguments', async ({ transport, protocolVersion }: TestArgs) => {
+    const MEMBERS_BY_DEPARTMENT: Record<string, readonly string[]> = {
+        engineering: ['Alice', 'Bob'],
+        sales: ['David', 'Eve']
+    };
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerResource(
@@ -109,6 +114,22 @@ verifies('completion:context-arguments', async ({ transport, protocolVersion }: 
             }),
             { mimeType: 'text/plain' },
             (uri, { owner, repo }) => ({ contents: [{ uri: uri.href, mimeType: 'text/plain', text: `${owner}/${repo}` }] })
+        );
+        s.registerPrompt(
+            'team-greeting',
+            {
+                argsSchema: {
+                    department: completable(z.string(), value => Object.keys(MEMBERS_BY_DEPARTMENT).filter(d => d.startsWith(value))),
+                    name: completable(z.string(), (value, context) => {
+                        const department = context?.arguments?.department;
+                        if (!department || typeof department !== 'string') return [];
+                        return (MEMBERS_BY_DEPARTMENT[department] ?? []).filter(n => n.startsWith(value));
+                    })
+                }
+            },
+            ({ department, name }) => ({
+                messages: [{ role: 'user', content: { type: 'text', text: `Hello ${name} (${department})` } }]
+            })
         );
         return s;
     };
@@ -135,6 +156,31 @@ verifies('completion:context-arguments', async ({ transport, protocolVersion }: 
         argument: { name: 'repo', value: '' }
     });
     expect(bare.completion.values).toEqual([]);
+
+    // ref/prompt arm: context.arguments must reach PROMPT completion callbacks too
+    // (the server routes prompt completion separately from resource completion, so
+    // the resource arm above cannot stand in for it). Disjoint results per context
+    // prove the callback saw the resolved department value.
+    const engineering = await client.complete({
+        ref: { type: 'ref/prompt', name: 'team-greeting' },
+        argument: { name: 'name', value: '' },
+        context: { arguments: { department: 'engineering' } }
+    });
+    expect(engineering.completion.values).toEqual(['Alice', 'Bob']);
+
+    const sales = await client.complete({
+        ref: { type: 'ref/prompt', name: 'team-greeting' },
+        argument: { name: 'name', value: '' },
+        context: { arguments: { department: 'sales' } }
+    });
+    expect(sales.completion.values).toEqual(['David', 'Eve']);
+    expect(engineering.completion.values).not.toEqual(sales.completion.values);
+
+    const promptBare = await client.complete({
+        ref: { type: 'ref/prompt', name: 'team-greeting' },
+        argument: { name: 'name', value: '' }
+    });
+    expect(promptBare.completion.values).toEqual([]);
 });
 
 verifies(
@@ -287,6 +333,39 @@ verifies('completion:result-shape', async ({ transport, protocolVersion }: TestA
     expect(many.completion.values[99]).toBe('item-099');
     expect(many.completion.total).toBe(MANY_TOTAL);
     expect(many.completion.hasMore).toBe(true);
+});
+
+verifies('typescript:completion:values:client-cap', async ({ transport, protocolVersion }: TestArgs) => {
+    // completion:result-shape proves McpServer truncates at 100 SERVER-side, so an
+    // over-cap result never crosses the wire there. This low-level Server returns
+    // however many values are asked for, exposing the CLIENT-side strictness of
+    // CompleteResultSchema (values capped at 100).
+    const makeServer = () => {
+        const s = new Server({ name: 's', version: '0' }, { capabilities: { completions: {} } });
+        s.setRequestHandler(CompleteRequestSchema, req => {
+            const count = Number(req.params.argument.value);
+            return { completion: { values: Array.from({ length: count }, (_, i) => `v${i}`) } };
+        });
+        return s;
+    };
+    const client = newClient();
+    // The 101-value result deliberately violates CompleteResultSchema on the wire.
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client, { strictValidation: false });
+
+    // Positive control: exactly 100 values parse and resolve.
+    const atCap = await client.complete({ ref: { type: 'ref/prompt', name: 'p' }, argument: { name: 'a', value: '100' } });
+    expect(atCap.completion.values).toHaveLength(100);
+
+    // 101 values fail the client-side result parse: the raw validator error crosses
+    // the boundary (never a wrapped McpError) with a too_big issue on values.
+    const err: unknown = await client.complete({ ref: { type: 'ref/prompt', name: 'p' }, argument: { name: 'a', value: '101' } }).then(
+        () => undefined,
+        (e: unknown) => e
+    );
+    expect(err).toBeDefined();
+    expect(err).not.toBeInstanceOf(McpError);
+    expect(err).toBeInstanceOf($ZodError);
+    expect(((err as { issues?: Array<{ code: string }> }).issues ?? []).map(i => i.code)).toContain('too_big');
 });
 
 verifies(

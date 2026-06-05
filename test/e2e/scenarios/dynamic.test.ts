@@ -137,6 +137,75 @@ verifies('client:list-changed:capability-gated', async ({ transport, protocolVer
     expect(resourcesCalls).toHaveLength(0);
 });
 
+verifies(
+    'client:list-changed:capability-gated',
+    async ({ transport, protocolVersion }: TestArgs) => {
+        // Role-flipped sibling of the cell above: prompts is the advertised kind and
+        // TOOLS is the negative gate. The per-kind gating code in the client is
+        // separate per kind, so the tools clause needs its own negative arm — both
+        // auto-refresh and signal-only servers elsewhere in this file advertise
+        // tools.listChanged, leaving that clause otherwise unobserved.
+        const toolsCalls: unknown[] = [];
+        const promptsCalls: unknown[] = [];
+        const resourcesCalls: unknown[] = [];
+
+        let server!: Server;
+        const makeServer = () => {
+            server = new Server(
+                { name: 's', version: '0' },
+                { capabilities: { prompts: { listChanged: true }, tools: {}, resources: {} } }
+            );
+            server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
+            server.setRequestHandler(ListPromptsRequestSchema, () => ({ prompts: [] }));
+            server.setRequestHandler(ListResourcesRequestSchema, () => ({ resources: [] }));
+            return server;
+        };
+
+        const client = new Client(
+            { name: 'c', version: '0' },
+            {
+                listChanged: {
+                    tools: { autoRefresh: false, debounceMs: 0, onChanged: (err, items) => toolsCalls.push({ err, items }) },
+                    prompts: {
+                        autoRefresh: false,
+                        debounceMs: 0,
+                        onChanged: (err, items) => promptsCalls.push({ err, items })
+                    },
+                    resources: {
+                        autoRefresh: false,
+                        debounceMs: 0,
+                        onChanged: (err, items) => resourcesCalls.push({ err, items })
+                    }
+                }
+            }
+        );
+
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+        const caps = client.getServerCapabilities();
+        expect(caps?.prompts?.listChanged).toBe(true);
+        expect(caps?.tools?.listChanged).toBeFalsy();
+        expect(caps?.resources?.listChanged).toBeFalsy();
+
+        toolsCalls.length = 0;
+        promptsCalls.length = 0;
+        resourcesCalls.length = 0;
+
+        await server.sendToolListChanged();
+        await server.sendPromptListChanged();
+        await server.sendResourceListChanged();
+
+        await waitUntil(() => promptsCalls.length >= 1);
+        expect(promptsCalls[0]).toEqual({ err: null, items: null });
+
+        // Round-trip barrier: any pending notification would have been delivered by now.
+        await client.listPrompts();
+        expect(toolsCalls).toHaveLength(0);
+        expect(resourcesCalls).toHaveLength(0);
+    },
+    { title: 'tools-not-advertised' }
+);
+
 verifies('client:list-changed:signal-only', async ({ transport, protocolVersion }: TestArgs) => {
     const toolCalls: Array<{ error: Error | null; items: Tool[] | null }> = [];
     const promptCalls: Array<{ error: Error | null; items: Prompt[] | null }> = [];
