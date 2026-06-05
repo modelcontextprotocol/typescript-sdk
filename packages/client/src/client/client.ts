@@ -218,6 +218,13 @@ export class Client extends Protocol<ClientContext> {
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
+    /**
+     * Tools whose advertised `outputSchema` could not be compiled into a validator (e.g. it tripped
+     * the SEP-2106 safety guards — a non-local `$ref` or an over-budget schema). The error is stored
+     * per-tool and surfaced only when that tool is called, so one malformed tool definition does not
+     * break `listTools()` or the use of every other tool from the same server.
+     */
+    private _toolOutputValidatorErrors: Map<string, Error> = new Map();
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
@@ -790,6 +797,17 @@ export class Client extends Protocol<ClientContext> {
     async callTool(params: CallToolRequest['params'], options?: RequestOptions): Promise<CallToolResult> {
         const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
 
+        // If the tool advertised an outputSchema that failed to compile (e.g. a SEP-2106 safety-guard
+        // rejection), surface that error now — scoped to this tool — rather than silently skipping
+        // output validation.
+        const validatorError = this._toolOutputValidatorErrors.get(params.name);
+        if (validatorError) {
+            throw new ProtocolError(
+                ProtocolErrorCode.InvalidParams,
+                `Tool ${params.name} has an output schema that could not be compiled: ${validatorError.message}`
+            );
+        }
+
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
         if (validator) {
@@ -836,12 +854,19 @@ export class Client extends Protocol<ClientContext> {
      */
     private cacheToolMetadata(tools: Tool[]): void {
         this._cachedToolOutputValidators.clear();
+        this._toolOutputValidatorErrors.clear();
 
         for (const tool of tools) {
-            // If the tool has an outputSchema, create and cache the validator
+            // If the tool has an outputSchema, create and cache the validator. Compilation can throw
+            // (invalid schema, or a SEP-2106 safety-guard rejection); scope that failure to the
+            // offending tool rather than letting it reject the whole listTools() call.
             if (tool.outputSchema) {
-                const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
-                this._cachedToolOutputValidators.set(tool.name, toolValidator);
+                try {
+                    const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
+                    this._cachedToolOutputValidators.set(tool.name, toolValidator);
+                } catch (error) {
+                    this._toolOutputValidatorErrors.set(tool.name, error instanceof Error ? error : new Error(String(error)));
+                }
             }
         }
     }
