@@ -471,7 +471,7 @@ async function authInternal(
                     fetchFn
                 );
             } catch {
-                // RFC 9728 not available — selectResourceURL will handle undefined
+                // RFC 9728 not available — selectResourceURL falls back to the canonical server URI
             }
         }
 
@@ -641,9 +641,11 @@ export async function selectResourceURL(
         return await provider.validateResourceURL(defaultResource, resourceMetadata?.resource);
     }
 
-    // Only include resource parameter when Protected Resource Metadata is present
+    // Fall back to the canonical server URI when Protected Resource Metadata is absent.
+    // The MCP spec requires clients to send the `resource` parameter "regardless of whether
+    // authorization servers support it", using the canonical server URI (RFC 8707).
     if (!resourceMetadata) {
-        return undefined;
+        return defaultResource;
     }
 
     // Validate that the metadata's resource is compatible with our request

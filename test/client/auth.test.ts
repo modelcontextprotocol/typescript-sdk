@@ -2562,7 +2562,7 @@ describe('OAuth Authorization', () => {
             expect(authUrl.searchParams.get('resource')).toBe('https://api.example.com/');
         });
 
-        it('excludes resource parameter when Protected Resource Metadata is not present', async () => {
+        it('falls back to the canonical server URI when Protected Resource Metadata is not present', async () => {
             // Mock metadata discovery where protected resource metadata is not available (404)
             // but authorization server metadata is available
             mockFetch.mockImplementation(url => {
@@ -2600,14 +2600,14 @@ describe('OAuth Authorization', () => {
             (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
             (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
 
-            // Call auth - should not include resource parameter
+            // Call auth - should still include resource parameter (canonical server URI)
             const result = await auth(mockProvider, {
                 serverUrl: 'https://api.example.com/mcp-server'
             });
 
             expect(result).toBe('REDIRECT');
 
-            // Verify the authorization URL does NOT include the resource parameter
+            // Verify the authorization URL includes the resource parameter
             expect(mockProvider.redirectToAuthorization).toHaveBeenCalledWith(
                 expect.objectContaining({
                     searchParams: expect.any(URLSearchParams)
@@ -2616,11 +2616,12 @@ describe('OAuth Authorization', () => {
 
             const redirectCall = (mockProvider.redirectToAuthorization as Mock).mock.calls[0];
             const authUrl: URL = redirectCall[0];
-            // Resource parameter should not be present when PRM is not available
-            expect(authUrl.searchParams.has('resource')).toBe(false);
+            // Resource parameter must fall back to the canonical server URI when PRM is not available.
+            // The MCP spec requires clients to send `resource` regardless of authorization server support.
+            expect(authUrl.searchParams.get('resource')).toBe('https://api.example.com/mcp-server');
         });
 
-        it('excludes resource parameter in token exchange when Protected Resource Metadata is not present', async () => {
+        it('falls back to the canonical server URI in token exchange when Protected Resource Metadata is not present', async () => {
             // Mock metadata discovery - no protected resource metadata, but auth server metadata available
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
@@ -2679,12 +2680,12 @@ describe('OAuth Authorization', () => {
             expect(tokenCall).toBeDefined();
 
             const body = tokenCall![1].body as URLSearchParams;
-            // Resource parameter should not be present when PRM is not available
-            expect(body.has('resource')).toBe(false);
+            // Resource parameter must fall back to the canonical server URI when PRM is not available
+            expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
             expect(body.get('code')).toBe('auth-code-123');
         });
 
-        it('excludes resource parameter in token refresh when Protected Resource Metadata is not present', async () => {
+        it('falls back to the canonical server URI in token refresh when Protected Resource Metadata is not present', async () => {
             // Mock metadata discovery - no protected resource metadata, but auth server metadata available
             mockFetch.mockImplementation(url => {
                 const urlString = url.toString();
@@ -2744,8 +2745,8 @@ describe('OAuth Authorization', () => {
             expect(tokenCall).toBeDefined();
 
             const body = tokenCall![1].body as URLSearchParams;
-            // Resource parameter should not be present when PRM is not available
-            expect(body.has('resource')).toBe(false);
+            // Resource parameter must fall back to the canonical server URI when PRM is not available
+            expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
             expect(body.get('grant_type')).toBe('refresh_token');
             expect(body.get('refresh_token')).toBe('refresh123');
         });
