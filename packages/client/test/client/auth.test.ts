@@ -18,6 +18,7 @@ import {
     refreshAuthorization,
     registerClient,
     selectClientAuthMethod,
+    selectResourceURL,
     startAuthorization,
     validateClientMetadataUrl
 } from '../../src/client/auth.js';
@@ -1301,7 +1302,7 @@ describe('OAuth Authorization', () => {
             const tokenCall = mockFetch.mock.calls.find(call => call[0].toString().includes('/token'));
             expect(tokenCall).toBeDefined();
             const body = tokenCall![1].body as URLSearchParams;
-            expect(body.get('resource')).toBe('https://resource.example.com/');
+            expect(body.get('resource')).toBe('https://resource.example.com');
         });
 
         it('re-saves enriched state when partial cache is supplemented with fetched metadata', async () => {
@@ -1464,6 +1465,17 @@ describe('OAuth Authorization', () => {
         });
     });
 
+    describe('selectResourceURL', () => {
+        it('preserves the exact protected resource metadata resource indicator', async () => {
+            const resource = await selectResourceURL('https://api.example.com/mcp-server', {} as OAuthClientProvider, {
+                resource: 'https://api.example.com',
+                authorization_servers: ['https://auth.example.com']
+            });
+
+            expect(resource).toBe('https://api.example.com');
+        });
+    });
+
     describe('startAuthorization', () => {
         const validMetadata = {
             issuer: 'https://auth.example.com',
@@ -1506,6 +1518,17 @@ describe('OAuth Authorization', () => {
             expect(authorizationUrl.searchParams.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(authorizationUrl.searchParams.get('resource')).toBe('https://api.example.com/mcp-server');
             expect(codeVerifier).toBe('test_verifier');
+        });
+
+        it('preserves string resource indicators exactly', async () => {
+            const { authorizationUrl } = await startAuthorization('https://auth.example.com', {
+                metadata: undefined,
+                clientInformation: validClientInfo,
+                redirectUrl: 'http://localhost:3000/callback',
+                resource: 'https://api.example.com'
+            });
+
+            expect(authorizationUrl.searchParams.get('resource')).toBe('https://api.example.com');
         });
 
         it('includes scope parameter when provided', async () => {
@@ -1684,6 +1707,26 @@ describe('OAuth Authorization', () => {
             expect(options.headers.get('Authorization')).toBe('Basic ' + btoa('client123:secret123'));
             expect(body.get('redirect_uri')).toBe('http://localhost:3000/callback');
             expect(body.get('resource')).toBe('https://api.example.com/mcp-server');
+        });
+
+        it('preserves string resource indicators exactly in token requests', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validTokens
+            });
+
+            await exchangeAuthorization('https://auth.example.com', {
+                clientInformation: validClientInfo,
+                authorizationCode: 'code123',
+                codeVerifier: 'verifier123',
+                redirectUri: 'http://localhost:3000/callback',
+                resource: 'https://api.example.com'
+            });
+
+            const options = mockFetch.mock.calls[0]![1];
+            const body = options.body as URLSearchParams;
+            expect(body.get('resource')).toBe('https://api.example.com');
         });
 
         it('allows for string "expires_in" values', async () => {
