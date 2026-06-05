@@ -17,7 +17,7 @@ import type { JSONRPCMessage } from '../../../src/types.js';
 
 import { hostResumable } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
-import { LATEST_PROTOCOL_VERSION } from '../../../src/types.js';
+import { DEFAULT_NEGOTIATED_PROTOCOL_VERSION, LATEST_PROTOCOL_VERSION } from '../../../src/types.js';
 import { verifies } from '../helpers/verifies.js';
 
 /**
@@ -542,6 +542,67 @@ verifies('hosting:resume:priming', async (_args: TestArgs) => {
         const responseEvent = events.find(e => /^event: message$/m.test(e));
         expect(responseEvent).toBeDefined();
         expect(events.indexOf(responseEvent!)).toBeGreaterThan(0);
+    } finally {
+        await handle.close();
+    }
+});
+
+verifies('typescript:hosting:resume:header-absent-default', async (_args: TestArgs) => {
+    const eventStore = new InMemoryEventStore();
+
+    const makeServer = () => new McpServer({ name: 's', version: '0' });
+
+    const handle = hostResumable(makeServer, { eventStore });
+
+    const url = new URL('http://in-process/mcp');
+    const fetch = (u: URL | string, init?: RequestInit) => handle.handleRequest(new Request(u, init));
+
+    try {
+        const { sessionId, baseHeaders } = await completeHandshake(url, fetch);
+
+        // The default assumed for header-absent requests, pinned by value. Its sole behavioral
+        // consumer is the priming gate (assumed versions >= 2025-11-25 get a priming event), so
+        // the arms below observe the request being treated as a pre-priming-era version.
+        expect(DEFAULT_NEGOTIATED_PROTOCOL_VERSION).toBe('2025-03-26');
+
+        const postHeaders = { 'content-type': 'application/json', accept: 'application/json, text/event-stream' };
+        const listRequest = (id: string) => JSON.stringify({ jsonrpc: '2.0', id, method: 'tools/list', params: {} });
+        const sseEvents = async (res: Response) => {
+            expect(res.status).toBe(200);
+            expect(res.headers.get('content-type')).toMatch(/text\/event-stream/);
+            return (await readSseBody(res.body!)).split('\n\n').filter(e => e.trim().length > 0);
+        };
+
+        // Positive control: with the latest version in the header, the POST stream IS primed.
+        const primedRes = await fetch(url, {
+            method: 'POST',
+            headers: { ...baseHeaders, ...postHeaders },
+            body: listRequest('with-header')
+        });
+        const primedEvents = await sseEvents(primedRes);
+        expect(primedEvents.length).toBeGreaterThanOrEqual(2);
+        expect(primedEvents[0]).not.toMatch(/^event: message$/m);
+
+        // Header absent: the server falls back to the default version, so no priming event —
+        // the stream opens directly with the response.
+        const absentRes = await fetch(url, {
+            method: 'POST',
+            headers: { 'mcp-session-id': sessionId, ...postHeaders },
+            body: listRequest('absent-header')
+        });
+        const absentEvents = await sseEvents(absentRes);
+        expect(absentEvents).toHaveLength(1);
+        expect(absentEvents[0]).toMatch(/^event: message$/m);
+
+        // And the absent-header request behaves exactly like sending the default explicitly.
+        const explicitRes = await fetch(url, {
+            method: 'POST',
+            headers: { 'mcp-session-id': sessionId, 'mcp-protocol-version': DEFAULT_NEGOTIATED_PROTOCOL_VERSION, ...postHeaders },
+            body: listRequest('explicit-default')
+        });
+        const explicitEvents = await sseEvents(explicitRes);
+        expect(explicitEvents).toHaveLength(1);
+        expect(explicitEvents[0]).toMatch(/^event: message$/m);
     } finally {
         await handle.close();
     }

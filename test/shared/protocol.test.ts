@@ -14,7 +14,7 @@ import {
     type Notification,
     type Result
 } from '../../src/types.js';
-import { Protocol, mergeCapabilities } from '../../src/shared/protocol.js';
+import { DEFAULT_REQUEST_TIMEOUT_MSEC, Protocol, mergeCapabilities } from '../../src/shared/protocol.js';
 import { Transport, TransportSendOptions } from '../../src/shared/transport.js';
 import { TaskStore, TaskMessageQueue, QueuedMessage, QueuedNotification, QueuedRequest } from '../../src/experimental/tasks/interfaces.js';
 import { MockInstance, vi } from 'vitest';
@@ -610,6 +610,125 @@ describe('protocol tests', () => {
             }
             await Promise.resolve();
             await expect(requestPromise).resolves.toEqual({ result: 'success' });
+        });
+    });
+
+    describe('default request timeout', () => {
+        beforeEach(() => {
+            vi.useFakeTimers();
+        });
+        afterEach(() => {
+            vi.useRealTimers();
+        });
+
+        test('request without a timeout option times out at the default 60s, not before', async () => {
+            expect(DEFAULT_REQUEST_TIMEOUT_MSEC).toBe(60000);
+
+            await protocol.connect(transport);
+            const mockSchema: ZodType<{ result: string }> = z.object({
+                result: z.string()
+            });
+            let settled = false;
+            const requestPromise = protocol.request({ method: 'example', params: {} }, mockSchema);
+            requestPromise
+                .catch(() => {})
+                .finally(() => {
+                    settled = true;
+                });
+
+            // One tick short of the default: the request must still be pending.
+            vi.advanceTimersByTime(60000 - 1);
+            await Promise.resolve();
+            await Promise.resolve();
+            await Promise.resolve();
+            expect(settled).toBe(false);
+
+            // Crossing the default fires the timeout, and the error data carries the default value.
+            vi.advanceTimersByTime(1);
+            const error = await requestPromise.then(
+                () => {
+                    throw new Error('expected the request to time out');
+                },
+                e => e
+            );
+            expect(error).toBeInstanceOf(McpError);
+            expect((error as McpError).code).toBe(ErrorCode.RequestTimeout);
+            expect((error as McpError).message).toContain('Request timed out');
+            expect((error as McpError).data).toEqual({ timeout: 60000 });
+        });
+    });
+
+    describe('fallbackRequestHandler', () => {
+        const flushDispatch = () => new Promise(resolve => setImmediate(resolve));
+
+        test('request for an unhandled method returns method-not-found when no fallbackRequestHandler is set', async () => {
+            await protocol.connect(transport);
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 11,
+                method: 'example/unhandled',
+                params: {}
+            });
+            await flushDispatch();
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    id: 11,
+                    error: expect.objectContaining({ code: ErrorCode.MethodNotFound })
+                })
+            );
+        });
+
+        test('request for an unhandled method is dispatched to fallbackRequestHandler instead of method-not-found', async () => {
+            protocol.fallbackRequestHandler = async request => ({
+                handledBy: 'fallback',
+                method: request.method
+            });
+            await protocol.connect(transport);
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 12,
+                method: 'example/unhandled',
+                params: {}
+            });
+            await flushDispatch();
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    id: 12,
+                    result: expect.objectContaining({ handledBy: 'fallback', method: 'example/unhandled' })
+                })
+            );
+            expect(sendSpy).not.toHaveBeenCalledWith(expect.objectContaining({ error: expect.anything() }));
+        });
+
+        test('a specifically registered handler wins over fallbackRequestHandler', async () => {
+            const fallbackMock = vi.fn(async () => ({ handledBy: 'fallback' }));
+            protocol.fallbackRequestHandler = fallbackMock;
+            const HandledRequestSchema = z.object({
+                method: z.literal('example/handled'),
+                params: z.optional(z.record(z.unknown()))
+            });
+            protocol.setRequestHandler(HandledRequestSchema, async () => ({ handledBy: 'specific' }));
+            await protocol.connect(transport);
+
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                id: 13,
+                method: 'example/handled',
+                params: {}
+            });
+            await flushDispatch();
+
+            expect(sendSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    id: 13,
+                    result: expect.objectContaining({ handledBy: 'specific' })
+                })
+            );
+            expect(fallbackMock).not.toHaveBeenCalled();
         });
     });
 

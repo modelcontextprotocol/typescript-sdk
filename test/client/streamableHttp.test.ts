@@ -1580,6 +1580,57 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
+    describe('Default reconnection options', () => {
+        // Use fake timers so a scheduled reconnection can never actually fire.
+        beforeEach(() => vi.useFakeTimers());
+        afterEach(() => vi.useRealTimers());
+
+        it('should use the documented default reconnection options when none are provided', () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+            expect(transport['_reconnectionOptions']).toEqual({
+                initialReconnectionDelay: 1000,
+                maxReconnectionDelay: 30000,
+                reconnectionDelayGrowFactor: 1.5,
+                maxRetries: 2
+            });
+        });
+
+        it('should produce the default backoff schedule 1000ms, 1500ms, 2250ms capped at 30000ms', () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+            const getDelay = transport['_getNextReconnectionDelay'].bind(transport);
+            expect(getDelay(0)).toBe(1000);
+            expect(getDelay(1)).toBe(1500);
+            expect(getDelay(2)).toBe(2250);
+            expect(getDelay(100)).toBe(30000);
+        });
+
+        it('should exhaust the default retry budget after 2 attempts with the terminal error consumers match on', () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            // Below the default budget: a reconnection is scheduled, no terminal error.
+            transport['_scheduleReconnection']({}, 1);
+            expect(errorSpy).not.toHaveBeenCalled();
+            expect(transport['_reconnectionTimeout']).toBeDefined();
+            clearTimeout(transport['_reconnectionTimeout']);
+            transport['_reconnectionTimeout'] = undefined;
+
+            // At the default budget: the terminal error fires and nothing further is scheduled.
+            transport['_scheduleReconnection']({}, 2);
+            expect(errorSpy).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    message: 'Maximum reconnection attempts (2) exceeded.'
+                })
+            );
+            expect(transport['_reconnectionTimeout']).toBeUndefined();
+        });
+    });
+
     describe('prevent infinite recursion when server returns 401 after successful auth', () => {
         it('should throw error when server returns 401 after successful auth', async () => {
             const message: JSONRPCMessage = {

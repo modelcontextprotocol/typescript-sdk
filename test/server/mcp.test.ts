@@ -6932,3 +6932,65 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
     });
 });
+
+describe('McpServer repeated connect', () => {
+    /** One instance serving consecutive transports is the documented per-connection hosting pattern consumers rely on. */
+    test('one McpServer instance serves a second transport after the first connection closes', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+        mcpServer.tool('greet', async () => ({
+            content: [{ type: 'text' as const, text: 'hello' }]
+        }));
+
+        const clientA = new Client({ name: 'client a', version: '1.0' });
+        const [clientTransportA, serverTransportA] = InMemoryTransport.createLinkedPair();
+        await Promise.all([clientA.connect(clientTransportA), mcpServer.connect(serverTransportA)]);
+
+        const toolsA = await clientA.listTools();
+        expect(toolsA.tools.map(t => t.name)).toEqual(['greet']);
+        const resultA = (await clientA.callTool({ name: 'greet' })) as CallToolResult;
+        expect(resultA.content).toEqual([{ type: 'text', text: 'hello' }]);
+
+        // Closing the client closes the linked server transport too (like a dropped connection).
+        await clientA.close();
+
+        const clientB = new Client({ name: 'client b', version: '1.0' });
+        const [clientTransportB, serverTransportB] = InMemoryTransport.createLinkedPair();
+        await Promise.all([clientB.connect(clientTransportB), mcpServer.connect(serverTransportB)]);
+
+        // The tool table survives the reconnect and the new connection is fully serviceable.
+        const toolsB = await clientB.listTools();
+        expect(toolsB.tools.map(t => t.name)).toEqual(['greet']);
+        const resultB = (await clientB.callTool({ name: 'greet' })) as CallToolResult;
+        expect(resultB.content).toEqual([{ type: 'text', text: 'hello' }]);
+
+        await clientB.close();
+    });
+
+    test('a second connect while the first is open rejects and leaves the first connection serviceable', async () => {
+        const mcpServer = new McpServer({
+            name: 'test server',
+            version: '1.0'
+        });
+        mcpServer.tool('greet', async () => ({
+            content: [{ type: 'text' as const, text: 'hello' }]
+        }));
+
+        const clientA = new Client({ name: 'client a', version: '1.0' });
+        const [clientTransportA, serverTransportA] = InMemoryTransport.createLinkedPair();
+        await Promise.all([clientA.connect(clientTransportA), mcpServer.connect(serverTransportA)]);
+
+        const [, serverTransportB] = InMemoryTransport.createLinkedPair();
+        await expect(mcpServer.connect(serverTransportB)).rejects.toThrow();
+
+        // The failed connect must not corrupt the live connection or the tool table.
+        const tools = await clientA.listTools();
+        expect(tools.tools.map(t => t.name)).toEqual(['greet']);
+        const result = (await clientA.callTool({ name: 'greet' })) as CallToolResult;
+        expect(result.content).toEqual([{ type: 'text', text: 'hello' }]);
+
+        await clientA.close();
+    });
+});

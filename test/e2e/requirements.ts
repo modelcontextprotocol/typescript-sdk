@@ -1716,6 +1716,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
     },
+    'typescript:hosting:resume:header-absent-default': {
+        source: 'sdk',
+        behavior:
+            "A post-initialize request that omits the mcp-protocol-version header is treated as DEFAULT_NEGOTIATED_PROTOCOL_VERSION ('2025-03-26', pinned by value): against an eventStore host the POST SSE stream carries no priming event (priming requires an assumed version >= 2025-11-25), exactly as if the default version had been sent explicitly. Moving the default into the priming era is a conscious act: it would silently flip every header-absent client into the priming path.",
+        transports: ['streamableHttp'],
+        note: 'Resumability requires a per-session transport with an EventStore and a standalone GET stream; stateless hosting has neither.'
+    },
     'hosting:resume:buffered-replay': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#resumability-and-redelivery',
         behavior: 'Notifications emitted while no client is connected are replayed in order on reconnect.',
