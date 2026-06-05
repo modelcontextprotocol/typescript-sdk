@@ -414,6 +414,67 @@ verifies('sampling:tool-use:result-balance', async ({ transport, protocolVersion
     expect(received).toHaveLength(1);
 });
 
+verifies('typescript:sampling:server-validation:pre-wire', async ({ transport, protocolVersion }: TestArgs) => {
+    // Locks the server-side tool_use/tool_result structure validation in Server.createMessage AS IT
+    // BEHAVES TODAY: malformed shapes are rejected before anything reaches the wire, as plain errors
+    // with no JSON-RPC error code. The sibling spec cells assert the -32602 shape under knownFailures
+    // and therefore cannot see this validation block disappear.
+    const received: CreateMessageRequest[] = [];
+    const client = newClient();
+    client.setRequestHandler(CreateMessageRequestSchema, async req => {
+        received.push(req);
+        return { model: 'm', role: 'assistant', stopReason: 'endTurn', content: { type: 'text', text: 'unreachable' } };
+    });
+
+    await using _ = await wire({ transport, protocolVersion }, passthroughServer, client);
+    const tap = tapWire(client);
+
+    const mixed = await client.callTool({
+        name: 'sampling-passthrough',
+        arguments: {
+            messages: [
+                { role: 'assistant', content: [{ type: 'tool_use', id: 'c1', name: 'n', input: {} }] },
+                {
+                    role: 'user',
+                    content: [
+                        { type: 'tool_result', toolUseId: 'c1', content: [] },
+                        { type: 'text', text: 'mixed' }
+                    ]
+                }
+            ],
+            maxTokens: 10
+        }
+    });
+
+    // Rejected server-side as a plain Error: no JSON-RPC error code surfaces through the probe tool.
+    expect(mixed.structuredContent).toMatchObject({ ok: false });
+    expect((mixed.structuredContent as { code?: number }).code).toBeUndefined();
+
+    const unbalanced = await client.callTool({
+        name: 'sampling-passthrough',
+        arguments: {
+            messages: [
+                {
+                    role: 'assistant',
+                    content: [
+                        { type: 'tool_use', id: 'a', name: 'n', input: {} },
+                        { type: 'tool_use', id: 'b', name: 'n', input: {} }
+                    ]
+                },
+                { role: 'user', content: [{ type: 'tool_result', toolUseId: 'a', content: [] }] }
+            ],
+            maxTokens: 10
+        }
+    });
+
+    expect(unbalanced.structuredContent).toMatchObject({ ok: false });
+    expect((unbalanced.structuredContent as { code?: number }).code).toBeUndefined();
+
+    // Pre-wire: neither malformed request reached the client handler or crossed the wire.
+    expect(received).toHaveLength(0);
+    expect(tap.received.filter(m => 'method' in m && m.method === 'sampling/createMessage')).toEqual([]);
+});
+
 verifies('sampling:tools:server-gated-by-capability', async ({ transport, protocolVersion }: TestArgs) => {
     const received: CreateMessageRequest[] = [];
     const client = newClient({ sampling: {} });

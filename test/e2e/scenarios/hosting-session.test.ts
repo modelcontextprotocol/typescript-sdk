@@ -455,6 +455,51 @@ verifies('hosting:session:id-charset', async (_args: TestArgs) => {
     }
 });
 
+verifies(
+    'hosting:session:id-charset',
+    async (_args: TestArgs) => {
+        // The spec makes 0x21-0x7E a MUST for Mcp-Session-Id: a generator value violating it (a space
+        // is 0x20) must not be emitted verbatim. A conforming transport either refuses the session or
+        // emits a sanitized, charset-clean id.
+        const server = echoServer();
+        const tx = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: () => 'bad session id' });
+        await server.connect(tx);
+
+        try {
+            const res = await tx.handleRequest(
+                new Request('http://in-process/mcp', {
+                    method: 'POST',
+                    headers: {
+                        'mcp-protocol-version': LATEST_PROTOCOL_VERSION,
+                        'content-type': 'application/json',
+                        accept: 'application/json, text/event-stream'
+                    },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: 1,
+                        method: 'initialize',
+                        params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'c', version: '0' } }
+                    })
+                })
+            );
+
+            const headerValue = res.headers.get('mcp-session-id');
+            if (res.status === 200 && headerValue !== null) {
+                for (const ch of headerValue) {
+                    const code = ch.charCodeAt(0);
+                    expect(code).toBeGreaterThanOrEqual(0x21);
+                    expect(code).toBeLessThanOrEqual(0x7e);
+                }
+            } else {
+                expect(res.status).toBeGreaterThanOrEqual(400);
+            }
+        } finally {
+            await server.close();
+        }
+    },
+    { title: 'non-conformant generator' }
+);
+
 verifies('hosting:session:reinitialize', async (_args: TestArgs) => {
     const host = hostPerSession(() => echoServer());
     const url = new URL('http://in-process/mcp');
@@ -630,33 +675,44 @@ verifies('hosting:stateless:concurrent-clients', async (_args: TestArgs) => {
     await host.close();
 });
 
-verifies('hosting:stateless:get-delete-405', async (_args: TestArgs) => {
-    const url = new URL('http://in-process/mcp');
-    // hostStateless hand-rolls a 405 for non-POST before the SDK runs; hit the SDK transport directly so its own behavior is asserted.
-    const handleStateless = async (req: Request): Promise<Response> => {
-        const server = echoServer();
-        const tx = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
-        await server.connect(tx);
-        try {
-            return await tx.handleRequest(req);
-        } finally {
-            await server.close();
-        }
-    };
+// hostStateless hand-rolls a 405 for non-POST before the SDK runs; hit the SDK transport directly so its own behavior is asserted.
+// One body per verb: packing both asserts into one test.fails body leaves the second verb dead code (the first assert fails
+// first), so a partial SDK fix could never flip the cell.
+const handleStatelessVerb = async (req: Request): Promise<Response> => {
+    const server = echoServer();
+    const tx = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+    await server.connect(tx);
+    try {
+        return await tx.handleRequest(req);
+    } finally {
+        await server.close();
+    }
+};
 
-    const getRes = await handleStateless(
-        new Request(url, {
-            method: 'GET',
-            headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, accept: 'text/event-stream' }
-        })
-    );
-    expect(getRes.status).toBe(405);
+verifies(
+    'hosting:stateless:get-delete-405',
+    async (_args: TestArgs) => {
+        const getRes = await handleStatelessVerb(
+            new Request('http://in-process/mcp', {
+                method: 'GET',
+                headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION, accept: 'text/event-stream' }
+            })
+        );
+        expect(getRes.status).toBe(405);
+    },
+    { title: 'get' }
+);
 
-    const deleteRes = await handleStateless(
-        new Request(url, { method: 'DELETE', headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION } })
-    );
-    expect(deleteRes.status).toBe(405);
-});
+verifies(
+    'hosting:stateless:get-delete-405',
+    async (_args: TestArgs) => {
+        const deleteRes = await handleStatelessVerb(
+            new Request('http://in-process/mcp', { method: 'DELETE', headers: { 'mcp-protocol-version': LATEST_PROTOCOL_VERSION } })
+        );
+        expect(deleteRes.status).toBe(405);
+    },
+    { title: 'delete' }
+);
 
 verifies('hosting:stateless:progress-in-post-stream', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {

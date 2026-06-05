@@ -24,10 +24,16 @@ import { z } from 'zod/v4';
 import { Client } from '../../../src/client/index.js';
 import { StreamableHTTPClientTransport, StreamableHTTPError } from '../../../src/client/streamableHttp.js';
 import { McpServer } from '../../../src/server/mcp.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../../src/server/webStandardStreamableHttp.js';
-import { type JSONRPCRequest, JSONRPCRequestSchema, LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '../../../src/types.js';
+import { type EventStore, WebStandardStreamableHTTPServerTransport } from '../../../src/server/webStandardStreamableHttp.js';
+import {
+    type JSONRPCMessage,
+    type JSONRPCRequest,
+    JSONRPCRequestSchema,
+    LATEST_PROTOCOL_VERSION,
+    SUPPORTED_PROTOCOL_VERSIONS
+} from '../../../src/types.js';
 
-import { hostPerSession, hostStateless, type HttpHandler } from '../helpers/index.js';
+import { hostPerSession, hostResumable, hostStateless, type HttpHandler } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
@@ -632,6 +638,93 @@ verifies('client-transport:http:no-reconnect-after-response', async (_args: Test
     }
 });
 
+verifies(
+    'client-transport:http:no-reconnect-after-response',
+    async (_args: TestArgs) => {
+        // A JSON-RPC ERROR response completes its request exactly like a result does, so the primed
+        // POST stream that delivered it must not be reconnected when it closes.
+        const records: RecordedRequest[] = [];
+        const tokens: string[] = [];
+        const PRIMING_EVENT_ID = 'error-stream-event-1';
+        const encoder = new TextEncoder();
+        const handle = hostPerSession(() => echoServer());
+
+        try {
+            vi.useFakeTimers();
+
+            const url = new URL('http://in-process/mcp');
+            const transport = new StreamableHTTPClientTransport(url, {
+                fetch: async (u, init) => {
+                    const req = new Request(u, init);
+                    const headers: Record<string, string> = {};
+                    req.headers.forEach((v, k) => {
+                        headers[k.toLowerCase()] = v;
+                    });
+                    const body = init?.body ? String(init.body) : undefined;
+                    records.push({ method: req.method, url: u.toString(), headers, body });
+
+                    if (req.method === 'GET') {
+                        // Refuse the standalone GET so any further GET could only be a reconnection of the POST stream
+                        return new Response(null, { status: 405 });
+                    }
+
+                    if (req.method === 'POST' && body?.includes('"tools/call"')) {
+                        const requestId = JSONRPCRequestSchema.parse(JSON.parse(body)).id;
+                        const response = JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: requestId,
+                            error: { code: -32603, message: 'tool exploded' }
+                        });
+                        // Priming event makes the stream resumable; the ERROR response then completes the request before the stream closes
+                        return new Response(
+                            new ReadableStream<Uint8Array>({
+                                start(controller) {
+                                    controller.enqueue(encoder.encode(`id: ${PRIMING_EVENT_ID}\ndata: \n\n`));
+                                    controller.enqueue(encoder.encode(`id: error-stream-event-2\ndata: ${response}\n\n`));
+                                    controller.close();
+                                }
+                            }),
+                            { status: 200, headers: { 'Content-Type': 'text/event-stream' } }
+                        );
+                    }
+
+                    return handle.handleRequest(req);
+                },
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxReconnectionDelay: 10,
+                    reconnectionDelayGrowFactor: 1,
+                    maxRetries: 5
+                }
+            });
+            const client = newClient();
+
+            await client.connect(transport);
+
+            await vi.waitFor(() => expect(records.filter(r => r.method === 'GET').length).toBe(1));
+
+            const call = client.callTool({ name: 'echo', arguments: { text: 'never delivered' } }, undefined, {
+                onresumptiontoken: token => void tokens.push(token)
+            });
+            await expect(call).rejects.toMatchObject({ code: -32603 });
+            expect(tokens).toContain(PRIMING_EVENT_ID);
+
+            await vi.advanceTimersByTimeAsync(1000);
+
+            const gets = records.filter(r => r.method === 'GET');
+            expect(gets).toHaveLength(1);
+            expect(gets.filter(r => r.headers['last-event-id'] !== undefined)).toHaveLength(0);
+
+            await client.close();
+            await transport.close();
+        } finally {
+            vi.useRealTimers();
+            await handle.close();
+        }
+    },
+    { title: 'error response' }
+);
+
 verifies('client-transport:http:reconnect-retry-value', async (_args: TestArgs) => {
     const RETRY_MS = 100;
     const encoder = new TextEncoder();
@@ -987,22 +1080,46 @@ verifies('client-transport:http:reconnect-post-priming', async (_args: TestArgs)
 verifies('client-transport:http:resume-stream-api', async (_args: TestArgs) => {
     const records: RecordedRequest[] = [];
 
-    const handle = hostPerSession(() => {
-        const s = new McpServer({ name: 's', version: '0' });
-        s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, extra) => {
-            const token = extra._meta?.progressToken;
-            if (token !== undefined) {
-                for (let i = 1; i <= steps; i++) {
-                    await extra.sendNotification({
-                        method: 'notifications/progress',
-                        params: { progressToken: token, progress: i, total: steps }
-                    });
-                }
+    // Minimal in-memory EventStore: the host emits SSE event ids only when one is configured, so
+    // without it the tool call surfaces no resumption tokens and resumeStream() is never exercised.
+    const events: Array<{ id: string; streamId: string; message: JSONRPCMessage }> = [];
+    let seq = 0;
+    const eventStore: EventStore = {
+        storeEvent: async (streamId, message) => {
+            const id = `${streamId}_${String(seq++).padStart(6, '0')}`;
+            events.push({ id, streamId, message });
+            return id;
+        },
+        replayEventsAfter: async (lastEventId, { send }) => {
+            const idx = events.findIndex(e => e.id === lastEventId);
+            if (idx < 0) return '';
+            const streamId = events[idx].streamId;
+            for (const e of events.slice(idx + 1)) {
+                if (e.streamId === streamId) await send(e.id, e.message);
             }
-            return { content: [{ type: 'text', text: `done after ${steps}` }] };
-        });
-        return s;
-    });
+            return streamId;
+        }
+    };
+
+    const handle = hostResumable(
+        () => {
+            const s = new McpServer({ name: 's', version: '0' });
+            s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, extra) => {
+                const token = extra._meta?.progressToken;
+                if (token !== undefined) {
+                    for (let i = 1; i <= steps; i++) {
+                        await extra.sendNotification({
+                            method: 'notifications/progress',
+                            params: { progressToken: token, progress: i, total: steps }
+                        });
+                    }
+                }
+                return { content: [{ type: 'text', text: `done after ${steps}` }] };
+            });
+            return s;
+        },
+        { eventStore }
+    );
 
     try {
         const url = new URL('http://in-process/mcp');
@@ -1024,14 +1141,24 @@ verifies('client-transport:http:resume-stream-api', async (_args: TestArgs) => {
             }
         });
 
-        if (tokens.length === 0) {
-            await client.close();
-            await transport.close();
-            return;
-        }
+        // The resumable host gives every SSE event an id, so the call must surface resumption tokens.
+        expect(tokens.length).toBeGreaterThan(0);
 
+        // Resume from the FIRST event of the call stream: everything after it (the progress
+        // notifications and the response) counts as missed and must be replayed.
         const resumeFrom = tokens[0];
         const replayed: string[] = [];
+
+        // Tap the transport's message stream: the replayed JSON-RPC payloads themselves must arrive,
+        // not just their event ids through onresumptiontoken.
+        const seen: JSONRPCMessage[] = [];
+        const origOnMessage = transport.onmessage;
+        transport.onmessage = m => {
+            seen.push(m);
+            origOnMessage?.(m);
+        };
+        // Replaying the already-settled tools/call response surfaces an unknown-message-id error; irrelevant here.
+        client.onerror = () => {};
 
         const beforeResume = records.length;
         await transport.resumeStream(resumeFrom, {
@@ -1042,6 +1169,18 @@ verifies('client-transport:http:resume-stream-api', async (_args: TestArgs) => {
         expect(resumeReq).toBeDefined();
         expect(resumeReq!.headers['last-event-id']).toBe(resumeFrom);
         expect(resumeReq!.headers['mcp-session-id']).toBe(sessionId);
+
+        // The missed notifications arrive as full payloads, in order, on the resumed stream.
+        await vi.waitFor(
+            () => {
+                const progress = seen
+                    .filter(m => 'method' in m && m.method === 'notifications/progress')
+                    .map(m => ((m as { params?: { progress?: number } }).params ?? {}).progress);
+                expect(progress).toEqual([1, 2, 3]);
+            },
+            { timeout: 2000 }
+        );
+        expect(replayed.length).toBeGreaterThan(0);
 
         await client.close();
         await transport.close();
@@ -1064,7 +1203,12 @@ verifies('client-transport:http:body-stream-error-preserved', async (_args: Test
                     const encoder = new TextEncoder();
                     const stream = new ReadableStream({
                         async start(controller) {
-                            controller.enqueue(encoder.encode('data: {}\n\n'));
+                            // Prime with a VALID JSON-RPC notification (silently dropped by the client): a malformed
+                            // frame would put a parse error in front of the disconnect wrapper in errors[], and the
+                            // knownFailure flip below could never fire.
+                            controller.enqueue(
+                                encoder.encode('data: {"jsonrpc":"2.0","method":"notifications/resources/list_changed"}\n\n')
+                            );
                             await new Promise(resolve => setTimeout(resolve, 10));
                             controller.error(originalError);
                         }

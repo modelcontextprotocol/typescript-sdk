@@ -180,7 +180,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         knownFailures: [
             {
                 transport: 'stdio',
-                note: 'in-process stdio does not fire client.onclose after close()'
+                note: "in-process stdio close() never triggers Protocol._onclose: in-flight requests never reject with ConnectionClosed AND client.onclose never fires (the client transport's onclose is wired to the server-stdout 'close' event, which StdioServerTransport never emits). The cell fails by hanging on the first in-flight rejection assert until the 15s per-cell timeout — the suite's single most expensive cell, burned every run. Flips red if the helper or SDK ever wires stdin-end to onclose; the stdio/http close-semantics asymmetry pinned here is load-bearing for consumers."
             }
         ]
     },
@@ -300,7 +300,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'protocol:error:data-roundtrip': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#responses',
         behavior:
-            'A request handler that throws McpError(code, message, data) produces a JSON-RPC error whose error.data equals the thrown data; the client-side rejection is an McpError with .data deep-equal to the original object.'
+            'A request handler that throws McpError(code, message, data) produces a JSON-RPC error whose error.data equals the thrown data; the client-side rejection is an McpError with .data deep-equal to the original object.',
+        knownFailures: [
+            {
+                test: 'mcpserver tool path',
+                note: "McpServer's blanket try/catch around tool handlers converts a thrown McpError into an {isError:true} text result, so callTool resolves instead of rejecting and error.data is structurally dropped (text content cannot carry it). The UrlElicitationRequired (-32042) escape path DOES re-throw and round-trips data (locked in tools tests); every other code is swallowed. Expected fix: let protocol-level McpErrors from tool handlers reach the JSON-RPC error envelope (or an equivalent data-preserving error surface); when callTool rejects with .data intact this arm flips red — remove this entry."
+            }
+        ]
     },
     'typescript:protocol:error:data-absent': {
         source: 'sdk',
@@ -891,7 +897,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'A user SamplingMessage containing tool_result content MUST contain only tool_result blocks; mixing with text/image/audio is rejected by the client with -32602 Invalid params.',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
-        knownFailures: [{ note: 'client does not validate tool_result-only constraint' }]
+        knownFailures: [
+            {
+                note: "Server-side validation (Server.createMessage, src/server/index.ts:507-541, shipped in #1156) rejects the mixed tool_result message before it reaches the wire, but with a plain Error (no McpError, no -32602 mapping), so the asserted client-side InvalidParams rejection never happens: the cell fails on the error SHAPE (code undefined), not on missing validation. The validation itself is locked e2e by typescript:sampling:server-validation:pre-wire. Flips red when the SDK maps these throws to McpError(InvalidParams) — then remove this entry and revisit the requirement's 'rejected by the client' wording."
+            }
+        ]
     },
     'sampling:tool-use:result-balance': {
         transports: STATEFUL_TRANSPORTS,
@@ -899,7 +909,18 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'In a sampling/createMessage request, every assistant tool_use block in messages MUST be matched by a tool_result with the same toolUseId in the immediately-following user message; an unmatched tool_use is rejected with -32602 Invalid params.',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
-        knownFailures: [{ note: 'client does not validate tool_use/tool_result balance' }]
+        knownFailures: [
+            {
+                note: "Server-side validation (Server.createMessage, src/server/index.ts:507-541, shipped in #1156) rejects unbalanced tool_use/tool_result ids before they reach the wire, but with a plain Error (no McpError, no -32602 mapping), so the asserted client-side InvalidParams rejection never happens: the cell fails on the error SHAPE (code undefined), not on missing validation. The validation itself is locked e2e by typescript:sampling:server-validation:pre-wire. Flips red when the SDK maps these throws to McpError(InvalidParams) — then remove this entry and revisit the requirement's 'rejected with -32602' wording."
+            }
+        ]
+    },
+    'typescript:sampling:server-validation:pre-wire': {
+        transports: STATEFUL_TRANSPORTS,
+        source: 'sdk',
+        behavior:
+            "Server.createMessage validates tool_use/tool_result message structure server-side before anything reaches the wire: a last user message mixing tool_result with other content, or tool_result ids that do not match the previous message's tool_use ids, rejects with a plain Error (no JSON-RPC error code) and no sampling/createMessage request is ever sent to the client. This is the only e2e lock on that validation block — the sibling spec cells (sampling:tool-result:no-mixed-content, sampling:tool-use:result-balance) are knownFailures pinned to the -32602 shape and stay reason-blind to the block's deletion.",
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'sampling:tools:server-gated-by-capability': {
         transports: STATEFUL_TRANSPORTS,
@@ -930,7 +951,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
         knownFailures: [
             {
-                note: "Server.createMessage (src/server/index.ts ~line 497) only gates tools/toolChoice on clientCapabilities.sampling.tools; there is no check of clientCapabilities.sampling.context for includeContext 'thisServer'/'allServers', so the request reaches the client callback instead of being refused."
+                note: "Server.createMessage (src/server/index.ts ~line 497) only gates tools/toolChoice on clientCapabilities.sampling.tools; there is no check of clientCapabilities.sampling.context for includeContext 'thisServer'/'allServers', so the request reaches the client callback instead of being refused. Flip-watch: this cell goes red when a context gate is added — that same change also trips sampling:create:include-context (which asserts ungated delivery today); review both together before removing this entry."
             }
         ]
     },
@@ -1572,9 +1593,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'hosting:session:id-charset': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#session-management',
-        behavior: 'Generated Mcp-Session-Id values contain only visible ASCII characters.',
+        behavior:
+            'Mcp-Session-Id values emitted by the transport contain only visible ASCII (0x21-0x7E). The SDK ships no default generator: values from a conformant sessionIdGenerator are emitted verbatim, and a value violating the charset MUST must not reach the header unvalidated.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        knownFailures: [
+            {
+                test: 'non-conformant generator',
+                note: "The server transport writes the sessionIdGenerator() return value into the Mcp-Session-Id header with no validation, so a value violating the spec's 0x21-0x7E MUST (e.g. one containing spaces) is emitted verbatim. Expected fix: validate or reject the generated id at session creation; when that lands this arm flips red — remove this entry and keep the conformant-generator arm as the positive control."
+            }
+        ]
     },
     'hosting:session:isolation': {
         source: 'sdk',
@@ -1607,7 +1635,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
         knownFailures: [
             {
-                note: "The SDK's documented hosting pattern rejects unknown session ids with 400 at the app level (see src/examples servers); the transport's own validateSession 404 is never reached, while the spec requires 404."
+                note: "The SDK's documented hosting pattern rejects unknown session ids with 400 at the app level (see src/examples servers); the transport's own validateSession 404 is never reached, while the spec requires 404. Flip-watch caveat: the 400 is produced by the test helper, which is pinned 1:1 to the documented hosting pattern — no transport-code fix alone can flip this cell red. Flipping requires the documented hosting pattern to change AND the helper to be updated in the same commit, so treat this as a manual-review xfail, not a self-announcing one."
             }
         ]
     },
@@ -1651,7 +1679,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the HTTP hosting layer and stateless mode; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
         knownFailures: [
             {
-                note: 'webStandardStreamableHttp.ts:833-836: validateSession() returns undefined in stateless mode, so GET opens an SSE stream and DELETE succeeds with 200 instead of 405.'
+                test: 'get',
+                note: 'webStandardStreamableHttp.ts:833-836: validateSession() returns undefined in stateless mode, so GET opens an SSE stream (200 text/event-stream) instead of returning 405. Split per verb so a partial fix flips exactly its own cell red; remove each entry as its verb is fixed.'
+            },
+            {
+                test: 'delete',
+                note: 'webStandardStreamableHttp.ts:833-836: validateSession() returns undefined in stateless mode, so DELETE succeeds with 200 instead of returning 405. Split per verb so a partial fix flips exactly its own cell red; remove each entry as its verb is fixed.'
             }
         ]
     },
@@ -1691,7 +1724,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
         knownFailures: [
             {
-                note: 'src/server/auth/middleware/bearerAuth.ts: authInfo.resource is never compared to the resource identifier — audience validation missing.'
+                note: 'src/server/auth/middleware/bearerAuth.ts: authInfo.resource is never compared to the resource identifier — audience validation missing. Flip-watch: when audience validation lands, the loose asserts (status >= 401 plus error=) pass and this cell flips red. At flip time, add a positive control (a token with the CORRECT audience still gets 200) before removing this entry — the failing assert alone cannot distinguish real validation from the endpoint rejecting everything.'
             }
         ]
     },
@@ -1938,7 +1971,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
         knownFailures: [
             {
-                note: 'The bundled registration endpoint validates redirect_uris only with SafeUrlSchema, so a non-HTTPS, non-loopback URI like http://attacker.example.com/callback is registered with 201 instead of being rejected with 400 invalid_client_metadata.'
+                note: 'The bundled registration endpoint validates redirect_uris only with SafeUrlSchema, so a non-HTTPS, non-loopback URI like http://attacker.example.com/callback is registered with 201 instead of being rejected with 400 invalid_client_metadata. Flip-watch: when scheme enforcement lands, the 400 assert passes and this cell flips red. At flip time, add a positive control (an HTTPS or loopback redirect_uri still registers with 201) before removing this entry.'
             }
         ]
     },
@@ -1956,7 +1989,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
         knownFailures: [
             {
-                note: 'The documented per-session hosting pattern (hostPerSession) removes the transport from the session map on DELETE via onsessionclosed and answers any later request carrying the stale Mcp-Session-Id with 400 at the app level, so the spec-required 404 is never produced.'
+                note: 'The documented per-session hosting pattern (hostPerSession) removes the transport from the session map on DELETE via onsessionclosed and answers any later request carrying the stale Mcp-Session-Id with 400 at the app level, so the spec-required 404 is never produced. Flip-watch caveat: the 400 originates in the test helper, which mirrors the documented hosting pattern 1:1 — no transport-code fix alone can flip this cell red. Flipping requires the documented hosting pattern to change AND the helper to be updated in the same commit, so treat this as a manual-review xfail, not a self-announcing one.'
             }
         ]
     },
@@ -2058,9 +2091,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'client-transport:http:no-reconnect-after-response': {
         source: 'sdk',
-        behavior: 'A POST-initiated stream that already delivered its response is not reconnected when it closes.',
+        behavior:
+            'A POST-initiated stream that already delivered its response — a JSON-RPC result OR a JSON-RPC error response, both of which complete the request — is not reconnected when it closes.',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        knownFailures: [
+            {
+                test: 'error response',
+                note: 'src/client/streamableHttp.ts:353 sets receivedResponse only for isJSONRPCResultResponse; a JSON-RPC ERROR response leaves it false, so when the primed POST stream closes the transport schedules a spurious Last-Event-ID reconnect GET. Expected fix: also accept isJSONRPCErrorResponse there; when no reconnect is attempted this arm flips red — remove this entry.'
+            }
+        ]
     },
     'client-transport:http:protocol-version-header': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header',
@@ -2125,7 +2165,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Session-id continuity testing requires the per-session host (validates session recovery/GET stream behavior).',
         knownFailures: [
             {
-                note: 'src/client/streamableHttp.ts error-wrapping code: SSE body-stream errors wrapped as new Error(`SSE stream disconnected: ...`) with no .cause, losing original instance/stack.'
+                note: 'src/client/streamableHttp.ts error-wrapping code: SSE body-stream errors wrapped as new Error(`SSE stream disconnected: ...`) with no .cause, losing original instance/stack. The test primes the stream with a VALID JSON-RPC notification so the first onerror capture is this wrapper itself (a malformed priming frame would put a parse error in front of it and the flip could never fire). Flips red when the wrapper preserves the original error as the instance or via .cause — then remove this entry.'
             }
         ]
     },
@@ -2146,9 +2186,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'client-auth:403-scope-upgrade': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#step-up-authorization-flow',
-        behavior: 'A 403 with WWW-Authenticate triggers a scope-upgrade authorization attempt; repeated 403s do not loop.',
+        behavior:
+            'A 403 with WWW-Authenticate triggers a scope-upgrade authorization attempt — on the refresh-token path the upgraded scope set parsed from the challenge is carried on the /token request; repeated 403s do not loop.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        knownFailures: [
+            {
+                test: 'refresh-token scope',
+                note: "The refresh branch never threads the challenge scope through: src/client/auth.ts calls refreshAuthorization() without a scope, and refreshAuthorization() builds the /token body with only grant_type + refresh_token. The granted scope therefore cannot broaden on the refresh path — only the interactive redirect carries the upgraded scope (locked by the untitled arm). Expected fix: pass the scope parsed from the 403's WWW-Authenticate challenge into the refresh-token grant body; when the /token body carries it this arm flips red — remove this entry."
+            }
+        ]
     },
     'client-auth:as-metadata-discovery:priority-order': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-server-metadata-discovery',

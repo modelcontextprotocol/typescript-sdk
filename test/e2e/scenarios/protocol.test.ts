@@ -1045,6 +1045,31 @@ verifies('protocol:error:data-roundtrip', async ({ transport, protocolVersion }:
     await expect(call).rejects.toMatchObject({ code: ErrorCode.InternalError, data });
 });
 
+verifies(
+    'protocol:error:data-roundtrip',
+    async ({ transport, protocolVersion }: TestArgs) => {
+        // McpServer path: the spec-correct outcome is the same rejection the raw-Server arm proves,
+        // but McpServer's tool-handler catch converts the McpError into an {isError:true} text result
+        // (which cannot carry .data), so callTool resolves instead — see the knownFailure entry.
+        const data = { detail: 'x', nested: { n: 1 } };
+        const makeServer = () => {
+            const s = new McpServer({ name: 's', version: '0' });
+            s.registerTool('explode', { inputSchema: z.object({}) }, () => {
+                throw new McpError(ErrorCode.InvalidParams, 'boom', data);
+            });
+            return s;
+        };
+        const client = newClient();
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+        const call = client.callTool({ name: 'explode', arguments: {} });
+
+        await expect(call).rejects.toBeInstanceOf(McpError);
+        await expect(call).rejects.toMatchObject({ code: ErrorCode.InvalidParams, data });
+    },
+    { title: 'mcpserver tool path' }
+);
+
 verifies('typescript:protocol:error:data-absent', async ({ transport, protocolVersion }: TestArgs) => {
     // Raw Server so the thrown McpError reaches the protocol layer's error envelope.
     const makeServer = () => {

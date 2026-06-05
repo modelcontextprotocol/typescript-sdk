@@ -446,6 +446,48 @@ verifies('client-auth:403-scope-upgrade', async (_args: TestArgs) => {
     }
 });
 
+verifies(
+    'client-auth:403-scope-upgrade',
+    async (_args: TestArgs) => {
+        // Refresh arm of the scope upgrade: a caching client (refresh token on hand) answering a 403
+        // insufficient_scope challenge must carry the upgraded scope set on the refresh-token grant —
+        // otherwise the "upscoped" token it receives is never actually broader.
+        const UPGRADED_SCOPE = 'mcp:read mcp:write mcp:admin';
+        const insufficientScopeHeader = `Bearer error="insufficient_scope", scope="${UPGRADED_SCOPE}", resource_metadata="${MCP_URL}/.well-known/oauth-protected-resource"`;
+
+        const as = createMockAuthorizationServer({
+            tokenResponses: [{ access_token: 'upscoped-access-token', token_type: 'Bearer' }]
+        });
+        const provider = new RecordingOAuthClientProvider({
+            tokens: { access_token: 'narrow-scope-token', token_type: 'Bearer', refresh_token: 'narrow-refresh-token' },
+            clientInformation: { client_id: 'pre-registered-client' }
+        });
+
+        const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+            const urlObj = typeof url === 'string' ? new URL(url) : url;
+            if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+                return as.handleRequest(new Request(url, init));
+            }
+            return new Response(null, { status: 403, headers: { 'WWW-Authenticate': insufficientScopeHeader } });
+        };
+
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+        try {
+            await expect(client.connect(transport)).rejects.toThrow();
+
+            expect(as.tokenCalls).toHaveLength(1);
+            expect(as.tokenCalls[0].body.get('grant_type')).toBe('refresh_token');
+            // The upgraded scope parsed from the WWW-Authenticate challenge must reach the /token body.
+            expect(as.tokenCalls[0].body.get('scope')).toBe(UPGRADED_SCOPE);
+        } finally {
+            await client.close();
+        }
+    },
+    { title: 'refresh-token scope' }
+);
+
 verifies('client-auth:as-metadata-discovery:priority-order', async (_args: TestArgs) => {
     const oauthMetadata: AuthorizationServerMetadata = {
         issuer: ISSUER,
