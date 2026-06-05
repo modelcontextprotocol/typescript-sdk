@@ -1698,12 +1698,17 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'transport:streamable-http:stateless-restrictions': {
         source: 'sdk',
         behavior:
-            'A handler that attempts a server-initiated request in stateless mode fails with an error result, because there is no session to call back through.',
+            'A handler that attempts a server-initiated request — sampling/createMessage, elicitation/create, or roots/list — in stateless mode fails with an error result, because there is no session to call back through.',
         transports: ['streamableHttpStateless'],
-        note: 'The exercised behavior depends on stateless hosting; the test runs as streamableHttpStateless to test the specific stateless condition.',
+        note: 'The exercised behavior depends on stateless hosting; the test runs as streamableHttpStateless to test the specific stateless condition. The elicitation arm carries no knownFailure: elicitInput already fails fast at tip via its client-capability gate (capabilities are unknowable per-request under stateless hosting), so that cell is a positive lock.',
         knownFailures: [
             {
-                note: 'Under stateless hosting a server-to-client request (e.g. sampling/createMessage) with no GET stream and no relatedRequestId is silently dropped by send(), so the tool call hangs instead of failing fast with an error result.'
+                test: 'sampling',
+                note: 'Under stateless hosting a server-to-client request (here sampling/createMessage) with no GET stream and no relatedRequestId is silently dropped by send(), so the tool call hangs instead of failing fast with an error result. Split per request kind so a partial fail-fast fix flips exactly its own cell red; remove each entry as its kind is fixed.'
+            },
+            {
+                test: 'roots',
+                note: 'Under stateless hosting a server-to-client request (here roots/list) with no GET stream and no relatedRequestId is silently dropped by send(), so the tool call hangs instead of failing fast with an error result. Split per request kind so a partial fail-fast fix flips exactly its own cell red; remove each entry as its kind is fixed.'
             }
         ]
     },
