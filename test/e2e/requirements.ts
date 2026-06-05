@@ -2181,7 +2181,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior: 'If the server still returns 401 after a successful authorization, the client fails instead of looping.',
         transports: ['streamableHttp'],
-        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        knownFailures: [
+            {
+                test: 'standalone GET 401 refresh loop',
+                note: "The 401 handler for the standalone SSE GET (src/client/streamableHttp.ts) re-enters the open-stream/auth cycle with no equivalent of the POST path's completed-auth-flow circuit breaker: every successful token refresh re-opens the GET, so a caching client keeps cycling (one refresh per loop) for as long as the refresh grant succeeds — and it succeeds indefinitely, because refreshAuthorization preserves the prior refresh token when the response omits one. The test caps the mock token endpoint after three refreshes so the loop terminates observably. Expected fix: bound the GET-side auth retry like the POST path; the GET count then stays at two and this arm flips red — remove this entry."
+            }
+        ]
     },
     'client-auth:401-triggers-flow': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#protected-resource-metadata-discovery-requirements',
@@ -2251,7 +2257,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-code-protection',
         behavior: 'Client refuses to proceed when AS metadata advertises code_challenge_methods_supported without S256.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
+        knownFailures: [
+            {
+                test: 'absent methods field',
+                note: 'The refusal condition in src/client/auth.ts requires code_challenge_methods_supported to be PRESENT without S256; when the field is absent entirely the check short-circuits and the flow proceeds assuming S256. Spec 2025-11-25 (authorization-code protection) requires the client to refuse unless the AS advertises S256 support, which an absent field does not. Expected fix: treat an absent field as lack of S256 support; the flow then stops before any redirect and this arm flips red — remove this entry.'
+            }
+        ]
     },
     'client-auth:pkce:s256': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-code-protection',
@@ -2299,6 +2311,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'typescript:client-auth:scope-selection:client-metadata-fallback': {
+        source: 'sdk',
+        behavior:
+            'When neither the WWW-Authenticate challenge nor the PRM document supplies a scope, the scope configured on clientMetadata is used as the fallback (SEP-835 tier 3), and the same resolved value is carried on both the dynamic client registration and the authorization request.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'typescript:client-auth:state:verify': {
         source: 'sdk',
         behavior: 'SDK calls provider.state?.() and includes the returned value as the state parameter in the authorize URL.',
@@ -2336,6 +2355,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior:
             'An access token the client considers expired is transparently refreshed before the next request, using the stored refresh token; the refresh request includes the resource indicator and the new token is persisted.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'typescript:client-auth:refresh:server-error-fallback': {
+        source: 'sdk',
+        behavior:
+            'When the token refresh attempt fails with an OAuth server_error (or a non-OAuth error), the client swallows the failure and falls back to a fresh interactive authorization without invalidating any stored credentials; typed token-endpoint errors with their own handling (invalid_grant, invalid_client) propagate instead.',
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },

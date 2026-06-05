@@ -66,7 +66,7 @@ interface MockASConfig {
 function createMockAuthorizationServer(config: MockASConfig = {}) {
     const tokenCalls: Array<{ method: string; headers: Record<string, string>; body: URLSearchParams }> = [];
     const authorizeCalls: Array<{ url: URL; params: URLSearchParams }> = [];
-    const registerCalls: Array<{ body: Record<string, unknown> }> = [];
+    const registerCalls: Array<{ body: Record<string, unknown>; url: string }> = [];
     const discoveryCalls: string[] = [];
 
     let tokenIndex = 0;
@@ -117,12 +117,14 @@ function createMockAuthorizationServer(config: MockASConfig = {}) {
             });
         }
 
-        if (path === '/authorize') {
+        // Endpoints are matched against the advertised metadata (not hardcoded defaults) so tests can
+        // serve non-default paths and prove the SDK uses the *discovered* endpoints rather than fallbacks.
+        if (path === new URL(asMetadata.authorization_endpoint).pathname) {
             authorizeCalls.push({ url, params: new URLSearchParams(url.search) });
             return new Response('Authorization page', { status: 200 });
         }
 
-        if (path === '/token' && req.method === 'POST') {
+        if (path === new URL(asMetadata.token_endpoint).pathname && req.method === 'POST') {
             const bodyText = await req.text();
             const body = new URLSearchParams(bodyText);
             const headers: Record<string, string> = {};
@@ -146,9 +148,9 @@ function createMockAuthorizationServer(config: MockASConfig = {}) {
             });
         }
 
-        if (path === '/register' && req.method === 'POST') {
+        if (asMetadata.registration_endpoint && path === new URL(asMetadata.registration_endpoint).pathname && req.method === 'POST') {
             const body: Record<string, unknown> = await req.json();
-            registerCalls.push({ body });
+            registerCalls.push({ body, url: req.url });
             // RFC 7591: the registration response echoes the submitted metadata plus issued credentials.
             const response = {
                 ...body,
@@ -371,6 +373,122 @@ verifies('client-auth:401-after-auth-throws', async (_args: TestArgs) => {
     }
 });
 
+verifies(
+    'client-auth:401-after-auth-throws',
+    async (_args: TestArgs) => {
+        // GET arm, interactive client: the standalone SSE GET is rejected with 401 while POSTs succeed.
+        // The auth flow runs once; a REDIRECT outcome surfaces as an error instead of re-opening the GET.
+        const as = createMockAuthorizationServer();
+        const provider = new RecordingOAuthClientProvider({
+            tokens: { access_token: 'stale-access-token', token_type: 'Bearer' },
+            clientInformation: { client_id: 'pre-registered-client' }
+        });
+        const mcpHost = hostPerSession(() => new McpServer({ name: 's', version: '0' }));
+
+        const mcpGets: string[] = [];
+        // POSTs are accepted so connect() succeeds; only the standalone GET /mcp SSE open keeps 401ing.
+        const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+            const urlObj = typeof url === 'string' ? new URL(url) : url;
+            if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+                return as.handleRequest(new Request(url, init));
+            }
+            if (init?.method === 'GET') {
+                mcpGets.push(urlObj.pathname);
+                return new Response(null, {
+                    status: 401,
+                    headers: { 'WWW-Authenticate': `Bearer resource_metadata="${MCP_URL}/.well-known/oauth-protected-resource"` }
+                });
+            }
+            return mcpHost.handleRequest(new Request(url, init));
+        };
+
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+        const surfacedErrors: Error[] = [];
+        client.onerror = e => {
+            surfacedErrors.push(e);
+        };
+        try {
+            await client.connect(transport);
+
+            await vi.waitFor(() => expect(surfacedErrors.length).toBeGreaterThan(0), { timeout: 5000 });
+
+            // Exactly one GET was attempted; its 401 entered the auth flow once (no refresh token, so
+            // it goes interactive), and the REDIRECT outcome surfaced as an error — no GET retry loop.
+            expect(mcpGets).toHaveLength(1);
+            expect(provider.redirectedTo).toHaveLength(1);
+            expect(as.tokenCalls).toHaveLength(0);
+            expect(surfacedErrors[0]).toBeInstanceOf(UnauthorizedError);
+        } finally {
+            await client.close();
+            await mcpHost.close();
+        }
+    },
+    { title: 'standalone GET 401 redirect' }
+);
+
+verifies(
+    'client-auth:401-after-auth-throws',
+    async (_args: TestArgs) => {
+        // GET arm, caching client: every successful refresh re-opens the standalone SSE GET, which the
+        // server keeps rejecting with 401. The client must stop after one post-auth retry instead of
+        // looping for as long as the refresh grant keeps succeeding (and it succeeds indefinitely:
+        // the SDK preserves the prior refresh token whenever the token response omits one).
+        const as = createMockAuthorizationServer();
+        const provider = new RecordingOAuthClientProvider({
+            tokens: { access_token: 'stale-access-token', token_type: 'Bearer', refresh_token: 'rt-1' },
+            clientInformation: { client_id: 'pre-registered-client' }
+        });
+        const mcpHost = hostPerSession(() => new McpServer({ name: 's', version: '0' }));
+
+        const mcpGets: string[] = [];
+        const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+            const urlObj = typeof url === 'string' ? new URL(url) : url;
+            if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+                // Degrade the token endpoint after three refreshes so the cycle observably terminates;
+                // without this cap a looping client would refresh successfully forever.
+                if (urlObj.pathname === '/token' && as.tokenCalls.length >= 3) {
+                    return new Response(JSON.stringify({ error: 'server_error', error_description: 'token endpoint degraded' }), {
+                        status: 400,
+                        headers: { 'Content-Type': 'application/json' }
+                    });
+                }
+                return as.handleRequest(new Request(url, init));
+            }
+            if (init?.method === 'GET') {
+                mcpGets.push(urlObj.pathname);
+                return new Response(null, {
+                    status: 401,
+                    headers: { 'WWW-Authenticate': `Bearer resource_metadata="${MCP_URL}/.well-known/oauth-protected-resource"` }
+                });
+            }
+            return mcpHost.handleRequest(new Request(url, init));
+        };
+
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+        const surfacedErrors: Error[] = [];
+        client.onerror = e => {
+            surfacedErrors.push(e);
+        };
+        try {
+            await client.connect(transport);
+
+            await vi.waitFor(() => expect(surfacedErrors.length).toBeGreaterThan(0), { timeout: 5000 });
+
+            // One initial GET plus at most one post-auth retry; the second 401 must surface an error
+            // rather than running another refresh + GET cycle.
+            expect(mcpGets.length).toBeLessThanOrEqual(2);
+        } finally {
+            await client.close();
+            await mcpHost.close();
+        }
+    },
+    { title: 'standalone GET 401 refresh loop' }
+);
+
 verifies('client-auth:403-scope-upgrade', async (_args: TestArgs) => {
     const UPGRADED_SCOPE = 'mcp:read mcp:write mcp:admin';
     const insufficientScopeHeader = `Bearer error="insufficient_scope", scope="${UPGRADED_SCOPE}", resource_metadata="${MCP_URL}/.well-known/oauth-protected-resource"`;
@@ -440,6 +558,15 @@ verifies('client-auth:403-scope-upgrade', async (_args: TestArgs) => {
 
         expect(refreshAs.tokenCalls).toHaveLength(1);
         expect(refreshAs.tokenCalls[0].body.get('grant_type')).toBe('refresh_token');
+        expect(refreshAs.tokenCalls[0].body.get('refresh_token')).toBe('narrow-refresh-token');
+        // Mechanism pin, not an endorsement: on insufficient_scope a caching client prefers the
+        // refresh grant, and the refresh /token body is built WITHOUT the challenged scope (no scope
+        // param at all) — so the "upscoped" token can never actually be broader. This is the same gap
+        // the 'refresh-token scope' knownFailure arm asserts from the spec side; when the SDK starts
+        // threading the challenge scope into the refresh body, that arm flips red and these two
+        // absence assertions must be dropped together with it.
+        expect(refreshAs.tokenCalls[0].body.get('scope')).toBeNull();
+        expect([...refreshAs.tokenCalls[0].body.keys()].sort()).toEqual(['client_id', 'grant_type', 'refresh_token', 'resource']);
         expect(refreshMcpRequests).toHaveLength(2);
     } finally {
         await refreshClient.close();
@@ -688,7 +815,9 @@ verifies('client-auth:client-credentials', async (_args: TestArgs) => {
 });
 
 verifies('client-auth:dcr', async (_args: TestArgs) => {
-    const as = createMockAuthorizationServer();
+    // The registration endpoint lives at a NON-default path: an SDK that hardcodes /register
+    // (instead of using the discovered registration_endpoint) gets a 404 and the flow fails.
+    const as = createMockAuthorizationServer({ asMetadata: { registration_endpoint: `${ISSUER}/oauth2/dcr` } });
     const provider = new RecordingOAuthClientProvider();
     const mcpHost = createAuthenticatedHost('dcr-token');
     const combinedFetch = createCombinedFetch({ as, mcpHost, validToken: 'dcr-token' });
@@ -699,8 +828,9 @@ verifies('client-auth:dcr', async (_args: TestArgs) => {
     try {
         await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
 
-        // No client_id was preconfigured, so the SDK must register at the AS /register endpoint.
+        // No client_id was preconfigured, so the SDK must register at the *discovered* registration endpoint.
         expect(as.registerCalls).toHaveLength(1);
+        expect(new URL(as.registerCalls[0].url).pathname).toBe('/oauth2/dcr');
         expect(as.registerCalls[0].body.client_name).toBe('Test Client');
         expect(as.registerCalls[0].body.redirect_uris).toContain('http://localhost:3000/callback');
 
@@ -783,10 +913,65 @@ verifies('client-auth:invalid-grant-clears-tokens', async (_args: TestArgs) => {
     }
 });
 
-verifies('client-auth:pkce:refuse-if-unsupported', async (_args: TestArgs) => {
-    // AS metadata advertises code_challenge_methods_supported without S256 (only "plain").
-    const as = createMockAuthorizationServer({ refusePKCE: true });
-    const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'pkce-strict-client' } });
+verifies(
+    'client-auth:invalid-grant-clears-tokens',
+    async (_args: TestArgs) => {
+        // Authorization-code arm: invalid_grant can also surface from the code exchange (RFC 6749 §5.2,
+        // expired/reused code), not just the refresh grant. The same invalidation rule applies.
+        const as = createMockAuthorizationServer({
+            tokenErrorResponses: [
+                { error: 'invalid_grant', error_description: 'Authorization code expired' },
+                { error: 'invalid_grant', error_description: 'Authorization code expired' }
+            ]
+        });
+        const provider = new RecordingOAuthClientProvider({
+            clientInformation: { client_id: 'still-valid-client' }
+        });
+        const mcpHost = createAuthenticatedHost('token-never-issued');
+        const combinedFetch = createCombinedFetch({ as, mcpHost, validToken: 'token-never-issued' });
+
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+        try {
+            // First connect starts the interactive flow (saves the code verifier finishAuth needs).
+            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+            expect(provider.redirectedTo).toHaveLength(1);
+
+            // The exchange fails with invalid_grant; after invalidating tokens the error-driven retry
+            // re-attempts the exchange once (second token call), whose invalid_grant then propagates typed.
+            await expect(transport.finishAuth('expired-authorization-code')).rejects.toBeInstanceOf(InvalidGrantError);
+
+            expect(as.tokenCalls).toHaveLength(2);
+            for (const call of as.tokenCalls) {
+                expect(call.body.get('grant_type')).toBe('authorization_code');
+                expect(call.body.get('code')).toBe('expired-authorization-code');
+            }
+
+            // Only tokens are invalidated; the client registration is kept (no re-registration).
+            expect(provider.invalidatedCredentials).toEqual(['tokens']);
+            expect(provider.saved.tokens).toBeUndefined();
+            expect(provider.saved.clientInformation?.client_id).toBe('still-valid-client');
+            expect(as.registerCalls).toHaveLength(0);
+        } finally {
+            await client.close();
+            await mcpHost.close();
+        }
+    },
+    { title: 'authorization-code exchange' }
+);
+
+verifies('typescript:client-auth:refresh:server-error-fallback', async (_args: TestArgs) => {
+    // A transient token-endpoint failure (server_error) during refresh is swallowed: auth() falls
+    // back to a fresh interactive authorization WITHOUT invalidating any stored credentials. Typed
+    // errors with their own handling (invalid_grant, invalid_client) are covered by their own cells.
+    const as = createMockAuthorizationServer({
+        tokenErrorResponses: [{ error: 'server_error', error_description: 'AS temporarily broken' }]
+    });
+    const provider = new RecordingOAuthClientProvider({
+        tokens: { access_token: 'stale-access-token', token_type: 'Bearer', refresh_token: 'transient-refresh-token' },
+        clientInformation: { client_id: 'resilient-client' }
+    });
     const mcpHost = createAuthenticatedHost('token-never-issued');
     const combinedFetch = createCombinedFetch({ as, mcpHost, validToken: 'token-never-issued' });
 
@@ -794,17 +979,78 @@ verifies('client-auth:pkce:refuse-if-unsupported', async (_args: TestArgs) => {
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(/S256/);
+        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
 
-        // The flow stops before any user redirect or token request.
-        expect(provider.redirectedTo).toHaveLength(0);
-        expect(as.authorizeCalls).toHaveLength(0);
-        expect(as.tokenCalls).toHaveLength(0);
+        // Exactly one refresh attempt surfaced the server_error.
+        expect(as.tokenCalls).toHaveLength(1);
+        expect(as.tokenCalls[0].body.get('grant_type')).toBe('refresh_token');
+
+        // The failure was swallowed, not escalated: nothing is invalidated, the stored token set
+        // (including the refresh token) is kept, and the flow falls through to the redirect.
+        expect(provider.invalidatedCredentials).toEqual([]);
+        expect(provider.saved.tokens?.refresh_token).toBe('transient-refresh-token');
+        expect(provider.saved.clientInformation?.client_id).toBe('resilient-client');
+        expect(provider.redirectedTo).toHaveLength(1);
+        expect(as.registerCalls).toHaveLength(0);
     } finally {
         await client.close();
         await mcpHost.close();
     }
 });
+
+verifies('client-auth:pkce:refuse-if-unsupported', async (_args: TestArgs) => {
+    // The refusal must key on "S256 absent from a present list", not on one particular shape:
+    // only-plain, an empty list, and lowercase 's256' (the comparison is exact) must all refuse.
+    for (const methods of [['plain'], [], ['s256']]) {
+        const as = createMockAuthorizationServer({ asMetadata: { code_challenge_methods_supported: methods } });
+        const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'pkce-strict-client' } });
+        const mcpHost = createAuthenticatedHost('token-never-issued');
+        const combinedFetch = createCombinedFetch({ as, mcpHost, validToken: 'token-never-issued' });
+
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+        try {
+            await expect(client.connect(transport)).rejects.toThrow(/S256/);
+
+            // The flow stops before any user redirect or token request.
+            expect(provider.redirectedTo).toHaveLength(0);
+            expect(as.authorizeCalls).toHaveLength(0);
+            expect(as.tokenCalls).toHaveLength(0);
+        } finally {
+            await client.close();
+            await mcpHost.close();
+        }
+    }
+});
+
+verifies(
+    'client-auth:pkce:refuse-if-unsupported',
+    async (_args: TestArgs) => {
+        // Spec 2025-11-25 (authorization-code protection): the client must also refuse when the AS
+        // metadata omits code_challenge_methods_supported entirely — absence is not S256 support.
+        const as = createMockAuthorizationServer({ asMetadata: { code_challenge_methods_supported: undefined } });
+        const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'pkce-strict-client' } });
+        const mcpHost = createAuthenticatedHost('token-never-issued');
+        const combinedFetch = createCombinedFetch({ as, mcpHost, validToken: 'token-never-issued' });
+
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+        try {
+            await expect(client.connect(transport)).rejects.toThrow();
+
+            // The flow stops before any user redirect or token request.
+            expect(provider.redirectedTo).toHaveLength(0);
+            expect(as.authorizeCalls).toHaveLength(0);
+            expect(as.tokenCalls).toHaveLength(0);
+        } finally {
+            await client.close();
+            await mcpHost.close();
+        }
+    },
+    { title: 'absent methods field' }
+);
 
 verifies('client-auth:pkce:s256', async (_args: TestArgs) => {
     const as = createMockAuthorizationServer({ tokenResponses: [{ access_token: 'pkce-token', token_type: 'Bearer' }] });
@@ -946,6 +1192,52 @@ verifies('client-auth:prm-discovery:fallback-order', async (_args: TestArgs) => 
     expect(discoveryCalls[0]).toBe('/.well-known/oauth-protected-resource/mcp');
 });
 
+verifies(
+    'client-auth:prm-discovery:fallback-order',
+    async (_args: TestArgs) => {
+        // Header branch: when the 401's WWW-Authenticate carries resource_metadata, that exact URL is
+        // fetched and the well-known fallback locations are never probed. The PRM responder would
+        // answer at ANY oauth-protected-resource path, so only the recorded probe list distinguishes
+        // an SDK that honors the header from one that silently default-probes.
+        const HEADER_PRM_PATH = '/.well-known/oauth-protected-resource/from-header';
+        const as = createMockAuthorizationServer();
+        const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'header-prm-client' } });
+
+        const prmProbes: string[] = [];
+        const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+            const urlObj = typeof url === 'string' ? new URL(url) : url;
+            if (urlObj.pathname.includes('/.well-known/oauth-protected-resource')) {
+                prmProbes.push(urlObj.pathname);
+            }
+            if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+                return as.handleRequest(new Request(url, init));
+            }
+            return new Response(null, {
+                status: 401,
+                headers: { 'WWW-Authenticate': `Bearer resource_metadata="${new URL(MCP_URL).origin}${HEADER_PRM_PATH}"` }
+            });
+        };
+
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+        try {
+            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+
+            // Exactly one PRM fetch, at the header-provided URL — neither the path-aware nor the
+            // root well-known location is probed.
+            expect(prmProbes).toEqual([HEADER_PRM_PATH]);
+
+            // The flow proceeded on the header-discovered PRM (its AS drives the redirect).
+            expect(provider.redirectedTo).toHaveLength(1);
+            expect(provider.redirectedTo[0].origin).toBe(ISSUER);
+        } finally {
+            await client.close();
+        }
+    },
+    { title: 'header resource_metadata wins' }
+);
+
 verifies('client-auth:prm-discovery:no-prm-fallback', async (_args: TestArgs) => {
     const VALID = 'legacy-fallback-token';
     const as = createMockAuthorizationServer({
@@ -1026,6 +1318,59 @@ verifies('client-auth:prm-resource-mismatch', async (_args: TestArgs) => {
     }
 });
 
+verifies(
+    'client-auth:prm-resource-mismatch',
+    async (_args: TestArgs) => {
+        // The match is path-aware prefix matching, not an origin comparison.
+        // Phase 1: same origin but a non-prefix path must still be refused.
+        const mismatchAs = createMockAuthorizationServer({
+            prmMetadata: { resource: `${new URL(MCP_URL).origin}/wrong-tenant/mcp` }
+        });
+        const mismatchProvider = new RecordingOAuthClientProvider();
+        const mismatchHost = createAuthenticatedHost('token-never-issued');
+        const mismatchFetch = createCombinedFetch({ as: mismatchAs, mcpHost: mismatchHost, validToken: 'token-never-issued' });
+
+        const mismatchClient = new Client({ name: 'c', version: '0' });
+        const mismatchTransport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+            authProvider: mismatchProvider,
+            fetch: mismatchFetch
+        });
+
+        try {
+            await expect(mismatchClient.connect(mismatchTransport)).rejects.toThrow(/resource.*does not match/i);
+
+            expect(mismatchAs.registerCalls).toHaveLength(0);
+            expect(mismatchProvider.redirectedTo).toHaveLength(0);
+            expect(mismatchAs.tokenCalls).toHaveLength(0);
+        } finally {
+            await mismatchClient.close();
+            await mismatchHost.close();
+        }
+
+        // Phase 2: a PRM resource that is a path PREFIX of the server URL is accepted, and the flow
+        // proceeds requesting that broader resource (the metadata value, not the server URL).
+        const parentResource = `${new URL(MCP_URL).origin}/`;
+        const parentAs = createMockAuthorizationServer({ prmMetadata: { resource: parentResource } });
+        const parentProvider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'parent-resource-client' } });
+        const parentHost = createAuthenticatedHost('token-never-issued');
+        const parentFetch = createCombinedFetch({ as: parentAs, mcpHost: parentHost, validToken: 'token-never-issued' });
+
+        const parentClient = new Client({ name: 'c', version: '0' });
+        const parentTransport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: parentProvider, fetch: parentFetch });
+
+        try {
+            await expect(parentClient.connect(parentTransport)).rejects.toThrow(UnauthorizedError);
+
+            expect(parentProvider.redirectedTo).toHaveLength(1);
+            expect(parentProvider.redirectedTo[0].searchParams.get('resource')).toBe(parentResource);
+        } finally {
+            await parentClient.close();
+            await parentHost.close();
+        }
+    },
+    { title: 'path matching' }
+);
+
 verifies('client-auth:refresh:transparent', async (_args: TestArgs) => {
     const STALE = 'expired-access-token';
     const REFRESHED = 'refreshed-access-token';
@@ -1068,8 +1413,10 @@ verifies('client-auth:refresh:transparent', async (_args: TestArgs) => {
         expect(as.tokenCalls[0].body.get('refresh_token')).toBe('long-lived-refresh-token');
         expect(as.tokenCalls[0].body.get('resource')).toBe(RESOURCE);
 
-        // The refresh is transparent (no user-facing redirect) and the rotated token set is persisted.
+        // The refresh is transparent (no user-facing redirect, no re-registration of the stored client)
+        // and the rotated token set is persisted.
         expect(provider.redirectedTo).toHaveLength(0);
+        expect(as.registerCalls).toHaveLength(0);
         expect(provider.saved.tokens?.access_token).toBe(REFRESHED);
         expect(provider.saved.tokens?.refresh_token).toBe('rotated-refresh-token');
 
@@ -1106,36 +1453,90 @@ verifies('client-auth:resource-parameter', async (_args: TestArgs) => {
 });
 
 verifies('client-auth:scope-selection:priority', async (_args: TestArgs) => {
-    const as = createMockAuthorizationServer({ tokenResponses: [{ access_token: 'scope-token', token_type: 'Bearer' }] });
-    const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'scope-client' } });
-    const mcpHost = createAuthenticatedHost('scope-token');
+    // The precedence is only proven when the lower tiers are LIVE: every arm serves a fetchable PRM
+    // (and asserts it was fetched), so the challenge-scope arm beats a real scopes_supported value,
+    // the fallback arm joins ALL of a multi-element scopes_supported, and the omit arm drops the
+    // param only because no source supplies one.
+    const cases: Array<{ challengeScope?: string; prmScopes?: string[]; expected: string | null }> = [
+        { challengeScope: 'mcp:custom', prmScopes: ['prm:alpha', 'prm:beta'], expected: 'mcp:custom' },
+        { prmScopes: ['prm:alpha', 'prm:beta'], expected: 'prm:alpha prm:beta' },
+        { expected: null }
+    ];
 
-    const combinedFetch = (url: URL | string, init?: RequestInit) => {
-        const urlObj = typeof url === 'string' ? new URL(url) : url;
-        if (urlObj.origin === ISSUER) {
-            return as.handleRequest(new Request(url, init));
+    for (const { challengeScope, prmScopes, expected } of cases) {
+        const as = createMockAuthorizationServer({ prmMetadata: { scopes_supported: prmScopes } });
+        const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'scope-client' } });
+        const mcpHost = createAuthenticatedHost('token-never-issued');
+
+        const scopeAttr = challengeScope === undefined ? '' : ` scope="${challengeScope}"`;
+        const combinedFetch = (url: URL | string, init?: RequestInit) => {
+            const urlObj = typeof url === 'string' ? new URL(url) : url;
+            if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+                return Promise.resolve(as.handleRequest(new Request(url, init)));
+            }
+            const h = new Headers(init?.headers);
+            if (!h.has('authorization')) {
+                return Promise.resolve(
+                    new Response(null, {
+                        status: 401,
+                        headers: {
+                            'WWW-Authenticate': `Bearer resource_metadata="${MCP_URL}/.well-known/oauth-protected-resource"${scopeAttr}`
+                        }
+                    })
+                );
+            }
+            return mcpHost.handleRequest(new Request(url, init));
+        };
+
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+        try {
+            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+
+            // The PRM document was actually retrieved — the lower tier was live, not unreachable.
+            expect(as.discoveryCalls.some(p => p.includes('/.well-known/oauth-protected-resource'))).toBe(true);
+
+            const authorizeUrl = provider.redirectedTo[0];
+            expect(authorizeUrl.searchParams.get('scope')).toBe(expected);
+        } finally {
+            await client.close();
+            await mcpHost.close();
         }
-        const h = new Headers(init?.headers);
-        if (!h.has('authorization')) {
-            return Promise.resolve(
-                new Response(null, {
-                    status: 401,
-                    headers: {
-                        'WWW-Authenticate': `Bearer resource_metadata="${MCP_URL}/.well-known/oauth-protected-resource" scope="mcp:custom"`
-                    }
-                })
-            );
+    }
+});
+
+verifies('typescript:client-auth:scope-selection:client-metadata-fallback', async (_args: TestArgs) => {
+    // SEP-835 tier 3: when neither the WWW-Authenticate challenge nor the PRM document supplies a
+    // scope, the scope configured on clientMetadata is the fallback, and the same resolved value is
+    // used consistently for the authorization request and dynamic client registration.
+    const CONFIGURED_SCOPE = 'configured:read configured:write';
+
+    class ScopedMetadataProvider extends RecordingOAuthClientProvider {
+        override get clientMetadata() {
+            return { ...super.clientMetadata, scope: CONFIGURED_SCOPE };
         }
-        return mcpHost.handleRequest(new Request(url, init));
-    };
+    }
+
+    const as = createMockAuthorizationServer({ prmMetadata: { scopes_supported: undefined } });
+    const provider = new ScopedMetadataProvider();
+    const mcpHost = createAuthenticatedHost('token-never-issued');
+    const combinedFetch = createCombinedFetch({ as, mcpHost, validToken: 'token-never-issued' });
 
     const client = new Client({ name: 'c', version: '0' });
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
         await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
-        const authorizeUrl = provider.redirectedTo[0];
-        expect(authorizeUrl.searchParams.get('scope')).toBe('mcp:custom');
+
+        // The PRM was live but scope-less, so clientMetadata.scope is the only source.
+        expect(as.discoveryCalls.some(p => p.includes('/.well-known/oauth-protected-resource'))).toBe(true);
+
+        // DCR carried the resolved scope, and the authorization request used the same value.
+        expect(as.registerCalls).toHaveLength(1);
+        expect(as.registerCalls[0].body.scope).toBe(CONFIGURED_SCOPE);
+        expect(provider.redirectedTo).toHaveLength(1);
+        expect(provider.redirectedTo[0].searchParams.get('scope')).toBe(CONFIGURED_SCOPE);
     } finally {
         await client.close();
         await mcpHost.close();
@@ -1233,8 +1634,14 @@ verifies('client-auth:token-endpoint-auth-method', async (_args: TestArgs) => {
 });
 
 verifies('client-auth:low-level:discover-and-exchange', async (_args: TestArgs) => {
+    // The AS serves NON-default endpoint paths, so the helpers only succeed if they use the
+    // discovered metadata — an SDK falling back to the hardcoded /authorize and /token 404s.
     const as = createMockAuthorizationServer({
-        tokenResponses: [{ access_token: 'low-level-access-token', token_type: 'Bearer' }]
+        tokenResponses: [{ access_token: 'low-level-access-token', token_type: 'Bearer' }],
+        asMetadata: {
+            authorization_endpoint: `${ISSUER}/oauth2/auth`,
+            token_endpoint: `${ISSUER}/oauth2/token`
+        }
     });
     const discoveryFetch = (url: URL | string, init?: RequestInit) => as.handleRequest(new Request(url, init));
 
@@ -1253,8 +1660,8 @@ verifies('client-auth:low-level:discover-and-exchange', async (_args: TestArgs) 
         fetchFn: discoveryFetch
     });
     if (!asMetadata) throw new Error('authorization server metadata discovery returned undefined');
-    expect(asMetadata.authorization_endpoint).toBe(`${ISSUER}/authorize`);
-    expect(asMetadata.token_endpoint).toBe(`${ISSUER}/token`);
+    expect(asMetadata.authorization_endpoint).toBe(`${ISSUER}/oauth2/auth`);
+    expect(asMetadata.token_endpoint).toBe(`${ISSUER}/oauth2/token`);
 
     const { authorizationUrl, codeVerifier } = await startAuthorization(authorizationServer, {
         metadata: asMetadata,
