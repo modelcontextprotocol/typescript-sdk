@@ -23,7 +23,7 @@ afterEach(() => {
 });
 
 describe('CLI diagnostic behavior', () => {
-    it('warnings do not produce errors-level diagnostics', () => {
+    it('info diagnostics do not produce error-level diagnostics', () => {
         const dir = createTempDir();
         writeFileSync(
             path.join(dir, 'server.ts'),
@@ -36,9 +36,9 @@ describe('CLI diagnostic behavior', () => {
 
         const result = run(migration, { targetDir: dir });
 
-        const warnings = result.diagnostics.filter(d => d.level === DiagnosticLevel.Warning);
+        const infos = result.diagnostics.filter(d => d.level === DiagnosticLevel.Info);
         const errors = result.diagnostics.filter(d => d.level === DiagnosticLevel.Error);
-        expect(warnings.length).toBeGreaterThan(0);
+        expect(infos.length).toBeGreaterThan(0);
         expect(errors.length).toBe(0);
     });
 
