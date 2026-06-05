@@ -18,6 +18,7 @@ import { Server } from '../../../src/server/index.js';
 import { McpServer } from '../../../src/server/mcp.js';
 import type { EventStore } from '../../../src/server/webStandardStreamableHttp.js';
 import { type OAuthTokens, type OAuthClientMetadata, type OAuthClientInformationMixed } from '../../../src/shared/auth.js';
+import type { Transport } from '../../../src/shared/transport.js';
 import {
     type CallToolResult,
     ElicitationCompleteNotificationSchema,
@@ -26,15 +27,17 @@ import {
     ElicitRequestSchema,
     ElicitResultSchema,
     ErrorCode,
+    isJSONRPCErrorResponse,
     type JSONRPCMessage,
     ListResourcesRequestSchema,
     ListToolsRequestSchema,
+    McpError,
     type Progress,
     ReadResourceRequestSchema,
     UrlElicitationRequiredError
 } from '../../../src/types.js';
 
-import { hostPerSession, hostResumable, wire } from '../helpers/index.js';
+import { hostPerSession, hostResumable, tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
@@ -173,7 +176,31 @@ verifies('flow:elicitation:url-at-session-init', async (_args: TestArgs) => {
 
     const handle = hostPerSession(makeServer);
     const url = new URL('http://in-process/mcp');
-    const customFetch = (u: URL | string, init?: RequestInit) => handle.handleRequest(new Request(u, init));
+    // Tee every HTTP response body so the elicitation frame can be attributed to the response STREAM that carried
+    // it — the requirement's load-bearing clause is delivery over the standalone GET, and an SDK that delivered the
+    // unsolicited request on a POST's SSE response instead would otherwise pass every handler-level assertion.
+    const responses: Array<{ method: string; body: string }> = [];
+    const customFetch = async (u: URL | string, init?: RequestInit) => {
+        const res = await handle.handleRequest(new Request(u, init));
+        const entry = { method: init?.method ?? 'GET', body: '' };
+        responses.push(entry);
+        if (!res.body) return res;
+        const [observed, forwarded] = res.body.tee();
+        void (async () => {
+            const reader = observed.getReader();
+            const decoder = new TextDecoder();
+            try {
+                for (;;) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    entry.body += decoder.decode(value, { stream: true });
+                }
+            } catch {
+                // Stream torn down at session close — the accumulated prefix is what the assertions read.
+            }
+        })();
+        return new Response(forwarded, { status: res.status, statusText: res.statusText, headers: res.headers });
+    };
     const transport = new StreamableHTTPClientTransport(url, { fetch: customFetch });
 
     // Tap wire before connecting
@@ -200,6 +227,14 @@ verifies('flow:elicitation:url-at-session-init', async (_args: TestArgs) => {
         // Client has only sent initialize so far (no post-init requests)
         const requests = sent.filter(m => 'method' in m && 'id' in m);
         expect(requests.map(r => r.method)).toEqual(['initialize']);
+
+        // The elicitation frame arrived on the standalone GET stream and on NO POST response body.
+        await vi.waitFor(() =>
+            expect(responses.some(r => r.method === 'GET' && r.body.includes('"method":"elicitation/create"'))).toBe(true)
+        );
+        for (const r of responses.filter(r => r.method !== 'GET')) {
+            expect(r.body).not.toContain('"method":"elicitation/create"');
+        }
 
         // Session survived
         await expect(client.ping()).resolves.toBeDefined();
@@ -238,6 +273,7 @@ verifies('flow:elicitation:url-required-then-retry', async ({ transport, protoco
         completionsSeen.push(n.params.elicitationId);
     });
     await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+    const tap = tapWire(client);
 
     // Step 1: first call rejects with UrlElicitationRequiredError
     const err = await client.callTool({ name: 'url-gated', arguments: {} }).catch(e => e);
@@ -249,6 +285,19 @@ verifies('flow:elicitation:url-required-then-retry', async ({ transport, protoco
     expect(elicitation.mode).toBe('url');
     expect(typeof elicitation.elicitationId).toBe('string');
     expect(elicitation.url).toMatch(/^https?:\/\//);
+
+    // Wire ABI: the raw inbound error frame carries the LITERAL -32042 and the elicitations array in error.data.
+    // Deliberately not the ErrorCode enum — a symmetric renumber (server writes X, client maps X back to
+    // UrlElicitationRequiredError) keeps every reconstructed-object assertion green while breaking cross-version
+    // wire interop; only the literal catches it.
+    const errorFrames = tap.received.filter(isJSONRPCErrorResponse);
+    expect(errorFrames).toHaveLength(1);
+    expect(errorFrames[0].error.code).toBe(-32042);
+    const wireData = errorFrames[0].error.data as { elicitations?: unknown[] };
+    expect(Array.isArray(wireData.elicitations)).toBe(true);
+    expect(wireData.elicitations).toEqual([
+        { mode: 'url', message: 'Please sign in', elicitationId: elicitation.elicitationId, url: 'https://example.com/auth' }
+    ]);
 
     // Step 2: user "opens" the URL (out-of-band, simulated by marking complete)
     completed.add(elicitation.elicitationId);
@@ -837,4 +886,36 @@ verifies('flow:proxy:forward-tools-resources', async ({ transport, protocolVersi
     expect(annotatedRes).toBeDefined();
     expect(annotatedRes!.name).toBe('annotated');
     expect(annotatedRes!._meta).toEqual({ 'example.com/fixture': true });
+});
+
+verifies('typescript:consumer:close-during-connect', async (_args: TestArgs) => {
+    // Consumer-shaped transport that never answers initialize, standing in for a hung server at connect time.
+    // Consumers race connect() against their own timeout and call transport.close() directly on expiry.
+    const sent: Array<{ method?: string }> = [];
+    const tx: Transport = {
+        async start() {},
+        async send(message) {
+            sent.push(message as { method?: string });
+        },
+        async close() {
+            this.onclose?.();
+        }
+    };
+
+    const client = new Client({ name: 'c', version: '0' });
+    const pending = client.connect(tx);
+    const settled = pending.catch((e: unknown) => e);
+
+    // Let connect reach the point a real timeout would catch it at: initialize is on the wire, no answer yet.
+    await vi.waitFor(() => expect(sent.map(m => m.method)).toEqual(['initialize']));
+
+    await tx.close();
+
+    const err = await settled;
+    expect(err).toBeInstanceOf(McpError);
+    expect((err as McpError).code).toBe(ErrorCode.ConnectionClosed);
+    // The client is reusable, not wedged: the dead transport is detached.
+    expect(client.transport).toBeUndefined();
+    // Nothing beyond initialize ever went out.
+    expect(sent.map(m => m.method)).toEqual(['initialize']);
 });

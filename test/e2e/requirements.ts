@@ -984,7 +984,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#capabilities',
         behavior: 'The server refuses to send an elicitation request with a mode the connected client did not declare in its capabilities.',
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.',
+        knownFailures: [
+            {
+                test: 'raw-bypass',
+                note: "The untitled body proves the elicitInput helper's mode gate (src/server/index.ts elicitInput refuses before sending). This arm proves the protocol layer does NOT enforce the same rule: Server.assertCapabilityForMethod checks only that the client declared *some* elicitation capability, not the requested mode, so a raw elicitation/create with mode 'url' sent via extra.sendRequest still reaches a form-only client over the wire (the client wrapper then rejects it with -32602 before the user handler runs — that half stays asserted). The spec requires the server to refuse to SEND. Expected fix: a mode-aware check in the server-side outgoing-request capability gate; once it lands no elicitation/create frame reaches the wire, this body passes, and this entry must be removed."
+            }
+        ]
     },
     'elicitation:form:action:accept': {
         transports: STATEFUL_TRANSPORTS,
@@ -1039,7 +1045,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#response-actions',
         behavior:
-            'A URL-mode elicitation delivers the message, URL, and elicitationId to the client; an accept response carries no content (accept means the user agreed to visit the URL, not that the interaction completed).',
+            'A URL-mode elicitation delivers the message, URL, and elicitationId to the client, and the SDK round-trips a content-less accept faithfully (accept means the user agreed to visit the URL, not that the interaction completed). The SDK does not itself strip or reject content supplied on a url-mode accept — it passes through to the requesting handler (pinned by the content-passthrough arm), so keeping url-mode accepts content-less is the responsibility of the responding client author.',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'elicitation:url:basic': {
@@ -2482,7 +2488,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#url-elicitation-required-error',
         behavior:
-            'A tool call rejected with the URL-elicitation-required error can be retried successfully after the client completes the URL flow and the server announces completion.',
+            'A tool call rejected with the URL-elicitation-required error can be retried successfully after the client completes the URL flow and the server announces completion. The rejection is a wire-ABI contract, not just a reconstructed class: the raw JSON-RPC error frame carries the literal code -32042 with error.data.elicitations as an array of the pending elicitations.',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'flow:multi-client:stateful-isolation': {
@@ -2527,6 +2533,27 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This is a multi-hop proxy flow that should work across transports; restricted to inMemory and streamableHttp to avoid test matrix bloat.'
     },
     // Consumer-contract additions (sourced from real SDK dependents)
+    'typescript:consumer:elicitation-handler-replacement': {
+        transports: STATEFUL_TRANSPORTS,
+        source: 'sdk',
+        behavior:
+            'Registering an ElicitRequestSchema request handler on a Client that already has one replaces it (last write wins), whether the re-registration happens before connect or mid-session: the newest handler answers subsequent elicitations and the replaced handler is never invoked. Consumers install a refuse-all default handler at startup and swap in the real handler once their UI wiring is ready, so a duplicate-registration guard (throw, warn-and-skip, or first-write-wins) would break that init sequence.',
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+    },
+    'typescript:consumer:close-during-connect': {
+        source: 'sdk',
+        behavior:
+            'Calling transport.close() directly while client.connect() is still pending settles the pending connect with a rejection (McpError, ErrorCode.ConnectionClosed) instead of hanging or throwing out of band, and leaves client.transport cleared. Consumers race connect() against their own timeout and call transport.close() on expiry, so this path runs on every consumer connect timeout.',
+        transports: ['inMemory'],
+        note: 'The test supplies its own custom Transport implementation that never answers initialize, so the matrix transport arg is ignored; it runs as a single inMemory-labelled cell to avoid duplicate runs.'
+    },
+    'typescript:consumer:oauth-provider-isolation': {
+        source: 'sdk',
+        behavior:
+            "Two OAuthClientProviders driving two clients against the same server stay fully isolated, even when the flows run concurrently: each transport consults only its own provider, every request carries only that provider's access token, and each provider's saved client information, code verifier, state, and tokens are exactly the ones produced by its own flow (gateway consumers run one provider per user against a shared upstream).",
+        transports: ['streamableHttp'],
+        note: 'This exercises the Streamable HTTP client transport and the OAuthClientProvider seam directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'typescript:consumer:result-validation-error': {
         source: 'sdk',
         behavior:

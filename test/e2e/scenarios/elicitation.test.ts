@@ -493,6 +493,40 @@ verifies('elicitation:url:action:accept-no-content', async ({ transport, protoco
     expect(r.content).toEqual([{ type: 'text', text: 'action:accept,hasContent:false' }]);
 });
 
+verifies(
+    'elicitation:url:action:accept-no-content',
+    async ({ transport, protocolVersion }: TestArgs) => {
+        // The SDK has no url-mode content enforcement: the client wrapper validates only the mode-agnostic
+        // ElicitResultSchema and the elicitInput url branch returns the result unvalidated. This arm pins the
+        // pass-through, so if either side ever starts stripping or rejecting content on a url-mode accept, the
+        // change shows up here and gets a conscious review instead of shipping silently.
+        const makeServer = () => {
+            const s = new McpServer({ name: 's', version: '0' });
+            s.registerTool('auth', { inputSchema: z.object({}) }, async () => {
+                const ans = await s.server.elicitInput({
+                    mode: 'url',
+                    message: 'Please sign in',
+                    elicitationId: 'url-3',
+                    url: 'https://example.com/auth'
+                });
+                return {
+                    content: [{ type: 'text', text: `action:${ans.action},content:${JSON.stringify(ans.content)}` }]
+                };
+            });
+            return s;
+        };
+
+        const client = urlClient();
+        client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'accept', content: { note: 'should-be-absent' } }));
+
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+        const r = await client.callTool({ name: 'auth', arguments: {} });
+        expect(r.content).toEqual([{ type: 'text', text: 'action:accept,content:{"note":"should-be-absent"}' }]);
+    },
+    { title: 'content-passthrough' }
+);
+
 verifies('elicitation:url:action:cancel', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
@@ -615,9 +649,14 @@ verifies('elicitation:url:complete-unknown-ignored', async ({ transport, protoco
     const errors: Error[] = [];
     const client = urlClient();
     client.onerror = e => errors.push(e);
-    client.setNotificationHandler(ElicitationCompleteNotificationSchema, n => {
+    // Observed via fallbackNotificationHandler, NOT setNotificationHandler: a specific registration would Map.set-
+    // REPLACE any future built-in notifications/elicitation/complete handler (none exists at tip), hiding exactly
+    // the strictness regression this cell exists to catch. With the fallback, a built-in handler that starts
+    // erroring on unknown/completed ids keeps its place and surfaces through errors[]; a built-in that swallows the
+    // notifications flips the delivery assert below, flagging the displacement for a conscious re-point.
+    client.fallbackNotificationHandler = async n => {
         notifications.push({ method: n.method, params: n.params });
-    });
+    };
 
     await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
@@ -637,23 +676,33 @@ verifies('elicitation:url:complete-unknown-ignored', async ({ transport, protoco
     ]);
     expect(errors).toEqual([]);
 
+    // Session still fully live after the ignored notifications: request roundtrips in both shapes succeed.
     const after = await client.callTool({ name: 'noop', arguments: {} });
     expect(after.isError).toBeFalsy();
     expect(after.content).toEqual([]);
+    await expect(client.ping()).resolves.toBeDefined();
 });
 
 verifies('elicitation:url:required-error', async ({ transport, protocolVersion }: TestArgs) => {
+    // Two pending elicitations: the spec says the error data includes a LIST, so N≥2 must round-trip, not just a singleton.
+    const pending = [
+        {
+            mode: 'url' as const,
+            message: 'Please authenticate',
+            elicitationId: 'err-1',
+            url: 'https://example.com/oauth'
+        },
+        {
+            mode: 'url' as const,
+            message: 'Please link your account',
+            elicitationId: 'err-2',
+            url: 'https://example.com/link'
+        }
+    ];
     const makeServer = () => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('auth-required', { inputSchema: z.object({}) }, () => {
-            throw new UrlElicitationRequiredError([
-                {
-                    mode: 'url',
-                    message: 'Please authenticate',
-                    elicitationId: 'err-1',
-                    url: 'https://example.com/oauth'
-                }
-            ]);
+            throw new UrlElicitationRequiredError(pending);
         });
         return s;
     };
@@ -664,14 +713,37 @@ verifies('elicitation:url:required-error', async ({ transport, protocolVersion }
     const err = await client.callTool({ name: 'auth-required', arguments: {} }).catch(e => e);
     if (!(err instanceof UrlElicitationRequiredError)) throw new Error(`expected UrlElicitationRequiredError, got ${err}`);
     expect(err.code).toBe(ErrorCode.UrlElicitationRequired);
-    expect(err.elicitations).toHaveLength(1);
-    expect(err.elicitations[0]).toMatchObject({
-        mode: 'url',
-        message: 'Please authenticate',
-        elicitationId: 'err-1',
-        url: 'https://example.com/oauth'
-    });
+    expect(err.elicitations).toEqual(pending);
 });
+
+verifies(
+    'elicitation:url:required-error',
+    async ({ transport, protocolVersion }: TestArgs) => {
+        // Non-tool sibling: tools/call is the ONLY McpServer wrapper that catches handler errors into isError
+        // results and special-cases -32042 to rethrow. resources/read has no catch wrapper, so the thrown error
+        // takes the plain protocol error path — this arm locks that the -32042 contract holds there too.
+        const makeServer = () => {
+            const s = new McpServer({ name: 's', version: '0' });
+            s.registerResource('gated', 'gated://doc', {}, () => {
+                throw new UrlElicitationRequiredError([
+                    { mode: 'url', message: 'Please authenticate', elicitationId: 'res-err-1', url: 'https://example.com/oauth' }
+                ]);
+            });
+            return s;
+        };
+
+        const client = urlClient();
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+        const err = await client.readResource({ uri: 'gated://doc' }).catch(e => e);
+        if (!(err instanceof UrlElicitationRequiredError)) throw new Error(`expected UrlElicitationRequiredError, got ${err}`);
+        expect(err.code).toBe(ErrorCode.UrlElicitationRequired);
+        expect(err.elicitations).toEqual([
+            { mode: 'url', message: 'Please authenticate', elicitationId: 'res-err-1', url: 'https://example.com/oauth' }
+        ]);
+    },
+    { title: 'resource-handler' }
+);
 
 verifies('elicitation:capability:empty-is-form', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
@@ -764,9 +836,60 @@ verifies('elicitation:capability:server-respects-mode', async ({ transport, prot
 
     const r = await client.callTool({ name: 'auth', arguments: {} });
     expect(r.isError).toBeFalsy();
-    expect(r.content).toEqual([{ type: 'text', text: expect.stringMatching(/^refused:.*url elicitation/i) }]);
+    // Exact server-gate message (already pinned verbatim by elicitation:capability:not-declared): discriminates the
+    // elicitInput gate from the client-side wrapper rejection, which a loose /url elicitation/i regex could not.
+    expect(r.content).toEqual([{ type: 'text', text: 'refused:Client does not support url elicitation.' }]);
     expect(reachedClient).toBe(0);
 });
+
+verifies(
+    'elicitation:capability:server-respects-mode',
+    async ({ transport, protocolVersion }: TestArgs) => {
+        // The untitled body above drives the elicitInput helper, whose own gate refuses undeclared modes. This arm
+        // bypasses the helper: a raw elicitation/create with mode 'url' sent via extra.sendRequest against a
+        // form-only client. The spec says the server must refuse to SEND it, so no elicitation/create frame may
+        // reach the wire. knownFailure: the protocol-layer capability gate is mode-blind today (see requirements.ts).
+        const makeServer = () => {
+            const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
+            s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [{ name: 'auth', inputSchema: { type: 'object' } }] }));
+            s.setRequestHandler(CallToolRequestSchema, async (_req, extra) => {
+                try {
+                    await extra.sendRequest(
+                        {
+                            method: 'elicitation/create',
+                            params: { mode: 'url', message: 'Sign in', elicitationId: 'bypass-1', url: 'https://example.com/auth' }
+                        },
+                        ElicitResultSchema
+                    );
+                    return { content: [{ type: 'text', text: 'completed' }] };
+                } catch (e) {
+                    if (!(e instanceof McpError)) throw e;
+                    return { content: [{ type: 'text', text: `error:${e.code}` }] };
+                }
+            });
+            return s;
+        };
+
+        let handlerInvoked = 0;
+        const client = formClient();
+        client.setRequestHandler(ElicitRequestSchema, async () => {
+            handlerInvoked++;
+            return { action: 'accept' };
+        });
+
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+        const tap = tapWire(client);
+
+        await client.callTool({ name: 'auth', arguments: {} });
+
+        // True at tip AND after the fix: the user-level handler never runs for an undeclared mode.
+        expect(handlerInvoked).toBe(0);
+        // The MUST NOT under test: no elicitation/create frame crosses the wire. Fails at tip (the frame is sent and
+        // only the client wrapper rejects it); passes once the server gains a mode-aware send gate.
+        expect(tap.received.filter(m => 'method' in m && m.method === 'elicitation/create')).toEqual([]);
+    },
+    { title: 'raw-bypass' }
+);
 
 verifies('elicitation:capability:not-declared', async ({ transport, protocolVersion }: TestArgs) => {
     const makeServer = () => {
@@ -814,4 +937,45 @@ verifies('elicitation:capability:not-declared', async ({ transport, protocolVers
     expect(url.content).toEqual([{ type: 'text', text: 'refused:Client does not support url elicitation.' }]);
 
     expect(tap.received.filter(m => 'method' in m && m.method === 'elicitation/create')).toEqual([]);
+});
+
+verifies('typescript:consumer:elicitation-handler-replacement', async ({ transport, protocolVersion }: TestArgs) => {
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('ask', { inputSchema: z.object({}) }, async () => {
+            const ans = await s.server.elicitInput({
+                mode: 'form',
+                message: 'Name?',
+                requestedSchema: { type: 'object', properties: { name: { type: 'string' } } }
+            });
+            return {
+                content: [{ type: 'text', text: `${ans.action}:${ans.action === 'accept' ? String(ans.content?.name) : ''}` }]
+            };
+        });
+        return s;
+    };
+
+    // Consumers install a refuse-all default handler at startup…
+    let defaultInvoked = 0;
+    const client = formClient();
+    client.setRequestHandler(ElicitRequestSchema, async () => {
+        defaultInvoked++;
+        return { action: 'cancel' };
+    });
+    // …and replace it with the real handler once UI wiring is ready. Registration must be last-write-wins:
+    // a duplicate-registration guard in the client elicitation branch would throw right here.
+    client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'accept', content: { name: 'Ada' } }));
+
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+    const first = await client.callTool({ name: 'ask', arguments: {} });
+    expect(first.content).toEqual([{ type: 'text', text: 'accept:Ada' }]);
+
+    // Replacement also works mid-session (the wrapper re-wraps on every registration).
+    client.setRequestHandler(ElicitRequestSchema, async () => ({ action: 'accept', content: { name: 'Grace' } }));
+    const second = await client.callTool({ name: 'ask', arguments: {} });
+    expect(second.content).toEqual([{ type: 'text', text: 'accept:Grace' }]);
+
+    // The replaced default never ran.
+    expect(defaultInvoked).toBe(0);
 });

@@ -2194,3 +2194,164 @@ verifies('client-transport:sse:401-unauthorized-code', async (_args: TestArgs) =
         await authTransport.close();
     }
 });
+
+verifies('typescript:consumer:oauth-provider-isolation', async (_args: TestArgs) => {
+    // Gateway shape: one upstream server, two users, one OAuthClientProvider per user. The full authorization-code
+    // flow runs for both, with the connect (discovery + redirect) phases interleaved concurrently; nothing from one
+    // flow may leak into the other provider's persisted state or onto the other transport's requests.
+    const as = createMockAuthorizationServer({
+        tokenResponses: [
+            { access_token: 'token-a', token_type: 'Bearer' },
+            { access_token: 'token-b', token_type: 'Bearer' }
+        ]
+    });
+    const validTokens = new Set(['token-a', 'token-b']);
+    const mcpHost = hostPerSession(() => {
+        const s = new McpServer({ name: 's', version: '0' });
+        // The hosting helper does no bearer verification of its own, so identity is read from the raw request
+        // headers the SDK forwards into the handler — proving which credential reached this session's server.
+        s.registerTool('whoami', { inputSchema: z.object({}) }, (_a, extra) => ({
+            content: [{ type: 'text', text: `auth:${extra.requestInfo?.headers['authorization']}` }]
+        }));
+        return s;
+    });
+
+    const makeProvider = (tag: string, clientId: string) => {
+        const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: clientId } });
+        // Deterministic, distinguishable state values (the shared recording provider's default is time-based and
+        // two providers created in the same millisecond would collide, blinding the isolation asserts).
+        provider.state = () => {
+            provider.saved.state = `state-${tag}`;
+            return provider.saved.state;
+        };
+        return provider;
+    };
+    const providerA = makeProvider('a', 'client-a');
+    const providerB = makeProvider('b', 'client-b');
+
+    // Per-client recording fetch against the SHARED host + AS: tags every MCP request with the Authorization
+    // header it carried. The host accepts either valid token, so cross-contamination would NOT 401 — only the
+    // per-transport recordings can prove each client sent its own.
+    const makeRecordingFetch = (recorded: Array<{ method: string; authorization: string | null }>) => {
+        return async (url: URL | string, init?: RequestInit): Promise<Response> => {
+            const urlObj = typeof url === 'string' ? new URL(url) : url;
+            if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+                return as.handleRequest(new Request(url, init));
+            }
+            const headers = new Headers(init?.headers);
+            recorded.push({ method: init?.method ?? 'GET', authorization: headers.get('authorization') });
+            const token = headers.get('authorization')?.replace(/^Bearer /, '');
+            if (!token) {
+                return new Response(null, {
+                    status: 401,
+                    headers: { 'WWW-Authenticate': `Bearer resource_metadata="${MCP_URL}/.well-known/oauth-protected-resource"` }
+                });
+            }
+            if (!validTokens.has(token)) {
+                return new Response(null, { status: 401 });
+            }
+            return mcpHost.handleRequest(new Request(url, init));
+        };
+    };
+    const requestsA: Array<{ method: string; authorization: string | null }> = [];
+    const requestsB: Array<{ method: string; authorization: string | null }> = [];
+
+    const clientA = new Client({ name: 'a', version: '0' });
+    const clientB = new Client({ name: 'b', version: '0' });
+    const transportA = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+        authProvider: providerA,
+        fetch: makeRecordingFetch(requestsA)
+    });
+    const transportB = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+        authProvider: providerB,
+        fetch: makeRecordingFetch(requestsB)
+    });
+
+    let verifierA!: string;
+    let verifierB!: string;
+    try {
+        // Phase 1 — both interactive flows start CONCURRENTLY against the same AS.
+        await Promise.all([
+            expect(clientA.connect(transportA)).rejects.toThrow(UnauthorizedError),
+            expect(clientB.connect(transportB)).rejects.toThrow(UnauthorizedError)
+        ]);
+
+        // Each provider holds exactly its own flow state: its client_id, its state value, and a code challenge
+        // derived from its OWN verifier (the cross-pair must NOT match).
+        expect(providerA.redirectedTo).toHaveLength(1);
+        expect(providerB.redirectedTo).toHaveLength(1);
+        const authUrlA = providerA.redirectedTo[0];
+        const authUrlB = providerB.redirectedTo[0];
+        expect(authUrlA.searchParams.get('client_id')).toBe('client-a');
+        expect(authUrlB.searchParams.get('client_id')).toBe('client-b');
+        expect(authUrlA.searchParams.get('state')).toBe('state-a');
+        expect(authUrlB.searchParams.get('state')).toBe('state-b');
+        verifierA = providerA.saved.codeVerifier!;
+        verifierB = providerB.saved.codeVerifier!;
+        expect(verifierA).not.toBe(verifierB);
+        expect(authUrlA.searchParams.get('code_challenge')).toBe(createHash('sha256').update(verifierA).digest('base64url'));
+        expect(authUrlB.searchParams.get('code_challenge')).toBe(createHash('sha256').update(verifierB).digest('base64url'));
+
+        // Phase 2 — finish both flows; each token exchange carries its own code and its own verifier.
+        await transportA.finishAuth('code-a');
+        await transportB.finishAuth('code-b');
+        expect(as.tokenCalls).toHaveLength(2);
+        expect(as.tokenCalls[0].body.get('code')).toBe('code-a');
+        expect(as.tokenCalls[0].body.get('code_verifier')).toBe(verifierA);
+        expect(as.tokenCalls[0].body.get('client_id')).toBe('client-a');
+        expect(as.tokenCalls[1].body.get('code')).toBe('code-b');
+        expect(as.tokenCalls[1].body.get('code_verifier')).toBe(verifierB);
+        expect(as.tokenCalls[1].body.get('client_id')).toBe('client-b');
+        expect(providerA.saved.tokens?.access_token).toBe('token-a');
+        expect(providerB.saved.tokens?.access_token).toBe('token-b');
+    } finally {
+        await Promise.all([clientA.close(), clientB.close()]);
+    }
+
+    // Phase 3 — fresh transports, same providers (the consumer pattern: providers persist, transports come and
+    // go). Connect and call CONCURRENTLY; every request each transport makes must carry its own provider's token.
+    const clientA2 = new Client({ name: 'a2', version: '0' });
+    const clientB2 = new Client({ name: 'b2', version: '0' });
+    requestsA.length = 0;
+    requestsB.length = 0;
+    try {
+        await Promise.all([
+            clientA2.connect(
+                new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: providerA, fetch: makeRecordingFetch(requestsA) })
+            ),
+            clientB2.connect(
+                new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: providerB, fetch: makeRecordingFetch(requestsB) })
+            )
+        ]);
+        const [resultA, resultB] = await Promise.all([
+            clientA2.callTool({ name: 'whoami', arguments: {} }),
+            clientB2.callTool({ name: 'whoami', arguments: {} })
+        ]);
+        // The server saw each client authenticated as itself.
+        expect(resultA.content).toEqual([{ type: 'text', text: 'auth:Bearer token-a' }]);
+        expect(resultB.content).toEqual([{ type: 'text', text: 'auth:Bearer token-b' }]);
+
+        // Bearer isolation on EVERY request either transport made — including the standalone GET.
+        await vi.waitFor(() => expect(requestsA.some(r => r.method === 'GET')).toBe(true));
+        await vi.waitFor(() => expect(requestsB.some(r => r.method === 'GET')).toBe(true));
+        for (const req of requestsA) {
+            expect(req.authorization).toBe('Bearer token-a');
+        }
+        for (const req of requestsB) {
+            expect(req.authorization).toBe('Bearer token-b');
+        }
+
+        // Provider state untouched by the other flow end-to-end.
+        expect(providerA.saved).toMatchObject({
+            clientInformation: { client_id: 'client-a' },
+            codeVerifier: verifierA,
+            tokens: { access_token: 'token-a' }
+        });
+        expect(providerB.saved).toMatchObject({
+            clientInformation: { client_id: 'client-b' },
+            tokens: { access_token: 'token-b' }
+        });
+    } finally {
+        await Promise.all([clientA2.close(), clientB2.close(), mcpHost.close()]);
+    }
+});
