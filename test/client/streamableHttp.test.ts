@@ -124,6 +124,51 @@ describe('StreamableHTTPClientTransport', () => {
         expect(lastCall[1].headers.get('mcp-session-id')).toBe('test-session-id');
     });
 
+    it('should adopt a rotated session ID from a later response and echo it onwards', async () => {
+        const initMessage: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'initialize',
+            params: {
+                clientInfo: { name: 'test-client', version: '1.0' },
+                protocolVersion: '2025-03-26'
+            },
+            id: 'init-id'
+        };
+
+        (global.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 200,
+            headers: new Headers({ 'content-type': 'text/event-stream', 'mcp-session-id': 'session-before-rotation' })
+        });
+
+        await transport.send(initMessage);
+        expect(transport.sessionId).toBe('session-before-rotation');
+
+        // A later response carries a NEW Mcp-Session-Id: the client must adopt the rotation,
+        // not keep the id captured first
+        (global.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers({ 'mcp-session-id': 'session-after-rotation' })
+        });
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
+        expect(transport.sessionId).toBe('session-after-rotation');
+
+        // … and every subsequent request carries the rotated id
+        (global.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send({ jsonrpc: '2.0', method: 'test2', params: {} } as JSONRPCMessage);
+
+        const calls = (global.fetch as Mock).mock.calls;
+        const lastCall = calls[calls.length - 1];
+        expect(lastCall[1].headers.get('mcp-session-id')).toBe('session-after-rotation');
+    });
+
     it('should terminate session with DELETE request', async () => {
         // First, simulate getting a session ID
         const message: JSONRPCMessage = {
@@ -587,6 +632,34 @@ describe('StreamableHTTPClientTransport', () => {
         expect((actualReqInit.headers as Headers).get('x-custom-header')).toBe('CustomValue');
     });
 
+    it('should prefer requestInit headers over authProvider headers on collision', async () => {
+        mockAuthProvider.tokens.mockResolvedValue({
+            access_token: 'provider-token',
+            token_type: 'Bearer',
+            expires_in: 3600
+        });
+
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            authProvider: mockAuthProvider,
+            requestInit: { headers: { Authorization: 'Bearer requestinit-token' } }
+        });
+
+        (global.fetch as Mock).mockResolvedValueOnce({
+            ok: true,
+            status: 202,
+            headers: new Headers()
+        });
+
+        await transport.send({ jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' } as JSONRPCMessage);
+
+        // The auth provider was consulted, so its Authorization header was in play …
+        expect(mockAuthProvider.tokens).toHaveBeenCalled();
+
+        // … but on collision the caller-supplied requestInit header wins
+        const headers = (global.fetch as Mock).mock.calls[0][1]?.headers as Headers;
+        expect(headers.get('Authorization')).toBe('Bearer requestinit-token');
+    });
+
     it('should have exponential backoff with configurable maxRetries', () => {
         // This test verifies the maxRetries and backoff calculation directly
 
@@ -691,6 +764,63 @@ describe('StreamableHTTPClientTransport', () => {
                 resourceMetadataUrl: new URL('http://example.com/resource')
             })
         );
+
+        authSpy.mockRestore();
+    });
+
+    it('replaces (not unions) a previously granted scope on 403 insufficient_scope', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const fetchMock = global.fetch as Mock;
+
+        // Spy on the imported auth function and mock successful authorization
+        const authModule = await import('../../src/client/auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        // Establish a PRIOR granted scope via a 401 challenge that carries scope, then succeed
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer error="invalid_token", scope="mcp:read"' }),
+                text: () => Promise.resolve('Unauthorized')
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+        await transport.send(message);
+        expect(authSpy).toHaveBeenCalledTimes(1);
+        expect(authSpy.mock.calls[0][1]).toMatchObject({ scope: 'mcp:read' });
+
+        // A 403 insufficient_scope challenge REPLACES the stored scope: the step-up auth call
+        // requests exactly the challenged scope, never a union with the prior grant
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="mcp:write"' }),
+                text: () => Promise.resolve('Insufficient scope')
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers()
+            });
+
+        await transport.send(message);
+        expect(authSpy).toHaveBeenCalledTimes(2);
+        expect(authSpy.mock.calls[1][1]).toMatchObject({ scope: 'mcp:write' });
 
         authSpy.mockRestore();
     });

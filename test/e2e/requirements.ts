@@ -2525,6 +2525,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'typescript:client-transport:http:session-rotation-adopted': {
+        source: 'sdk',
+        behavior:
+            'An Mcp-Session-Id header on any later POST response replaces the stored session id: the client adopts the rotated id and sends it on every subsequent request.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'client-transport:http:reconnect-failure-onerror': {
         source: 'sdk',
         behavior:
