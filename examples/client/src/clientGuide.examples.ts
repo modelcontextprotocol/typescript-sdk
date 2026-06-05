@@ -490,7 +490,7 @@ async function errorHandling_timeout(client: Client) {
     //#region errorHandling_timeout
     try {
         const result = await client.callTool(
-            { name: 'slow-task', arguments: {} },
+            { name: 'slow-operation', arguments: {} },
             { timeout: 120_000 } // 2 minutes instead of the default 60 seconds
         );
         console.log(result.content);
@@ -530,7 +530,7 @@ async function resumptionToken_basic(client: Client) {
     const result = await client.request(
         {
             method: 'tools/call',
-            params: { name: 'long-running-task', arguments: {} }
+            params: { name: 'long-running-operation', arguments: {} }
         },
         {
             resumptionToken: lastToken,

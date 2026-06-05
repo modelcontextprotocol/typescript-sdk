@@ -2,13 +2,14 @@ import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { info, warning } from '../../../utils/diagnostics.js';
+import { isKeyPositionIdentifier } from '../../../utils/astUtils.js';
+import { actionRequired, info } from '../../../utils/diagnostics.js';
 import { hasMcpImports } from '../../../utils/importUtils.js';
 import { CONTEXT_PROPERTY_MAP, CTX_PARAM_NAME, EXTRA_PARAM_NAME } from '../mappings/contextPropertyMap.js';
 
 const HANDLER_METHODS = new Set(['setRequestHandler', 'setNotificationHandler']);
 
-const REGISTER_METHODS = new Set(['registerTool', 'registerPrompt', 'registerResource', 'registerToolTask', 'tool', 'prompt', 'resource']);
+const REGISTER_METHODS = new Set(['registerTool', 'registerPrompt', 'registerResource', 'tool', 'prompt', 'resource']);
 
 /**
  * Attempt to rename the second parameter of a callback from 'extra' to 'ctx'
@@ -32,9 +33,9 @@ function processCallback(
     const paramNameNode = extraParam.getNameNode();
     if (Node.isObjectBindingPattern(paramNameNode)) {
         diagnostics.push(
-            warning(
+            actionRequired(
                 sourceFile.getFilePath(),
-                extraParam.getStartLineNumber(),
+                extraParam,
                 `Destructuring of context parameter in signature: "${paramNameNode.getText()}". ` +
                     'Properties have been reorganized in v2 (e.g., signal is now ctx.mcpReq.signal). Manual refactoring required.'
             )
@@ -49,9 +50,9 @@ function processCallback(
     const otherParams = callbackNode.getParameters().filter(p => p !== extraParam);
     if (otherParams.some(p => p.getName() === CTX_PARAM_NAME)) {
         diagnostics.push(
-            warning(
+            actionRequired(
                 sourceFile.getFilePath(),
-                extraParam.getStartLineNumber(),
+                extraParam,
                 `Cannot rename '${EXTRA_PARAM_NAME}' to '${CTX_PARAM_NAME}': another parameter is already named '${CTX_PARAM_NAME}'. Manual migration required.`
             )
         );
@@ -74,9 +75,9 @@ function processCallback(
         });
         if (ctxAlreadyInScope) {
             diagnostics.push(
-                warning(
+                actionRequired(
                     sourceFile.getFilePath(),
-                    extraParam.getStartLineNumber(),
+                    extraParam,
                     `Cannot rename '${EXTRA_PARAM_NAME}' to '${CTX_PARAM_NAME}': '${CTX_PARAM_NAME}' is already referenced in this scope. Manual migration required.`
                 )
             );
@@ -98,11 +99,7 @@ function processCallback(
         body.forEachDescendant(node => {
             if (!Node.isIdentifier(node) || node.getText() !== EXTRA_PARAM_NAME) return;
             const parent = node.getParent();
-            // Skip property-name positions (e.g., meta.extra, { extra: value }, { extra }, { extra: x } = obj)
-            if (parent && Node.isPropertyAccessExpression(parent) && parent.getNameNode() === node) return;
-            if (parent && Node.isPropertyAssignment(parent) && parent.getNameNode() === node) return;
-            if (parent && Node.isShorthandPropertyAssignment(parent)) return;
-            if (parent && Node.isBindingElement(parent) && parent.getPropertyNameNode() === node) return;
+            if (parent && isKeyPositionIdentifier(node)) return;
             identifiers.push(node);
         });
 
@@ -130,6 +127,11 @@ function processCallback(
                         continue;
                     }
                 }
+            }
+            // Shorthand property assignment: { extra } → { extra: ctx }
+            if (parent && Node.isShorthandPropertyAssignment(parent)) {
+                replacements.push({ node: parent, newText: `${EXTRA_PARAM_NAME}: ${CTX_PARAM_NAME}` });
+                continue;
             }
             replacements.push({ node: id, newText: CTX_PARAM_NAME });
         }
@@ -163,9 +165,9 @@ function processCallback(
             const nameNode = node.getNameNode();
             if (!Node.isObjectBindingPattern(nameNode)) return;
             diagnostics.push(
-                warning(
+                actionRequired(
                     sourceFile.getFilePath(),
-                    node.getStartLineNumber(),
+                    node,
                     `Destructuring of context parameter detected: "const ${nameNode.getText()} = ${CTX_PARAM_NAME}". ` +
                         'Properties have been reorganized in v2 (e.g., signal is now ctx.mcpReq.signal). Manual refactoring required.'
                 )
@@ -219,7 +221,7 @@ export const contextTypesTransform: Transform = {
 
                 if (!callbackArg) continue;
 
-                // Handle ObjectLiteralExpression for registerToolTask-style callbacks
+                // Handle ObjectLiteralExpression callback containers (handler maps)
                 if (Node.isObjectLiteralExpression(callbackArg)) {
                     for (const prop of callbackArg.getProperties()) {
                         let callbackNode: Node | undefined;

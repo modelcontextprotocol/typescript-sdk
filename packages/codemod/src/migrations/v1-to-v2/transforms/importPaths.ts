@@ -2,7 +2,7 @@ import type { SourceFile } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { renameAllReferences } from '../../../utils/astUtils.js';
-import { info, v2Gap, warning } from '../../../utils/diagnostics.js';
+import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics.js';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
@@ -82,7 +82,7 @@ export const importPathsTransform: Transform = {
             }
 
             if (!mapping) {
-                diagnostics.push(warning(filePath, line, `Unknown SDK import path: ${specifier}. Manual migration required.`));
+                diagnostics.push(actionRequired(filePath, imp, `Unknown SDK import path: ${specifier}. Manual migration required.`));
                 continue;
             }
 
@@ -125,9 +125,9 @@ export const importPathsTransform: Transform = {
                         effectiveTarget = mapping.symbolTargetOverrides[namedImports[0]!.getName()]!;
                     } else if (namedImports.some(n => n.getName() in mapping.symbolTargetOverrides!)) {
                         diagnostics.push(
-                            warning(
+                            actionRequired(
                                 filePath,
-                                line,
+                                imp,
                                 `Aliased import from ${specifier} mixes symbols that belong to different v2 packages. ` +
                                     `Split the import manually so each symbol targets the correct package.`
                             )
@@ -145,9 +145,9 @@ export const importPathsTransform: Transform = {
                     }
                     if (namespaceImport) {
                         diagnostics.push(
-                            warning(
+                            actionRequired(
                                 filePath,
-                                line,
+                                imp,
                                 `Namespace import of ${specifier}: exported symbol(s) ${Object.keys(mapping.renamedSymbols).join(', ')} ` +
                                     `were renamed in ${effectiveTarget}. Update qualified accesses manually.`
                             )
@@ -234,7 +234,7 @@ function rewriteExportDeclarations(
         }
 
         if (!mapping) {
-            diagnostics.push(warning(filePath, line, `Unknown SDK export path: ${specifier}. Manual migration required.`));
+            diagnostics.push(actionRequired(filePath, exp, `Unknown SDK export path: ${specifier}. Manual migration required.`));
             continue;
         }
 
@@ -269,9 +269,9 @@ function rewriteExportDeclarations(
                 targetPackage = mapping.symbolTargetOverrides[namedExports[0]!.getName()]!;
             } else if (namedExports.some(s => s.getName() in mapping.symbolTargetOverrides!)) {
                 diagnostics.push(
-                    warning(
+                    actionRequired(
                         filePath,
-                        line,
+                        exp,
                         `Re-export from ${specifier} mixes symbols that belong to different v2 packages. ` +
                             `Split the export manually so each symbol targets the correct package.`
                     )
@@ -288,7 +288,7 @@ function rewriteExportDeclarations(
                 spec.setName(newName);
             }
             if (REEXPORT_WARNINGS[name]) {
-                diagnostics.push(warning(filePath, line, REEXPORT_WARNINGS[name]!));
+                diagnostics.push(actionRequired(filePath, exp, REEXPORT_WARNINGS[name]!));
             }
         }
         changesCount++;

@@ -2,8 +2,8 @@ import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { warning } from '../../../utils/diagnostics.js';
-import { isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils.js';
+import { actionRequired } from '../../../utils/diagnostics.js';
+import { hasMcpImports, isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils.js';
 import { NOTIFICATION_SCHEMA_TO_METHOD, SCHEMA_TO_METHOD } from '../mappings/schemaToMethodMap.js';
 
 const ALL_SCHEMA_TO_METHOD: Record<string, string> = {
@@ -15,6 +15,10 @@ export const handlerRegistrationTransform: Transform = {
     name: 'Handler registration migration',
     id: 'handlers',
     apply(sourceFile: SourceFile, _context: TransformContext): TransformResult {
+        if (!hasMcpImports(sourceFile)) {
+            return { changesCount: 0, diagnostics: [] };
+        }
+
         let changesCount = 0;
         const diagnostics: Diagnostic[] = [];
 
@@ -40,9 +44,9 @@ export const handlerRegistrationTransform: Transform = {
             const methodString = ALL_SCHEMA_TO_METHOD[originalName];
             if (!methodString) {
                 diagnostics.push(
-                    warning(
+                    actionRequired(
                         sourceFile.getFilePath(),
-                        call.getStartLineNumber(),
+                        call,
                         `Custom method handler: ${methodName}(${schemaName}, ...). ` +
                             `In v2, use the 3-arg form: ${methodName}('method/name', { params, result? }, handler). ` +
                             `See migration.md for details.`

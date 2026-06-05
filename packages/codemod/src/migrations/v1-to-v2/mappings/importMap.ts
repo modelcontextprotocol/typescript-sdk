@@ -34,14 +34,8 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         status: 'moved'
     },
     '@modelcontextprotocol/sdk/client/stdio.js': {
-        target: '@modelcontextprotocol/client',
-        status: 'moved',
-        symbolTargetOverrides: {
-            StdioClientTransport: '@modelcontextprotocol/client/stdio',
-            DEFAULT_INHERITED_ENV_VARS: '@modelcontextprotocol/client/stdio',
-            getDefaultEnvironment: '@modelcontextprotocol/client/stdio',
-            StdioServerParameters: '@modelcontextprotocol/client/stdio'
-        }
+        target: '@modelcontextprotocol/client/stdio',
+        status: 'moved'
     },
     '@modelcontextprotocol/sdk/client/websocket.js': {
         target: '',
@@ -152,12 +146,14 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
 
     '@modelcontextprotocol/sdk/experimental/tasks': {
-        target: '@modelcontextprotocol/server',
-        status: 'moved'
+        target: '',
+        status: 'removed',
+        removalMessage: 'Experimental tasks removed in v2 (SEP-2663 — tasks moved to the Extensions Track). No v2 equivalent.'
     },
     '@modelcontextprotocol/sdk/experimental/tasks.js': {
-        target: '@modelcontextprotocol/server',
-        status: 'moved'
+        target: '',
+        status: 'removed',
+        removalMessage: 'Experimental tasks removed in v2 (SEP-2663 — tasks moved to the Extensions Track). No v2 equivalent.'
     },
 
     '@modelcontextprotocol/sdk/inMemory.js': {
