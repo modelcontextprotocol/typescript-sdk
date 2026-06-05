@@ -12,6 +12,7 @@ import { Validator } from '@cfworker/json-schema';
 
 import { assertSchemaSafeToCompile } from './schemaBounds';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
+import { MCP_DEFAULT_SCHEMA_DIALECT } from './types';
 
 /**
  * JSON Schema draft version supported by `@cfworker/json-schema`.

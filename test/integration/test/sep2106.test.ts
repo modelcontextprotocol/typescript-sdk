@@ -13,7 +13,7 @@
 import { Client } from '@modelcontextprotocol/client';
 import type { TextContent } from '@modelcontextprotocol/core';
 import { InMemoryTransport } from '@modelcontextprotocol/core';
-import { McpServer } from '@modelcontextprotocol/server';
+import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -79,6 +79,54 @@ describe('SEP-2106: JSON Schema 2020-12 tool output', () => {
         expect(result.structuredContent).toBe(0);
         // Non-object value gets a serialized text fallback.
         expect(textBlocks(result.content).map(t => t.text)).toEqual(['0']);
+    });
+
+    // R-2106-6 + the `=== undefined` (not truthiness) fix in client/server: every falsy JSON value
+    // must round-trip as real structured content, not be mistaken for "absent". `0` is covered above;
+    // this pins `false`, `""`, and `null` so the truthiness bug cannot regress.
+    test.each([
+        { name: 'false', schema: z.boolean(), value: false, text: 'false' },
+        { name: 'empty-string', schema: z.string(), value: '', text: '""' },
+        { name: 'null', schema: z.null(), value: null, text: 'null' }
+    ])('round-trips falsy structured content: $name', async ({ name, schema, value, text }) => {
+        mcpServer.registerTool(name, { outputSchema: schema }, () => ({ content: [], structuredContent: value }));
+        await connect();
+
+        const result = await client.callTool({ name, arguments: {} });
+
+        expect(result.isError).toBeFalsy();
+        expect(result.structuredContent).toBe(value);
+        // Non-object falsy values also get a serialized text fallback for pre-SEP clients.
+        expect(textBlocks(result.content).map(t => t.text)).toEqual([text]);
+    });
+
+    // R-2106-9/11/12: the SSRF / composition-DoS guards are wired into the *shipped default* validator,
+    // not just unit-tested in isolation. Registering a raw JSON Schema outputSchema via the public
+    // `fromJsonSchema` entry point compiles it through that default validator, so an unsafe schema
+    // surfaces as a clean, descriptive error at registration — never an opaque crash or a network fetch.
+    describe('schema safety guards surface cleanly through the default validator', () => {
+        test('rejects a non-local $ref outputSchema (SSRF guard)', () => {
+            expect(() => fromJsonSchema({ $ref: 'https://evil.example/schema.json' })).toThrow(/non-local|external reference/i);
+        });
+
+        test('rejects an over-deep outputSchema (composition-DoS depth bound)', () => {
+            // Build a schema nested far deeper than the default depth bound (64).
+            let deep: Record<string, unknown> = { type: 'object' };
+            for (let i = 0; i < 200; i++) {
+                deep = { type: 'object', properties: { nested: deep } };
+            }
+            expect(() => fromJsonSchema(deep)).toThrow(/too deeply nested|max depth/i);
+        });
+
+        test('accepts a same-document $ref outputSchema (local refs are allowed)', () => {
+            expect(() =>
+                fromJsonSchema({
+                    type: 'object',
+                    properties: { self: { $ref: '#/$defs/node' } },
+                    $defs: { node: { type: 'string' } }
+                })
+            ).not.toThrow();
+        });
     });
 
     test('does not add a text fallback for object structuredContent', async () => {

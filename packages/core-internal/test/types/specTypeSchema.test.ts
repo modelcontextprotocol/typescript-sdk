@@ -12,7 +12,8 @@ import type {
     JSONRPCRequest,
     JSONValue,
     ResourceTemplateType,
-    Tool
+    Tool,
+    ToolResultContent
 } from '../../src/types/types';
 
 describe('specTypeSchemas', () => {
@@ -159,6 +160,38 @@ describe('SpecTypeName / SpecTypes (type-level)', () => {
         // server package's ResourceTemplate class), so this is the one entry where the key and
         // the public type name differ.
         expectTypeOf<SpecTypes['ResourceTemplate']>().toEqualTypeOf<ResourceTemplateType>();
+    });
+});
+
+// SEP-2106 / R-2106-6/7/8: the hand-written interfaces in spec.types.ts and the runtime Zod schemas
+// in schemas.ts must describe the same shape. The whole-type assertions above already enforce this
+// for `Tool`/`CallToolResult`, but these field-level checks make the mirror an explicit, enforced
+// invariant: a future change that widens one file's `inputSchema`/`outputSchema`/`structuredContent`
+// without mirroring the other fails *here*, pointing straight at the offending field.
+describe('SEP-2106 spec.types ↔ schemas mirror (type-level)', () => {
+    it('Tool.inputSchema keeps a required root type:"object" but is otherwise open', () => {
+        expectTypeOf<Tool['inputSchema']['type']>().toEqualTypeOf<'object'>();
+        // Open-ended: arbitrary 2020-12 keywords are accepted alongside `type`.
+        expectTypeOf<Tool['inputSchema']['oneOf']>().toEqualTypeOf<unknown>();
+        expectTypeOf<Tool['inputSchema']['$schema']>().toEqualTypeOf<string | undefined>();
+    });
+
+    it('Tool.outputSchema drops the root type:"object" requirement', () => {
+        // No required `type` member: indexing `type` resolves through the `[key: string]: unknown`
+        // index signature, not a `'object'` literal.
+        expectTypeOf<NonNullable<Tool['outputSchema']>['type']>().toEqualTypeOf<unknown>();
+        expectTypeOf<NonNullable<Tool['outputSchema']>['$schema']>().toEqualTypeOf<string | undefined>();
+    });
+
+    it('CallToolResult.structuredContent and ToolResultContent.structuredContent are any JSON value (unknown)', () => {
+        expectTypeOf<CallToolResult['structuredContent']>().toEqualTypeOf<unknown>();
+        expectTypeOf<ToolResultContent['structuredContent']>().toEqualTypeOf<unknown>();
+    });
+
+    it('the inferred (schemas.ts) types equal the hand-written (spec.types.ts) types end to end', () => {
+        expectTypeOf<SpecTypes['Tool']>().toEqualTypeOf<Tool>();
+        expectTypeOf<SpecTypes['CallToolResult']>().toEqualTypeOf<CallToolResult>();
+        expectTypeOf<SpecTypes['ToolResultContent']>().toEqualTypeOf<ToolResultContent>();
     });
 });
 

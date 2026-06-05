@@ -1316,27 +1316,35 @@ export type RegisteredTool = {
 };
 
 /**
- * Ensures backward compatibility for non-object `structuredContent` (SEP-2106).
+ * Returns a {@link CallToolResult} with a backward-compatibility text block added when required by
+ * SEP-2106, without mutating the input.
  *
  * Servers that return array or primitive `structuredContent` MUST also include a {@link TextContent}
  * block with the serialized JSON, so pre-SEP clients that only understand object-typed
- * `structuredContent` can fall back to the text content. Object `structuredContent` (the only shape
- * pre-SEP clients accept) needs no fallback, and a result that already carries a text block is left
- * untouched — the handler is assumed to have provided its own representation.
+ * `structuredContent` can fall back to the text content. The original result is returned unchanged
+ * (same reference) when no fallback is needed:
+ *
+ * - no `structuredContent` present, or
+ * - `structuredContent` is a plain object (the only shape pre-SEP clients accept), or
+ * - the result already carries a text block — the handler is assumed to have provided its own
+ *   representation.
+ *
+ * Otherwise a new result is returned with a serialized text block appended; the input is left
+ * untouched so the request handler stays a side-effect-free pipeline.
  */
-function ensureStructuredContentTextFallback(result: CallToolResult): void {
+function withStructuredContentTextFallback(result: CallToolResult): CallToolResult {
     const structuredContent = result.structuredContent;
     if (structuredContent === undefined) {
-        return;
+        return result;
     }
     const isPlainObject = structuredContent !== null && typeof structuredContent === 'object' && !Array.isArray(structuredContent);
     if (isPlainObject) {
-        return;
+        return result;
     }
     if (result.content.some(block => block.type === 'text')) {
-        return;
+        return result;
     }
-    result.content = [...result.content, { type: 'text', text: JSON.stringify(structuredContent) }];
+    return { ...result, content: [...result.content, { type: 'text', text: JSON.stringify(structuredContent) }] };
 }
 
 /**
