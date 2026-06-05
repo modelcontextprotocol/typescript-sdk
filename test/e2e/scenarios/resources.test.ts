@@ -25,7 +25,7 @@ import {
     UnsubscribeRequestSchema
 } from '../../../src/types.js';
 
-import { wire } from '../helpers/index.js';
+import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
@@ -193,6 +193,7 @@ verifies('resources:read:blob', async ({ transport, protocolVersion }: TestArgs)
     };
     const client = newClient();
     await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+    const tap = tapWire(client);
 
     const result = await client.readResource({ uri: 'file:///fixture.png' });
     expect(result.contents).toHaveLength(1);
@@ -200,6 +201,15 @@ verifies('resources:read:blob', async ({ transport, protocolVersion }: TestArgs)
     const [entry] = result.contents;
     expect(entry).toEqual({ uri: 'file:///fixture.png', mimeType: 'image/png', blob: TINY_PNG_BASE64 });
     expect(entry).not.toHaveProperty('text');
+
+    // Wire layer: the raw result entry carries the literal `blob` key — the
+    // parsed view above would not catch a symmetric rename that the client
+    // schema mapped back, so pin the key as it crosses the wire.
+    const reply = tap.received.find(m => 'id' in m && 'result' in m) as
+        | { result: { contents: Array<Record<string, unknown>> } }
+        | undefined;
+    expect(reply).toBeDefined();
+    expect(reply!.result.contents[0]).toHaveProperty('blob', TINY_PNG_BASE64);
 });
 
 verifies('resources:read:unknown-uri', async ({ transport, protocolVersion }: TestArgs) => {
@@ -234,6 +244,12 @@ verifies('resources:read:template-vars', async ({ transport, protocolVersion }: 
             { mimeType: 'text/plain' },
             (uri, { owner, repo }) => ({ contents: [{ uri: uri.href, mimeType: 'text/plain', text: `${owner}/${repo}` }] })
         );
+        s.registerResource(
+            'tags',
+            new ResourceTemplate('tags://{tags*}', { list: undefined }),
+            { mimeType: 'text/plain' },
+            (uri, { tags }) => ({ contents: [{ uri: uri.href, mimeType: 'text/plain', text: JSON.stringify(tags) }] })
+        );
         return s;
     };
     const client = newClient();
@@ -246,6 +262,19 @@ verifies('resources:read:template-vars', async ({ transport, protocolVersion }: 
     expect(repo.contents).toEqual([
         { uri: 'github://modelcontextprotocol/typescript-sdk', mimeType: 'text/plain', text: 'modelcontextprotocol/typescript-sdk' }
     ]);
+
+    // Exploded (*) variable: the callback receives the comma-separated values as
+    // an array under the bare variable name — destructuring `{ tags }` above only
+    // works if the '*' is stripped from the key.
+    const tags = await client.readResource({ uri: 'tags://red,green,blue' });
+    expect(tags.contents).toEqual([
+        { uri: 'tags://red,green,blue', mimeType: 'text/plain', text: JSON.stringify(['red', 'green', 'blue']) }
+    ]);
+
+    // Percent-encoded segments route through template matching but are NOT
+    // decoded: the variable reaches the callback with its escapes intact.
+    const encoded = await client.readResource({ uri: 'greet://hello/Caf%C3%A9' });
+    expect(encoded.contents).toEqual([{ uri: 'greet://hello/Caf%C3%A9', mimeType: 'text/plain', text: 'Hello, Caf%C3%A9!' }]);
 });
 
 verifies('resources:list-changed', async ({ transport, protocolVersion }: TestArgs) => {
@@ -320,6 +349,9 @@ verifies('resources:annotations', async ({ transport, protocolVersion }: TestArg
     expect(template).toBeDefined();
     expect(template!.annotations).toEqual({ audience: ['user'], priority: 0.5, lastModified: FIXTURE_LAST_MODIFIED });
 
+    // The annotated resource still reads normally. Note: resources/read contents
+    // entries have no annotations member in the spec or the SDK schemas — the
+    // annotations surface is the list results asserted above.
     const result = await client.readResource({ uri: 'file:///annotated.md' });
     expect(result.contents).toHaveLength(1);
     expect(result.contents[0].uri).toBe('file:///annotated.md');
@@ -340,6 +372,24 @@ verifies('resources:capability:declared', async ({ transport, protocolVersion }:
     expect(caps?.resources).toBeDefined();
     expect((await client.listResources()).resources).toHaveLength(1);
     expect(caps?.resources?.listChanged).toBe(true);
+
+    // Subscribe sub-flag: declared alongside a subscribe handler, it must
+    // round-trip through the InitializeResult capabilities merge — a server
+    // that drops the sub-flag would leave clients unable to discover support.
+    const makeSubscribeServer = () => {
+        const s = new Server({ name: 's', version: '0' }, { capabilities: { resources: { listChanged: true, subscribe: true } } });
+        s.setRequestHandler(ListResourcesRequestSchema, () => ({
+            resources: [{ uri: 'file:///sub.txt', name: 'sub', mimeType: 'text/plain' }]
+        }));
+        s.setRequestHandler(ReadResourceRequestSchema, () => ({
+            contents: [{ uri: 'file:///sub.txt', mimeType: 'text/plain', text: 'sub' }]
+        }));
+        s.setRequestHandler(SubscribeRequestSchema, () => ({}));
+        return s;
+    };
+    const subscribeClient = newClient();
+    await using _2 = await wire({ transport, protocolVersion }, makeSubscribeServer, subscribeClient);
+    expect(subscribeClient.getServerCapabilities()?.resources?.subscribe).toBe(true);
 });
 
 verifies('resources:subscribe:capability-required', async ({ transport, protocolVersion }: TestArgs) => {
@@ -385,6 +435,9 @@ verifies('resources:subscribe:updated', async ({ transport, protocolVersion }: T
     });
 
     await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+    // The declared subscribe capability survived the InitializeResult merge.
+    expect(client.getServerCapabilities()?.resources?.subscribe).toBe(true);
 
     await client.subscribeResource({ uri: 'counter://subscribable' });
     expect(subscriptions.has('counter://subscribable')).toBe(true);
@@ -717,6 +770,7 @@ verifies('mcpserver:resource:metadata-override', async ({ transport, protocolVer
                 list: () => ({
                     resources: [
                         { uri: 'listed://items/alpha', name: 'alpha' },
+                        { uri: 'listed://items/delta', name: 'delta', description: 'Delta override.' },
                         { uri: 'listed://items/gamma', name: 'gamma', description: 'Per-resource override.', mimeType: 'application/json' }
                     ]
                 })
@@ -731,15 +785,27 @@ verifies('mcpserver:resource:metadata-override', async ({ transport, protocolVer
 
     const { resources } = await client.listResources();
     const alpha = resources.find(r => r.uri === 'listed://items/alpha');
+    const delta = resources.find(r => r.uri === 'listed://items/delta');
     const gamma = resources.find(r => r.uri === 'listed://items/gamma');
 
     expect(alpha).toBeDefined();
+    expect(delta).toBeDefined();
     expect(gamma).toBeDefined();
 
     expect(alpha).toMatchObject({
         uri: 'listed://items/alpha',
         name: 'alpha',
         description: 'Template-level.',
+        mimeType: 'text/plain'
+    });
+
+    // Field-by-field: overriding ONE field must not drop the others — delta
+    // overrides only description, and still inherits the template mimeType.
+    // (Distinguishes per-field merge from any-override-replaces-whole-object.)
+    expect(delta).toMatchObject({
+        uri: 'listed://items/delta',
+        name: 'delta',
+        description: 'Delta override.',
         mimeType: 'text/plain'
     });
 

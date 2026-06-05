@@ -273,7 +273,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'mcpserver:onerror:reach-through': {
         source: 'sdk',
         behavior:
-            'Setting mcpServer.server.onerror (or server.onerror on raw Server) receives both transport-level errors and protocol/handler errors (uncaught notification handler, failed-to-send-response, unknown-message-id). The reach-through via McpServer.server is the supported access path until McpServer exposes onerror directly.'
+            'Setting mcpServer.server.onerror (or server.onerror on raw Server) receives protocol/handler errors: a response for an unknown message id and an uncaught error in a notification handler. The reach-through via McpServer.server is the supported access path until McpServer exposes onerror directly.',
+        note: 'The two remaining onerror sources — transport-level errors and failed-to-send-response — require a handle on the server-side transport that the e2e harness does not expose; they are locked at unit level (test/server/mcp.test.ts "McpServer onerror reach-through sources").'
     },
     'protocol:custom-method:notification': {
         transports: STATEFUL_TRANSPORTS,
@@ -392,11 +393,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'tools:call:structured-content': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#structured-content',
-        behavior: 'A tool result can carry structuredContent alongside content; the client receives both.'
+        behavior:
+            'A tool result can carry structuredContent alongside content (the client receives both) or instead of content (the client then observes content as the empty array).'
     },
     'tools:call:structured-content:text-mirror': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#structured-content',
-        behavior: 'A tool returning structured content also returns the serialized JSON as a text content block.'
+        behavior:
+            'A tool handler that returns the serialized JSON of its structured content as a text content block delivers both halves to the client unchanged. The mirror is handler-authored: McpServer does not synthesize a text block from structuredContent.'
     },
     'tools:call:unknown-name': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#error-handling',
@@ -543,7 +546,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'resources:annotations': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#annotations',
         behavior:
-            'Resources, resource templates, and resource contents may carry annotations {audience, priority, lastModified}; these round-trip from server registration to the client list/read result.'
+            'Resources and resource templates may carry annotations {audience, priority, lastModified}; these round-trip from server registration to the client list results.',
+        note: 'The 2025-11-25 spec defines annotations on Resource, ResourceTemplate, and content blocks — not on resources/read contents entries (ResourceContents has no annotations member) — so there is no contents-level annotations arm.'
     },
     'resources:capability:declared': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities',
@@ -601,7 +605,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#subscriptions',
         behavior: 'After resources/subscribe, server changes to that URI send notifications/resources/updated.',
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these. Scope: the SDK supplies subscribe request delivery and sendResourceUpdated emission/dispatch; subscription bookkeeping (which URIs get an update after a change) is server-author code, so the change→notification causality in this scenario is fixture-owned, not SDK behavior.'
     },
     'resources:templates:list': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#resource-templates',
@@ -1187,6 +1191,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             }
         ]
     },
+    'typescript:mcpserver:list:single-page': {
+        source: 'sdk',
+        behavior:
+            'McpServer list operations (tools/list, resources/list, resources/templates/list, prompts/list) return every registered item in a single page: no nextCursor is emitted regardless of set size, and a cursor the server never issued leaves the result unchanged. Consumers rely on one-call completeness; the pagination knownFailures only ratchet the opposite direction (they flip when McpServer gains auto-pagination) and would stay green if it started truncating without a cursor.'
+    },
     'pagination:client:cursor-handling': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#implementation-guidelines',
         behavior:
@@ -1525,7 +1534,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior:
             'mcpServer.server is public: .server.setRequestHandler(Schema, fn) installs a low-level handler alongside high-level registrations. A handler for a method McpServer has not auto-wired (e.g. resources/list with no registerResource) is reachable by clients; if set before the first registerX of that kind, registerX throws via assertCanSetRequestHandler.',
-        note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed.'
+        note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed. The conflict clause (registerX throwing when a low-level handler of that kind was installed first) is registration-time behavior with no wire surface; it is locked at unit level (test/server/mcp.test.ts "McpServer low-level handler conflicts").'
     },
 
     // Validation (SDK)

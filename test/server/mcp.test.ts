@@ -8,9 +8,12 @@ import {
     CompleteResultSchema,
     ElicitRequestSchema,
     GetPromptResultSchema,
+    ListPromptsRequestSchema,
     ListPromptsResultSchema,
+    ListResourcesRequestSchema,
     ListResourcesResultSchema,
     ListResourceTemplatesResultSchema,
+    ListToolsRequestSchema,
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
     type Notification,
@@ -6992,5 +6995,89 @@ describe('McpServer repeated connect', () => {
         expect(result.content).toEqual([{ type: 'text', text: 'hello' }]);
 
         await clientA.close();
+    });
+});
+
+describe('McpServer low-level handler conflicts', () => {
+    /**
+     * The reach-through contract has a registration-time half: a low-level
+     * handler installed via mcpServer.server.setRequestHandler BEFORE the first
+     * high-level registration of that kind makes registerX throw (via
+     * assertCanSetRequestHandler) instead of silently overriding the handler.
+     */
+    test('registerTool throws when a low-level tools/list handler was installed first', () => {
+        const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { tools: {} } });
+        mcpServer.server.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
+
+        expect(() => mcpServer.registerTool('greet', {}, async () => ({ content: [{ type: 'text' as const, text: 'hello' }] }))).toThrow(
+            /already exists/
+        );
+    });
+
+    test('registerResource throws when a low-level resources/list handler was installed first', () => {
+        const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { resources: {} } });
+        mcpServer.server.setRequestHandler(ListResourcesRequestSchema, () => ({ resources: [] }));
+
+        expect(() =>
+            mcpServer.registerResource('doc', 'file:///doc.txt', {}, () => ({
+                contents: [{ uri: 'file:///doc.txt', mimeType: 'text/plain', text: 'doc' }]
+            }))
+        ).toThrow(/already exists/);
+    });
+
+    test('registerPrompt throws when a low-level prompts/list handler was installed first', () => {
+        const mcpServer = new McpServer({ name: 'test server', version: '1.0' }, { capabilities: { prompts: {} } });
+        mcpServer.server.setRequestHandler(ListPromptsRequestSchema, () => ({ prompts: [] }));
+
+        expect(() => mcpServer.registerPrompt('p', {}, () => ({ messages: [] }))).toThrow(/already exists/);
+    });
+});
+
+describe('McpServer onerror reach-through sources', () => {
+    /**
+     * mcpServer.server.onerror receives all protocol error sources. The
+     * unknown-message-id and uncaught-notification-handler sources are locked
+     * end-to-end (mcpserver:onerror:reach-through); the two sources below need
+     * a handle on the server-side transport, so they are locked here.
+     */
+    test('a transport-level error reaches mcpServer.server.onerror', async () => {
+        const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+        const errors: Error[] = [];
+        mcpServer.server.onerror = error => errors.push(error);
+
+        const client = new Client({ name: 'client', version: '1.0' });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Protocol.connect chains the transport's onerror callback into
+        // server.onerror; invoking it is exactly what a failing transport does.
+        serverTransport.onerror?.(new Error('synthetic transport failure'));
+        expect(errors.map(e => e.message)).toContain('synthetic transport failure');
+
+        await client.close();
+    });
+
+    test('a response that fails to send reaches mcpServer.server.onerror', async () => {
+        const mcpServer = new McpServer({ name: 'test server', version: '1.0' });
+        mcpServer.tool('greet', async () => ({ content: [{ type: 'text' as const, text: 'hello' }] }));
+        const errors: Error[] = [];
+        mcpServer.server.onerror = error => errors.push(error);
+
+        const client = new Client({ name: 'client', version: '1.0' });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+        // Once the connection is up, make the server side unable to deliver responses.
+        const originalSend = serverTransport.send.bind(serverTransport);
+        serverTransport.send = (message, options) =>
+            'result' in message ? Promise.reject(new Error('send blew up')) : originalSend(message, options);
+
+        const call = client.callTool({ name: 'greet' });
+        call.catch(() => undefined); // settled below — close() rejects it
+        await vi.waitFor(() => expect(errors.some(e => /failed to send response/i.test(e.message))).toBe(true));
+
+        // The client never got the response; closing rejects the pending call.
+        await client.close();
+        await expect(call).rejects.toThrow();
     });
 });

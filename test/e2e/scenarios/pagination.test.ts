@@ -115,3 +115,53 @@ verifies('pagination:client:cursor-handling', async ({ transport, protocolVersio
     const wireListRequests = tap.sent.filter(isJSONRPCRequest).filter(m => m.method === 'tools/list');
     expect(wireListRequests.map(m => m.params?.cursor)).toEqual([undefined, cursorToPage2, cursorToPage3]);
 });
+
+verifies('typescript:mcpserver:list:single-page', async ({ transport, protocolVersion }: TestArgs) => {
+    // Positive complement to the mcpserver pagination knownFailures: those only
+    // flip when McpServer GAINS auto-pagination and would stay green if it
+    // started truncating without a cursor. This pins single-page completeness —
+    // every registered item in one call, no nextCursor — which is what consumers
+    // reading full lists in one shot depend on.
+    const TOTAL = 25;
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        for (let i = 0; i < TOTAL; i++) {
+            const id = String(i).padStart(2, '0');
+            s.registerTool(`tool_${id}`, { inputSchema: z.object({}) }, () => ({ content: [] }));
+            s.registerResource(`res_${id}`, `bulk://res/${id}`, { mimeType: 'text/plain' }, uri => ({
+                contents: [{ uri: uri.href, mimeType: 'text/plain', text: '' }]
+            }));
+            s.registerResource(`tpl_${id}`, new ResourceTemplate(`bulk-${id}://{x}`, { list: undefined }), {}, uri => ({
+                contents: [{ uri: uri.href, mimeType: 'text/plain', text: '' }]
+            }));
+            s.registerPrompt(`prompt_${id}`, {}, () => ({ messages: [] }));
+        }
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+    const tools = await client.listTools();
+    expect(tools.tools).toHaveLength(TOTAL);
+    expect(tools.nextCursor).toBeUndefined();
+
+    const resources = await client.listResources();
+    expect(resources.resources).toHaveLength(TOTAL);
+    expect(resources.nextCursor).toBeUndefined();
+
+    const templates = await client.listResourceTemplates();
+    expect(templates.resourceTemplates).toHaveLength(TOTAL);
+    expect(templates.nextCursor).toBeUndefined();
+
+    const prompts = await client.listPrompts();
+    expect(prompts.prompts).toHaveLength(TOTAL);
+    expect(prompts.nextCursor).toBeUndefined();
+
+    // A cursor the server never issued leaves the answer unchanged: McpServer
+    // ignores it and returns the complete single page again. (Current behavior —
+    // pagination:invalid-cursor tracks the spec's -32602 as a knownFailure; if
+    // that flips, this arm flips with it.)
+    const withCursor = await client.listTools({ cursor: 'not-a-cursor-the-server-ever-issued' });
+    expect(withCursor.tools).toHaveLength(TOTAL);
+    expect(withCursor.nextCursor).toBeUndefined();
+});

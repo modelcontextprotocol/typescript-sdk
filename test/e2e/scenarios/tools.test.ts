@@ -28,6 +28,7 @@ import { Server } from '../../../src/server/index.js';
 import { McpServer, type RegisteredTool } from '../../../src/server/mcp.js';
 import {
     CallToolRequestSchema,
+    type CallToolResult,
     CompatibilityCallToolResultSchema,
     type CreateMessageRequest,
     CreateMessageRequestSchema,
@@ -46,7 +47,7 @@ import {
 } from '../../../src/types.js';
 import { AjvJsonSchemaValidator } from '../../../src/validation/ajv-provider.js';
 
-import { wire } from '../helpers/index.js';
+import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
@@ -106,6 +107,21 @@ function schemaServer(): McpServer {
         isError: true,
         content: [{ type: 'text', text: 'handler-returned-isError' }]
     }));
+    s.registerTool('structured-error-mismatch', { inputSchema: z.object({}), outputSchema: z.object({ value: z.number() }) }, () => ({
+        isError: true,
+        // structuredContent deliberately violates outputSchema: the isError skip
+        // must cover present-but-mismatching payloads, not just absent ones.
+        structuredContent: { value: 'not-a-number' },
+        content: [{ type: 'text', text: 'failed with diagnostic payload' }]
+    }));
+    s.registerTool(
+        'structured-only',
+        { inputSchema: z.object({ n: z.number() }), outputSchema: z.object({ doubled: z.number().int() }) },
+        // The declared handler return type requires `content`, but the runtime
+        // path tolerates its absence (the client observes the schema default []).
+        // The cast pins that runtime tolerance.
+        ({ n }) => ({ structuredContent: { doubled: n * 2 } }) as unknown as CallToolResult
+    );
     return s;
 }
 
@@ -161,10 +177,20 @@ function rawSchemaServer(): Server {
 verifies('tools:call:content:text', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
     await using _ = await wire({ transport, protocolVersion }, echoServer, client);
+    const tap = tapWire(client);
 
     const r = await client.callTool({ name: 'echo', arguments: { text: 'hi' } });
     expect(r.isError).toBeFalsy();
     expect(r.content).toEqual([{ type: 'text', text: 'hi' }]);
+
+    // Wire layer: the raw JSON-RPC result carries the literal `content` key. The
+    // parsed view above cannot distinguish a missing key from the client schema's
+    // default ([]), so a symmetric rename of the top-level result key would
+    // escape it; this pins the key as it crosses the wire.
+    const reply = tap.received.find(m => 'id' in m && 'result' in m) as { result: Record<string, unknown> } | undefined;
+    expect(reply).toBeDefined();
+    expect(reply!.result).toHaveProperty('content');
+    expect(reply!.result.content).toEqual([{ type: 'text', text: 'hi' }]);
 });
 
 verifies('tools:call:content:image', async ({ transport, protocolVersion }: TestArgs) => {
@@ -579,9 +605,21 @@ verifies('tools:call:structured-content', async ({ transport, protocolVersion }:
     const validate = new AjvJsonSchemaValidator().getValidator(tool.outputSchema);
     const v = validate(r.structuredContent);
     expect(v.valid, v.errorMessage).toBe(true);
+
+    // Instead-of variant: a handler returning ONLY structuredContent works —
+    // the structured payload round-trips and the client observes content [].
+    const only = await client.callTool({ name: 'structured-only', arguments: { n: 21 } });
+    expect(only.isError).toBeFalsy();
+    expect(only.structuredContent).toEqual({ doubled: 42 });
+    expect(only.content).toEqual([]);
 });
 
 verifies('tools:call:structured-content:text-mirror', async ({ transport, protocolVersion }: TestArgs) => {
+    // The mirror is handler-authored: schemaServer's 'structured' serializes its
+    // own structuredContent into the text block. McpServer does not synthesize a
+    // mirror — a handler returning only structuredContent yields content []
+    // (locked by tools:call:structured-content). This pins the handler-pattern
+    // roundtrip: both halves reach the client unchanged.
     const client = newClient();
     await using _ = await wire({ transport, protocolVersion }, schemaServer, client);
 
@@ -663,8 +701,22 @@ verifies('mcpserver:output-schema:skip-on-error', async ({ transport, protocolVe
     const client = newClient();
     await using _ = await wire({ transport, protocolVersion }, schemaServer, client);
 
+    // The skip also covers an isError result that CARRIES schema-violating
+    // structuredContent: the server passes it through unvalidated instead of
+    // converting it into an output-validation error. Cold call — before
+    // listTools() — because the client validates *present* structuredContent
+    // once its validator cache is primed, which would mask the server behavior.
+    const mismatch = await client.callTool({ name: 'structured-error-mismatch', arguments: {} });
+    expect(mismatch.isError).toBe(true);
+    expect(mismatch.structuredContent).toEqual({ value: 'not-a-number' });
+    expect(mismatch.content).toEqual([{ type: 'text', text: 'failed with diagnostic payload' }]);
+
     const { tools } = await client.listTools();
     expect(tools.find(t => t.name === 'structured-error-skip')?.outputSchema).toMatchObject({
+        type: 'object',
+        properties: { value: { type: 'number' } }
+    });
+    expect(tools.find(t => t.name === 'structured-error-mismatch')?.outputSchema).toMatchObject({
         type: 'object',
         properties: { value: { type: 'number' } }
     });

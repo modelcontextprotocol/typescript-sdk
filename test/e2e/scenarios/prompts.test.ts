@@ -17,12 +17,13 @@ import { McpServer, type RegisteredPrompt } from '../../../src/server/mcp.js';
 import {
     ErrorCode,
     GetPromptRequestSchema,
+    isJSONRPCRequest,
     ListPromptsRequestSchema,
     McpError,
     PromptListChangedNotificationSchema
 } from '../../../src/types.js';
 
-import { wire } from '../helpers/index.js';
+import { tapWire, wire } from '../helpers/index.js';
 import type { TestArgs } from '../types.js';
 import { verifies } from '../helpers/verifies.js';
 
@@ -232,12 +233,20 @@ verifies('prompts:list-changed', async ({ transport, protocolVersion }: TestArgs
 verifies('prompts:get:no-args', async ({ transport, protocolVersion }: TestArgs) => {
     const client = newClient();
     await using _ = await wire({ transport, protocolVersion }, explainCommitServer, client);
+    const tap = tapWire(client);
 
     const result = await client.getPrompt({ name: 'explain-last-commit' });
 
     expect(result.messages).toEqual([
         { role: 'user', content: { type: 'text', text: 'Explain the most recent commit in this repository.' } }
     ]);
+
+    // Wire layer: "no arguments" means the key is ABSENT from the request —
+    // a client that injected a default arguments:{} would mask servers that
+    // break on a truly-absent field.
+    const request = tap.sent.filter(isJSONRPCRequest).find(m => m.method === 'prompts/get');
+    expect(request).toBeDefined();
+    expect(request!.params).not.toHaveProperty('arguments');
 });
 
 verifies('prompts:get:with-args', async ({ transport, protocolVersion }: TestArgs) => {
