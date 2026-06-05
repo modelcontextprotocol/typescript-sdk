@@ -689,6 +689,34 @@ const sdkTypeChecks = {
     }
 };
 
+// ---- Key-existence checks for consumer-read result members ----
+//
+// The mutual-assignability checks above cannot catch a rename or removal of an OPTIONAL member on a
+// passthrough/loose result type: in each direction the old key is absorbed by the catchall index
+// signature and the renamed key is optional, so `sdk = spec; spec = sdk;` still compiles (verified:
+// renaming CallToolResult's `isError` to `isFailure` leaves every assignability check green).
+// Consumers read the members below by name on results, so each must remain a *declared* key of the
+// SDK type. KnownKeyOf strips string/number index signatures so that only declared keys count.
+type KnownKeyOf<T> = keyof { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
+
+const abiKeys =
+    <T>() =>
+    <K extends KnownKeyOf<T> & string>(...keys: K[]): K[] =>
+        keys;
+
+const sdkKeyExistenceChecks = {
+    CallToolResult: abiKeys<SDKTypes.CallToolResult>()('content', 'structuredContent', 'isError', '_meta'),
+    InitializeResult: abiKeys<SDKTypes.InitializeResult>()('protocolVersion', 'capabilities', 'serverInfo', 'instructions'),
+    ServerCapabilities: abiKeys<SDKTypes.ServerCapabilities>()('experimental', 'completions'),
+    ListToolsResult: abiKeys<SDKTypes.ListToolsResult>()('tools', 'nextCursor'),
+    ListResourcesResult: abiKeys<SDKTypes.ListResourcesResult>()('resources', 'nextCursor'),
+    ListResourceTemplatesResult: abiKeys<SDKTypes.ListResourceTemplatesResult>()('resourceTemplates', 'nextCursor'),
+    ListPromptsResult: abiKeys<SDKTypes.ListPromptsResult>()('prompts', 'nextCursor'),
+    GetPromptResult: abiKeys<SDKTypes.GetPromptResult>()('messages'),
+    ReadResourceResult: abiKeys<SDKTypes.ReadResourceResult>()('contents'),
+    CompleteResult: abiKeys<SDKTypes.CompleteResult>()('completion')
+};
+
 // This file is .gitignore'd, and fetched by `npm run fetch:spec-types` (called by `npm run test`)
 const SPEC_TYPES_FILE = 'src/spec.types.ts';
 const SDK_TYPES_FILE = 'src/types.ts';
@@ -735,6 +763,28 @@ describe('Spec Types', () => {
     describe('Missing SDK Types', () => {
         it.each(MISSING_SDK_TYPES)('%s should not be present in MISSING_SDK_TYPES if it has a compatibility test', type => {
             expect(sdkTypeChecks[type as keyof typeof sdkTypeChecks]).toBeUndefined();
+        });
+    });
+
+    describe('Key Existence', () => {
+        it('should keep every consumer-read result member as a declared key', () => {
+            expect(sdkKeyExistenceChecks.CallToolResult).toEqual(['content', 'structuredContent', 'isError', '_meta']);
+            for (const keys of Object.values(sdkKeyExistenceChecks)) {
+                expect(keys.length).toBeGreaterThan(0);
+            }
+        });
+
+        it('should preserve isError and sibling members through CallToolResultSchema.parse', () => {
+            const result = SDKTypes.CallToolResultSchema.parse({
+                content: [{ type: 'text', text: 'ok' }],
+                structuredContent: { ok: true },
+                isError: true,
+                _meta: { example: 'value' }
+            });
+            expect(result.isError).toBe(true);
+            expect(result.structuredContent).toEqual({ ok: true });
+            expect(result._meta).toEqual({ example: 'value' });
+            expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
         });
     });
 });
