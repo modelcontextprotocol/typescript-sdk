@@ -248,6 +248,39 @@ verifies('transport:stdio:stderr-passthrough', async (_args: TestArgs) => {
     }
 });
 
+verifies(
+    'transport:stdio:stderr-passthrough',
+    async (_args: TestArgs) => {
+        // Default arm: no `stderr` option. The default is 'inherit' — the
+        // transport exposes no stream of its own (transport.stderr stays null)
+        // and does not silently consume the server's stderr, and the boot-time
+        // stderr marker the fixture writes must not leak into the stdout
+        // JSON-RPC channel.
+        const transport = new StdioClientTransport({ command: 'npx', args: ['tsx', FIXTURE_PATH], cwd: REPO_ROOT });
+        expect(transport.stderr).toBeNull();
+
+        const client = newClient();
+        const errors: Error[] = [];
+        client.onerror = error => {
+            errors.push(error);
+        };
+        try {
+            await client.connect(transport);
+            expect(transport.stderr).toBeNull();
+
+            // The JSON-RPC channel is undisturbed by the stderr marker: the echo
+            // round-trip succeeds and no parse errors surfaced via onerror.
+            const echoed = await client.callTool({ name: 'echo', arguments: { text: 'default stderr handling' } });
+            expect(echoed.isError).toBeFalsy();
+            expect(echoed.content).toEqual([{ type: 'text', text: 'default stderr handling' }]);
+            expect(errors).toEqual([]);
+        } finally {
+            await transport.close();
+        }
+    },
+    { title: 'default-inherit' }
+);
+
 verifies('lifecycle:connect:onerror-pre-handshake', async (_args: TestArgs) => {
     // Requirement: 'Transport errors emitted after transport.start() but before
     // client.connect() resolves are delivered to a client.onerror handler set
@@ -360,6 +393,51 @@ verifies('transport:stdio:default-env-safelist', async (_args: TestArgs) => {
         }
     }
 });
+
+verifies(
+    'transport:stdio:default-env-safelist',
+    async (_args: TestArgs) => {
+        // Override-precedence arm: the spawn env is
+        // `{ ...getDefaultEnvironment(), ...env }` — a consumer-supplied entry
+        // that collides with a safelist key must win over the inherited default,
+        // while uncollided safelist entries (PATH) still reach the child intact.
+        // Spawned directly (`node --import tsx`) so the spawned process IS the
+        // fixture and sees exactly the env the transport set (npx rewrites PATH).
+        const OVERRIDE_KEY = process.platform === 'win32' ? 'TEMP' : 'TERM';
+        const OVERRIDE_VALUE = 'e2e-env-override-sentinel';
+        const transport = new StdioClientTransport({
+            command: process.execPath,
+            args: ['--import', 'tsx', FIXTURE_PATH],
+            cwd: REPO_ROOT,
+            env: { [OVERRIDE_KEY]: OVERRIDE_VALUE }
+        });
+
+        const client = newClient();
+        try {
+            await client.connect(transport);
+
+            const readEnvValue = async (key: string): Promise<string | null> => {
+                const result = await client.callTool({ name: 'env-value', arguments: { key } });
+                expect(result.isError).toBeFalsy();
+                if (!result.content || !Array.isArray(result.content)) throw new Error('expected content array from env-value');
+                const first = result.content[0];
+                if (!first || first.type !== 'text') throw new Error('expected text content from env-value');
+                return JSON.parse(first.text);
+            };
+
+            // The consumer-supplied entry won the collision with the safelist default.
+            expect(await readEnvValue(OVERRIDE_KEY)).toBe(OVERRIDE_VALUE);
+
+            // The merge kept uncollided safelisted entries: the child's PATH is the parent's.
+            if (process.env.PATH !== undefined) {
+                expect(await readEnvValue('PATH')).toBe(process.env.PATH);
+            }
+        } finally {
+            await transport.close();
+        }
+    },
+    { title: 'override-precedence' }
+);
 
 verifies('transport:stdio:pre-started-tolerated', async (_args: TestArgs) => {
     // Real consumers call transport.start() themselves (to capture early stderr) before handing the transport to connect().

@@ -298,6 +298,51 @@ describe('SSEClientTransport', () => {
             expect(lastServerRequest.headers.authorization).toBe(authToken);
         });
 
+        it('prefers eventSourceInit.fetch for the stream-open GET and opts.fetch for POSTs when both are set', async () => {
+            // Each custom fetch is only ever exercised in isolation by the other
+            // tests; this pins the precedence when BOTH are supplied: the SSE
+            // stream-open GET goes through eventSourceInit.fetch, POST sends keep
+            // using the top-level fetch.
+            const esFetch = vi.fn((url: string | URL, init?: RequestInit) => {
+                const headers = new Headers(init?.headers);
+                headers.set('Authorization', 'Bearer es-fetch');
+                return fetch(url.toString(), { ...init, headers });
+            });
+            const topFetch = vi.fn((url: string | URL, init?: RequestInit) => {
+                const headers = new Headers(init?.headers);
+                headers.set('Authorization', 'Bearer top-fetch');
+                return fetch(url.toString(), { ...init, headers });
+            });
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                eventSourceInit: { fetch: esFetch },
+                fetch: topFetch
+            });
+
+            await transport.start();
+
+            // The stream-open GET went through eventSourceInit.fetch only.
+            expect(esFetch).toHaveBeenCalledTimes(1);
+            expect(topFetch).not.toHaveBeenCalled();
+            expect(lastServerRequest.method).toBe('GET');
+            expect(lastServerRequest.headers.authorization).toBe('Bearer es-fetch');
+
+            const message: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                id: '1',
+                method: 'test',
+                params: {}
+            };
+
+            await transport.send(message);
+
+            // The POST went through the top-level fetch even with eventSourceInit.fetch present.
+            expect(topFetch).toHaveBeenCalledTimes(1);
+            expect(esFetch).toHaveBeenCalledTimes(1);
+            expect(lastServerRequest.method).toBe('POST');
+            expect(lastServerRequest.headers.authorization).toBe('Bearer top-fetch');
+        });
+
         it('passes custom headers to fetch requests', async () => {
             const customHeaders = {
                 Authorization: 'Bearer test-token',

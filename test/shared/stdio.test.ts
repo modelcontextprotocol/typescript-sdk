@@ -1,5 +1,5 @@
 import { JSONRPCMessage } from '../../src/types.js';
-import { STDIO_DEFAULT_MAX_BUFFER_SIZE, ReadBuffer } from '../../src/shared/stdio.js';
+import { STDIO_DEFAULT_MAX_BUFFER_SIZE, ReadBuffer, deserializeMessage, serializeMessage } from '../../src/shared/stdio.js';
 
 const testMessage: JSONRPCMessage = {
     jsonrpc: '2.0',
@@ -20,6 +20,15 @@ test('should only yield a message after a newline', () => {
     readBuffer.append(Buffer.from('\n'));
     expect(readBuffer.readMessage()).toEqual(testMessage);
     expect(readBuffer.readMessage()).toBeNull();
+});
+
+test('deserializeMessage is exported as a value and parses a single JSON-RPC line', () => {
+    // Consumers import deserializeMessage directly (not only via ReadBuffer), so
+    // the export must stay importable as a runtime value, not just a type.
+    expect(deserializeMessage(JSON.stringify(testMessage))).toEqual(testMessage);
+    expect(deserializeMessage('{"jsonrpc":"2.0","id":1,"method":"ping"}')).toEqual({ jsonrpc: '2.0', id: 1, method: 'ping' });
+    // ...and it round-trips what serializeMessage produced (modulo the trailing newline).
+    expect(deserializeMessage(serializeMessage(testMessage).trimEnd())).toEqual(testMessage);
 });
 
 test('should be reusable after clearing', () => {

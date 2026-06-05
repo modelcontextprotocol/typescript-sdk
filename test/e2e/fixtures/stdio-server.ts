@@ -38,6 +38,17 @@ server.registerTool(
     }
 );
 
+// env-value tool: returns the VALUE of a single environment variable (JSON-encoded,
+// null when absent) so tests can assert override precedence, not just membership.
+server.registerTool(
+    'env-value',
+    {
+        description: 'Returns the JSON-encoded value of one environment variable in this process (null when unset).',
+        inputSchema: z.object({ key: z.string() })
+    },
+    ({ key }) => ({ content: [{ type: 'text', text: JSON.stringify(process.env[key] ?? null) }] })
+);
+
 if (process.env.E2E_IGNORE_SIGTERM === '1') {
     // Misbehaving-server mode: keep alive after stdin EOF via interval (load-bearing — without it the child exits on stdin EOF and SIGTERM never arrives) and ignore SIGTERM, so only SIGKILL can end the process.
     setInterval(() => {}, 1_000);
