@@ -12,6 +12,7 @@ import {
     extractWWWAuthenticateParams,
     auth,
     type OAuthClientProvider,
+    parseErrorResponse,
     selectClientAuthMethod,
     isHttpsUrl
 } from '../../src/client/auth.js';
@@ -205,6 +206,20 @@ describe('OAuth Authorization', () => {
             });
 
             await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow('HTTP 500');
+        });
+
+        it('includes the discovery-failure substrings consumers classify on', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 500
+            });
+
+            // Auth-failure classifiers recognize discovery failures by the substrings
+            // 'trying to load' and 'metadata', so both are pinned message ABI.
+            const error = await discoverOAuthProtectedResourceMetadata('https://resource.example.com').catch((e: unknown) => e);
+            expect(error).toBeInstanceOf(Error);
+            expect((error as Error).message).toContain('trying to load');
+            expect((error as Error).message).toContain('metadata');
         });
 
         it('validates metadata schema', async () => {
@@ -687,6 +702,17 @@ describe('OAuth Authorization', () => {
             await expect(discoverOAuthMetadata('https://auth.example.com')).rejects.toThrow('HTTP 500');
         });
 
+        it('includes the discovery-failure substrings consumers classify on', async () => {
+            mockFetch.mockResolvedValueOnce(new Response(null, { status: 500 }));
+
+            // Auth-failure classifiers recognize discovery failures by the substrings
+            // 'trying to load' and 'metadata', so both are pinned message ABI.
+            const error = await discoverOAuthMetadata('https://auth.example.com').catch((e: unknown) => e);
+            expect(error).toBeInstanceOf(Error);
+            expect((error as Error).message).toContain('trying to load');
+            expect((error as Error).message).toContain('metadata');
+        });
+
         it('validates metadata schema', async () => {
             mockFetch.mockResolvedValueOnce(
                 Response.json(
@@ -846,6 +872,20 @@ describe('OAuth Authorization', () => {
             });
 
             await expect(discoverAuthorizationServerMetadata('https://mcp.example.com')).rejects.toThrow('HTTP 500');
+        });
+
+        it('includes the discovery-failure substrings consumers classify on', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 500
+            });
+
+            // Auth-failure classifiers recognize discovery failures by the substrings
+            // 'trying to load' and 'metadata', so both are pinned message ABI.
+            const error = await discoverAuthorizationServerMetadata('https://mcp.example.com').catch((e: unknown) => e);
+            expect(error).toBeInstanceOf(Error);
+            expect((error as Error).message).toContain('trying to load');
+            expect((error as Error).message).toContain('metadata');
         });
 
         it('handles CORS errors with retry', async () => {
@@ -1435,7 +1475,7 @@ describe('OAuth Authorization', () => {
                     clientInformation: validClientInfo,
                     redirectUrl: 'http://localhost:3000/callback'
                 })
-            ).rejects.toThrow(/does not support response type/);
+            ).rejects.toThrow(/^Incompatible auth server: does not support response type/);
         });
 
         // https://github.com/modelcontextprotocol/typescript-sdk/issues/832
@@ -1473,7 +1513,7 @@ describe('OAuth Authorization', () => {
                         clientInformation: validClientInfo,
                         redirectUrl: 'http://localhost:3000/callback'
                     })
-                ).rejects.toThrow(/does not support code challenge method/);
+                ).rejects.toThrow(/^Incompatible auth server: does not support code challenge method/);
             }
         );
     });
@@ -1969,7 +2009,7 @@ describe('OAuth Authorization', () => {
                     metadata,
                     clientMetadata: validClientMetadata
                 })
-            ).rejects.toThrow(/does not support dynamic client registration/);
+            ).rejects.toThrow(/^Incompatible auth server: does not support dynamic client registration/);
         });
 
         it('throws on error response', async () => {
@@ -1982,6 +2022,25 @@ describe('OAuth Authorization', () => {
                     clientMetadata: validClientMetadata
                 })
             ).rejects.toThrow('Dynamic client registration failed');
+        });
+    });
+
+    describe('parseErrorResponse', () => {
+        // When a 401/403 response body is not a valid OAuth error document, the fallback
+        // ServerError message starts with 'HTTP <status>: '. Consumers match /^HTTP 40[13]\b/
+        // on that message to classify auth failures, so the head format is pinned ABI.
+        it('prefixes the fallback message with the HTTP status for non-OAuth 401 bodies', async () => {
+            const error = await parseErrorResponse(new Response('Unauthorized', { status: 401 }));
+
+            expect(error).toBeInstanceOf(ServerError);
+            expect(error.message).toMatch(/^HTTP 401\b/);
+        });
+
+        it('prefixes the fallback message with the HTTP status for non-OAuth 403 bodies', async () => {
+            const error = await parseErrorResponse(new Response('Forbidden', { status: 403 }));
+
+            expect(error).toBeInstanceOf(ServerError);
+            expect(error.message).toMatch(/^HTTP 403\b/);
         });
     });
 

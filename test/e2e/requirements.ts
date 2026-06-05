@@ -149,7 +149,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'typescript:protocol:error:connection-closed': {
         source: 'sdk',
-        behavior: 'Closing the transport invokes onclose and rejects all in-flight requests with ErrorCode.ConnectionClosed.',
+        behavior:
+            'Closing the transport invokes onclose and rejects all in-flight requests with ErrorCode.ConnectionClosed — literal code -32000 and a message containing "Connection closed". Both halves of that duck shape are consumer-matched ABI (consumers avoid instanceof across package boundaries), so the literals are pinned, not just the enum member.',
         knownFailures: [
             {
                 transport: 'stdio',
@@ -1525,6 +1526,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
                 note: "The SDK's documented hosting pattern rejects unknown session ids with 400 at the app level (see src/examples servers); the transport's own validateSession 404 is never reached, while the spec requires 404."
             }
         ]
+    },
+    'typescript:consumer:session-expiry-message': {
+        source: 'sdk',
+        behavior:
+            "When the documented per-session hosting pattern rejects an unrecognized session id (HTTP 400, JSON-RPC error body whose message contains 'No valid session ID'), the client surfaces the HTTP status as StreamableHTTPError.code and embeds the raw body text in the error message. Consumers detect session expiry by regex-matching that message and reading .code, so both are pinned ABI.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'hosting:stateless:concurrent-clients': {
         source: 'sdk',

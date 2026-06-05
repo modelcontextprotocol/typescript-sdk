@@ -17,7 +17,7 @@ import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
 import { Client } from '../../../src/client/index.js';
-import { StreamableHTTPClientTransport } from '../../../src/client/streamableHttp.js';
+import { StreamableHTTPClientTransport, StreamableHTTPError } from '../../../src/client/streamableHttp.js';
 import { McpServer } from '../../../src/server/mcp.js';
 import { StreamableHTTPServerTransport } from '../../../src/server/streamableHttp.js';
 import { WebStandardStreamableHTTPServerTransport } from '../../../src/server/webStandardStreamableHttp.js';
@@ -191,6 +191,33 @@ verifies('hosting:session:unknown-id', async (_args: TestArgs) => {
         expect(del.status).toBe(404);
     } finally {
         await close();
+    }
+});
+
+verifies('typescript:consumer:session-expiry-message', async (_args: TestArgs) => {
+    // The per-session host rejects unrecognized session ids with HTTP 400 and a body containing
+    // 'No valid session ID' (the documented hosting pattern). Consumers regex-match that string
+    // on the client-side error message and read the HTTP status off .code to detect session
+    // expiry, so the client must surface both through the rejection.
+    const host = hostPerSession(() => echoServer());
+    const url = new URL('http://in-process/mcp');
+    const fetch = (u: URL | string, init?: RequestInit) => host.handleRequest(new Request(u, init));
+
+    const client = newClient();
+    try {
+        await client.connect(new StreamableHTTPClientTransport(url, { fetch }));
+        await client.listTools();
+
+        // Drop every server-side session while the client still holds its session id.
+        await host.close();
+
+        const err = await client.listTools().catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(StreamableHTTPError);
+        expect(err).toMatchObject({ code: 400 });
+        expect((err as Error).message).toMatch(/No valid session ID/i);
+    } finally {
+        await client.close();
+        await host.close();
     }
 });
 

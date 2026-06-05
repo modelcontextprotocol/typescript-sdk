@@ -14,7 +14,9 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    ClientCapabilitiesSchema
+    ClientCapabilitiesSchema,
+    ErrorCode,
+    McpError
 } from '../src/types.js';
 
 describe('Types', () => {
@@ -981,6 +983,40 @@ describe('Types', () => {
                 expect(result.data.sampling?.context).toBeDefined();
                 expect(result.data.sampling?.tools).toBeDefined();
             }
+        });
+    });
+
+    describe('ErrorCode', () => {
+        test('numeric values are frozen ABI', () => {
+            // Consumers map error codes by numeric value (value-to-label tables, duck-typed
+            // {code} checks across package boundaries), so the literal values are public ABI:
+            // renumbering a member or adding/removing one is a breaking change even though
+            // every enum-relative comparison in this repo would still pass. Exact-equality on
+            // the whole table also locks membership in both directions.
+            const members = Object.fromEntries(Object.entries(ErrorCode).filter(([key]) => Number.isNaN(Number(key))));
+            expect(members).toEqual({
+                ConnectionClosed: -32000,
+                RequestTimeout: -32001,
+                ParseError: -32700,
+                InvalidRequest: -32600,
+                MethodNotFound: -32601,
+                InvalidParams: -32602,
+                InternalError: -32603,
+                UrlElicitationRequired: -32042
+            });
+        });
+    });
+
+    describe('McpError', () => {
+        test('sets error.name to McpError', () => {
+            // Consumers classify SDK errors via err.name === 'McpError' (an instanceof check
+            // breaks under dual-package installs), which relies on the constructor assigning
+            // this.name rather than the class name surviving minification.
+            const error = new McpError(ErrorCode.InvalidParams, 'oops', { extra: 1 });
+            expect(error.name).toBe('McpError');
+            expect(error.code).toBe(ErrorCode.InvalidParams);
+            expect(error.data).toEqual({ extra: 1 });
+            expect(error.message).toBe('MCP error -32602: oops');
         });
     });
 });

@@ -1,4 +1,9 @@
-import { StartSSEOptions, StreamableHTTPClientTransport, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
+import {
+    StartSSEOptions,
+    StreamableHTTPClientTransport,
+    StreamableHTTPError,
+    StreamableHTTPReconnectionOptions
+} from '../../src/client/streamableHttp.js';
 import { OAuthClientProvider, UnauthorizedError } from '../../src/client/auth.js';
 import { JSONRPCMessage, JSONRPCRequest } from '../../src/types.js';
 import { InvalidClientError, InvalidGrantError, UnauthorizedClientError } from '../../src/server/auth/errors.js';
@@ -272,6 +277,23 @@ describe('StreamableHTTPClientTransport', () => {
 
         await transport.send({ jsonrpc: '2.0', method: 'test', params: {} } as JSONRPCMessage);
         expect(global.fetch).toHaveBeenCalledTimes(2);
+    });
+
+    it('should reject a failed GET connection with the Failed to open SSE stream marker', async () => {
+        // A 404 on the GET stream must surface as a StreamableHTTPError whose message carries
+        // the 'Failed to open SSE stream' marker: consumers use exactly that pair to tell a
+        // missing SSE endpoint apart from an expired session (which is also a 404).
+        (global.fetch as Mock).mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+            statusText: 'Not Found'
+        });
+
+        await transport.start();
+        const error = await transport['_startOrAuthSse']({}).catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(StreamableHTTPError);
+        expect((error as StreamableHTTPError).code).toBe(404);
+        expect((error as StreamableHTTPError).message).toContain('Failed to open SSE stream');
     });
 
     it('should handle successful initial GET connection for SSE', async () => {

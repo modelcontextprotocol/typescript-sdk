@@ -329,6 +329,10 @@ verifies('typescript:protocol:error:connection-closed', async ({ transport }: Te
     for (const p of inFlight) {
         await expect(p).rejects.toBeInstanceOf(McpError);
         await expect(p).rejects.toMatchObject({ code: ErrorCode.ConnectionClosed });
+        // Consumers match the close rejection as a duck shape — literal code -32000 plus a
+        // message containing 'Connection closed' — so pin both halves, not just the enum member.
+        await expect(p).rejects.toMatchObject({ code: -32000 });
+        await expect(p).rejects.toThrow('Connection closed');
     }
     // onclose fires at least once (transport peers may echo a close back, so don't pin the count).
     await vi.waitFor(() => expect(onclose).toHaveBeenCalled());
