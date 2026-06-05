@@ -20,6 +20,7 @@ import {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     ErrorCode,
+    isJSONRPCErrorResponse,
     isJSONRPCResultResponse,
     type JSONRPCMessage,
     type JSONRPCNotification,
@@ -287,6 +288,8 @@ verifies('protocol:cancel:unknown-id-ignored', async ({ transport, protocolVersi
     const client = newClient();
     await using _ = await wire({ transport, protocolVersion }, makeServer, client);
 
+    const tap = tapWire(client);
+
     const result = await client.callTool({ name: 'echo', arguments: { text: 'hi' } });
     expect(result.content).toEqual([{ type: 'text', text: 'hi' }]);
 
@@ -304,11 +307,67 @@ verifies('protocol:cancel:unknown-id-ignored', async ({ transport, protocolVersi
         })
     ).resolves.toBeUndefined();
 
+    // Third arm: an id that WAS issued but whose request already completed (the echo
+    // call above) — same silent-ignore contract as a never-issued id.
+    const echoId = tap.sent.filter(isRequest).find(m => m.method === 'tools/call')?.id;
+    expect(echoId).toBeDefined();
+    await expect(
+        client.notification({
+            method: 'notifications/cancelled',
+            params: { requestId: echoId!, reason: 'request already completed' }
+        })
+    ).resolves.toBeUndefined();
+
     await new Promise(resolve => setTimeout(resolve, 50));
 
     expect(errors).toEqual([]);
 
     await expect(client.ping()).resolves.toBeDefined();
+});
+
+verifies('typescript:protocol:cancel:request-id-zero', async ({ transport, protocolVersion }: TestArgs) => {
+    const started: Array<{ requestId: RequestId; signal: AbortSignal }> = [];
+    let release!: () => void;
+    const released = new Promise<void>(resolve => {
+        release = resolve;
+    });
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('wait', { inputSchema: z.object({}) }, async (_a, extra) => {
+            started.push({ requestId: extra.requestId, signal: extra.signal });
+            await released;
+            return { content: [] };
+        });
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+    try {
+        // The client's own id 0 went to initialize, so a server-side in-flight request
+        // with id 0 has to be injected directly onto the wire; any eventual response to
+        // it is unknown to the client's Protocol instance, hence the onerror swallow.
+        client.onerror = () => {};
+        await client.transport!.send({
+            jsonrpc: '2.0',
+            id: 0,
+            method: 'tools/call',
+            params: { name: 'wait', arguments: {} }
+        });
+        await vi.waitFor(() => expect(started).toHaveLength(1));
+        expect(started[0].requestId).toBe(0);
+
+        await client.notification({
+            method: 'notifications/cancelled',
+            params: { requestId: 0, reason: 'cancel the id-0 request' }
+        });
+        // A full round-trip plus settle time: the cancellation has definitely been processed.
+        await expect(client.ping()).resolves.toBeDefined();
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        expect(started[0].signal.aborted).toBe(true);
+    } finally {
+        release();
+    }
 });
 
 verifies('typescript:protocol:error:connection-closed', async ({ transport, protocolVersion }: TestArgs) => {
@@ -586,6 +645,56 @@ verifies('protocol:progress:token-unique', async ({ transport, protocolVersion }
     expect(tokens[0]).not.toBe(tokens[1]);
 });
 
+verifies('typescript:protocol:progress:concurrent-isolation', async ({ transport, protocolVersion }: TestArgs) => {
+    // Both handlers must be in flight before either emits progress — if the requests
+    // serialized, a broadcast dispatch would be invisible (the other request's
+    // progress handler would not be registered yet).
+    let startedCount = 0;
+    let releaseBoth!: () => void;
+    const bothStarted = new Promise<void>(resolve => {
+        releaseBoth = resolve;
+    });
+    const arrive = () => {
+        startedCount += 1;
+        if (startedCount === 2) releaseBoth();
+    };
+    const makeServer = () => {
+        const s = new McpServer({ name: 's', version: '0' });
+        s.registerTool('progress', { inputSchema: z.object({ steps: z.number().int().positive() }) }, async ({ steps }, extra) => {
+            const token = extra._meta?.progressToken;
+            arrive();
+            await bothStarted;
+            if (token !== undefined) {
+                for (let i = 1; i <= steps; i++) {
+                    await extra.sendNotification({
+                        method: 'notifications/progress',
+                        params: { progressToken: token, progress: i, total: steps, message: `step ${i}/${steps}` }
+                    });
+                }
+            }
+            return { content: [{ type: 'text', text: `done after ${steps} steps` }] };
+        });
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+    const updatesA: Progress[] = [];
+    const updatesB: Progress[] = [];
+
+    await Promise.all([
+        client.callTool({ name: 'progress', arguments: { steps: 2 } }, undefined, { onprogress: p => updatesA.push(p) }),
+        client.callTool({ name: 'progress', arguments: { steps: 3 } }, undefined, { onprogress: p => updatesB.push(p) })
+    ]);
+
+    // Each collector saw exactly its own request's updates — by count, order, and total.
+    // A broadcast dispatch would deliver all five updates to both collectors.
+    expect(updatesA.map(p => p.progress)).toEqual([1, 2]);
+    expect(updatesB.map(p => p.progress)).toEqual([1, 2, 3]);
+    expect(updatesA.map(p => p.total)).toEqual([2, 2]);
+    expect(updatesB.map(p => p.total)).toEqual([3, 3, 3]);
+});
+
 verifies('protocol:timeout:basic', async ({ transport, protocolVersion }: TestArgs) => {
     vi.useFakeTimers();
     try {
@@ -736,6 +845,67 @@ verifies('protocol:timeout:reset-on-progress', async ({ transport, protocolVersi
     }
 });
 
+verifies('typescript:protocol:timeout:rearm-fires', async ({ transport, protocolVersion }: TestArgs) => {
+    vi.useFakeTimers();
+    try {
+        // One progress notification at t=150, then silence forever.
+        const makeServer = () => {
+            const s = new McpServer({ name: 's', version: '0' });
+            s.registerTool('one-progress', { inputSchema: z.object({}) }, async (_a, extra) => {
+                const token = extra._meta?.progressToken;
+                if (token !== undefined) {
+                    await new Promise(resolve => setTimeout(resolve, 150));
+                    await extra.sendNotification({
+                        method: 'notifications/progress',
+                        params: { progressToken: token, progress: 1, message: 'only step' }
+                    });
+                }
+                return new Promise(() => {
+                    /* never resolves */
+                });
+            });
+            return s;
+        };
+        const client = newClient();
+        await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+        const timeout = 200;
+        const updates: Progress[] = [];
+        let outcome: { kind: 'resolved' | 'rejected'; value: unknown } | undefined;
+
+        const call = client.callTool({ name: 'one-progress', arguments: {} }, undefined, {
+            timeout,
+            resetTimeoutOnProgress: true,
+            onprogress: p => updates.push(p)
+        });
+        void call.then(
+            v => (outcome = { kind: 'resolved', value: v }),
+            (e: unknown) => (outcome = { kind: 'rejected', value: e })
+        );
+
+        // t=150: the single progress notification arrives inside the original 200ms
+        // deadline and re-arms the read timeout (due again 200ms after the reset).
+        // NOTE: with fake timers active, vi.waitFor advances the clock 50ms per check,
+        // so no assertion below may depend on an exact post-waitFor clock value.
+        await vi.advanceTimersByTimeAsync(150);
+        await vi.waitFor(() => expect(updates).toHaveLength(1));
+        // Progress arrived while the call was still live, so the reset applied to a
+        // pending request (had the original deadline fired first, outcome would be set).
+        expect(outcome).toBeUndefined();
+
+        // No further progress: the RE-ARMED timer must actually fire. Advance far past
+        // any possible re-armed deadline — a clear-and-never-re-arm implementation
+        // (which protocol:timeout:reset-on-progress cannot distinguish) leaves the
+        // request hanging forever here instead of failing it.
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(outcome?.kind).toBe('rejected');
+        expect(outcome?.value).toBeInstanceOf(McpError);
+        expect(outcome?.value).toMatchObject({ code: ErrorCode.RequestTimeout });
+    } finally {
+        vi.useRealTimers();
+    }
+});
+
 verifies('protocol:timeout:sends-cancellation', async ({ transport, protocolVersion }: TestArgs) => {
     vi.useFakeTimers();
     try {
@@ -873,6 +1043,34 @@ verifies('protocol:error:data-roundtrip', async ({ transport, protocolVersion }:
     await expect(call).rejects.toBeInstanceOf(McpError);
     await expect(call).rejects.toThrow(/boom/);
     await expect(call).rejects.toMatchObject({ code: ErrorCode.InternalError, data });
+});
+
+verifies('typescript:protocol:error:data-absent', async ({ transport, protocolVersion }: TestArgs) => {
+    // Raw Server so the thrown McpError reaches the protocol layer's error envelope.
+    const makeServer = () => {
+        const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
+        s.setRequestHandler(ListToolsRequestSchema, () => ({ tools: [] }));
+        s.setRequestHandler(CallToolRequestSchema, () => {
+            throw new McpError(ErrorCode.InternalError, 'boom with no data');
+        });
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire({ transport, protocolVersion }, makeServer, client);
+
+    const tap = tapWire(client);
+
+    const call = client.callTool({ name: 'any', arguments: {} });
+    await expect(call).rejects.toBeInstanceOf(McpError);
+    const err = await call.catch(e => e as McpError);
+    expect(err.code).toBe(ErrorCode.InternalError);
+    // The thrown error carried no data, so neither does the rejection...
+    expect(err.data).toBeUndefined();
+
+    // ...and the wire envelope omits the member entirely (no data: null).
+    const errorResponses = tap.received.filter(isJSONRPCErrorResponse);
+    expect(errorResponses).toHaveLength(1);
+    expect('data' in errorResponses[0].error).toBe(false);
 });
 
 verifies('protocol:fallback-notification-handler', async ({ transport, protocolVersion }: TestArgs) => {
@@ -1118,6 +1316,39 @@ verifies('protocol:request-id:unique', async ({ transport, protocolVersion }: Te
     }
     // Five requests on the session, five distinct ids — no id is ever reused.
     expect(new Set(ids).size).toBe(5);
+});
+
+verifies('typescript:protocol:request-id:sequential', async (_: TestArgs) => {
+    // The tap must see the initialize request itself, so wire() (which awaits
+    // connect) can't be used. Id allocation lives in shared/protocol.ts and is
+    // transport-agnostic; registered on inMemory only (see the requirement note).
+    const server = new McpServer({ name: 's', version: '0' });
+    const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTx);
+
+    const outbound: JSONRPCMessage[] = [];
+    const origSend = clientTx.send.bind(clientTx);
+    clientTx.send = async (m, opts) => {
+        outbound.push(m);
+        return origSend(m, opts);
+    };
+
+    const client = newClient();
+    await client.connect(clientTx);
+
+    await client.ping();
+    await client.ping();
+    await client.ping();
+    await client.ping();
+
+    const requests = outbound.filter(isRequest);
+    expect(requests.map(m => m.method)).toEqual(['initialize', 'ping', 'ping', 'ping', 'ping']);
+    // The session's very first request — initialize — takes id 0, and each later
+    // request id is exactly the previous plus one: a dense zero-based sequence,
+    // not merely unique ids.
+    expect(requests.map(m => m.id)).toEqual([0, 1, 2, 3, 4]);
+
+    await Promise.all([client.close(), server.close()]);
 });
 
 verifies('protocol:notifications:no-response', async ({ transport, protocolVersion }: TestArgs) => {

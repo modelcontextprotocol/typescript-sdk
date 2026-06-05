@@ -161,6 +161,18 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'The receiver silently ignores a cancellation notification referencing an unknown or already-completed request id; no error response is sent and no exception is raised.'
     },
+    'typescript:protocol:cancel:request-id-zero': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#behavior-requirements',
+        behavior:
+            'notifications/cancelled aborts the in-flight request whose id it names for any valid JSON-RPC request id, including the integer 0. Id 0 is a legal request id — it is the very id the SDK client assigns to initialize, and the one id the SDK itself cancels in the wild (connect-abort emits notifications/cancelled for the initialize request).',
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Stateless hosting creates a fresh server per request, so a cancellation notification cannot reach the instance holding the in-flight request.',
+        knownFailures: [
+            {
+                note: "_oncancel's falsy guard (src/shared/protocol.ts:551, `if (!notification.params.requestId)`) treats requestId 0 like an absent id and returns without aborting, so the id-0 handler keeps running. The expected fix is an explicit undefined check (`requestId === undefined`); when it lands this entry flips red — review whether anything depended on the no-op, then remove the entry."
+            }
+        ]
+    },
     'typescript:protocol:error:connection-closed': {
         source: 'sdk',
         behavior:
@@ -220,6 +232,17 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow',
         behavior: 'Concurrent in-flight requests that each supply a progress callback carry distinct progress tokens.'
     },
+    'typescript:protocol:progress:concurrent-isolation': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/progress#progress-flow',
+        behavior:
+            "Progress notifications are dispatched only to the callback of the request whose token they carry: two concurrent requests on one client, each with its own onprogress collector, each observe exactly their own updates and never the other request's. (protocol:progress:token-unique proves the tokens are distinct but discards the updates, so it cannot see a broadcast dispatch.)",
+        knownFailures: [
+            {
+                transport: 'sse',
+                note: "Same real-socket SSE batching race as protocol:progress:callback: each handler's progress notifications and its response arrive in one batch; the response is processed first and clears the progress handler, so the progress notifications are dropped as unknown-token and the collectors stay empty."
+            }
+        ]
+    },
     'protocol:timeout:basic': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts',
         behavior: 'A request that exceeds its read timeout fails with a request-timeout error instead of waiting forever for the response.'
@@ -237,6 +260,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
                 note: 'Same real-socket SSE batching race as protocol:progress:callback: the progress notifications are dropped as unknown-token before they can reset the timeout, so the request times out.'
             }
         ]
+    },
+    'typescript:protocol:timeout:rearm-fires': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts',
+        behavior:
+            'After a progress notification resets the read timeout, the re-armed timer is live: when the reset interval then elapses with no further progress, the request fails with a request-timeout error instead of waiting forever. (protocol:timeout:reset-on-progress only proves the original deadline stopped applying, which a clear-and-never-re-arm implementation also satisfies.)'
     },
     'protocol:timeout:sends-cancellation': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts',
@@ -273,6 +301,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#responses',
         behavior:
             'A request handler that throws McpError(code, message, data) produces a JSON-RPC error whose error.data equals the thrown data; the client-side rejection is an McpError with .data deep-equal to the original object.'
+    },
+    'typescript:protocol:error:data-absent': {
+        source: 'sdk',
+        behavior:
+            "When a request handler's error carries no data, the JSON-RPC error envelope omits the data member entirely — not data: null — and the client-side McpError rejection has data === undefined. Always emitting a data member would be a wire-visible envelope change for any peer that distinguishes absence ('data' in error / err.data === undefined checks)."
     },
     'protocol:fallback-notification-handler': {
         source: 'sdk',
@@ -1158,6 +1191,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#requests',
         behavior:
             'Every request sent on a session carries a unique, non-null string or integer id; ids are never reused within the session.'
+    },
+    'typescript:protocol:request-id:sequential': {
+        source: 'sdk',
+        behavior:
+            "Request ids on a session come from a monotonic per-instance counter that starts at 0 and advances by exactly 1 per request: the initialize request itself takes id 0 (the SDK's own connect-abort path emits notifications/cancelled for requestId 0 on that basis), and every later request id is the previous plus one. The spec only requires uniqueness — the dense zero-based integer sequence is SDK behavior that is observable on the wire, so a skip-counting or non-zero-based allocator is a visible wire change even though ids stay unique.",
+        transports: ['inMemory'],
+        note: 'Id allocation is protocol-layer state with no transport-specific surface, and the tap must be installed before connect to observe the initialize request (wire() awaits connect, so it cannot be used); one bare in-memory cell avoids running an identical body once per transport.'
     },
     'protocol:notifications:no-response': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#notifications',
