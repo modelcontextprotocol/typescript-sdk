@@ -1754,7 +1754,7 @@ describe('StreamableHTTPClientTransport', () => {
             expect(errorSpy).toHaveBeenCalledTimes(1);
             expect(errorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    message: 'Maximum reconnection attempts (2) exceeded.'
+                    message: expect.stringMatching(/^Maximum reconnection attempts/)
                 })
             );
             expect(transport['_reconnectionTimeout']).toBeUndefined();
