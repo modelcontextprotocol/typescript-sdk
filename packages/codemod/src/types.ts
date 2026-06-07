@@ -12,6 +12,8 @@ export interface Diagnostic {
     line: number;
     message: string;
     category?: 'v2-gap';
+    insertComment?: boolean;
+    resolveCurrentLine?: () => number;
 }
 
 export interface TransformResult {
@@ -62,4 +64,5 @@ export interface RunnerResult {
     diagnostics: Diagnostic[];
     fileResults: FileResult[];
     packageJsonChanges?: PackageJsonChange;
+    commentCount: number;
 }

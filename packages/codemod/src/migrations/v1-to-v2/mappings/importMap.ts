@@ -7,6 +7,8 @@ export interface ImportMapping {
     removalMessage?: string;
     /** No entries currently set this; scaffolding for when a v1 symbol has no v2 equivalent yet. */
     isV2Gap?: boolean;
+    /** Emitted as an info diagnostic after a successful move, suggesting eventual migration to v2 equivalents. */
+    migrationHint?: string;
     /**
      * Subpath suffix appended after `RESOLVE_BY_CONTEXT` resolves the base package (e.g. `/validators/ajv`).
      * The final target becomes `@modelcontextprotocol/{client,server}<subpathSuffix>`.
@@ -32,14 +34,8 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         status: 'moved'
     },
     '@modelcontextprotocol/sdk/client/stdio.js': {
-        target: '@modelcontextprotocol/client',
-        status: 'moved',
-        symbolTargetOverrides: {
-            StdioClientTransport: '@modelcontextprotocol/client/stdio',
-            DEFAULT_INHERITED_ENV_VARS: '@modelcontextprotocol/client/stdio',
-            getDefaultEnvironment: '@modelcontextprotocol/client/stdio',
-            StdioServerParameters: '@modelcontextprotocol/client/stdio'
-        }
+        target: '@modelcontextprotocol/client/stdio',
+        status: 'moved'
     },
     '@modelcontextprotocol/sdk/client/websocket.js': {
         target: '',
@@ -74,9 +70,10 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         status: 'moved'
     },
     '@modelcontextprotocol/sdk/server/sse.js': {
-        target: '',
-        status: 'removed',
-        removalMessage: 'SSE server transport removed in v2. Migrate to NodeStreamableHTTPServerTransport from @modelcontextprotocol/node.'
+        target: '@modelcontextprotocol/server-legacy/sse',
+        status: 'moved',
+        migrationHint:
+            'SSEServerTransport is deprecated. Migrate to NodeStreamableHTTPServerTransport from @modelcontextprotocol/node or WebStandardStreamableHTTPServerTransport from @modelcontextprotocol/server.'
     },
     '@modelcontextprotocol/sdk/server/middleware.js': {
         target: '@modelcontextprotocol/express',
@@ -90,34 +87,29 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
 
     '@modelcontextprotocol/sdk/server/auth/types.js': {
-        target: '',
-        status: 'removed',
-        removalMessage:
-            'Server auth removed in v2. AuthInfo is now re-exported by @modelcontextprotocol/client and @modelcontextprotocol/server.'
+        target: '@modelcontextprotocol/server-legacy/auth',
+        status: 'moved',
+        migrationHint: 'Legacy auth types. AuthInfo is also re-exported by @modelcontextprotocol/server.'
     },
     '@modelcontextprotocol/sdk/server/auth/provider.js': {
-        target: '',
-        status: 'removed',
-        removalMessage:
-            'Server auth provider removed in v2. For Resource-Server auth (token verification), see @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
+        target: '@modelcontextprotocol/server-legacy/auth',
+        status: 'moved',
+        migrationHint: 'Legacy OAuth AS provider. For RS-only auth, see requireBearerAuth from @modelcontextprotocol/express.'
     },
     '@modelcontextprotocol/sdk/server/auth/router.js': {
-        target: '',
-        status: 'removed',
-        removalMessage:
-            'Server auth router removed in v2. For metadata endpoints, see mcpAuthMetadataRouter from @modelcontextprotocol/express. For full OAuth AS router, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
+        target: '@modelcontextprotocol/server-legacy/auth',
+        status: 'moved',
+        migrationHint: 'Legacy OAuth AS router. For metadata-only endpoints, see mcpAuthMetadataRouter from @modelcontextprotocol/express.'
     },
     '@modelcontextprotocol/sdk/server/auth/middleware.js': {
-        target: '',
-        status: 'removed',
-        removalMessage:
-            'Server auth middleware removed in v2. For bearer token validation, see requireBearerAuth from @modelcontextprotocol/express. For full OAuth AS, see @modelcontextprotocol/server-auth-legacy (PR #1908).'
+        target: '@modelcontextprotocol/server-legacy/auth',
+        status: 'moved',
+        migrationHint: 'Legacy OAuth AS middleware. For bearer-only auth, see requireBearerAuth from @modelcontextprotocol/express.'
     },
     '@modelcontextprotocol/sdk/server/auth/errors.js': {
-        target: '',
-        status: 'removed',
-        removalMessage:
-            'Auth error subclasses consolidated in v2. Use OAuthError + OAuthErrorCode from @modelcontextprotocol/server. See also @modelcontextprotocol/server-auth-legacy (PR #1908).'
+        target: '@modelcontextprotocol/server-legacy/auth',
+        status: 'moved',
+        migrationHint: 'Legacy error subclasses. v2 consolidates to OAuthError + OAuthErrorCode in @modelcontextprotocol/server.'
     },
 
     '@modelcontextprotocol/sdk/types.js': {
@@ -154,12 +146,14 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
 
     '@modelcontextprotocol/sdk/experimental/tasks': {
-        target: '@modelcontextprotocol/server',
-        status: 'moved'
+        target: '',
+        status: 'removed',
+        removalMessage: 'Experimental tasks removed in v2 (SEP-2663 — tasks moved to the Extensions Track). No v2 equivalent.'
     },
     '@modelcontextprotocol/sdk/experimental/tasks.js': {
-        target: '@modelcontextprotocol/server',
-        status: 'moved'
+        target: '',
+        status: 'removed',
+        removalMessage: 'Experimental tasks removed in v2 (SEP-2663 — tasks moved to the Extensions Track). No v2 equivalent.'
     },
 
     '@modelcontextprotocol/sdk/inMemory.js': {

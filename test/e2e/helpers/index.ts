@@ -6,7 +6,8 @@
  * `AsyncDisposable` for `await using` teardown. All wiring is in-process —
  * no real sockets, no child processes — except the legacy SSE transport,
  * whose client half opens a real EventSource stream, so it runs over a
- * loopback HTTP listener backed by the test-only bridge in sse-host.ts.
+ * loopback HTTP listener hosting the shipped server-side SSE transport
+ * (see sse-host.ts).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -67,8 +68,9 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
             };
         }
         case 'sse': {
-            // v2 removed the server-side SSE transport, so the factory's server is hosted behind the
-            // test-only bridge in sse-host.ts and the real shipped SSEClientTransport connects to it.
+            // The legacy SSE transport needs a real socket: the factory's server is hosted on the
+            // shipped SSEServerTransport (@modelcontextprotocol/server-legacy/sse) behind a loopback
+            // listener, and the real shipped SSEClientTransport connects to it.
             const host = await startLegacySseHost(makeServer);
             await client.connect(sniffTransport(new SSEClientTransport(host.url), 'client', sniff));
             return {

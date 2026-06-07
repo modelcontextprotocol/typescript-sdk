@@ -162,6 +162,7 @@ describe('handler-registration transform', () => {
 
     it('emits diagnostic for custom method schema (not in spec map)', () => {
         const input = [
+            `import { Server } from '@modelcontextprotocol/sdk/server/index.js';`,
             `const AcmeSearch = z.object({ method: z.literal('acme/search'), params: z.object({ query: z.string() }) });`,
             `server.setRequestHandler(AcmeSearch, async (request) => {`,
             `    return { items: [] };`,
@@ -179,6 +180,7 @@ describe('handler-registration transform', () => {
 
     it('emits diagnostic for custom notification schema', () => {
         const input = [
+            `import { Server } from '@modelcontextprotocol/sdk/server/index.js';`,
             `const CustomNotification = z.object({ method: z.literal('acme/notify') });`,
             `server.setNotificationHandler(CustomNotification, async () => {});`,
             ''
@@ -192,67 +194,18 @@ describe('handler-registration transform', () => {
         expect(result.diagnostics[0]!.message).toContain('CustomNotification');
     });
 
-    it('replaces ListTasksRequestSchema with method string', () => {
+    it('skips files with no MCP imports', () => {
         const input = [
-            `import { ListTasksRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setRequestHandler(ListTasksRequestSchema, async (request) => {`,
-            `    return { tasks: [] };`,
-            `});`,
+            `import { EventBus } from 'some-other-library';`,
+            `const CustomSchema = z.object({ method: z.literal('custom/op') });`,
+            `bus.setRequestHandler(CustomSchema, async (req) => {});`,
             ''
         ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setRequestHandler('tasks/list'");
-        expect(result).not.toContain('ListTasksRequestSchema');
-    });
-
-    it('replaces GetTaskRequestSchema with method string', () => {
-        const input = [
-            `import { GetTaskRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setRequestHandler(GetTaskRequestSchema, async (request) => {`,
-            `    return { taskId: '1', status: 'completed' };`,
-            `});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setRequestHandler('tasks/get'");
-        expect(result).not.toContain('GetTaskRequestSchema');
-    });
-
-    it('replaces CancelTaskRequestSchema with method string', () => {
-        const input = [
-            `import { CancelTaskRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setRequestHandler(CancelTaskRequestSchema, async (request) => {`,
-            `    return {};`,
-            `});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setRequestHandler('tasks/cancel'");
-        expect(result).not.toContain('CancelTaskRequestSchema');
-    });
-
-    it('replaces GetTaskPayloadRequestSchema with method string', () => {
-        const input = [
-            `import { GetTaskPayloadRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setRequestHandler(GetTaskPayloadRequestSchema, async (request) => {`,
-            `    return { content: [] };`,
-            `});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setRequestHandler('tasks/result'");
-        expect(result).not.toContain('GetTaskPayloadRequestSchema');
-    });
-
-    it('replaces TaskStatusNotificationSchema with method string', () => {
-        const input = [
-            `import { TaskStatusNotificationSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setNotificationHandler(TaskStatusNotificationSchema, async () => {});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setNotificationHandler('notifications/tasks/status'");
-        expect(result).not.toContain('TaskStatusNotificationSchema');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = handlerRegistrationTransform.apply(sourceFile, ctx);
+        expect(result.changesCount).toBe(0);
+        expect(result.diagnostics.length).toBe(0);
     });
 
     it('replaces ElicitationCompleteNotificationSchema with method string', () => {

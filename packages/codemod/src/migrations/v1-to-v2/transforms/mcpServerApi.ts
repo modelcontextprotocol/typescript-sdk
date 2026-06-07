@@ -2,7 +2,7 @@ import type { CallExpression, SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { info, warning } from '../../../utils/diagnostics.js';
+import { actionRequired, info } from '../../../utils/diagnostics.js';
 import { isOriginalNameImportedFromMcp, resolveLocalImportName } from '../../../utils/importUtils.js';
 
 export const mcpServerApiTransform: Transform = {
@@ -64,9 +64,9 @@ export const mcpServerApiTransform: Transform = {
                 changesCount++;
             } else {
                 diagnostics.push(
-                    warning(
+                    actionRequired(
                         sourceFile.getFilePath(),
-                        call.getStartLineNumber(),
+                        call,
                         'Could not automatically migrate .tool() call. Manual migration required.'
                     )
                 );
@@ -79,9 +79,9 @@ export const mcpServerApiTransform: Transform = {
                 changesCount++;
             } else {
                 diagnostics.push(
-                    warning(
+                    actionRequired(
                         sourceFile.getFilePath(),
-                        call.getStartLineNumber(),
+                        call,
                         'Could not automatically migrate .prompt() call. Manual migration required.'
                     )
                 );
@@ -94,9 +94,9 @@ export const mcpServerApiTransform: Transform = {
                 changesCount++;
             } else {
                 diagnostics.push(
-                    warning(
+                    actionRequired(
                         sourceFile.getFilePath(),
-                        call.getStartLineNumber(),
+                        call,
                         'Could not automatically migrate .resource() call. Manual migration required.'
                     )
                 );
@@ -131,6 +131,13 @@ function isStringArg(node: Node): boolean {
     return Node.isStringLiteral(node) || Node.isNoSubstitutionTemplateLiteral(node) || Node.isTemplateExpression(node);
 }
 
+function isZodObjectCall(node: Node): boolean {
+    if (!Node.isCallExpression(node)) return false;
+    const expr = node.getExpression();
+    if (!Node.isPropertyAccessExpression(expr)) return false;
+    return expr.getName() === 'object' && expr.getExpression().getText() === 'z';
+}
+
 function wrapWithZObject(schemaText: string): string {
     return `z.object(${schemaText})`;
 }
@@ -150,6 +157,14 @@ function emitWrapDiagnostic(node: Node, sourceFile: SourceFile, call: CallExpres
                 sourceFile.getFilePath(),
                 call.getStartLineNumber(),
                 'Raw object literal wrapped with z.object(). Verify that zod (z) is imported in this file.'
+            )
+        );
+    } else if (!isZodObjectCall(node)) {
+        diagnostics.push(
+            actionRequired(
+                sourceFile.getFilePath(),
+                call,
+                'Schema argument is not an object literal — verify it is a z.object() schema. V2 requires a Zod schema, not a raw object.'
             )
         );
     }
@@ -179,9 +194,9 @@ function wrapSchemaInConfig(call: CallExpression, schemaPropertyName: string, so
 
     if (Node.isShorthandPropertyAssignment(schemaProp)) {
         diagnostics.push(
-            warning(
+            actionRequired(
                 sourceFile.getFilePath(),
-                call.getStartLineNumber(),
+                call,
                 `Shorthand \`{ ${schemaPropertyName} }\` in config: verify the value is a z.object() schema, not a raw object. V2 requires a Zod schema.`
             )
         );
@@ -206,13 +221,15 @@ function wrapSchemaInConfig(call: CallExpression, schemaPropertyName: string, so
         return true;
     }
 
-    diagnostics.push(
-        warning(
-            sourceFile.getFilePath(),
-            call.getStartLineNumber(),
-            `\`${schemaPropertyName}\` value is not an object literal — verify it is a z.object() schema. V2 requires a Zod schema, not a raw object.`
-        )
-    );
+    if (!isZodObjectCall(initializer)) {
+        diagnostics.push(
+            actionRequired(
+                sourceFile.getFilePath(),
+                call,
+                `\`${schemaPropertyName}\` value is not an object literal — verify it is a z.object() schema. V2 requires a Zod schema, not a raw object.`
+            )
+        );
+    }
     return false;
 }
 
@@ -446,9 +463,9 @@ function migrateConstructorTaskOptions(sourceFile: SourceFile, diagnostics: Diag
         if (tasksObjStart === -1) {
             for (const propName of propsToMove) {
                 diagnostics.push(
-                    warning(
+                    actionRequired(
                         sourceFile.getFilePath(),
-                        node.getStartLineNumber(),
+                        node,
                         `Move '${propName}' from McpServer options into capabilities.tasks — v2 expects task runtime options inside the tasks capability.`
                     )
                 );

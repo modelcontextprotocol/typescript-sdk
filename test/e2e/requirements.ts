@@ -107,6 +107,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed.'
     },
+    'typescript:server:get-negotiated-protocol-version': {
+        source: 'sdk',
+        behavior:
+            'After initialize, Server.getNegotiatedProtocolVersion() returns the protocol version the server responded with; before initialize it returns undefined. Matches the Client-side getter.',
+        transports: STATEFUL_TRANSPORTS,
+        note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed.'
+    },
 
     // Protocol primitives: cancellation, timeout, progress, errors, _meta
 
@@ -1111,13 +1118,6 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'The client treats cursors as opaque tokens — it does not parse, modify, or persist them — and does not assume a fixed page size.'
     },
 
-    // Tasks
-    'protocol:meta:related-task': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#related-task-metadata',
-        behavior: 'Messages may carry related-task _meta associating them with a task.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
     'protocol:meta:request-to-handler': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#_meta',
         behavior: "_meta sent in a request's params by the client is delivered intact to the server-side request handler."
@@ -1168,265 +1168,6 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: "A progress notification sent by the client is delivered to the server's progress handler.",
         transports: ['inMemory', 'stdio', 'streamableHttp'],
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
-    },
-
-    'tasks:auth:context-isolation': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-isolation-and-access-control',
-        behavior:
-            'When an authorization context is available, task operations are scoped to the context that created the task: other contexts cannot get it, retrieve its result, cancel it, or see it in tasks/list.',
-        transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting/auth layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:bidirectional': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#definitions',
-        behavior: 'Task APIs are bidirectional: the server may create, get, list, and cancel tasks on the client.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:cancel:no-handler-abort': {
-        source: 'sdk',
-        behavior:
-            'tasks/cancel marks the task cancelled without aborting the originating request handler (the spec says receivers SHOULD attempt to stop execution).',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:cancel:remains-cancelled': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation',
-        behavior: 'After tasks/cancel, the task remains cancelled even if the underlying handler subsequently completes or fails.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:cancel:terminal-rejected': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation',
-        behavior: 'tasks/cancel on a task already in a terminal state returns Invalid params (-32602).',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:cancel:working': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-cancellation',
-        behavior: 'tasks/cancel on a working task transitions it to cancelled and returns the updated task.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:create:ttl-honored': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#ttl-and-resource-management',
-        behavior:
-            'tasks/get responses include the actual ttl applied by the receiver (or null for unlimited); the create-task result carries the same value.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:create:via-tool-call': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#creating-tasks',
-        behavior: 'A task-augmented tools/call returns a create-task result instead of the tool result.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:get': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#getting-tasks',
-        behavior: "tasks/get returns the task's current status, ttl, timestamps, and status message.",
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:lifecycle:initial-working': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-lifecycle',
-        behavior: "A newly created task has status 'working'.",
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:lifecycle:input-required': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status',
-        behavior:
-            'While a task awaits a side-channel client response its status is input_required; once the response arrives the task leaves input_required (typically returning to working).',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:list:invalid-cursor': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#protocol-errors',
-        behavior: 'tasks/list with an invalid cursor returns Invalid params (-32602).',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:list:pagination': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#listing-tasks',
-        behavior: 'tasks/list returns created tasks and supports cursor pagination.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:no-capability:ignore-task-param': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-support-and-handling',
-        behavior:
-            'A receiver that did not declare task capability for a request type processes the request normally and returns the ordinary result, ignoring the task augmentation.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:progress:after-create': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-progress-notifications',
-        behavior:
-            'After the create-task result, progress notifications keyed to the original progress token continue to reach the caller until the task is terminal.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:request-cancel:no-task-cancel': {
-        source: 'sdk',
-        behavior: 'A cancellation notification for the originating request does not auto-cancel the created task.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:result:failed': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-execution-errors',
-        behavior: 'tasks/result for a failed task returns the failure result (isError true).',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:result:related-task-meta': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#related-task-metadata',
-        behavior: 'The tasks/result response carries related-task _meta naming the requested task.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:result:terminal': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval',
-        behavior: 'tasks/result for a completed task returns the stored result of the original request type.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:side-channel:drain-fifo': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status',
-        behavior: 'tasks/result drains queued related-task messages in FIFO order before returning the final result.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:side-channel:drop-on-cancel': {
-        source: 'sdk',
-        behavior: 'When a task is cancelled before tasks/result, queued related-task messages are dropped.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:side-channel:elicitation': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status',
-        behavior:
-            "An elicitation issued mid-task is delivered through the tasks/result side-channel, and the client's response routes back to the handler.",
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:side-channel:queue': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status',
-        behavior: 'Server-to-client requests with related-task metadata sent while no tasks/result is open are queued.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:side-channel:sampling': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#input-required-status',
-        behavior:
-            "A sampling request issued mid-task is delivered through the tasks/result side-channel, and the client's response routes back to the task.",
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:side-channel:stream': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#result-retrieval',
-        behavior:
-            'Calling tasks/result while the task is working streams related-task messages as they are produced, then returns the result.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:status-notification': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#task-status-notification',
-        behavior: 'Task status notifications deliver status updates carrying the full task fields.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:tool-level:forbidden-with-task-32601': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#tool-level-negotiation',
-        behavior: 'A task-augmented tools/call on a tool that does not support tasks returns Method not found (-32601).',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:tool-level:required-no-task-32601': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#tool-level-negotiation',
-        behavior: 'A plain tools/call on a tool that requires task augmentation returns Method not found (-32601).',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'tasks:unknown-id': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks#protocol-errors',
-        behavior: 'tasks/get, tasks/result, and tasks/cancel for an unknown task id return Invalid params (-32602).',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-
-    // Tasks: registerToolTask (SDK)
-
-    'mcpserver:tooltask:advertise': {
-        source: 'sdk',
-        behavior: 'registerToolTask tools advertise their execution.taskSupport in tools/list.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'mcpserver:tooltask:autopoll-cancelled': {
-        source: 'sdk',
-        behavior: 'Auto-polling surfaces a cancelled task as an error result.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'mcpserver:tooltask:autopoll-failed': {
-        source: 'sdk',
-        behavior: 'Auto-polling surfaces a task that ends failed as the failed CallToolResult.',
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'mcpserver:tooltask:forbidden-throws': {
-        source: 'sdk',
-        behavior: "registerToolTask throws at registration if taskSupport:'forbidden'.",
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'mcpserver:tooltask:optional-autopoll': {
-        source: 'sdk',
-        behavior:
-            "A taskSupport:'optional' tool called without task augmentation transparently creates and polls the task, returning the final CallToolResult.",
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'mcpserver:tooltask:required-with-task': {
-        source: 'sdk',
-        behavior: "A taskSupport:'required' tool called with task augmentation returns CreateTaskResult.",
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-    'mcpserver:tooltask:required-without-task': {
-        source: 'sdk',
-        behavior: "A registerToolTask tool with taskSupport:'required' returns isError when called without task augmentation.",
-        deferred:
-            'Tasks are experimental and the spec is being substantially revised. Scenarios deferred until the next spec revision settles.'
-    },
-
-    // Client streaming API (SDK)
-
-    'client:stream:non-task-single': {
-        source: 'sdk',
-        behavior: 'requestStream() on a non-task request yields exactly the final result.',
-        deferred: 'client.stream() is a thin wrapper over tasks; deferred with tasks.'
-    },
-    'client:stream:task-elicitation': {
-        source: 'sdk',
-        behavior:
-            'callToolStream() over a task-augmented tool with mid-task elicitation delivers it to the client handler and yields the final result.',
-        deferred: 'client.stream() is a thin wrapper over tasks; deferred with tasks.'
-    },
-    'client:stream:terminal-error': {
-        source: 'sdk',
-        behavior:
-            'requestStream() yields a terminal error message and nothing further on server error, timeout, abort, network error, or task failure.',
-        deferred: 'client.stream() is a thin wrapper over tasks; deferred with tasks.'
-    },
-    'client:stream:tool-validation': {
-        source: 'sdk',
-        behavior:
-            'callToolStream() applies the same outputSchema validation as callTool(); mismatch yields an error, isError skips validation.',
-        deferred:
-            'client.stream() is a thin wrapper over tasks; deferred with tasks, part of the task-streaming work and not transport-specific.'
     },
 
     // McpServer reach-through (SDK)
@@ -2268,16 +2009,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'A single server instance can serve streamable HTTP and the legacy SSE transport concurrently; clients on either transport can call the same tools.',
         transports: ['streamableHttp'],
-        note: 'Deferred flows test legacy SSE; transport restriction reflects test infrastructure, not behavioral exclusion.',
-        deferred: 'Legacy SSE transport is deprecated in the spec. Back-compat flows that require an SSE server are deferred.'
+        note: 'This is an HTTP-specific compatibility flow; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. The SSE half is hosted with SSEServerTransport from @modelcontextprotocol/server-legacy/sse.'
     },
     'flow:compat:streamable-then-sse-fallback': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#backwards-compatibility',
         behavior:
             'When a streamable HTTP initialize fails with 400, 404, or 405, falling back to the legacy SSE client transport against the same server connects successfully.',
         transports: ['streamableHttp'],
-        note: 'This is an HTTP-specific compatibility flow; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        deferred: 'Legacy SSE transport is deprecated in the spec. Back-compat flows that require an SSE server are deferred.'
+        note: 'This is an HTTP-specific compatibility flow; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'flow:elicitation:multi-step-form': {
         transports: STATEFUL_TRANSPORTS,
@@ -2596,13 +2335,6 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'With enforceStrictCapabilities: true, calling a list method for a capability the server did not advertise rejects with a capability error instead of resolving empty.'
     },
-    'tasks:result:failed-task-stored-result': {
-        source: 'sdk',
-        behavior:
-            'When a task-augmented tool call fails, the failure is stored with status failed and a subsequent tasks/result request for that task returns the stored error result instead of losing it.',
-        transports: STATEFUL_TRANSPORTS,
-        note: 'Task polling and result retrieval need the same server instance across requests, which stateless hosting does not provide.'
-    },
     // Consumer-contract additions (sourced from real SDK dependents)
     'client-transport:http:error-status-code': {
         source: 'sdk',
@@ -2717,12 +2449,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'The SDK provides a server-side legacy HTTP+SSE transport so existing SSE deployments can be hosted on SDK components alone.',
         transports: ['sse'],
-        note: 'This asserts the availability of the server half of the legacy SSE transport; the matrix transport arg is ignored, so it runs as a single sse-labelled cell.',
-        knownFailures: [
-            {
-                note: 'changed in v2: the server-side SSE transport was removed from the SDK; only the client-side SSEClientTransport remains, so the e2e sse column is hosted by a test-only bridge.'
-            }
-        ]
+        note: 'This asserts the availability of the server half of the legacy SSE transport (SSEServerTransport from @modelcontextprotocol/server-legacy/sse); the matrix transport arg is ignored, so it runs as a single sse-labelled cell.'
     }
 } satisfies Record<string, Requirement>;
 

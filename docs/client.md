@@ -544,7 +544,7 @@ All requests have a 60-second default timeout. Pass a custom `timeout` in the op
 ```ts source="../examples/client/src/clientGuide.examples.ts#errorHandling_timeout"
 try {
     const result = await client.callTool(
-        { name: 'slow-task', arguments: {} },
+        { name: 'slow-operation', arguments: {} },
         { timeout: 120_000 } // 2 minutes instead of the default 60 seconds
     );
     console.log(result.content);
@@ -581,7 +581,7 @@ let lastToken: string | undefined;
 const result = await client.request(
     {
         method: 'tools/call',
-        params: { name: 'long-running-task', arguments: {} }
+        params: { name: 'long-running-operation', arguments: {} }
     },
     {
         resumptionToken: lastToken,
@@ -595,18 +595,6 @@ console.log(result);
 ```
 
 For an end-to-end example of server-initiated SSE disconnection and automatic client reconnection with event replay, see [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/ssePollingClient.ts).
-
-## Tasks (experimental)
-
-> [!WARNING]
-> The tasks API is experimental and may change without notice.
-
-Task-based execution enables "call-now, fetch-later" patterns for long-running operations (see [Tasks](https://modelcontextprotocol.io/specification/latest/basic/utilities/tasks) in the MCP specification). Instead of returning a result immediately, a tool creates a task that can be polled or resumed later. To use tasks:
-
-- Call {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#callToolStream | client.experimental.tasks.callToolStream(...)} to start a tool call that may create a task and emit status updates over time.
-- Call {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#getTask | client.experimental.tasks.getTask(...)} and {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#getTaskResult | getTaskResult(...)} to check status and fetch results after reconnecting.
-
-For a full runnable example, see [`simpleTaskInteractiveClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleTaskInteractiveClient.ts).
 
 ## See also
 

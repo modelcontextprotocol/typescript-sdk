@@ -34,6 +34,7 @@
         "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
+        "@modelcontextprotocol/server-legacy": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "@modelcontextprotocol/fastify": "workspace:^",
         "@modelcontextprotocol/hono": "workspace:^",
