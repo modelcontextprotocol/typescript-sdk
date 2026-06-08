@@ -179,3 +179,51 @@ test('should fire onerror before onclose on stdout error', async () => {
 
     expect(events).toEqual(['error', 'close']);
 });
+
+describe('stdin EOF', () => {
+    test('should close transport when stdin emits end', async () => {
+        const server = new StdioServerTransport(input, output);
+
+        const closed = new Promise<void>(resolve => {
+            server.onclose = () => resolve();
+        });
+
+        await server.start();
+
+        // Simulate the host process closing stdin (pipe EOF)
+        input.push(null);
+
+        await closed;
+    });
+
+    test('should not fire onclose twice when close() is called after stdin end', async () => {
+        const server = new StdioServerTransport(input, output);
+
+        let closeCount = 0;
+        server.onclose = () => {
+            closeCount++;
+        };
+
+        await server.start();
+        input.push(null);
+
+        // Give the end event time to propagate
+        await new Promise(resolve => setTimeout(resolve, 50));
+
+        await server.close();
+        expect(closeCount).toBe(1);
+    });
+
+    test('should remove end listener on close', async () => {
+        const server = new StdioServerTransport(input, output);
+        await server.start();
+
+        const endListenersBefore = input.listenerCount('end');
+        expect(endListenersBefore).toBeGreaterThan(0);
+
+        await server.close();
+
+        const endListenersAfter = input.listenerCount('end');
+        expect(endListenersAfter).toBe(0);
+    });
+});
