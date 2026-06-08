@@ -1,6 +1,8 @@
 import type { JSONRPCMessage } from '../types/index.js';
 import { JSONRPCMessageSchema } from '../types/index.js';
 
+export type JSONRPCMessageValidationError = Error & { rawMessage?: unknown };
+
 /**
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.
  */
@@ -42,7 +44,15 @@ export class ReadBuffer {
 }
 
 export function deserializeMessage(line: string): JSONRPCMessage {
-    return JSONRPCMessageSchema.parse(JSON.parse(line));
+    const rawMessage = JSON.parse(line);
+    try {
+        return JSONRPCMessageSchema.parse(rawMessage);
+    } catch (error) {
+        if (error instanceof Error) {
+            (error as JSONRPCMessageValidationError).rawMessage = rawMessage;
+        }
+        throw error;
+    }
 }
 
 export function serializeMessage(message: JSONRPCMessage): string {

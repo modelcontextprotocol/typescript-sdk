@@ -333,6 +333,15 @@ describe('Zod v4', () => {
                 expectErrorResponse(errorData, -32_700, /Parse error.*Invalid JSON/);
             });
 
+            it('should reject invalid JSON-RPC messages as invalid requests', async () => {
+                const request = createRequest('POST', { jsonrpc: '2.0', id: 1, method_: 'tools/list' } as unknown as JSONRPCMessage);
+                const response = await transport.handleRequest(request);
+
+                expect(response.status).toBe(400);
+                const errorData = await response.json();
+                expectErrorResponse(errorData, -32_600, /Invalid Request.*Invalid JSON-RPC message/);
+            });
+
             it('should accept notifications without session and return 202', async () => {
                 sessionId = await initializeServer();
 

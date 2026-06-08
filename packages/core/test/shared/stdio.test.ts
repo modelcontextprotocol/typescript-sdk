@@ -1,4 +1,4 @@
-import { ReadBuffer } from '../../src/shared/stdio.js';
+import { deserializeMessage, ReadBuffer } from '../../src/shared/stdio.js';
 import type { JSONRPCMessage } from '../../src/types/index.js';
 
 const testMessage: JSONRPCMessage = {
@@ -111,5 +111,11 @@ describe('non-JSON line filtering', () => {
         readBuffer.append(Buffer.from('{"not": "a jsonrpc message"}\n'));
 
         expect(() => readBuffer.readMessage()).toThrow();
+    });
+
+    test('should attach the raw parsed message to schema validation errors', () => {
+        const rawMessage = { jsonrpc: '2.0', id: 1, method_: 'tools/list' };
+
+        expect(() => deserializeMessage(JSON.stringify(rawMessage))).toThrowError(expect.objectContaining({ rawMessage }));
     });
 });

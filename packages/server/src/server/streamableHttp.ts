@@ -10,6 +10,7 @@
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
+    INVALID_REQUEST,
     isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -658,7 +659,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     : [JSONRPCMessageSchema.parse(rawMessage)];
             } catch (error) {
                 this.onerror?.(error as Error);
-                return this.createJsonErrorResponse(400, -32_700, 'Parse error: Invalid JSON-RPC message');
+                return this.createJsonErrorResponse(400, INVALID_REQUEST, 'Invalid Request: Invalid JSON-RPC message');
             }
 
             // Check if this is an initialization request
