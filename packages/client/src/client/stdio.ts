@@ -1,4 +1,5 @@
 import type { ChildProcess, IOType } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import process from 'node:process';
 import type { Stream } from 'node:stream';
 import { PassThrough } from 'node:stream';
@@ -86,6 +87,39 @@ export function getDefaultEnvironment(): Record<string, string> {
 }
 
 /**
+ * Kill a process and all its descendants.
+ *
+ * - Unix: kills the process group via negative PID (requires the child to have
+ *   been spawned with `detached: true` so it leads its own process group).
+ * - Windows: uses `taskkill /T /F` to kill the process tree.
+ *
+ * Falls back to direct `ChildProcess.kill()` if the tree-wide signal fails
+ * (e.g. the process already exited).
+ */
+function killProcessTree(childProcess: ChildProcess, signal: NodeJS.Signals = 'SIGTERM'): void {
+    const pid = childProcess.pid;
+    if (pid === undefined) {
+        childProcess.kill(signal);
+        return;
+    }
+
+    if (process.platform === 'win32') {
+        try {
+            execFile('taskkill', ['/T', '/F', '/PID', pid.toString()], { windowsHide: true });
+        } catch {
+            childProcess.kill(signal);
+        }
+    } else {
+        try {
+            process.kill(-pid, signal);
+        } catch {
+            // Process group may already be gone; fall back to direct kill.
+            childProcess.kill(signal);
+        }
+    }
+}
+
+/**
  * Client transport for stdio: this will connect to a server by spawning a process and communicating with it over stdin/stdout.
  *
  * This transport is only available in Node.js environments.
@@ -126,6 +160,7 @@ export class StdioClientTransport implements Transport {
                 },
                 stdio: ['pipe', 'pipe', this._serverParams.stderr ?? 'inherit'],
                 shell: false,
+                detached: process.platform !== 'win32',
                 windowsHide: process.platform === 'win32',
                 cwd: this._serverParams.cwd
             });
@@ -223,7 +258,7 @@ export class StdioClientTransport implements Transport {
 
             if (processToClose.exitCode === null) {
                 try {
-                    processToClose.kill('SIGTERM');
+                    killProcessTree(processToClose, 'SIGTERM');
                 } catch {
                     // ignore
                 }
@@ -233,7 +268,7 @@ export class StdioClientTransport implements Transport {
 
             if (processToClose.exitCode === null) {
                 try {
-                    processToClose.kill('SIGKILL');
+                    killProcessTree(processToClose, 'SIGKILL');
                 } catch {
                     // ignore
                 }
