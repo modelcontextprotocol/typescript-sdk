@@ -1,7 +1,7 @@
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 
 import type { StdioServerParameters } from '../../src/client/stdio.js';
-import { StdioClientTransport } from '../../src/client/stdio.js';
+import { DEFAULT_INHERITED_ENV_VARS, StdioClientTransport } from '../../src/client/stdio.js';
 
 // Configure default server parameters based on OS
 // Uses 'more' command for Windows and 'tee' command for Unix/Linux
@@ -76,4 +76,34 @@ test('should return child process pid', async () => {
     expect(client.pid).not.toBeNull();
     await client.close();
     expect(client.pid).toBeNull();
+});
+
+test('DEFAULT_INHERITED_ENV_VARS matches the host platform', () => {
+    if (process.platform === 'win32') {
+        // Variables Windows tooling needs to resolve executables and shells.
+        // Missing PATHEXT or COMSPEC causes spawn ENOENT for npm/git/etc.
+        expect(DEFAULT_INHERITED_ENV_VARS).toEqual(
+            expect.arrayContaining([
+                'APPDATA',
+                'COMSPEC',
+                'HOMEDRIVE',
+                'HOMEPATH',
+                'LOCALAPPDATA',
+                'PATH',
+                'PATHEXT',
+                'PROCESSOR_ARCHITECTURE',
+                'PROGRAMFILES',
+                'PROGRAMFILES(X86)',
+                'PROGRAMW6432',
+                'SYSTEMDRIVE',
+                'SYSTEMROOT',
+                'TEMP',
+                'USERNAME',
+                'USERPROFILE',
+                'WINDIR'
+            ])
+        );
+    } else {
+        expect(DEFAULT_INHERITED_ENV_VARS).toEqual(['HOME', 'LOGNAME', 'PATH', 'SHELL', 'TERM', 'USER']);
+    }
 });
