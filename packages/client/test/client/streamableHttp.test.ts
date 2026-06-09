@@ -3,6 +3,7 @@ import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelco
 import type { Mock, Mocked } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
+import * as authModule from '../../src/client/auth.js';
 import { UnauthorizedError } from '../../src/client/auth.js';
 import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
@@ -874,6 +875,98 @@ describe('StreamableHTTPClientTransport', () => {
         expect(authSpy).not.toHaveBeenCalled(); // Auth not called again
 
         authSpy.mockRestore();
+    });
+
+    describe('scope accumulation on step-up authorization (SEP-2350)', () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'test',
+            params: {},
+            id: 'test-id'
+        };
+
+        const mock403Then202 = (challengeScope: string) => {
+            (globalThis.fetch as Mock)
+                .mockResolvedValueOnce({
+                    ok: false,
+                    status: 403,
+                    statusText: 'Forbidden',
+                    headers: new Headers({
+                        'WWW-Authenticate': `Bearer error="insufficient_scope", scope="${challengeScope}"`
+                    }),
+                    text: () => Promise.resolve('Insufficient scope')
+                })
+                .mockResolvedValueOnce({
+                    ok: true,
+                    status: 202,
+                    headers: new Headers()
+                });
+        };
+
+        it('requests the union of previously granted scopes and the challenged scope', async () => {
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read write'
+            });
+            mock403Then202('admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read write admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('deduplicates when the challenge repeats an already-granted scope', async () => {
+            mockAuthProvider.tokens.mockResolvedValue({
+                access_token: 'test-token',
+                token_type: 'Bearer',
+                scope: 'read write'
+            });
+            mock403Then202('write admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'read write admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
+
+        it('uses only the challenged scope when there is no prior scope', async () => {
+            mockAuthProvider.tokens.mockResolvedValue(undefined);
+            mock403Then202('admin');
+
+            const authSpy = vi.spyOn(authModule, 'auth');
+            authSpy.mockResolvedValue('AUTHORIZED');
+
+            await transport.send(message);
+
+            expect(authSpy).toHaveBeenCalledWith(
+                mockAuthProvider,
+                expect.objectContaining({
+                    scope: 'admin'
+                })
+            );
+
+            authSpy.mockRestore();
+        });
     });
 
     describe('Reconnection Logic', () => {
