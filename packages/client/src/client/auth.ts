@@ -532,6 +532,53 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
 }
 
 /**
+ * Validates the `iss` parameter of an authorization response against the issuer
+ * recorded from the authorization server's validated metadata, per RFC 9207
+ * (OAuth 2.0 Authorization Server Issuer Identification) Section 2.4.
+ *
+ * Decision table:
+ * 1. The AS metadata advertises `authorization_response_iss_parameter_supported: true`
+ *    but the response carries no `iss` → reject.
+ * 2. The response carries an `iss` (whether or not support was advertised) → it must be
+ *    an exact, character-by-character match of the recorded issuer (no normalization) —
+ *    mismatch → reject.
+ * 3. Support is not advertised and no `iss` is present → proceed (validation not possible).
+ * 4. On rejection, callers MUST NOT process the rest of the authorization response
+ *    (including any `error`/`error_description` parameters).
+ *
+ * @param metadata - The authorization server metadata recorded before the redirect, if available
+ * @param iss - The `iss` parameter received in the authorization response, if any
+ * @throws Error if the response must be rejected per RFC 9207
+ */
+export function validateAuthorizationResponseIssuer(
+    metadata: { issuer: string; authorization_response_iss_parameter_supported?: boolean } | undefined,
+    iss: string | undefined
+): void {
+    if (iss === undefined) {
+        if (metadata?.authorization_response_iss_parameter_supported === true) {
+            throw new Error(
+                'Authorization server metadata advertises authorization_response_iss_parameter_supported, but the authorization response did not include an iss parameter (RFC 9207)'
+            );
+        }
+        // Neither advertised nor present: validation is not possible; proceed.
+        return;
+    }
+
+    if (metadata === undefined) {
+        throw new Error(
+            'Authorization response included an iss parameter, but no authorization server metadata was recorded to validate it against (RFC 9207)'
+        );
+    }
+
+    // Exact string comparison — no normalization of any kind (RFC 9207 Section 2.4).
+    if (iss !== metadata.issuer) {
+        throw new Error(
+            `Authorization response iss parameter does not match the expected issuer: expected ${metadata.issuer}, got ${iss} (RFC 9207). The authorization response must not be processed.`
+        );
+    }
+}
+
+/**
  * Orchestrates the full auth flow with a server.
  *
  * This can be used as a single entry point for all authorization functionality,
@@ -542,6 +589,12 @@ export async function auth(
     options: {
         serverUrl: string | URL;
         authorizationCode?: string;
+        /**
+         * The `iss` parameter received alongside the authorization code in the
+         * authorization response, validated per RFC 9207 against the issuer recorded
+         * in the authorization server metadata before the code is exchanged.
+         */
+        iss?: string;
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
@@ -603,12 +656,14 @@ async function authInternal(
     {
         serverUrl,
         authorizationCode,
+        iss,
         scope,
         resourceMetadataUrl,
         fetchFn
     }: {
         serverUrl: string | URL;
         authorizationCode?: string;
+        iss?: string;
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
@@ -747,6 +802,12 @@ async function authInternal(
 
     // Exchange authorization code for tokens, or fetch tokens directly for non-interactive flows
     if (authorizationCode !== undefined || nonInteractiveFlow) {
+        if (authorizationCode !== undefined) {
+            // RFC 9207: validate the authorization response issuer against the recorded
+            // AS metadata BEFORE the code is sent to any token endpoint.
+            validateAuthorizationResponseIssuer(metadata, iss);
+        }
+
         const tokens = await fetchToken(provider, authorizationServerUrl, {
             metadata,
             resource,

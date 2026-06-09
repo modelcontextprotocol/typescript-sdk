@@ -35,6 +35,7 @@ export {
     selectResourceURL,
     startAuthorization,
     UnauthorizedError,
+    validateAuthorizationResponseIssuer,
     validateClientMetadataUrl
 } from './client/auth.js';
 export type {
