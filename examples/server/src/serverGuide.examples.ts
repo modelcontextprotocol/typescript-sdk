@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ResourceLink } from '@modelcontextprotocol/server';
-import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { completable, McpServer, ResourceTemplate, TRACEPARENT_META_KEY } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 //#endregion imports
@@ -319,6 +319,29 @@ function registerTool_progress(server: McpServer) {
     //#endregion registerTool_progress
 }
 
+/** Example: Tool that reads W3C Trace Context from request `_meta`. */
+function registerTool_traceContext(server: McpServer) {
+    //#region registerTool_traceContext
+    server.registerTool(
+        'traced-operation',
+        {
+            description: 'Operation that participates in distributed tracing',
+            inputSchema: z.object({ query: z.string() })
+        },
+        async ({ query }, ctx): Promise<CallToolResult> => {
+            // e.g. '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+            const traceparent = ctx.mcpReq._meta?.[TRACEPARENT_META_KEY];
+            if (typeof traceparent === 'string') {
+                // Continue the caller's trace, e.g. start a child span with your
+                // OpenTelemetry tracer using this trace context.
+            }
+
+            return { content: [{ type: 'text', text: `Results for ${query}` }] };
+        }
+    );
+    //#endregion registerTool_traceContext
+}
+
 // ---------------------------------------------------------------------------
 // Server-initiated requests
 // ---------------------------------------------------------------------------
@@ -543,6 +566,7 @@ void registerTool_errorHandling;
 void registerTool_annotations;
 void registerTool_logging;
 void registerTool_progress;
+void registerTool_traceContext;
 void registerTool_sampling;
 void registerTool_elicitation;
 void registerTool_roots;
