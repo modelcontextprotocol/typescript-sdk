@@ -12,8 +12,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 
-import type * as SpecTypes from '../src/types/spec.types.2025-11-25.js';
-import type * as SDKTypes from '../src/types/index.js';
+import type * as SpecTypes from '../src/types/spec.types.2025-11-25';
+import type * as SDKTypes from '../src/types/index';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 

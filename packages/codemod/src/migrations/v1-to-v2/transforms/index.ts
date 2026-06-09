@@ -1,14 +1,14 @@
-import type { Transform } from '../../../types.js';
-import { contextTypesTransform } from './contextTypes.js';
-import { expressMiddlewareTransform } from './expressMiddleware.js';
-import { handlerRegistrationTransform } from './handlerRegistration.js';
-import { importPathsTransform } from './importPaths.js';
-import { mcpServerApiTransform } from './mcpServerApi.js';
-import { mockPathsTransform } from './mockPaths.js';
-import { removedApisTransform } from './removedApis.js';
-import { schemaParamRemovalTransform } from './schemaParamRemoval.js';
-import { specSchemaAccessTransform } from './specSchemaAccess.js';
-import { symbolRenamesTransform } from './symbolRenames.js';
+import type { Transform } from '../../../types';
+import { contextTypesTransform } from './contextTypes';
+import { expressMiddlewareTransform } from './expressMiddleware';
+import { handlerRegistrationTransform } from './handlerRegistration';
+import { importPathsTransform } from './importPaths';
+import { mcpServerApiTransform } from './mcpServerApi';
+import { mockPathsTransform } from './mockPaths';
+import { removedApisTransform } from './removedApis';
+import { schemaParamRemovalTransform } from './schemaParamRemoval';
+import { specSchemaAccessTransform } from './specSchemaAccess';
+import { symbolRenamesTransform } from './symbolRenames';
 
 // Ordering matters — do not reorder without understanding dependencies:
 //

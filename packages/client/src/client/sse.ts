@@ -10,8 +10,8 @@ import {
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
-import type { AuthProvider, OAuthClientProvider } from './auth.js';
-import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
+import type { AuthProvider, OAuthClientProvider } from './auth';
+import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth';
 
 export class SseError extends Error {
     constructor(

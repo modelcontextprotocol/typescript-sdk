@@ -1,7 +1,7 @@
 import type { JSONRPCMessage, JsonSchemaType, JsonSchemaValidatorResult, jsonSchemaValidator } from '@modelcontextprotocol/core';
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
-import { Client } from '../../src/client/client.js';
-import { fromJsonSchema } from '../../src/fromJsonSchema.js';
+import { Client } from '../../src/client/client';
+import { fromJsonSchema } from '../../src/fromJsonSchema';
 
 class RecordingValidator implements jsonSchemaValidator {
     schemas: JsonSchemaType[] = [];

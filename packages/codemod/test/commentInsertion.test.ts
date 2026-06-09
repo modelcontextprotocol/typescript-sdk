@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { getMigration } from '../src/migrations/index.js';
-import { run } from '../src/runner.js';
-import { CODEMOD_ERROR_PREFIX } from '../src/utils/diagnostics.js';
+import { getMigration } from '../src/migrations/index';
+import { run } from '../src/runner';
+import { CODEMOD_ERROR_PREFIX } from '../src/utils/diagnostics';
 
 const migration = getMigration('v1-to-v2')!;
 

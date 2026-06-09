@@ -9,10 +9,10 @@
 
 import type { Prompt, Resource, Tool } from '@modelcontextprotocol/core';
 
-import { Client } from './client.js';
-import { SSEClientTransport } from './sse.js';
-import { StdioClientTransport } from './stdio.js';
-import { StreamableHTTPClientTransport } from './streamableHttp.js';
+import { Client } from './client';
+import { SSEClientTransport } from './sse';
+import { StdioClientTransport } from './stdio';
+import { StreamableHTTPClientTransport } from './streamableHttp';
 
 /**
  * Example: Using listChanged to automatically track tool and prompt updates.

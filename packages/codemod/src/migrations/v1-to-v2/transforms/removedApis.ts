@@ -1,10 +1,10 @@
 import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
-import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { renameAllReferences } from '../../../utils/astUtils.js';
-import { warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, isAnyMcpSpecifier } from '../../../utils/importUtils.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
+import { renameAllReferences } from '../../../utils/astUtils';
+import { warning } from '../../../utils/diagnostics';
+import { addOrMergeImport, isAnyMcpSpecifier } from '../../../utils/importUtils';
 
 const REMOVED_ZOD_HELPERS: Record<string, string> = {
     schemaToJson:

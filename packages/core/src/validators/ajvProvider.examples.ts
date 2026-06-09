@@ -7,7 +7,7 @@
  * @module
  */
 
-import { addFormats, Ajv, AjvJsonSchemaValidator } from './ajvProvider.js';
+import { addFormats, Ajv, AjvJsonSchemaValidator } from './ajvProvider';
 
 /**
  * Example: Default AJV instance.

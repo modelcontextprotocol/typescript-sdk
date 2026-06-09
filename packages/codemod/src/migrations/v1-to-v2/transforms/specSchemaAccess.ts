@@ -1,11 +1,11 @@
 import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
-import { SPEC_SCHEMA_NAMES, specSchemaToTypeName } from '../../../generated/specSchemaMap.js';
-import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { isKeyPositionIdentifier } from '../../../utils/astUtils.js';
-import { actionRequired, warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, isAnyMcpSpecifier, removeUnusedImport } from '../../../utils/importUtils.js';
+import { SPEC_SCHEMA_NAMES, specSchemaToTypeName } from '../../../generated/specSchemaMap';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
+import { isKeyPositionIdentifier } from '../../../utils/astUtils';
+import { actionRequired, warning } from '../../../utils/diagnostics';
+import { addOrMergeImport, isAnyMcpSpecifier, removeUnusedImport } from '../../../utils/importUtils';
 
 export const specSchemaAccessTransform: Transform = {
     name: 'Spec schema standalone usage',

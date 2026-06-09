@@ -1,9 +1,9 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { removedApisTransform } from '../../../src/migrations/v1-to-v2/transforms/removedApis.js';
-import type { TransformContext } from '../../../src/types.js';
-import { DiagnosticLevel } from '../../../src/types.js';
+import { removedApisTransform } from '../../../src/migrations/v1-to-v2/transforms/removedApis';
+import type { TransformContext } from '../../../src/types';
+import { DiagnosticLevel } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 

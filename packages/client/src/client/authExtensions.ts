@@ -8,7 +8,7 @@
 import type { FetchLike, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
 import type { CryptoKey, JWK } from 'jose';
 
-import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
+import type { AddClientAuthentication, OAuthClientProvider } from './auth';
 
 /**
  * Helper to produce a `private_key_jwt` client authentication function.

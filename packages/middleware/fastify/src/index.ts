@@ -1,2 +1,2 @@
-export * from './fastify.js';
-export * from './middleware/hostHeaderValidation.js';
+export * from './fastify';
+export * from './middleware/hostHeaderValidation';

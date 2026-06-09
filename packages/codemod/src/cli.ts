@@ -6,10 +6,10 @@ import path from 'node:path';
 
 import { Command } from 'commander';
 
-import { listMigrations } from './migrations/index.js';
-import { run } from './runner.js';
-import { DiagnosticLevel } from './types.js';
-import { CODEMOD_ERROR_PREFIX, formatDiagnostic } from './utils/diagnostics.js';
+import { listMigrations } from './migrations/index';
+import { run } from './runner';
+import { DiagnosticLevel } from './types';
+import { CODEMOD_ERROR_PREFIX, formatDiagnostic } from './utils/diagnostics';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json') as { version: string };

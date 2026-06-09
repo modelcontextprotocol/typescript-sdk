@@ -7,7 +7,7 @@ import {
     LOG_LEVEL_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     RELATED_TASK_META_KEY
-} from './constants.js';
+} from './constants';
 import type {
     JSONArray,
     JSONObject,
@@ -17,7 +17,7 @@ import type {
     RequestMethod,
     RequestTypeMap,
     ResultTypeMap
-} from './types.js';
+} from './types';
 
 export const JSONValueSchema: z.ZodType<JSONValue, JSONValue> = z.lazy(() =>
     z.union([z.string(), z.number(), z.boolean(), z.null(), z.record(z.string(), JSONValueSchema), z.array(JSONValueSchema)])

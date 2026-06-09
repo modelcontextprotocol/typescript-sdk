@@ -5,9 +5,9 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { getMigration } from '../migrations/index.js';
-import { run } from '../runner.js';
-import type { Diagnostic, RunnerResult } from '../types.js';
+import { getMigration } from '../migrations/index';
+import { run } from '../runner';
+import type { Diagnostic, RunnerResult } from '../types';
 
 // ---------------------------------------------------------------------------
 // Types

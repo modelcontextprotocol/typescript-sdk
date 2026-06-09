@@ -7,9 +7,9 @@ import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelco
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock, Mocked, MockedFunction, MockInstance } from 'vitest';
 
-import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth.js';
-import { UnauthorizedError } from '../../src/client/auth.js';
-import { SSEClientTransport } from '../../src/client/sse.js';
+import type { AuthProvider, OAuthClientProvider } from '../../src/client/auth';
+import { UnauthorizedError } from '../../src/client/auth';
+import { SSEClientTransport } from '../../src/client/sse';
 
 /**
  * Parses HTTP Basic auth from a request's Authorization header.

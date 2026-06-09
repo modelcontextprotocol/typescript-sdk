@@ -11,8 +11,8 @@
 import type { FetchLike } from '@modelcontextprotocol/core';
 import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core';
 
-import type { ClientAuthMethod } from './auth.js';
-import { applyClientAuthentication, discoverAuthorizationServerMetadata } from './auth.js';
+import type { ClientAuthMethod } from './auth';
+import { applyClientAuthentication, discoverAuthorizationServerMetadata } from './auth';
 
 /**
  * Options for requesting a JWT Authorization Grant via RFC 8693 Token Exchange.

@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 
-import { getMigration } from '../src/migrations/index.js';
-import { run } from '../src/runner.js';
-import { DiagnosticLevel } from '../src/types.js';
-import type { Migration, Transform } from '../src/types.js';
+import { getMigration } from '../src/migrations/index';
+import { run } from '../src/runner';
+import { DiagnosticLevel } from '../src/types';
+import type { Migration, Transform } from '../src/types';
 
 const migration = getMigration('v1-to-v2')!;
 

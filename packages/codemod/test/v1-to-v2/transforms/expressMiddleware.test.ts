@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { expressMiddlewareTransform } from '../../../src/migrations/v1-to-v2/transforms/expressMiddleware.js';
-import type { TransformContext } from '../../../src/types.js';
+import { expressMiddlewareTransform } from '../../../src/migrations/v1-to-v2/transforms/expressMiddleware';
+import type { TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 
