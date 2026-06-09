@@ -54,6 +54,13 @@ import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims'
 export type ServerOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this server.
+     *
+     * Note: per the MCP spec, a server that declares a capability MUST respond to that
+     * capability's requests (e.g. `tools/list` for `tools`) — potentially with an empty
+     * result — rather than with a "Method not found" error. {@linkcode server/mcp.McpServer | McpServer}
+     * handles this automatically for capabilities declared here; when using the low-level
+     * {@linkcode Server} directly, you are responsible for registering a request handler for
+     * every capability you declare.
      */
     capabilities?: ServerCapabilities;
 
