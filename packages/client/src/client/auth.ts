@@ -1356,6 +1356,20 @@ export function isHttpsUrl(value?: string): boolean {
     }
 }
 
+/**
+ * SEP-2352: Normalizes an authorization server identity (issuer identifier or
+ * authorization server URL) for comparison, so that textual variations of the
+ * same URL (e.g. a missing trailing slash on an origin-only issuer) do not
+ * register as an authorization server change.
+ */
+function normalizeAuthorizationServerIdentity(value: string): string {
+    try {
+        return new URL(value).href;
+    } catch {
+        return value;
+    }
+}
+
 export async function selectResourceURL(
     serverUrl: string | URL,
     provider: OAuthClientProvider,
