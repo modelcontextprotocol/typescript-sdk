@@ -74,7 +74,6 @@
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
         "tsdown": "catalog:devTools",
-        "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"

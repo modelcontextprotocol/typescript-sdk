@@ -489,9 +489,6 @@ importers:
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -577,9 +574,6 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -705,9 +699,6 @@ importers:
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -931,9 +922,6 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -1001,9 +989,6 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
