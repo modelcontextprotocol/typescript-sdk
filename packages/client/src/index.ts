@@ -30,6 +30,7 @@ export {
     extractResourceMetadataUrl,
     extractWWWAuthenticateParams,
     fetchToken,
+    inferApplicationType,
     isHttpsUrl,
     isStrictScopeSuperset,
     parseErrorResponse,
