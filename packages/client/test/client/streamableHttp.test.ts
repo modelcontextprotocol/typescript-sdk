@@ -1690,17 +1690,35 @@ describe('StreamableHTTPClientTransport', () => {
             expect(mockAuthProvider.saveTokens).not.toHaveBeenCalled();
         });
 
-        it('rejects when the AS advertises iss support but finishAuth receives no iss', async () => {
+        it('rejects when the AS advertises iss support and the caller reports a response without iss (iss: null)', async () => {
             const customFetch = createOAuthFetchMock();
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
                 authProvider: mockAuthProvider,
                 fetch: customFetch
             });
 
-            await expect(transport.finishAuth('test-auth-code')).rejects.toThrow(/did not include an iss parameter/);
+            await expect(transport.finishAuth('test-auth-code', { iss: null })).rejects.toThrow(/did not include an iss parameter/);
 
             const tokenCalls = customFetch.mock.calls.filter(([url]) => url.toString().includes('/token'));
             expect(tokenCalls).toHaveLength(0);
+        });
+
+        it('completes the exchange when finishAuth receives no iss at all, even though the AS advertises support', async () => {
+            // Legacy finishAuth(code) callers cannot see the authorization response;
+            // the SDK must not fail closed on their behalf.
+            const customFetch = createOAuthFetchMock();
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: mockAuthProvider,
+                fetch: customFetch
+            });
+
+            await transport.finishAuth('test-auth-code');
+
+            const tokenCalls = customFetch.mock.calls.filter(
+                ([url, options]) => url.toString().includes('/token') && options?.method === 'POST'
+            );
+            expect(tokenCalls).toHaveLength(1);
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalled();
         });
     });
 

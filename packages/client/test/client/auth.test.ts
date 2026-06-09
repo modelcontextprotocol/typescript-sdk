@@ -4137,11 +4137,22 @@ describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
     const issuer = 'https://auth.example.com';
 
     describe('validateAuthorizationResponseIssuer', () => {
-        // RFC 9207 Section 2.4, row 1: advertised but absent -> reject
-        it('rejects when the AS advertises iss support but the response lacks iss', () => {
+        // RFC 9207 Section 2.4, row 1: advertised but absent -> reject. The caller signals
+        // "I inspected the authorization response and it had no iss" by passing null.
+        it('rejects when the AS advertises iss support but the inspected response lacks iss (null)', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: true }, null)
+            ).toThrow(/did not include an iss parameter/);
+        });
+
+        // undefined means the caller never had access to the authorization response
+        // parameters, so the SDK cannot fail closed on the caller's behalf.
+        it('skips validation entirely when the caller provides no response parameters (undefined)', () => {
             expect(() =>
                 validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: true }, undefined)
-            ).toThrow(/did not include an iss parameter/);
+            ).not.toThrow();
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, undefined)).not.toThrow();
+            expect(() => validateAuthorizationResponseIssuer(undefined, undefined)).not.toThrow();
         });
 
         // RFC 9207 Section 2.4, row 2: present (advertised) -> exact match required
@@ -4177,15 +4188,15 @@ describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
         });
 
         // RFC 9207 Section 2.4, row 3: neither advertised nor present -> proceed
-        it('proceeds when iss support is not advertised and no iss is present', () => {
-            expect(() => validateAuthorizationResponseIssuer({ issuer }, undefined)).not.toThrow();
+        it('proceeds when iss support is not advertised and the inspected response has no iss', () => {
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, null)).not.toThrow();
             expect(() =>
-                validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: false }, undefined)
+                validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: false }, null)
             ).not.toThrow();
         });
 
-        it('proceeds when no metadata is recorded and no iss is present', () => {
-            expect(() => validateAuthorizationResponseIssuer(undefined, undefined)).not.toThrow();
+        it('proceeds when no metadata is recorded and the inspected response has no iss', () => {
+            expect(() => validateAuthorizationResponseIssuer(undefined, null)).not.toThrow();
         });
 
         it('rejects when an iss is present but no metadata was recorded to validate against', () => {
@@ -4289,17 +4300,32 @@ describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
             expect(provider.saveTokens).not.toHaveBeenCalled();
         });
 
-        it('rejects when the AS advertises iss support but no iss is provided', async () => {
+        it('rejects when the AS advertises iss support and the caller reports a response without iss (null)', async () => {
             const provider = createMockProvider();
 
             await expect(
                 auth(provider, {
                     serverUrl: 'https://resource.example.com',
-                    authorizationCode: 'code123'
+                    authorizationCode: 'code123',
+                    iss: null
                 })
             ).rejects.toThrow(/did not include an iss parameter/);
 
             expect(tokenEndpointCalls()).toHaveLength(0);
+        });
+
+        it('proceeds when iss is omitted entirely, even when the AS advertises support', async () => {
+            // Callers that never had access to the authorization response (legacy
+            // finishAuth(code) plumbing) must not be failed closed on their behalf.
+            const provider = createMockProvider();
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'code123'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(tokenEndpointCalls()).toHaveLength(1);
         });
 
         it('proceeds without an iss when the AS does not advertise support', async () => {
