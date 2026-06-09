@@ -1,0 +1,17 @@
+{
+    "name": "@modelcontextprotocol/examples-client-multi-server",
+    "private": true,
+    "version": "2.0.0-alpha.0",
+    "type": "module",
+    "scripts": {
+        "build": "tsc",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/client": "workspace:^"
+    },
+    "devDependencies": {
+        "@types/node": "^24.10.1",
+        "typescript": "catalog:devTools"
+    }
+}
