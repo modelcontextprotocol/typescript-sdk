@@ -3,8 +3,8 @@
 #
 # Baseline established against @modelcontextprotocol/conformance 0.2.0-alpha.1,
 # which adds the draft-spec scenario suite (SEP-2575, SEP-2322, SEP-2243, SEP-2549,
-# SEP-2468, ...) plus new checks on existing scenarios (SEP-837 application_type
-# during DCR).
+# SEP-2468, ...) plus new checks on existing scenarios. The SEP-837
+# application_type DCR checks are implemented and their scenarios pass.
 #
 # Entries are grouped by SEP. As each SEP/milestone is implemented in the SDK the
 # corresponding scenarios start passing and MUST be removed from this list (the
@@ -34,26 +34,11 @@ client:
     # SEP-2352 (authorization server migration): client does not re-register when
     # PRM authorization_servers changes.
     - auth/authorization-server-migration
-    # SEP-2207 (offline_access scope) scenario, currently failing only on the new
-    # SEP-837 application_type check (see the SEP-837 group below).
-    - auth/offline-access-not-supported
-
-    # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
-    # SEP-837: client MUST send application_type during Dynamic Client Registration.
-    # Single new check; everything else in these scenarios passes.
-    - auth/metadata-default
-    - auth/metadata-var1
-    - auth/metadata-var2
-    - auth/metadata-var3
-    - auth/scope-from-www-authenticate
-    - auth/scope-from-scopes-supported
-    - auth/scope-omitted-when-undefined
+    # SEP-2350 (scope step-up): WARNING-only — client SHOULD compute the union of
+    # previously requested and newly challenged scopes on re-authorization, but it
+    # drops the previously-granted scope; the evaluator counts WARNINGs as failures.
+    # (The SEP-837 application_type checks in this scenario pass.)
     - auth/scope-step-up
-    - auth/scope-retry-limit
-    - auth/token-endpoint-auth-basic
-    - auth/token-endpoint-auth-post
-    - auth/token-endpoint-auth-none
-    - auth/2025-03-26-oauth-metadata-backcompat
     # SEP-990 (enterprise-managed authorization extension): no fixture handler /
     # client support for the token-exchange + JWT bearer flow.
     - auth/enterprise-managed-authorization
