@@ -2202,6 +2202,101 @@ describe('StreamableHTTPClientTransport', () => {
         });
     });
 
+    describe('finishAuth iss validation (SEP-2468 / RFC 9207)', () => {
+        const issuer = 'http://localhost:1234';
+
+        function createOAuthFetchMock(): Mock {
+            return (
+                vi
+                    .fn()
+                    // Protected resource metadata discovery
+                    .mockResolvedValueOnce({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            authorization_servers: [issuer],
+                            resource: 'http://localhost:1234/mcp'
+                        })
+                    })
+                    // OAuth metadata discovery — advertises RFC 9207 iss support
+                    .mockResolvedValueOnce({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer,
+                            authorization_endpoint: 'http://localhost:1234/authorize',
+                            token_endpoint: 'http://localhost:1234/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256'],
+                            authorization_response_iss_parameter_supported: true
+                        })
+                    })
+                    // Code exchange
+                    .mockResolvedValueOnce({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-access-token',
+                            refresh_token: 'new-refresh-token',
+                            token_type: 'Bearer',
+                            expires_in: 3600
+                        })
+                    })
+            );
+        }
+
+        it('plumbs a matching iss through to validation and completes the exchange', async () => {
+            const customFetch = createOAuthFetchMock();
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: mockAuthProvider,
+                fetch: customFetch
+            });
+
+            await transport.finishAuth('test-auth-code', { iss: issuer });
+
+            // The code reached the token endpoint and tokens were saved
+            const tokenCalls = customFetch.mock.calls.filter(
+                ([url, options]) => url.toString().includes('/token') && options?.method === 'POST'
+            );
+            expect(tokenCalls).toHaveLength(1);
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
+                access_token: 'new-access-token',
+                token_type: 'Bearer',
+                expires_in: 3600,
+                refresh_token: 'new-refresh-token'
+            });
+        });
+
+        it('rejects a mismatched iss before the code reaches the token endpoint', async () => {
+            const customFetch = createOAuthFetchMock();
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: mockAuthProvider,
+                fetch: customFetch
+            });
+
+            await expect(transport.finishAuth('test-auth-code', { iss: 'https://attacker.example.com' })).rejects.toThrow(
+                /does not match the expected issuer/
+            );
+
+            const tokenCalls = customFetch.mock.calls.filter(([url]) => url.toString().includes('/token'));
+            expect(tokenCalls).toHaveLength(0);
+            expect(mockAuthProvider.saveTokens).not.toHaveBeenCalled();
+        });
+
+        it('rejects when the AS advertises iss support but finishAuth receives no iss', async () => {
+            const customFetch = createOAuthFetchMock();
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                authProvider: mockAuthProvider,
+                fetch: customFetch
+            });
+
+            await expect(transport.finishAuth('test-auth-code')).rejects.toThrow(/did not include an iss parameter/);
+
+            const tokenCalls = customFetch.mock.calls.filter(([url]) => url.toString().includes('/token'));
+            expect(tokenCalls).toHaveLength(0);
+        });
+    });
+
     describe('SSE retry field handling', () => {
         beforeEach(() => {
             vi.useFakeTimers();

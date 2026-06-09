@@ -5055,3 +5055,223 @@ describe('OAuth Authorization', () => {
         });
     });
 });
+
+describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
+    const issuer = 'https://auth.example.com';
+
+    describe('validateAuthorizationResponseIssuer', () => {
+        // RFC 9207 Section 2.4, row 1: advertised but absent -> reject
+        it('rejects when the AS advertises iss support but the response lacks iss', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: true }, undefined)
+            ).toThrow(/did not include an iss parameter/);
+        });
+
+        // RFC 9207 Section 2.4, row 2: present (advertised) -> exact match required
+        it('accepts an exactly matching iss when support is advertised', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: true }, issuer)
+            ).not.toThrow();
+        });
+
+        // RFC 9207 Section 2.4, row 2: present even without advertisement -> still compared
+        it('accepts an exactly matching iss even when support is not advertised', () => {
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, issuer)).not.toThrow();
+        });
+
+        it('rejects a mismatched iss regardless of advertisement', () => {
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, 'https://attacker.example.com')).toThrow(
+                /does not match the expected issuer/
+            );
+            expect(() =>
+                validateAuthorizationResponseIssuer(
+                    { issuer, authorization_response_iss_parameter_supported: true },
+                    'https://attacker.example.com'
+                )
+            ).toThrow(/does not match the expected issuer/);
+        });
+
+        it('uses exact string comparison with no normalization', () => {
+            // Trailing slash and case differences are equivalent URLs but MUST be rejected
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, `${issuer}/`)).toThrow(/does not match the expected issuer/);
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, 'https://AUTH.example.com')).toThrow(
+                /does not match the expected issuer/
+            );
+        });
+
+        // RFC 9207 Section 2.4, row 3: neither advertised nor present -> proceed
+        it('proceeds when iss support is not advertised and no iss is present', () => {
+            expect(() => validateAuthorizationResponseIssuer({ issuer }, undefined)).not.toThrow();
+            expect(() =>
+                validateAuthorizationResponseIssuer({ issuer, authorization_response_iss_parameter_supported: false }, undefined)
+            ).not.toThrow();
+        });
+
+        it('proceeds when no metadata is recorded and no iss is present', () => {
+            expect(() => validateAuthorizationResponseIssuer(undefined, undefined)).not.toThrow();
+        });
+
+        it('rejects when an iss is present but no metadata was recorded to validate against', () => {
+            expect(() => validateAuthorizationResponseIssuer(undefined, issuer)).toThrow(/no authorization server metadata was recorded/);
+        });
+    });
+
+    describe('auth() with an authorization code', () => {
+        const resourceMetadata = {
+            resource: 'https://resource.example.com',
+            authorization_servers: [issuer]
+        };
+
+        const authServerMetadata: AuthorizationServerMetadata = {
+            issuer,
+            authorization_endpoint: `${issuer}/authorize`,
+            token_endpoint: `${issuer}/token`,
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256'],
+            authorization_response_iss_parameter_supported: true
+        };
+
+        function createMockProvider(metadata: AuthorizationServerMetadata = authServerMetadata): OAuthClientProvider {
+            return {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return {
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        client_name: 'Test Client'
+                    };
+                },
+                clientInformation: vi.fn().mockResolvedValue({
+                    client_id: 'test-client-id',
+                    client_secret: 'test-client-secret'
+                }),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn().mockResolvedValue('test-verifier'),
+                // Discovery state recorded before the redirect, including the validated issuer
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: issuer,
+                    resourceMetadata,
+                    authorizationServerMetadata: metadata
+                })
+            };
+        }
+
+        beforeEach(() => {
+            mockFetch.mockReset();
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+                if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'access123',
+                            token_type: 'Bearer',
+                            expires_in: 3600
+                        })
+                    });
+                }
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+        });
+
+        function tokenEndpointCalls(): unknown[][] {
+            return mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        }
+
+        it('exchanges the code when the response iss matches the recorded issuer', async () => {
+            const provider = createMockProvider();
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'code123',
+                iss: issuer
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(tokenEndpointCalls()).toHaveLength(1);
+            expect(provider.saveTokens).toHaveBeenCalled();
+        });
+
+        it('rejects a mismatched iss before the code reaches any token endpoint', async () => {
+            const provider = createMockProvider();
+
+            await expect(
+                auth(provider, {
+                    serverUrl: 'https://resource.example.com',
+                    authorizationCode: 'code123',
+                    iss: 'https://attacker.example.com'
+                })
+            ).rejects.toThrow(/does not match the expected issuer/);
+
+            expect(tokenEndpointCalls()).toHaveLength(0);
+            expect(provider.saveTokens).not.toHaveBeenCalled();
+        });
+
+        it('rejects when the AS advertises iss support but no iss is provided', async () => {
+            const provider = createMockProvider();
+
+            await expect(
+                auth(provider, {
+                    serverUrl: 'https://resource.example.com',
+                    authorizationCode: 'code123'
+                })
+            ).rejects.toThrow(/did not include an iss parameter/);
+
+            expect(tokenEndpointCalls()).toHaveLength(0);
+        });
+
+        it('proceeds without an iss when the AS does not advertise support', async () => {
+            const provider = createMockProvider({
+                ...authServerMetadata,
+                authorization_response_iss_parameter_supported: undefined
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'code123'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(tokenEndpointCalls()).toHaveLength(1);
+        });
+
+        it('does not surface error content from a mismatched-issuer error response', async () => {
+            // RFC 9207: on issuer mismatch the client MUST NOT process the rest of the
+            // authorization response — including error/error_description parameters.
+            // Simulate a forged callback carrying both a mismatched iss and attacker-
+            // controlled error content alongside the code.
+            const forgedAuthorizationResponse = {
+                code: 'code123',
+                iss: 'https://attacker.example.com',
+                error: 'access_denied',
+                error_description: 'ATTACKER CONTROLLED MESSAGE'
+            };
+
+            const provider = createMockProvider();
+
+            const error = await auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: forgedAuthorizationResponse.code,
+                iss: forgedAuthorizationResponse.iss
+            }).then(
+                () => {
+                    throw new Error('expected auth() to reject');
+                },
+                (e: unknown) => e as Error
+            );
+
+            // Rejected for the issuer mismatch, without echoing the forged error params
+            expect(error.message).toMatch(/does not match the expected issuer/);
+            expect(error.message).not.toContain(forgedAuthorizationResponse.error_description);
+            expect(error.message).not.toContain('access_denied');
+
+            // And the code was never sent to a token endpoint
+            expect(tokenEndpointCalls()).toHaveLength(0);
+        });
+    });
+});
