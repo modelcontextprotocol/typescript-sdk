@@ -11,6 +11,13 @@ export enum ProtocolErrorCode {
     InternalError = -32_603,
 
     // MCP-specific error codes
+    /**
+     * Legacy error code for reads of nonexistent resources.
+     *
+     * @deprecated Per SEP-2164, servers MUST return {@link ProtocolErrorCode.InvalidParams}
+     * (`-32602`, with the requested URI in `data.uri`) for nonexistent resources. This code
+     * remains exported because clients SHOULD still accept `-32002` from older servers.
+     */
     ResourceNotFound = -32_002,
     /**
      * Processing the request requires a capability the client did not declare

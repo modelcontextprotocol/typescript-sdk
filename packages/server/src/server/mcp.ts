@@ -406,7 +406,9 @@ export class McpServer {
                 }
             }
 
-            throw new ProtocolError(ProtocolErrorCode.ResourceNotFound, `Resource ${uri} not found`);
+            // SEP-2164: nonexistent resources MUST return -32602 (Invalid params); the
+            // requested URI is included in `data` so clients can distinguish not-found.
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource ${uri} not found`, { uri: uri.toString() });
         });
 
         this._resourceHandlersInitialized = true;

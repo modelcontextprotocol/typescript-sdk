@@ -2728,8 +2728,10 @@ describe('Zod v4', () => {
                     }
                 })
             ).rejects.toMatchObject({
-                code: ProtocolErrorCode.ResourceNotFound,
-                message: expect.stringContaining('not found')
+                // SEP-2164: nonexistent resources return -32602 (Invalid params) with the URI in `data`
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('not found'),
+                data: { uri: 'test://nonexistent' }
             });
         });
 

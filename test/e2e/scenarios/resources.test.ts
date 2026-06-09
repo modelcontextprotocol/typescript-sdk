@@ -203,8 +203,10 @@ verifies('resources:read:unknown-uri', async ({ transport }: TestArgs) => {
     await using _ = await wire(transport, makeServer, client);
 
     await expect(client.readResource({ uri: 'file:///no-such-resource' })).rejects.toMatchObject({
-        code: -32_002,
-        message: expect.stringMatching(/not found|unknown/i)
+        // SEP-2164: nonexistent resources return -32602 (Invalid params) with the URI in `data`
+        code: -32_602,
+        message: expect.stringMatching(/not found|unknown/i),
+        data: { uri: 'file:///no-such-resource' }
     });
 });
 
