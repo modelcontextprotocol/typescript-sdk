@@ -2,9 +2,9 @@ name: Conformance Tests
 
 on:
     push:
-        branches: [v1.x]
+        branches: [v1.x, v1.x-2026-07-28]
     pull_request:
-        branches: [v1.x]
+        branches: [v1.x, v1.x-2026-07-28]
     workflow_dispatch:
 
 concurrency:

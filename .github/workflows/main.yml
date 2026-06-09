@@ -2,6 +2,7 @@ on:
     push:
         branches:
             - v1.x
+            - v1.x-2026-07-28
     pull_request:
     workflow_dispatch:
     release:
