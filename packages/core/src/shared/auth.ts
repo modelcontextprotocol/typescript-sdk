@@ -179,6 +179,25 @@ export const OptionalSafeUrlSchema = SafeUrlSchema.optional().or(z.literal('').t
 export const OAuthClientMetadataSchema = z
     .object({
         redirect_uris: z.array(SafeUrlSchema),
+        /**
+         * OpenID Connect Dynamic Client Registration `application_type`.
+         *
+         * The standard values are `'web'` and `'native'`. OIDC-based authorization
+         * servers default this to `'web'` when omitted, which conflicts with
+         * native/loopback redirect URIs (e.g. `http://localhost`, `http://127.0.0.1`,
+         * or custom URI schemes) and can cause registration to fail. Per the MCP
+         * authorization specification (SEP-837), clients MUST specify an appropriate
+         * `application_type` when registering: native apps (desktop, CLI, anything
+         * using loopback or custom-scheme redirects) SHOULD use `'native'`, while
+         * remote browser-based apps SHOULD use `'web'`. Authorization servers that
+         * do not implement OIDC registration ignore this field.
+         *
+         * Typed as a plain string because OIDC permits extension values beyond
+         * `'web'` and `'native'`.
+         *
+         * @see https://openid.net/specs/openid-connect-registration-1_0.html#ClientMetadata
+         */
+        application_type: z.string().optional(),
         token_endpoint_auth_method: z.string().optional(),
         grant_types: z.array(z.string()).optional(),
         response_types: z.array(z.string()).optional(),
