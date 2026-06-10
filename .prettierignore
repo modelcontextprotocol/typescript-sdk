@@ -10,7 +10,12 @@ node_modules
 pnpm-lock.yaml
 
 # Ignore generated files
-src/spec.types.ts
+**/src/types/spec.types.2025-11-25.ts
+**/src/types/spec.types.2026-07-28.ts
+
+# Batch test cloned repos and results
+packages/codemod/batch-test/repos
+packages/codemod/batch-test/results
 
 # Quickstart examples uses 2-space indent to match ecosystem conventions
 examples/client-quickstart/

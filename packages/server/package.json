@@ -28,6 +28,10 @@
             "types": "./dist/stdio.d.mts",
             "import": "./dist/stdio.mjs"
         },
+        "./validators/ajv": {
+            "types": "./dist/validators/ajv.d.mts",
+            "import": "./dist/validators/ajv.mjs"
+        },
         "./validators/cf-worker": {
             "types": "./dist/validators/cfWorker.d.mts",
             "import": "./dist/validators/cfWorker.mjs"
@@ -54,6 +58,9 @@
     "types": "./dist/index.d.mts",
     "typesVersions": {
         "*": {
+            "validators/ajv": [
+                "dist/validators/ajv.d.mts"
+            ],
             "validators/cf-worker": [
                 "dist/validators/cfWorker.d.mts"
             ],
@@ -86,6 +93,8 @@
     },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
+        "ajv": "catalog:runtimeShared",
+        "ajv-formats": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",

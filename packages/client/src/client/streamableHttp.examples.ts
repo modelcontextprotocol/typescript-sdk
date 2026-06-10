@@ -18,7 +18,7 @@ declare const platformBackgroundTask: {
 };
 
 /**
- * Example: Using a platform background-task API to schedule reconnections.
+ * Example: Using a platform background-scheduler API to schedule reconnections.
  */
 function ReconnectionScheduler_basicUsage() {
     //#region ReconnectionScheduler_basicUsage
