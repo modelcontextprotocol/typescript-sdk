@@ -210,10 +210,12 @@ describe('spec-schema-access transform', () => {
             expect(text).not.toContain('return result.value');
         });
 
-        it('falls back to diagnostic for non-captured safeParse (bare expression)', () => {
+        it('rewrites non-captured safeParse (bare expression) to validate()', () => {
             const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `ToolSchema.safeParse(data);`, ''].join('\n');
-            const { result } = applyTransform(input);
-            expect(result.changesCount).toBe(0);
+            const { text, result } = applyTransform(input);
+            expect(text).toContain("specTypeSchemas.Tool['~standard'].validate(data)");
+            expect(text).not.toMatch(/import\s*\{[^}]*ToolSchema[^}]*\}/);
+            expect(result.changesCount).toBeGreaterThan(0);
             expect(result.diagnostics.length).toBe(1);
         });
     });
@@ -327,16 +329,24 @@ describe('spec-schema-access transform', () => {
         });
     });
 
-    describe('diagnostic only: .parse(v)', () => {
-        it('emits diagnostic for parse usage', () => {
+    describe('.parse(v)', () => {
+        it('rewrites discarded parse() to the validate() primitive', () => {
+            const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `ToolSchema.parse(raw);`, ''].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain("specTypeSchemas.Tool['~standard'].validate(raw)");
+            expect(text).not.toMatch(/import\s*\{[^}]*ToolSchema[^}]*\}/);
+            expect(result.changesCount).toBeGreaterThan(0);
+        });
+
+        it('swaps the identifier (import stays resolvable) when the parse() result is used', () => {
             const input = [`import { ToolSchema } from '@modelcontextprotocol/server';`, `const tool = ToolSchema.parse(raw);`, ''].join(
                 '\n'
             );
             const { text, result } = applyTransform(input);
-            expect(text).toContain('ToolSchema.parse');
-            expect(result.changesCount).toBe(0);
-            expect(result.diagnostics.length).toBe(1);
-            expect(result.diagnostics[0]!.message).toContain('isSpecType.Tool');
+            expect(text).toContain('specTypeSchemas.Tool.parse(raw)');
+            expect(text).not.toMatch(/import\s*\{[^}]*ToolSchema[^}]*\}/);
+            expect(result.changesCount).toBeGreaterThan(0);
+            expect(result.diagnostics[0]!.message).toContain('specTypeSchemas.Tool');
         });
     });
 
@@ -392,7 +402,7 @@ describe('spec-schema-access transform', () => {
             expect(text).not.toMatch(/import\s*\{[^}]*CallToolRequestSchema[^}]*\}/);
         });
 
-        it('keeps original schema import when some refs are diagnostic-only', () => {
+        it('removes the schema import even when a ref falls back to a parse()/safeParse() rewrite', () => {
             const input = [
                 `import { CallToolRequestSchema } from '@modelcontextprotocol/server';`,
                 `const valid = CallToolRequestSchema.safeParse(data).success;`,
@@ -401,8 +411,8 @@ describe('spec-schema-access transform', () => {
             ].join('\n');
             const { text } = applyTransform(input);
             expect(text).toContain('isSpecType.CallToolRequest(data)');
-            expect(text).toContain('CallToolRequestSchema.parse');
-            expect(text).toMatch(/import\s*\{[^}]*CallToolRequestSchema[^}]*\}/);
+            expect(text).toContain('specTypeSchemas.CallToolRequest.parse(data)');
+            expect(text).not.toMatch(/import\s*\{[^}]*CallToolRequestSchema[^}]*\}/);
         });
 
         it('removes schema specifier from import that also has other symbols', () => {

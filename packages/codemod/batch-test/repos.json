@@ -40,5 +40,31 @@
                 }
             }
         ]
+    },
+    {
+        "repo": "mastra-ai/mastra",
+        "ref": "main",
+        "packages": [
+            {
+                "dir": "packages/core",
+                "sourceDir": "src",
+                "checks": {
+                    "typecheck": "npx tsc --noEmit",
+                    "build": null,
+                    "test": null,
+                    "lint": null
+                }
+            },
+            {
+                "dir": "packages/mcp",
+                "sourceDir": "src",
+                "checks": {
+                    "typecheck": "npx tsc --noEmit",
+                    "build": null,
+                    "test": null,
+                    "lint": null
+                }
+            }
+        ]
     }
 ]
