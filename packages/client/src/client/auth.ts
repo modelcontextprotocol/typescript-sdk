@@ -763,9 +763,10 @@ async function authInternal(
 
     // Handle token refresh or new authorization
     if (tokens?.refresh_token) {
+        let newTokens: OAuthTokens | undefined;
         try {
             // Attempt to refresh the token
-            const newTokens = await refreshAuthorization(authorizationServerUrl, {
+            newTokens = await refreshAuthorization(authorizationServerUrl, {
                 metadata,
                 clientInformation,
                 refreshToken: tokens.refresh_token,
@@ -773,17 +774,22 @@ async function authInternal(
                 addClientAuthentication: provider.addClientAuthentication,
                 fetchFn
             });
-
-            await provider.saveTokens(newTokens);
-            return 'AUTHORIZED';
         } catch (error) {
             // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
             if (!(error instanceof OAuthError) || error.code === OAuthErrorCode.ServerError) {
-                // Could not refresh OAuth tokens
+                // Could not refresh OAuth tokens — fall through to new authorization
             } else {
                 // Refresh failed for another reason, re-throw
                 throw error;
             }
+        }
+
+        if (newTokens) {
+            // saveTokens errors must propagate — the AS may have already
+            // rotated the refresh token, so silently losing the new tokens
+            // would leave the client with an invalid refresh token.
+            await provider.saveTokens(newTokens);
+            return 'AUTHORIZED';
         }
     }
 
