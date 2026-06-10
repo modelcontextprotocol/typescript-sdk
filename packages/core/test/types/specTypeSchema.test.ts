@@ -42,6 +42,45 @@ describe('specTypeSchemas', () => {
         const bad = specTypeSchemas.OAuthTokens['~standard'].validate({ token_type: 'Bearer' });
         expect(bad.issues?.length).toBeGreaterThan(0);
     });
+
+    describe('Zod-compatible parse/safeParse (v1 migration shim)', () => {
+        it('parse() returns the typed value for valid input', () => {
+            const tokens = specTypeSchemas.OAuthTokens.parse({ access_token: 'x', token_type: 'Bearer' });
+            expect(tokens.access_token).toBe('x');
+            expectTypeOf(tokens).toEqualTypeOf<OAuthTokens>();
+        });
+
+        it('parse() throws a ZodError on invalid input (same behavior as v1)', () => {
+            expect(() => specTypeSchemas.OAuthTokens.parse({ token_type: 'Bearer' })).toThrow();
+            try {
+                specTypeSchemas.OAuthTokens.parse({ token_type: 'Bearer' });
+                expect.unreachable('parse should have thrown');
+            } catch (err) {
+                // v1 callers relied on a structured Zod error with an `issues` array.
+                expect((err as { issues?: unknown[] }).issues?.length).toBeGreaterThan(0);
+            }
+        });
+
+        it('safeParse() returns the Zod-shaped discriminated result', () => {
+            const ok = specTypeSchemas.OAuthTokens.safeParse({ access_token: 'x', token_type: 'Bearer' });
+            expect(ok.success).toBe(true);
+            if (ok.success) {
+                expect(ok.data.access_token).toBe('x');
+                expectTypeOf(ok.data).toEqualTypeOf<OAuthTokens>();
+            }
+            const bad = specTypeSchemas.OAuthTokens.safeParse({ token_type: 'Bearer' });
+            expect(bad.success).toBe(false);
+            if (!bad.success) {
+                expect(bad.error.issues.length).toBeGreaterThan(0);
+            }
+        });
+
+        it('parse() applies schema defaults, matching the named output type', () => {
+            // CallToolResultSchema has `content: z.array(...).default([])`.
+            const result = specTypeSchemas.CallToolResult.parse({});
+            expect(result.content).toEqual([]);
+        });
+    });
 });
 
 describe('isSpecType', () => {
