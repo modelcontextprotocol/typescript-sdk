@@ -527,8 +527,24 @@ import { specTypeSchemas } from '@modelcontextprotocol/client';
 const result = specTypeSchemas.CallToolResult['~standard'].validate(value);
 ```
 
-`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1Sync<In, Out>` — `validate()` returns the result synchronously,
-so you can access `.issues` / `.value` without `await`. It composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
+If your v1 code called `.parse()` or `.safeParse()` on a `*Schema` constant, the smallest migration is
+to rename the reference — `specTypeSchemas.X` retains Zod-compatible `.parse()` and `.safeParse()` with
+identical behavior (`.parse()` still throws a `ZodError` on invalid input):
+
+```typescript
+// v1
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
+const tool = CallToolResultSchema.parse(value);
+const r = CallToolResultSchema.safeParse(value); // { success, data } | { success, error }
+
+// v2 — rename only; .parse()/.safeParse() and their result shapes are unchanged
+import { specTypeSchemas } from '@modelcontextprotocol/client';
+const tool = specTypeSchemas.CallToolResult.parse(value);
+const r = specTypeSchemas.CallToolResult.safeParse(value);
+```
+
+`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1Sync<In, Out>` (also exposing the `.parse()`/`.safeParse()` shown above) — `validate()` returns the result synchronously,
+so you can access `.issues` / `.value` without `await`. It composes with any Standard-Schema-aware library. New code should prefer the library-agnostic `['~standard'].validate()` or `isSpecType`. The pre-existing `isCallToolResult(value)` guard still works.
 
 ### Client list methods return empty results for missing capabilities
 
