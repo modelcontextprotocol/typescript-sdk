@@ -190,3 +190,22 @@ for (const barrelSpecifier of ['@modelcontextprotocol/sdk/validation/index.js', 
 export function isAuthImport(specifier: string): boolean {
     return specifier.includes('/server/auth/') || specifier.includes('/server/auth.');
 }
+
+/**
+ * Look up a v1 import specifier in {@link IMPORT_MAP}, tolerating module-resolution variants.
+ *
+ * `IMPORT_MAP` is keyed on the canonical `.js`-suffixed file form (e.g. `.../types.js`,
+ * `.../server/index.js`). But v1 consumers using bundler/`node16` resolution frequently import the
+ * same module without the extension (`.../types`) or in directory form (`.../server`, which resolves
+ * to `server/index.js`). An exact-string lookup misses those and reports "Unknown SDK import path"
+ * even though the `.js` twin is mapped. Normalize before giving up: try the literal key, then the
+ * `.js`-file form, then the `/index.js` directory form.
+ */
+export function resolveImportMapping(specifier: string): ImportMapping | undefined {
+    const direct = IMPORT_MAP[specifier];
+    if (direct) return direct;
+    if (!specifier.startsWith('@modelcontextprotocol/sdk') || /\.(js|mjs|cjs)$/.test(specifier)) {
+        return undefined;
+    }
+    return IMPORT_MAP[`${specifier}.js`] ?? IMPORT_MAP[`${specifier}/index.js`];
+}
