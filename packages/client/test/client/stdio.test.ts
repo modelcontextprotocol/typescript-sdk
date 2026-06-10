@@ -77,3 +77,44 @@ test('should return child process pid', async () => {
     await client.close();
     expect(client.pid).toBeNull();
 });
+
+test('should respect custom maxBufferSize option', async () => {
+    const client = new StdioClientTransport({
+        command: 'node',
+        args: ['-e', 'process.stdout.write(Buffer.alloc(200, 0x41))'],
+        maxBufferSize: 100
+    });
+
+    const errorReceived = new Promise<Error>(resolve => {
+        client.onerror = resolve;
+    });
+    const closed = new Promise<void>(resolve => {
+        client.onclose = () => resolve();
+    });
+
+    await client.start();
+
+    const error = await errorReceived;
+    expect(error.message).toMatch(/ReadBuffer exceeded maximum size/);
+    await closed;
+});
+
+test('should fire onerror and close when ReadBuffer overflows', async () => {
+    const client = new StdioClientTransport({
+        command: 'node',
+        args: ['-e', 'process.stdout.write(Buffer.alloc(11 * 1024 * 1024, 0x41))']
+    });
+
+    const errorReceived = new Promise<Error>(resolve => {
+        client.onerror = resolve;
+    });
+    const closed = new Promise<void>(resolve => {
+        client.onclose = () => resolve();
+    });
+
+    await client.start();
+
+    const error = await errorReceived;
+    expect(error.message).toMatch(/ReadBuffer exceeded maximum size/);
+    await closed;
+});
