@@ -9,8 +9,6 @@ import { default as process_2 } from 'node:process';
 
 // @public
 interface AjvLike {
-    // Warning: (ae-forgotten-export) The symbol "AjvValidateFunction" needs to be exported by the entry point shimsNode.d.ts
-    //
     // (undocumented)
     compile: (schema: unknown) => AjvValidateFunction;
     // (undocumented)
@@ -27,15 +25,9 @@ interface AjvValidateFunction {
     errors?: any;
 }
 
-// Warning: (ae-forgotten-export) The symbol "jsonSchemaValidator" needs to be exported by the entry point shimsNode.d.ts
-//
 // @public
 export class DefaultJsonSchemaValidator implements jsonSchemaValidator {
-    // Warning: (ae-forgotten-export) The symbol "AjvLike" needs to be exported by the entry point shimsNode.d.ts
     constructor(ajv?: AjvLike);
-    // Warning: (ae-forgotten-export) The symbol "JsonSchemaType" needs to be exported by the entry point shimsNode.d.ts
-    // Warning: (ae-forgotten-export) The symbol "JsonSchemaValidator" needs to be exported by the entry point shimsNode.d.ts
-    //
     // (undocumented)
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
 }
@@ -43,8 +35,6 @@ export class DefaultJsonSchemaValidator implements jsonSchemaValidator {
 // @public
 type JsonSchemaType = JSONSchema.Interface;
 
-// Warning: (ae-forgotten-export) The symbol "JsonSchemaValidatorResult" needs to be exported by the entry point shimsNode.d.ts
-//
 // @public
 type JsonSchemaValidator<T> = (input: unknown) => JsonSchemaValidatorResult<T>;
 

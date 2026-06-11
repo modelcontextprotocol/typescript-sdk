@@ -14,7 +14,6 @@ export type AddClientAuthentication = (headers: Headers, params: URLSearchParams
 
 // @public
 export class AjvJsonSchemaValidator implements jsonSchemaValidator {
-    // Warning: (ae-forgotten-export) The symbol "AjvLike" needs to be exported by the entry point index.d.ts
     constructor(ajv?: AjvLike);
     // (undocumented)
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
@@ -22,8 +21,6 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
 
 // @public
 interface AjvLike {
-    // Warning: (ae-forgotten-export) The symbol "AjvValidateFunction" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     compile: (schema: unknown) => AjvValidateFunction;
     // (undocumented)
@@ -40,9 +37,6 @@ interface AjvValidateFunction {
     errors?: any;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Infer" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "AnnotationsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Annotations = Infer<typeof AnnotationsSchema>;
 
@@ -68,8 +62,6 @@ export function assertCompleteRequestResourceTemplate(request: CompleteRequest):
 // @public
 export type AssertionCallback = (context: CrossAppAccessContext) => string | Promise<string>;
 
-// Warning: (ae-forgotten-export) The symbol "AudioContentSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type AudioContent = Infer<typeof AudioContentSchema>;
 
@@ -113,7 +105,6 @@ export type AuthorizationServerMetadata = OAuthMetadata | OpenIdProviderDiscover
 
 // @public
 export interface AuthProvider {
-    // Warning: (ae-forgotten-export) The symbol "UnauthorizedContext" needs to be exported by the entry point index.d.ts
     onUnauthorized?(ctx: UnauthorizedContext): Promise<void>;
     token(): Promise<string | undefined>;
 }
@@ -121,8 +112,6 @@ export interface AuthProvider {
 // @public (undocumented)
 export type AuthResult = 'AUTHORIZED' | 'REDIRECT';
 
-// Warning: (ae-forgotten-export) The symbol "authSchemas" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type AuthSchemaKey = keyof typeof authSchemas;
 
@@ -324,7 +313,7 @@ export type BaseContext = {
                 method: M;
                 params?: Record<string, unknown>;
             }, options?: RequestOptions): Promise<ResultTypeMap[M]>;
-            <T$1 extends StandardSchemaV1>(request: Request_2, resultSchema: T$1, options?: RequestOptions): Promise<StandardSchemaV1.InferOutput<T$1>>;
+            <T extends StandardSchemaV1>(request: Request_2, resultSchema: T, options?: RequestOptions): Promise<StandardSchemaV1.InferOutput<T>>;
         };
         notify: (notification: Notification_2) => Promise<void>;
     };
@@ -333,8 +322,6 @@ export type BaseContext = {
     };
 };
 
-// Warning: (ae-forgotten-export) The symbol "BaseMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type BaseMetadata = Infer<typeof BaseMetadataSchema>;
 
@@ -354,8 +341,6 @@ const BaseRequestParamsSchema: z.ZodObject<{
     }, z.core.$loose>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "BlobResourceContentsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type BlobResourceContents = Infer<typeof BlobResourceContentsSchema>;
 
@@ -367,8 +352,6 @@ const BlobResourceContentsSchema: z.ZodObject<{
     blob: z.ZodString;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "BooleanSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type BooleanSchema = Infer<typeof BooleanSchemaSchema>;
 
@@ -386,13 +369,9 @@ export function buildDiscoveryUrls(authorizationServerUrl: string | URL): {
     type: 'oauth' | 'oidc';
 }[];
 
-// Warning: (ae-forgotten-export) The symbol "CallToolRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "CallToolRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CallToolRequestParams = Infer<typeof CallToolRequestParamsSchema>;
 
@@ -429,8 +408,6 @@ const CallToolRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "CallToolResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CallToolResult = Infer<typeof CallToolResultSchema>;
 
@@ -534,13 +511,9 @@ const CallToolResultSchema: z.ZodObject<{
     isError: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "CancelledNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "CancelledNotificationParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CancelledNotificationParams = Infer<typeof CancelledNotificationParamsSchema>;
 
@@ -571,8 +544,6 @@ const CancelledNotificationSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "CancelTaskRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CancelTaskRequest = Infer<typeof CancelTaskRequestSchema>;
 
@@ -590,8 +561,6 @@ const CancelTaskRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "CancelTaskResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CancelTaskResult = Infer<typeof CancelTaskResultSchema>;
 
@@ -637,8 +606,6 @@ export function checkResourceAllowed(input: {
     configuredResource: URL | string;
 }): boolean;
 
-// Warning: (ae-forgotten-export) The symbol "Protocol" needs to be exported by the entry point index.d.ts
-//
 // @public
 export class Client extends Protocol<ClientContext> {
     constructor(_clientInfo: Implementation, options?: ClientOptions);
@@ -1065,8 +1032,6 @@ export const CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo";
 // @public (undocumented)
 export type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
-// Warning: (ae-forgotten-export) The symbol "ClientCapabilitiesSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ClientCapabilities = Infer<typeof ClientCapabilitiesSchema>;
 
@@ -1137,8 +1102,6 @@ export interface ClientCredentialsProviderOptions {
     scope?: string;
 }
 
-// Warning: (ae-forgotten-export) The symbol "ClientNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ClientNotification = Infer<typeof ClientNotificationSchema>;
 
@@ -1221,8 +1184,6 @@ export type ClientOptions = ProtocolOptions & {
     listChanged?: ListChangedHandlers;
 };
 
-// Warning: (ae-forgotten-export) The symbol "ClientRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ClientRequest = Infer<typeof ClientRequestSchema>;
 
@@ -1487,8 +1448,6 @@ const ClientRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>]>;
 
-// Warning: (ae-forgotten-export) The symbol "ClientResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ClientResult = Infer<typeof ClientResultSchema>;
 
@@ -1949,8 +1908,6 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$loose>]>;
 
-// Warning: (ae-forgotten-export) The symbol "CompatibilityCallToolResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
 
@@ -2063,13 +2020,9 @@ const CompatibilityCallToolResultSchema: z.ZodUnion<[z.ZodObject<{
     toolResult: z.ZodUnknown;
 }, z.core.$loose>]>;
 
-// Warning: (ae-forgotten-export) The symbol "CompleteRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CompleteRequest = Infer<typeof CompleteRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "CompleteRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CompleteRequestParams = Infer<typeof CompleteRequestParamsSchema>;
 
@@ -2097,8 +2050,6 @@ const CompleteRequestParamsSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ExpandRecursively" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CompleteRequestPrompt = ExpandRecursively<CompleteRequest & {
     params: CompleteRequestParams & {
@@ -2140,8 +2091,6 @@ const CompleteRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "CompleteResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CompleteResult = Infer<typeof CompleteResultSchema>;
 
@@ -2161,8 +2110,6 @@ const CompleteResultSchema: z.ZodObject<{
     }, z.core.$loose>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "ContentBlockSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ContentBlock = Infer<typeof ContentBlockSchema>;
 
@@ -2258,13 +2205,9 @@ const ContentBlockSchema: z.ZodUnion<readonly [z.ZodObject<{
 // @public
 export function createFetchWithInit(baseFetch?: FetchLike, baseInit?: RequestInit): FetchLike;
 
-// Warning: (ae-forgotten-export) The symbol "CreateMessageRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "CreateMessageRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CreateMessageRequestParams = Infer<typeof CreateMessageRequestParamsSchema>;
 
@@ -2998,8 +2941,6 @@ const CreateMessageRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "CreateMessageResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
 
@@ -3063,8 +3004,6 @@ const CreateMessageResultSchema: z.ZodObject<{
     }, z.core.$strip>], "type">;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "CreateMessageResultWithToolsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CreateMessageResultWithTools = Infer<typeof CreateMessageResultWithToolsSchema>;
 
@@ -3379,8 +3318,6 @@ export function createPrivateKeyJwtAuth(options: {
     claims?: Record<string, unknown>;
 }): AddClientAuthentication;
 
-// Warning: (ae-forgotten-export) The symbol "CreateTaskResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type CreateTaskResult = Infer<typeof CreateTaskResultSchema>;
 
@@ -3456,8 +3393,6 @@ export interface CrossAppAccessProviderOptions {
     fetchFn?: FetchLike;
 }
 
-// Warning: (ae-forgotten-export) The symbol "CursorSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Cursor = Infer<typeof CursorSchema>;
 
@@ -3505,8 +3440,6 @@ export function discoverOAuthServerInfo(serverUrl: string | URL, opts?: {
     fetchFn?: FetchLike;
 }): Promise<OAuthServerInfo>;
 
-// Warning: (ae-forgotten-export) The symbol "DiscoverRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type DiscoverRequest = Infer<typeof DiscoverRequestSchema>;
 
@@ -3523,8 +3456,6 @@ const DiscoverRequestSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "DiscoverResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type DiscoverResult = Infer<typeof DiscoverResultSchema>;
 
@@ -3582,13 +3513,9 @@ const DiscoverResultSchema: z.ZodObject<{
     instructions: z.ZodOptional<z.ZodString>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "ElicitationCompleteNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ElicitationCompleteNotification = Infer<typeof ElicitationCompleteNotificationSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "ElicitationCompleteNotificationParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ElicitationCompleteNotificationParams = Infer<typeof ElicitationCompleteNotificationParamsSchema>;
 
@@ -3617,13 +3544,9 @@ const ElicitationCompleteNotificationSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ElicitRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ElicitRequest = Infer<typeof ElicitRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "ElicitRequestFormParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ElicitRequestFormParams = Infer<typeof ElicitRequestFormParamsSchema>;
 
@@ -3721,8 +3644,6 @@ const ElicitRequestFormParamsSchema: z.ZodObject<{
     }, z.core.$catchall<z.ZodUnknown>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ElicitRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>;
 
@@ -3945,8 +3866,6 @@ const ElicitRequestSchema: z.ZodObject<{
     }, z.core.$strip>]>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ElicitRequestURLParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ElicitRequestURLParams = Infer<typeof ElicitRequestURLParamsSchema>;
 
@@ -3967,8 +3886,6 @@ const ElicitRequestURLParamsSchema: z.ZodObject<{
     url: z.ZodString;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ElicitResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ElicitResult = Infer<typeof ElicitResultSchema>;
 
@@ -3989,8 +3906,6 @@ const ElicitResultSchema: z.ZodObject<{
     content: z.ZodPipe<z.ZodTransform<{} | undefined, unknown>, z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnion<readonly [z.ZodString, z.ZodNumber, z.ZodBoolean, z.ZodArray<z.ZodString>]>>>>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "EmbeddedResourceSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
 
@@ -4019,8 +3934,6 @@ const EmbeddedResourceSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "EmptyResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type EmptyResult = Infer<typeof EmptyResultSchema>;
 
@@ -4035,8 +3948,6 @@ const EmptyResultSchema: z.ZodObject<{
     resultType: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>;
 
-// Warning: (ae-forgotten-export) The symbol "EnumSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type EnumSchema = Infer<typeof EnumSchemaSchema>;
 
@@ -4117,7 +4028,7 @@ export function exchangeJwtAuthGrant(options: {
 }>;
 
 // @public
-type ExpandRecursively<T$1> = T$1 extends object ? (T$1 extends infer O ? { [K in keyof O]: ExpandRecursively<O[K]> } : never) : T$1;
+type ExpandRecursively<T> = T extends object ? (T extends infer O ? { [K in keyof O]: ExpandRecursively<O[K]> } : never) : T;
 
 // @public @deprecated
 export function extractResourceMetadataUrl(res: Response): URL | undefined;
@@ -4141,10 +4052,8 @@ export function fetchToken(provider: OAuthClientProvider, authorizationServerUrl
     fetchFn?: FetchLike;
 }): Promise<OAuthTokens>;
 
-// Warning: (ae-forgotten-export) The symbol "Primitive" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
-type Flatten<T$1> = T$1 extends Primitive ? T$1 : T$1 extends Array<infer U> ? Array<Flatten<U>> : T$1 extends Set<infer U> ? Set<Flatten<U>> : T$1 extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T$1 extends object ? { [K in keyof T$1]: Flatten<T$1[K]> } : T$1;
+type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Flatten<U>> : T extends Set<infer U> ? Set<Flatten<U>> : T extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T extends object ? { [K in keyof T]: Flatten<T[K]> } : T;
 
 // @public (undocumented)
 export function fromJsonSchema<T = unknown>(schema: JsonSchemaType, validator?: jsonSchemaValidator): StandardSchemaWithJSON<T, T>;
@@ -4156,13 +4065,9 @@ export function getDisplayName(metadata: BaseMetadata | (BaseMetadata & {
     };
 })): string;
 
-// Warning: (ae-forgotten-export) The symbol "GetPromptRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type GetPromptRequest = Infer<typeof GetPromptRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "GetPromptRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type GetPromptRequestParams = Infer<typeof GetPromptRequestParamsSchema>;
 
@@ -4193,8 +4098,6 @@ const GetPromptRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "GetPromptResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
 
@@ -4309,8 +4212,6 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
     supportsUrlMode: boolean;
 };
 
-// Warning: (ae-forgotten-export) The symbol "GetTaskPayloadRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;
 
@@ -4328,8 +4229,6 @@ const GetTaskPayloadRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "GetTaskPayloadResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type GetTaskPayloadResult = Infer<typeof GetTaskPayloadResultSchema>;
 
@@ -4344,8 +4243,6 @@ const GetTaskPayloadResultSchema: z.ZodObject<{
     resultType: z.ZodOptional<z.ZodString>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "GetTaskRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
 
@@ -4363,8 +4260,6 @@ const GetTaskRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "GetTaskResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type GetTaskResult = Infer<typeof GetTaskResultSchema>;
 
@@ -4392,18 +4287,12 @@ const GetTaskResultSchema: z.ZodObject<{
     statusMessage: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "SpecTypeInputs" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypeInputs[K] };
 
-// Warning: (ae-forgotten-export) The symbol "IconSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Icon = Infer<typeof IconSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "IconsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Icons = Infer<typeof IconsSchema>;
 
@@ -4431,8 +4320,6 @@ const IconsSchema: z.ZodObject<{
     }, z.core.$strip>>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ImageContentSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ImageContent = Infer<typeof ImageContentSchema>;
 
@@ -4452,8 +4339,6 @@ const ImageContentSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ImplementationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Implementation = Infer<typeof ImplementationSchema>;
 
@@ -4475,16 +4360,12 @@ const ImplementationSchema: z.ZodObject<{
     title: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "Flatten" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
 // @public (undocumented)
 type InferHandlerResult<R extends StandardSchemaV1 | undefined> = R extends StandardSchemaV1 ? StandardSchemaV1.InferOutput<R> : Result;
 
-// Warning: (ae-forgotten-export) The symbol "InitializedNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
 
@@ -4501,13 +4382,9 @@ const InitializedNotificationSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "InitializeRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "InitializeRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type InitializeRequestParams = Infer<typeof InitializeRequestParamsSchema>;
 
@@ -4626,8 +4503,6 @@ const InitializeRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "InitializeResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type InitializeResult = Infer<typeof InitializeResultSchema>;
 
@@ -4711,8 +4586,6 @@ export class InMemoryTransport implements Transport {
 // @public (undocumented)
 export const INTERNAL_ERROR = -32603;
 
-// Warning: (ae-forgotten-export) The symbol "JSONRPCErrorObject" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export interface InternalError extends JSONRPCErrorObject {
     // (undocumented)
@@ -4764,8 +4637,6 @@ export const isJSONRPCResponse: (value: unknown) => value is JSONRPCResponse;
 // @public
 export const isJSONRPCResultResponse: (value: unknown) => value is JSONRPCResultResponse;
 
-// Warning: (ae-forgotten-export) The symbol "GuardRecord" needs to be exported by the entry point index.d.ts
-//
 // @public
 export const isSpecType: GuardRecord;
 
@@ -4790,8 +4661,6 @@ type JSONRPCErrorObject = {
     data?: unknown;
 };
 
-// Warning: (ae-forgotten-export) The symbol "JSONRPCErrorResponseSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type JSONRPCErrorResponse = Infer<typeof JSONRPCErrorResponseSchema>;
 
@@ -4806,8 +4675,6 @@ const JSONRPCErrorResponseSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strict>;
 
-// Warning: (ae-forgotten-export) The symbol "JSONRPCMessageSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
 
@@ -4857,8 +4724,6 @@ const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strict>]>;
 
-// Warning: (ae-forgotten-export) The symbol "JSONRPCNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;
 
@@ -4876,8 +4741,6 @@ const JSONRPCNotificationSchema: z.ZodObject<{
     jsonrpc: z.ZodLiteral<"2.0">;
 }, z.core.$strict>;
 
-// Warning: (ae-forgotten-export) The symbol "JSONRPCRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type JSONRPCRequest = Infer<typeof JSONRPCRequestSchema>;
 
@@ -4896,8 +4759,6 @@ const JSONRPCRequestSchema: z.ZodObject<{
     id: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
 }, z.core.$strict>;
 
-// Warning: (ae-forgotten-export) The symbol "JSONRPCResponseSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
 
@@ -4924,8 +4785,6 @@ const JSONRPCResponseSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strict>]>;
 
-// Warning: (ae-forgotten-export) The symbol "JSONRPCResultResponseSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type JSONRPCResultResponse = Infer<typeof JSONRPCResultResponseSchema>;
 
@@ -4979,8 +4838,6 @@ export interface JwtAuthGrantResult {
 // @public (undocumented)
 export const LATEST_PROTOCOL_VERSION = "2025-11-25";
 
-// Warning: (ae-forgotten-export) The symbol "LegacyTitledEnumSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type LegacyTitledEnumSchema = Infer<typeof LegacyTitledEnumSchemaSchema>;
 
@@ -4995,7 +4852,7 @@ const LegacyTitledEnumSchemaSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public
-export type ListChangedCallback<T$1> = (error: Error | null, items: T$1[] | null) => void;
+export type ListChangedCallback<T> = (error: Error | null, items: T[] | null) => void;
 
 // @public
 export type ListChangedHandlers = {
@@ -5005,14 +4862,12 @@ export type ListChangedHandlers = {
 };
 
 // @public
-export type ListChangedOptions<T$1> = {
+export type ListChangedOptions<T> = {
     autoRefresh?: boolean;
     debounceMs?: number;
-    onChanged: ListChangedCallback<T$1>;
+    onChanged: ListChangedCallback<T>;
 };
 
-// Warning: (ae-forgotten-export) The symbol "ListPromptsRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListPromptsRequest = Infer<typeof ListPromptsRequestSchema>;
 
@@ -5030,8 +4885,6 @@ const ListPromptsRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"prompts/list">;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ListPromptsResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListPromptsResult = Infer<typeof ListPromptsResultSchema>;
 
@@ -5067,8 +4920,6 @@ const ListPromptsResultSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "ListResourcesRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListResourcesRequest = Infer<typeof ListResourcesRequestSchema>;
 
@@ -5086,8 +4937,6 @@ const ListResourcesRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"resources/list">;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ListResourcesResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListResourcesResult = Infer<typeof ListResourcesResultSchema>;
 
@@ -5129,8 +4978,6 @@ const ListResourcesResultSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "ListResourceTemplatesRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListResourceTemplatesRequest = Infer<typeof ListResourceTemplatesRequestSchema>;
 
@@ -5148,8 +4995,6 @@ const ListResourceTemplatesRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"resources/templates/list">;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ListResourceTemplatesResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListResourceTemplatesResult = Infer<typeof ListResourceTemplatesResultSchema>;
 
@@ -5190,8 +5035,6 @@ const ListResourceTemplatesResultSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "ListRootsRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
 
@@ -5208,8 +5051,6 @@ const ListRootsRequestSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ListRootsResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListRootsResult = Infer<typeof ListRootsResultSchema>;
 
@@ -5229,8 +5070,6 @@ const ListRootsResultSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "ListTasksRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListTasksRequest = Infer<typeof ListTasksRequestSchema>;
 
@@ -5248,8 +5087,6 @@ const ListTasksRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"tasks/list">;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ListTasksResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListTasksResult = Infer<typeof ListTasksResultSchema>;
 
@@ -5280,8 +5117,6 @@ const ListTasksResultSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "ListToolsRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListToolsRequest = Infer<typeof ListToolsRequestSchema>;
 
@@ -5299,8 +5134,6 @@ const ListToolsRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"tools/list">;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ListToolsResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
 
@@ -5358,8 +5191,6 @@ const ListToolsResultSchema: z.ZodObject<{
 // @public @deprecated
 export const LOG_LEVEL_META_KEY = "io.modelcontextprotocol/logLevel";
 
-// Warning: (ae-forgotten-export) The symbol "LoggingLevelSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
 
@@ -5375,13 +5206,9 @@ const LoggingLevelSchema: z.ZodEnum<{
     emergency: "emergency";
 }>;
 
-// Warning: (ae-forgotten-export) The symbol "LoggingMessageNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "LoggingMessageNotificationParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type LoggingMessageNotificationParams = Infer<typeof LoggingMessageNotificationParamsSchema>;
 
@@ -5461,15 +5288,13 @@ export interface MethodNotFoundError extends JSONRPCErrorObject {
 }
 
 // @public (undocumented)
-type MethodToTypeMap<U$1> = { [T in U$1 as T extends {
+type MethodToTypeMap<U> = { [T in U as T extends {
         method: infer M extends string;
     } ? M : never]: T };
 
 // @public
 export type Middleware = (next: FetchLike) => FetchLike;
 
-// Warning: (ae-forgotten-export) The symbol "ModelHintSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ModelHint = Infer<typeof ModelHintSchema>;
 
@@ -5478,8 +5303,6 @@ const ModelHintSchema: z.ZodObject<{
     name: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ModelPreferencesSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
 
@@ -5493,8 +5316,6 @@ const ModelPreferencesSchema: z.ZodObject<{
     intelligencePriority: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "MultiSelectEnumSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type MultiSelectEnumSchema = Infer<typeof MultiSelectEnumSchemaSchema>;
 
@@ -5525,8 +5346,6 @@ const MultiSelectEnumSchemaSchema: z.ZodUnion<readonly [z.ZodObject<{
     default: z.ZodOptional<z.ZodArray<z.ZodString>>;
 }, z.core.$strip>]>;
 
-// Warning: (ae-forgotten-export) The symbol "NotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type Notification_2 = Infer<typeof NotificationSchema>;
 export { Notification_2 as Notification }
@@ -5540,8 +5359,6 @@ type NotificationOptions_2 = {
 };
 export { NotificationOptions_2 as NotificationOptions }
 
-// Warning: (ae-forgotten-export) The symbol "NotificationsParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type NotificationParams = Infer<typeof NotificationsParamsSchema>;
 
@@ -5568,13 +5385,9 @@ const NotificationsParamsSchema: z.ZodObject<{
     }, z.core.$loose>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "MethodToTypeMap" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
 
-// Warning: (ae-forgotten-export) The symbol "NumberSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type NumberSchema = Infer<typeof NumberSchemaSchema>;
 
@@ -5591,13 +5404,9 @@ const NumberSchemaSchema: z.ZodObject<{
     default: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthClientInformationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OAuthClientInformation = z.infer<typeof OAuthClientInformationSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthClientInformationFullSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OAuthClientInformationFull = z.infer<typeof OAuthClientInformationFullSchema>;
 
@@ -5636,8 +5445,6 @@ const OAuthClientInformationSchema: z.ZodObject<{
     client_secret_expires_at: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthClientMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OAuthClientMetadata = z.infer<typeof OAuthClientMetadataSchema>;
 
@@ -5686,8 +5493,6 @@ export interface OAuthClientProvider {
     validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
 }
 
-// Warning: (ae-forgotten-export) The symbol "OAuthClientRegistrationErrorSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OAuthClientRegistrationError = z.infer<typeof OAuthClientRegistrationErrorSchema>;
 
@@ -5734,8 +5539,6 @@ export enum OAuthErrorCode {
     UnsupportedTokenType = "unsupported_token_type",
 }
 
-// Warning: (ae-forgotten-export) The symbol "OAuthErrorResponseSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OAuthErrorResponse = z.infer<typeof OAuthErrorResponseSchema>;
 
@@ -5746,8 +5549,6 @@ const OAuthErrorResponseSchema: z.ZodObject<{
     error_uri: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
 
@@ -5774,8 +5575,6 @@ const OAuthMetadataSchema: z.ZodObject<{
     client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthProtectedResourceMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OAuthProtectedResourceMetadata = z.infer<typeof OAuthProtectedResourceMetadataSchema>;
 
@@ -5804,8 +5603,6 @@ export interface OAuthServerInfo {
     resourceMetadata?: OAuthProtectedResourceMetadata;
 }
 
-// Warning: (ae-forgotten-export) The symbol "OAuthTokenRevocationRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OAuthTokenRevocationRequest = z.infer<typeof OAuthTokenRevocationRequestSchema>;
 
@@ -5815,8 +5612,6 @@ const OAuthTokenRevocationRequestSchema: z.ZodObject<{
     token_type_hint: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthTokensSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OAuthTokens = z.infer<typeof OAuthTokensSchema>;
 
@@ -5830,8 +5625,6 @@ const OAuthTokensSchema: z.ZodObject<{
     refresh_token: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "OpenIdProviderDiscoveryMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OpenIdProviderDiscoveryMetadata = z.infer<typeof OpenIdProviderDiscoveryMetadataSchema>;
 
@@ -5876,8 +5669,6 @@ const OpenIdProviderDiscoveryMetadataSchema: z.ZodObject<{
     client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "OpenIdProviderMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type OpenIdProviderMetadata = z.infer<typeof OpenIdProviderMetadataSchema>;
 
@@ -5921,13 +5712,9 @@ const OpenIdProviderMetadataSchema: z.ZodObject<{
     client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "PaginatedRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type PaginatedRequest = Infer<typeof PaginatedRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "PaginatedRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type PaginatedRequestParams = Infer<typeof PaginatedRequestParamsSchema>;
 
@@ -5956,8 +5743,6 @@ const PaginatedRequestSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "PaginatedResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type PaginatedResult = Infer<typeof PaginatedResultSchema>;
 
@@ -5988,8 +5773,6 @@ export function parseErrorResponse(input: Response | string): Promise<OAuthError
 // @public
 export function parseJSONRPCMessage(value: unknown): JSONRPCMessage;
 
-// Warning: (ae-forgotten-export) The symbol "PingRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type PingRequest = Infer<typeof PingRequestSchema>;
 
@@ -6012,8 +5795,6 @@ export function prepareAuthorizationCodeRequest(authorizationCode: string, codeV
 // @public (undocumented)
 type Primitive = string | number | boolean | bigint | null | undefined;
 
-// Warning: (ae-forgotten-export) The symbol "PrimitiveSchemaDefinitionSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type PrimitiveSchemaDefinition = Infer<typeof PrimitiveSchemaDefinitionSchema>;
 
@@ -6132,21 +5913,15 @@ export interface PrivateKeyJwtProviderOptions {
     scope?: string;
 }
 
-// Warning: (ae-forgotten-export) The symbol "ProgressSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Progress = Infer<typeof ProgressSchema>;
 
 // @public
 export type ProgressCallback = (progress: Progress) => void;
 
-// Warning: (ae-forgotten-export) The symbol "ProgressNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ProgressNotification = Infer<typeof ProgressNotificationSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "ProgressNotificationParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ProgressNotificationParams = Infer<typeof ProgressNotificationParamsSchema>;
 
@@ -6188,21 +5963,15 @@ const ProgressSchema: z.ZodObject<{
     message: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ProgressTokenSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ProgressToken = Infer<typeof ProgressTokenSchema>;
 
 // @public
 const ProgressTokenSchema: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
 
-// Warning: (ae-forgotten-export) The symbol "PromptSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Prompt = Infer<typeof PromptSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "PromptArgumentSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type PromptArgument = Infer<typeof PromptArgumentSchema>;
 
@@ -6213,8 +5982,6 @@ const PromptArgumentSchema: z.ZodObject<{
     required: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "PromptListChangedNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type PromptListChangedNotification = Infer<typeof PromptListChangedNotificationSchema>;
 
@@ -6231,8 +5998,6 @@ const PromptListChangedNotificationSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "PromptMessageSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type PromptMessage = Infer<typeof PromptMessageSchema>;
 
@@ -6331,8 +6096,6 @@ const PromptMessageSchema: z.ZodObject<{
     }, z.core.$strip>]>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "PromptReferenceSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type PromptReference = Infer<typeof PromptReferenceSchema>;
 
@@ -6386,16 +6149,14 @@ abstract class Protocol<ContextT extends BaseContext> {
         params?: Record<string, unknown>;
     }, options?: RequestOptions): Promise<ResultTypeMap[M]>;
     // (undocumented)
-    request<T$1 extends StandardSchemaV1>(request: Request_2, resultSchema: T$1, options?: RequestOptions): Promise<StandardSchemaV1.InferOutput<T$1>>;
-    protected _requestWithSchema<T$1 extends StandardSchemaV1>(request: Request_2, resultSchema: T$1, options?: RequestOptions): Promise<StandardSchemaV1.InferOutput<T$1>>;
+    request<T extends StandardSchemaV1>(request: Request_2, resultSchema: T, options?: RequestOptions): Promise<StandardSchemaV1.InferOutput<T>>;
+    protected _requestWithSchema<T extends StandardSchemaV1>(request: Request_2, resultSchema: T, options?: RequestOptions): Promise<StandardSchemaV1.InferOutput<T>>;
     setNotificationHandler<M extends NotificationMethod>(method: M, handler: (notification: NotificationTypeMap[M]) => void | Promise<void>): void;
     // (undocumented)
     setNotificationHandler<P extends StandardSchemaV1>(method: string, schemas: {
         params: P;
     }, handler: (params: StandardSchemaV1.InferOutput<P>, notification: Notification_2) => void | Promise<void>): void;
     setRequestHandler<M extends RequestMethod>(method: M, handler: (request: RequestTypeMap[M], ctx: ContextT) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>): void;
-    // Warning: (ae-forgotten-export) The symbol "InferHandlerResult" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     setRequestHandler<P extends StandardSchemaV1, R extends StandardSchemaV1 | undefined = undefined>(method: string, schemas: {
         params: P;
@@ -6448,8 +6209,6 @@ export type ProtocolOptions = {
     debouncedNotificationMethods?: string[];
 };
 
-// Warning: (ae-forgotten-export) The symbol "SPEC_SCHEMA_KEYS" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type ProtocolSchemaKey = (typeof SPEC_SCHEMA_KEYS)[number];
 
@@ -6466,13 +6225,9 @@ export class ReadBuffer {
     readMessage(): JSONRPCMessage | null;
 }
 
-// Warning: (ae-forgotten-export) The symbol "ReadResourceRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ReadResourceRequest = Infer<typeof ReadResourceRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "ReadResourceRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ReadResourceRequestParams = Infer<typeof ReadResourceRequestParamsSchema>;
 
@@ -6501,8 +6256,6 @@ const ReadResourceRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ReadResourceResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ReadResourceResult = Infer<typeof ReadResourceResultSchema>;
 
@@ -6552,8 +6305,6 @@ export function registerClient(authorizationServerUrl: string | URL, input: {
 // @public (undocumented)
 export const RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
 
-// Warning: (ae-forgotten-export) The symbol "RelatedTaskMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
 
@@ -6562,8 +6313,6 @@ const RelatedTaskMetadataSchema: z.ZodObject<{
     taskId: z.ZodString;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "RequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type Request_2 = Infer<typeof RequestSchema>;
 export { Request_2 as Request }
@@ -6576,8 +6325,6 @@ export interface RequestHandlerSchemas<P extends StandardSchemaV1 = StandardSche
     result?: R;
 }
 
-// Warning: (ae-forgotten-export) The symbol "RequestIdSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type RequestId = Infer<typeof RequestIdSchema>;
 
@@ -6611,13 +6358,9 @@ export type RequestLogger = (input: {
     error?: Error;
 }) => void;
 
-// Warning: (ae-forgotten-export) The symbol "RequestMetaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type RequestMeta = Infer<typeof RequestMetaSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "RequestMetaEnvelopeSchema" needs to be exported by the entry point index.d.ts
-//
 // @public
 export type RequestMetaEnvelope = Infer<typeof RequestMetaEnvelopeSchema>;
 
@@ -6705,8 +6448,6 @@ export type RequestOptions = {
     maxTotalTimeout?: number;
 } & TransportSendOptions;
 
-// Warning: (ae-forgotten-export) The symbol "BaseRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type RequestParams = Infer<typeof BaseRequestParamsSchema>;
 
@@ -6726,13 +6467,9 @@ const RequestSchema: z.ZodObject<{
 // @public (undocumented)
 export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
 
-// Warning: (ae-forgotten-export) The symbol "ResourceSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Resource = Infer<typeof ResourceSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "ResourceContentsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ResourceContents = Infer<typeof ResourceContentsSchema>;
 
@@ -6743,8 +6480,6 @@ const ResourceContentsSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ResourceLinkSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ResourceLink = Infer<typeof ResourceLinkSchema>;
 
@@ -6777,8 +6512,6 @@ const ResourceLinkSchema: z.ZodObject<{
     type: z.ZodLiteral<"resource_link">;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ResourceListChangedNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ResourceListChangedNotification = Infer<typeof ResourceListChangedNotificationSchema>;
 
@@ -6795,8 +6528,6 @@ const ResourceListChangedNotificationSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ResourceRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ResourceRequestParams = Infer<typeof ResourceRequestParamsSchema>;
 
@@ -6839,8 +6570,6 @@ const ResourceSchema: z.ZodObject<{
     title: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ResourceTemplateReferenceSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ResourceTemplateReference = Infer<typeof ResourceTemplateReferenceSchema>;
 
@@ -6877,18 +6606,12 @@ const ResourceTemplateSchema: z.ZodObject<{
     title: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ResourceTemplateSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ResourceTemplateType = Infer<typeof ResourceTemplateSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "ResourceUpdatedNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ResourceUpdatedNotification = Infer<typeof ResourceUpdatedNotificationSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "ResourceUpdatedNotificationParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ResourceUpdatedNotificationParams = Infer<typeof ResourceUpdatedNotificationParamsSchema>;
 
@@ -6920,8 +6643,6 @@ const ResourceUpdatedNotificationSchema: z.ZodObject<{
 // @public
 export function resourceUrlFromServerUrl(url: URL | string): URL;
 
-// Warning: (ae-forgotten-export) The symbol "ResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Result = Infer<typeof ResultSchema>;
 
@@ -6960,8 +6681,6 @@ export type ResultTypeMap = {
     'tasks/cancel': CancelTaskResult;
 };
 
-// Warning: (ae-forgotten-export) The symbol "RoleSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Role = Infer<typeof RoleSchema>;
 
@@ -6971,8 +6690,6 @@ const RoleSchema: z.ZodEnum<{
     assistant: "assistant";
 }>;
 
-// Warning: (ae-forgotten-export) The symbol "RootSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Root = Infer<typeof RootSchema>;
 
@@ -6983,8 +6700,6 @@ const RootSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "RootsListChangedNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
 
@@ -7001,8 +6716,6 @@ const RootsListChangedNotificationSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "SamplingContentSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type SamplingContent = Infer<typeof SamplingContentSchema>;
 
@@ -7047,13 +6760,9 @@ const SamplingContentSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, z.core.$strip>], "type">;
 
-// Warning: (ae-forgotten-export) The symbol "SamplingMessageSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "SamplingMessageContentBlockSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type SamplingMessageContentBlock = Infer<typeof SamplingMessageContentBlockSchema>;
 
@@ -7481,13 +7190,8 @@ const SamplingMessageSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "SchemaKey" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "ProtocolSchemaKey" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "schemas_d_exports" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "AuthSchemaKey" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
-type SchemaFor<K$1 extends SchemaKey> = K$1 extends ProtocolSchemaKey ? (typeof schemas_d_exports)[K$1] : K$1 extends AuthSchemaKey ? (typeof authSchemas)[K$1] : never;
+type SchemaFor<K extends SchemaKey> = K extends ProtocolSchemaKey ? (typeof schemas_d_exports)[K] : K extends AuthSchemaKey ? (typeof authSchemas)[K] : never;
 
 // @public (undocumented)
 type SchemaKey = ProtocolSchemaKey | AuthSchemaKey;
@@ -7563,8 +7267,6 @@ export function selectResourceURL(serverUrl: string | URL, provider: OAuthClient
 // @public (undocumented)
 export function serializeMessage(message: JSONRPCMessage): string;
 
-// Warning: (ae-forgotten-export) The symbol "ServerCapabilitiesSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
 
@@ -7609,8 +7311,6 @@ export type ServerContext = BaseContext & {
     };
 };
 
-// Warning: (ae-forgotten-export) The symbol "ServerNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ServerNotification = Infer<typeof ServerNotificationSchema>;
 
@@ -7740,8 +7440,6 @@ const ServerNotificationSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>]>;
 
-// Warning: (ae-forgotten-export) The symbol "ServerRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ServerRequest = Infer<typeof ServerRequestSchema>;
 
@@ -8279,8 +7977,6 @@ const ServerRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>]>;
 
-// Warning: (ae-forgotten-export) The symbol "ServerResultSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ServerResult = Infer<typeof ServerResultSchema>;
 
@@ -8791,13 +8487,9 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$loose>]>;
 
-// Warning: (ae-forgotten-export) The symbol "SetLevelRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type SetLevelRequest = Infer<typeof SetLevelRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "SetLevelRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type SetLevelRequestParams = Infer<typeof SetLevelRequestParamsSchema>;
 
@@ -8844,8 +8536,6 @@ const SetLevelRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "SingleSelectEnumSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type SingleSelectEnumSchema = Infer<typeof SingleSelectEnumSchemaSchema>;
 
@@ -8870,9 +8560,6 @@ const SingleSelectEnumSchemaSchema: z.ZodUnion<readonly [z.ZodObject<{
 // @public
 const SPEC_SCHEMA_KEYS: readonly ["AnnotationsSchema", "AudioContentSchema", "BaseMetadataSchema", "BlobResourceContentsSchema", "BooleanSchemaSchema", "CallToolRequestSchema", "CallToolRequestParamsSchema", "CallToolResultSchema", "CancelledNotificationSchema", "CancelledNotificationParamsSchema", "CancelTaskRequestSchema", "CancelTaskResultSchema", "ClientCapabilitiesSchema", "ClientNotificationSchema", "ClientRequestSchema", "ClientResultSchema", "CompatibilityCallToolResultSchema", "CompleteRequestSchema", "CompleteRequestParamsSchema", "CompleteResultSchema", "ContentBlockSchema", "CreateMessageRequestSchema", "CreateMessageRequestParamsSchema", "CreateMessageResultSchema", "CreateMessageResultWithToolsSchema", "CreateTaskResultSchema", "CursorSchema", "DiscoverRequestSchema", "DiscoverResultSchema", "ElicitationCompleteNotificationSchema", "ElicitationCompleteNotificationParamsSchema", "ElicitRequestSchema", "ElicitRequestFormParamsSchema", "ElicitRequestParamsSchema", "ElicitRequestURLParamsSchema", "ElicitResultSchema", "EmbeddedResourceSchema", "EmptyResultSchema", "EnumSchemaSchema", "GetPromptRequestSchema", "GetPromptRequestParamsSchema", "GetPromptResultSchema", "GetTaskPayloadRequestSchema", "GetTaskPayloadResultSchema", "GetTaskRequestSchema", "GetTaskResultSchema", "IconSchema", "IconsSchema", "ImageContentSchema", "ImplementationSchema", "InitializedNotificationSchema", "InitializeRequestSchema", "InitializeRequestParamsSchema", "InitializeResultSchema", "JSONArraySchema", "JSONObjectSchema", "JSONRPCErrorResponseSchema", "JSONRPCMessageSchema", "JSONRPCNotificationSchema", "JSONRPCRequestSchema", "JSONRPCResponseSchema", "JSONRPCResultResponseSchema", "JSONValueSchema", "LegacyTitledEnumSchemaSchema", "ListPromptsRequestSchema", "ListPromptsResultSchema", "ListResourcesRequestSchema", "ListResourcesResultSchema", "ListResourceTemplatesRequestSchema", "ListResourceTemplatesResultSchema", "ListRootsRequestSchema", "ListRootsResultSchema", "ListTasksRequestSchema", "ListTasksResultSchema", "ListToolsRequestSchema", "ListToolsResultSchema", "LoggingLevelSchema", "LoggingMessageNotificationSchema", "LoggingMessageNotificationParamsSchema", "ModelHintSchema", "ModelPreferencesSchema", "MultiSelectEnumSchemaSchema", "NotificationSchema", "NumberSchemaSchema", "PaginatedRequestSchema", "PaginatedRequestParamsSchema", "PaginatedResultSchema", "PingRequestSchema", "PrimitiveSchemaDefinitionSchema", "ProgressSchema", "ProgressNotificationSchema", "ProgressNotificationParamsSchema", "ProgressTokenSchema", "PromptSchema", "PromptArgumentSchema", "PromptListChangedNotificationSchema", "PromptMessageSchema", "PromptReferenceSchema", "ReadResourceRequestSchema", "ReadResourceRequestParamsSchema", "ReadResourceResultSchema", "RelatedTaskMetadataSchema", "RequestSchema", "RequestIdSchema", "RequestMetaEnvelopeSchema", "RequestMetaSchema", "ResourceSchema", "ResourceContentsSchema", "ResourceLinkSchema", "ResourceListChangedNotificationSchema", "ResourceRequestParamsSchema", "ResourceTemplateSchema", "ResourceTemplateReferenceSchema", "ResourceUpdatedNotificationSchema", "ResourceUpdatedNotificationParamsSchema", "ResultSchema", "RoleSchema", "RootSchema", "RootsListChangedNotificationSchema", "SamplingContentSchema", "SamplingMessageSchema", "SamplingMessageContentBlockSchema", "ServerCapabilitiesSchema", "ServerNotificationSchema", "ServerRequestSchema", "ServerResultSchema", "SetLevelRequestSchema", "SetLevelRequestParamsSchema", "SingleSelectEnumSchemaSchema", "StringSchemaSchema", "SubscribeRequestSchema", "SubscribeRequestParamsSchema", "TaskSchema", "TaskAugmentedRequestParamsSchema", "TaskCreationParamsSchema", "TaskMetadataSchema", "TaskStatusSchema", "TaskStatusNotificationSchema", "TaskStatusNotificationParamsSchema", "TextContentSchema", "TextResourceContentsSchema", "TitledMultiSelectEnumSchemaSchema", "TitledSingleSelectEnumSchemaSchema", "ToolSchema", "ToolAnnotationsSchema", "ToolChoiceSchema", "ToolExecutionSchema", "ToolListChangedNotificationSchema", "ToolResultContentSchema", "ToolUseContentSchema", "UnsubscribeRequestSchema", "UnsubscribeRequestParamsSchema", "UntitledMultiSelectEnumSchemaSchema", "UntitledSingleSelectEnumSchemaSchema"];
 
-// Warning: (ae-forgotten-export) The symbol "StripSchemaSuffix" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "SchemaFor" needs to be exported by the entry point index.d.ts
-//
 // @public
 type SpecTypeInputs = { [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.input<SchemaFor<K>> : never };
 
@@ -8882,8 +8569,6 @@ export type SpecTypeName = StripSchemaSuffix<SchemaKey>;
 // @public
 export type SpecTypes = { [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.output<SchemaFor<K>> : never };
 
-// Warning: (ae-forgotten-export) The symbol "SchemaRecord" needs to be exported by the entry point index.d.ts
-//
 // @public
 export const specTypeSchemas: SchemaRecord;
 
@@ -8934,8 +8619,6 @@ interface StandardJSONSchemaV1<Input = unknown, Output = Input> {
 namespace StandardJSONSchemaV1 {
     // (undocumented)
     interface Converter {
-        // Warning: (ae-forgotten-export) The symbol "StandardJSONSchemaV1" needs to be exported by the entry point index.d.ts
-        //
         // (undocumented)
         readonly input: (options: Options) => Record<string, unknown>;
         // (undocumented)
@@ -8949,17 +8632,11 @@ namespace StandardJSONSchemaV1 {
     interface Options {
         // (undocumented)
         readonly libraryOptions?: Record<string, unknown> | undefined;
-        // Warning: (ae-forgotten-export) The symbol "StandardJSONSchemaV1" needs to be exported by the entry point index.d.ts
-        //
         // (undocumented)
         readonly target: Target;
     }
-    // Warning: (ae-forgotten-export) The symbol "StandardTypedV1" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     interface Props<Input = unknown, Output = Input> extends StandardTypedV1.Props<Input, Output> {
-        // Warning: (ae-forgotten-export) The symbol "StandardJSONSchemaV1" needs to be exported by the entry point index.d.ts
-        //
         // (undocumented)
         readonly jsonSchema: Converter;
     }
@@ -9038,8 +8715,6 @@ export namespace StandardSchemaV1Sync {
 
 // @public
 export interface StandardSchemaWithJSON<Input = unknown, Output = Input> {
-    // Warning: (ae-forgotten-export) The symbol "StandardJSONSchemaV1" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     readonly '~standard': StandardSchemaV1.Props<Input, Output> & StandardJSONSchemaV1.Props<Input, Output>;
 }
@@ -9066,8 +8741,6 @@ namespace StandardTypedV1 {
     type InferOutput<Schema extends StandardTypedV1> = NonNullable<Schema['~standard']['types']>['output'];
     // (undocumented)
     interface Props<Input = unknown, Output = Input> {
-        // Warning: (ae-forgotten-export) The symbol "StandardTypedV1" needs to be exported by the entry point index.d.ts
-        //
         // (undocumented)
         readonly types?: Types<Input, Output> | undefined;
         // (undocumented)
@@ -9192,8 +8865,6 @@ export interface StreamableHTTPReconnectionOptions {
     reconnectionDelayGrowFactor: number;
 }
 
-// Warning: (ae-forgotten-export) The symbol "StringSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type StringSchema = Infer<typeof StringSchemaSchema>;
 
@@ -9214,15 +8885,11 @@ const StringSchemaSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-type StripSchemaSuffix<K$1> = K$1 extends `${infer N}Schema` ? N : never;
+type StripSchemaSuffix<K> = K extends `${infer N}Schema` ? N : never;
 
-// Warning: (ae-forgotten-export) The symbol "SubscribeRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type SubscribeRequest = Infer<typeof SubscribeRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "SubscribeRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type SubscribeRequestParams = Infer<typeof SubscribeRequestParamsSchema>;
 
@@ -9254,13 +8921,9 @@ const SubscribeRequestSchema: z.ZodObject<{
 // @public (undocumented)
 export const SUPPORTED_PROTOCOL_VERSIONS: string[];
 
-// Warning: (ae-forgotten-export) The symbol "TaskSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Task = Infer<typeof TaskSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "TaskAugmentedRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
 
@@ -9277,8 +8940,6 @@ const TaskAugmentedRequestParamsSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "TaskCreationParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
 
@@ -9288,8 +8949,6 @@ const TaskCreationParamsSchema: z.ZodObject<{
     pollInterval: z.ZodOptional<z.ZodNumber>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "TaskMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type TaskMetadata = Infer<typeof TaskMetadataSchema>;
 
@@ -9315,18 +8974,12 @@ const TaskSchema: z.ZodObject<{
     statusMessage: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "TaskStatusSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type TaskStatus = Infer<typeof TaskStatusSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "TaskStatusNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type TaskStatusNotification = Infer<typeof TaskStatusNotificationSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "TaskStatusNotificationParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type TaskStatusNotificationParams = Infer<typeof TaskStatusNotificationParamsSchema>;
 
@@ -9388,8 +9041,6 @@ const TaskStatusSchema: z.ZodEnum<{
     cancelled: "cancelled";
 }>;
 
-// Warning: (ae-forgotten-export) The symbol "TextContentSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type TextContent = Infer<typeof TextContentSchema>;
 
@@ -9408,8 +9059,6 @@ const TextContentSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "TextResourceContentsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type TextResourceContents = Infer<typeof TextResourceContentsSchema>;
 
@@ -9421,8 +9070,6 @@ const TextResourceContentsSchema: z.ZodObject<{
     text: z.ZodString;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "TitledMultiSelectEnumSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type TitledMultiSelectEnumSchema = Infer<typeof TitledMultiSelectEnumSchemaSchema>;
 
@@ -9442,8 +9089,6 @@ const TitledMultiSelectEnumSchemaSchema: z.ZodObject<{
     default: z.ZodOptional<z.ZodArray<z.ZodString>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "TitledSingleSelectEnumSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type TitledSingleSelectEnumSchema = Infer<typeof TitledSingleSelectEnumSchemaSchema>;
 
@@ -9459,13 +9104,9 @@ const TitledSingleSelectEnumSchemaSchema: z.ZodObject<{
     default: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ToolSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type Tool = Infer<typeof ToolSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "ToolAnnotationsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ToolAnnotations = Infer<typeof ToolAnnotationsSchema>;
 
@@ -9478,8 +9119,6 @@ const ToolAnnotationsSchema: z.ZodObject<{
     openWorldHint: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ToolChoiceSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ToolChoice = Infer<typeof ToolChoiceSchema>;
 
@@ -9492,8 +9131,6 @@ const ToolChoiceSchema: z.ZodObject<{
     }>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ToolExecutionSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ToolExecution = Infer<typeof ToolExecutionSchema>;
 
@@ -9506,8 +9143,6 @@ const ToolExecutionSchema: z.ZodObject<{
     }>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ToolListChangedNotificationSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
 
@@ -9524,8 +9159,6 @@ const ToolListChangedNotificationSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ToolResultContentSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ToolResultContent = Infer<typeof ToolResultContentSchema>;
 
@@ -9666,8 +9299,6 @@ const ToolSchema: z.ZodObject<{
     title: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "ToolUseContentSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type ToolUseContent = Infer<typeof ToolUseContentSchema>;
 
@@ -9685,7 +9316,7 @@ export interface Transport {
     close(): Promise<void>;
     onclose?: (() => void) | undefined;
     onerror?: ((error: Error) => void) | undefined;
-    onmessage?: (<T$1 extends JSONRPCMessage>(message: T$1, extra?: MessageExtraInfo) => void) | undefined;
+    onmessage?: (<T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void) | undefined;
     send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void>;
     sessionId?: string | undefined;
     setProtocolVersion?: ((version: string) => void) | undefined;
@@ -9712,13 +9343,9 @@ export class UnauthorizedError extends Error {
     constructor(message?: string);
 }
 
-// Warning: (ae-forgotten-export) The symbol "UnsubscribeRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type UnsubscribeRequest = Infer<typeof UnsubscribeRequestSchema>;
 
-// Warning: (ae-forgotten-export) The symbol "UnsubscribeRequestParamsSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type UnsubscribeRequestParams = Infer<typeof UnsubscribeRequestParamsSchema>;
 
@@ -9760,8 +9387,6 @@ export interface UnsupportedProtocolVersionErrorData {
     supported: string[];
 }
 
-// Warning: (ae-forgotten-export) The symbol "UntitledMultiSelectEnumSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type UntitledMultiSelectEnumSchema = Infer<typeof UntitledMultiSelectEnumSchemaSchema>;
 
@@ -9779,8 +9404,6 @@ const UntitledMultiSelectEnumSchemaSchema: z.ZodObject<{
     default: z.ZodOptional<z.ZodArray<z.ZodString>>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "UntitledSingleSelectEnumSchemaSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export type UntitledSingleSelectEnumSchema = Infer<typeof UntitledSingleSelectEnumSchemaSchema>;
 

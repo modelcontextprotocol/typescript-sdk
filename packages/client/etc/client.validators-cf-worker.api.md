@@ -6,16 +6,12 @@
 
 import { JSONSchema } from 'json-schema-typed';
 
-// Warning: (ae-forgotten-export) The symbol "jsonSchemaValidator" needs to be exported by the entry point cfWorker.d.ts
-//
 // @public
 export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
     constructor(options?: {
         shortcircuit?: boolean;
         draft?: CfWorkerSchemaDraft;
     });
-    // Warning: (ae-forgotten-export) The symbol "JsonSchemaType" needs to be exported by the entry point cfWorker.d.ts
-    // Warning: (ae-forgotten-export) The symbol "JsonSchemaValidator" needs to be exported by the entry point cfWorker.d.ts
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
 }
 
@@ -25,8 +21,6 @@ export type CfWorkerSchemaDraft = '4' | '7' | '2019-09' | '2020-12';
 // @public
 type JsonSchemaType = JSONSchema.Interface;
 
-// Warning: (ae-forgotten-export) The symbol "JsonSchemaValidatorResult" needs to be exported by the entry point cfWorker.d.ts
-//
 // @public
 type JsonSchemaValidator<T> = (input: unknown) => JsonSchemaValidatorResult<T>;
 

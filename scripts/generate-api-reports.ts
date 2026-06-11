@@ -25,6 +25,11 @@
  *   contract is covered by the codemod CLI tests and the export-map topology
  *   pins. Its library entry (`.`) is reported like every other package.
  *
+ * A failing check does not mean a change is wrong — it means it is
+ * surface-visible. To accept it: run `pnpm api-report`, review the report
+ * diff like source, and commit it together with the change (plus a
+ * changeset if consumer-facing).
+ *
  * Usage:
  *   pnpm api-report          # build + regenerate the committed reports
  *   pnpm api-report:check    # build + fail on any difference (CI)
@@ -147,8 +152,11 @@ function runEntry(pkg: PackageSpec, entry: EntrySpec): { changed: boolean; succe
             apiReport: {
                 enabled: true,
                 reportFileName: entry.report,
-                reportFolder: path.join(pkgDir, 'etc'),
-                reportTempFolder: path.join(tmpDir, 'temp'),
+                // The report is produced into the scratch folder and compared /
+                // committed by this script (after normalization), never written
+                // to etc/ by API Extractor directly.
+                reportFolder: path.join(tmpDir, 'report'),
+                reportTempFolder: path.join(tmpDir, 'report'),
                 includeForgottenExports: true
             },
             docModel: { enabled: false },
@@ -157,7 +165,12 @@ function runEntry(pkg: PackageSpec, entry: EntrySpec): { changed: boolean; succe
             messages: {
                 extractorMessageReporting: {
                     'ae-missing-release-tag': { logLevel: ExtractorLogLevel.None },
-                    'ae-forgotten-export': { logLevel: ExtractorLogLevel.None, addToApiReportFile: true },
+                    // Not added to the report file: the warning text embeds
+                    // declaration-bundle chunk file names and line numbers,
+                    // which vary with tsdown's chunking and would make the
+                    // committed reports nondeterministic. The forgotten symbols
+                    // themselves still appear in the report body.
+                    'ae-forgotten-export': { logLevel: ExtractorLogLevel.None, addToApiReportFile: false },
                     'ae-unresolved-link': { logLevel: ExtractorLogLevel.None }
                 },
                 tsdocMessageReporting: {
@@ -170,11 +183,39 @@ function runEntry(pkg: PackageSpec, entry: EntrySpec): { changed: boolean; succe
     });
 
     const result = Extractor.invoke(extractorConfig, {
-        localBuild: !checkMode,
+        localBuild: true,
         showVerboseMessages: false
     });
+    if (!result.succeeded) {
+        throw new Error('API Extractor reported errors');
+    }
 
-    return { changed: result.apiReportChanged, succeeded: result.succeeded };
+    const produced = normalizeReport(fs.readFileSync(path.join(tmpDir, 'report', `${entry.report}.api.md`), 'utf8'));
+    const committedPath = path.join(pkgDir, 'etc', `${entry.report}.api.md`);
+    const committed = fs.existsSync(committedPath) ? fs.readFileSync(committedPath, 'utf8') : undefined;
+
+    if (checkMode) {
+        return { changed: produced !== committed, succeeded: produced === committed };
+    }
+    if (produced !== committed) {
+        fs.writeFileSync(committedPath, produced);
+        return { changed: true, succeeded: true };
+    }
+    return { changed: false, succeeded: true };
+}
+
+/**
+ * Makes report content independent of declaration-bundle chunk layout.
+ *
+ * tsdown's d.mts rollups rename colliding identifiers (mostly generic type
+ * parameters hoisted into a shared scope) with `$N` suffixes — e.g. `T$1` —
+ * and which identifiers collide depends on how the bundle happened to be
+ * chunked, which is not stable across builds. Stripping the suffix restores
+ * the source-level name. Hand-written identifiers in this repo never contain
+ * `$`, so the substitution cannot mask a real surface change.
+ */
+function normalizeReport(text: string): string {
+    return text.replace(/([A-Za-z0-9_])\$\d+\b/g, '$1');
 }
 
 let failed = false;
@@ -206,7 +247,7 @@ if (failed) {
             '\nThe built public type surface differs from the committed API report(s) above.\n' +
                 'If the change is intentional: run `pnpm api-report`, review the report diff,\n' +
                 'commit it together with your change (and a changeset if consumer-facing).\n' +
-                'See docs/api-reports.md.'
+                'See the header of scripts/generate-api-reports.ts.'
         );
     }
     process.exit(1);

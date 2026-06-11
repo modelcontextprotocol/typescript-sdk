@@ -21,7 +21,6 @@ interface AuthInfo {
 
 // @public
 export interface AuthMetadataOptions {
-    // Warning: (ae-forgotten-export) The symbol "OAuthMetadata" needs to be exported by the entry point index.d.ts
     oauthMetadata: OAuthMetadata;
     resourceName?: string;
     resourceServerUrl: URL;
@@ -58,8 +57,6 @@ export function localhostHostValidation(): RequestHandler;
 // @public
 export function mcpAuthMetadataRouter(options: AuthMetadataOptions): Router;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public
 type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
 
@@ -88,7 +85,6 @@ const OAuthMetadataSchema: z.ZodObject<{
 
 // @public
 export interface OAuthTokenVerifier {
-    // Warning: (ae-forgotten-export) The symbol "AuthInfo" needs to be exported by the entry point index.d.ts
     verifyAccessToken(token: string): Promise<AuthInfo>;
 }
 

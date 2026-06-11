@@ -28,46 +28,29 @@ interface EventStore {
     replayEventsAfter(lastEventId: EventId, input: {
         send: (eventId: EventId, message: JSONRPCMessage) => Promise<void>;
     }): Promise<StreamId>;
-    // Warning: (ae-forgotten-export) The symbol "StreamId" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "JSONRPCMessage" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "EventId" needs to be exported by the entry point index.d.ts
     storeEvent(streamId: StreamId, message: JSONRPCMessage): Promise<EventId>;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Primitive$1" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
-type Flatten$1<T$1> = T$1 extends Primitive$1 ? T$1 : T$1 extends Array<infer U> ? Array<Flatten$1<U>> : T$1 extends Set<infer U> ? Set<Flatten$1<U>> : T$1 extends Map<infer K, infer V> ? Map<Flatten$1<K>, Flatten$1<V>> : T$1 extends object ? { [K in keyof T$1]: Flatten$1<T$1[K]> } : T$1;
+type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Flatten<U>> : T extends Set<infer U> ? Set<Flatten<U>> : T extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T extends object ? { [K in keyof T]: Flatten<T[K]> } : T;
 
-// Warning: (ae-forgotten-export) The symbol "Primitive" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
-type Flatten<T$1> = T$1 extends Primitive ? T$1 : T$1 extends Array<infer U> ? Array<Flatten<U>> : T$1 extends Set<infer U> ? Set<Flatten<U>> : T$1 extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T$1 extends object ? { [K in keyof T$1]: Flatten<T$1[K]> } : T$1;
+type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Flatten<U>> : T extends Set<infer U> ? Set<Flatten<U>> : T extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T extends object ? { [K in keyof T]: Flatten<T[K]> } : T;
 
-// Warning: (ae-forgotten-export) The symbol "Flatten$1" needs to be exported by the entry point index.d.ts
-//
-// @public (undocumented)
-type Infer$1<Schema extends z.ZodTypeAny> = Flatten$1<z.infer<Schema>>;
-
-// Warning: (ae-forgotten-export) The symbol "Flatten" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
-// Warning: (ae-forgotten-export) The symbol "Infer$1" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "JSONRPCMessageSchema$1" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
-type JSONRPCMessage$1 = Infer$1<typeof JSONRPCMessageSchema$1>;
+type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
-// Warning: (ae-forgotten-export) The symbol "Infer" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "JSONRPCMessageSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
 
 // @public (undocumented)
-const JSONRPCMessageSchema$1: z.ZodUnion<readonly [z.ZodObject<{
+type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
+
+// @public (undocumented)
+const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
     method: z.ZodString;
     params: z.ZodOptional<z.ZodObject<{
         _meta: z.ZodOptional<z.ZodObject<{
@@ -160,15 +143,12 @@ const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
 
 // @public
 interface MessageExtraInfo {
-    // Warning: (ae-forgotten-export) The symbol "AuthInfo" needs to be exported by the entry point index.d.ts
     authInfo?: AuthInfo;
     closeSSEStream?: () => void;
     closeStandaloneSSEStream?: () => void;
     request?: globalThis.Request;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Transport" needs to be exported by the entry point index.d.ts
-//
 // @public
 export class NodeStreamableHTTPServerTransport implements Transport {
     constructor(options?: StreamableHTTPServerTransportOptions);
@@ -184,12 +164,10 @@ export class NodeStreamableHTTPServerTransport implements Transport {
     set onerror(handler: ((error: Error) => void) | undefined);
     // (undocumented)
     get onerror(): ((error: Error) => void) | undefined;
-    // Warning: (ae-forgotten-export) The symbol "JSONRPCMessage$1" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "MessageExtraInfo" needs to be exported by the entry point index.d.ts
-    set onmessage(handler: ((message: JSONRPCMessage$1, extra?: MessageExtraInfo) => void) | undefined);
+    set onmessage(handler: ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined);
     // (undocumented)
-    get onmessage(): ((message: JSONRPCMessage$1, extra?: MessageExtraInfo) => void) | undefined;
-    send(message: JSONRPCMessage$1, options?: {
+    get onmessage(): ((message: JSONRPCMessage, extra?: MessageExtraInfo) => void) | undefined;
+    send(message: JSONRPCMessage, options?: {
         relatedRequestId?: RequestId;
     }): Promise<void>;
     get sessionId(): string | undefined;
@@ -197,21 +175,17 @@ export class NodeStreamableHTTPServerTransport implements Transport {
 }
 
 // @public (undocumented)
-type Primitive$1 = string | number | boolean | bigint | null | undefined;
+type Primitive = string | number | boolean | bigint | null | undefined;
 
 // @public (undocumented)
 type Primitive = string | number | boolean | bigint | null | undefined;
 
-// Warning: (ae-forgotten-export) The symbol "RequestIdSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
-type RequestId = Infer$1<typeof RequestIdSchema>;
+type RequestId = Infer<typeof RequestIdSchema>;
 
 // @public
 const RequestIdSchema: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
 
-// Warning: (ae-forgotten-export) The symbol "WebStandardStreamableHTTPServerTransportOptions" needs to be exported by the entry point index.d.ts
-//
 // @public
 export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServerTransportOptions;
 
@@ -223,9 +197,8 @@ interface Transport {
     close(): Promise<void>;
     onclose?: (() => void) | undefined;
     onerror?: ((error: Error) => void) | undefined;
-    onmessage?: (<T$1 extends JSONRPCMessage$1>(message: T$1, extra?: MessageExtraInfo) => void) | undefined;
-    // Warning: (ae-forgotten-export) The symbol "TransportSendOptions" needs to be exported by the entry point index.d.ts
-    send(message: JSONRPCMessage$1, options?: TransportSendOptions): Promise<void>;
+    onmessage?: (<T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void) | undefined;
+    send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void>;
     sessionId?: string | undefined;
     setProtocolVersion?: ((version: string) => void) | undefined;
     setSupportedProtocolVersions?: ((versions: string[]) => void) | undefined;
@@ -248,7 +221,6 @@ interface WebStandardStreamableHTTPServerTransportOptions {
     // @deprecated
     enableDnsRebindingProtection?: boolean;
     enableJsonResponse?: boolean;
-    // Warning: (ae-forgotten-export) The symbol "EventStore" needs to be exported by the entry point index.d.ts
     eventStore?: EventStore;
     onsessionclosed?: ((sessionId: string) => void | Promise<void>) | undefined;
     onsessioninitialized?: ((sessionId: string) => void | Promise<void>) | undefined;
@@ -256,10 +228,6 @@ interface WebStandardStreamableHTTPServerTransportOptions {
     sessionIdGenerator?: (() => string) | undefined;
     supportedProtocolVersions?: string[];
 }
-
-// Warnings were encountered during analysis:
-//
-// .api-extractor-tmp/node/index.d.ts:502:5 - (ae-forgotten-export) The symbol "RequestId" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

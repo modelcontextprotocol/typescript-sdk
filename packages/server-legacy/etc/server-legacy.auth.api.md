@@ -173,8 +173,6 @@ export function mcpAuthMetadataRouter(options: AuthMetadataOptions): express.Rou
 // @public
 export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthProtectedResourceMetadata" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResourceMetadata): RequestHandler;
 
@@ -205,8 +203,6 @@ export const OAUTH_ERRORS: {
     readonly [InvalidTargetError.errorCode]: typeof InvalidTargetError;
 };
 
-// Warning: (ae-forgotten-export) The symbol "OAuthClientInformationFullSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthClientInformationFull = z.infer<typeof OAuthClientInformationFullSchema>;
 
@@ -243,12 +239,9 @@ export class OAuthError extends Error {
     get errorCode(): string;
     // (undocumented)
     readonly errorUri?: string | undefined;
-    // Warning: (ae-forgotten-export) The symbol "OAuthErrorResponse" needs to be exported by the entry point index.d.ts
     toResponseObject(): OAuthErrorResponse;
 }
 
-// Warning: (ae-forgotten-export) The symbol "OAuthErrorResponseSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthErrorResponse = z.infer<typeof OAuthErrorResponseSchema>;
 
@@ -259,8 +252,6 @@ const OAuthErrorResponseSchema: z.ZodObject<{
     error_uri: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
 
@@ -287,8 +278,6 @@ const OAuthMetadataSchema: z.ZodObject<{
     client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthProtectedResourceMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthProtectedResourceMetadata = z.infer<typeof OAuthProtectedResourceMetadataSchema>;
 
@@ -312,7 +301,6 @@ const OAuthProtectedResourceMetadataSchema: z.ZodObject<{
 
 // @public
 export interface OAuthRegisteredClientsStore {
-    // Warning: (ae-forgotten-export) The symbol "OAuthClientInformationFull" needs to be exported by the entry point index.d.ts
     getClient(clientId: string): OAuthClientInformationFull | undefined | Promise<OAuthClientInformationFull | undefined>;
     registerClient?(client: Omit<OAuthClientInformationFull, 'client_id' | 'client_id_issued_at'>): OAuthClientInformationFull | Promise<OAuthClientInformationFull>;
 }
@@ -322,17 +310,13 @@ export interface OAuthServerProvider {
     authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response_2): Promise<void>;
     challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string>;
     get clientsStore(): OAuthRegisteredClientsStore;
-    // Warning: (ae-forgotten-export) The symbol "OAuthTokens" needs to be exported by the entry point index.d.ts
     exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string, codeVerifier?: string, redirectUri?: string, resource?: URL): Promise<OAuthTokens>;
     exchangeRefreshToken(client: OAuthClientInformationFull, refreshToken: string, scopes?: string[], resource?: URL): Promise<OAuthTokens>;
-    // Warning: (ae-forgotten-export) The symbol "OAuthTokenRevocationRequest" needs to be exported by the entry point index.d.ts
     revokeToken?(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void>;
     skipLocalPkceValidation?: boolean;
     verifyAccessToken(token: string): Promise<AuthInfo>;
 }
 
-// Warning: (ae-forgotten-export) The symbol "OAuthTokenRevocationRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthTokenRevocationRequest = z.infer<typeof OAuthTokenRevocationRequestSchema>;
 
@@ -342,8 +326,6 @@ const OAuthTokenRevocationRequestSchema: z.ZodObject<{
     token_type_hint: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthTokensSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthTokens = z.infer<typeof OAuthTokensSchema>;
 
@@ -385,8 +367,6 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
     exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string, codeVerifier?: string, redirectUri?: string, resource?: URL): Promise<OAuthTokens>;
     // (undocumented)
     exchangeRefreshToken(client: OAuthClientInformationFull, refreshToken: string, scopes?: string[], resource?: URL): Promise<OAuthTokens>;
-    // Warning: (ae-forgotten-export) The symbol "FetchLike" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     protected readonly _fetch?: FetchLike;
     // (undocumented)
@@ -474,10 +454,6 @@ export class UnsupportedTokenTypeError extends OAuthError {
     // (undocumented)
     static errorCode: string;
 }
-
-// Warnings were encountered during analysis:
-//
-// .api-extractor-tmp/server-legacy.auth/index-BBUHtY8l.d.mts:237:3 - (ae-forgotten-export) The symbol "OAuthMetadata" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 

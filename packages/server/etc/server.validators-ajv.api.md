@@ -6,44 +6,33 @@
 
 import { JSONSchema } from 'json-schema-typed';
 
-// Warning: (ae-forgotten-export) The symbol "FormatValidator" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "FormatDefinition" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "AsyncFormatDefinition" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type AddedFormat = true | RegExp | FormatValidator<string> | FormatDefinition<string> | FormatDefinition<number> | AsyncFormatDefinition<string> | AsyncFormatDefinition<number>;
 
-// Warning: (ae-forgotten-export) The symbol "KeywordDefinition" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type AddedKeywordDefinition = KeywordDefinition & {
-    type: JSONType$1[];
-    schemaType: JSONType$1[];
+    type: JSONType[];
+    schemaType: JSONType[];
 };
 
-// Warning: (ae-forgotten-export) The symbol "formatsPlugin" needs to be exported by the entry point ajv.d.ts
-//
 // @public
 export const addFormats: typeof formatsPlugin.default;
 
 // @public (undocumented)
-class Ajv$1 {
+class Ajv {
     // (undocumented)
     $dataMetaSchema(metaSchema: AnySchemaObject, keywordsJsonPointers: string[]): AnySchemaObject;
-    // Warning: (ae-forgotten-export) The symbol "Options" needs to be exported by the entry point ajv.d.ts
     constructor(opts?: Options);
     // (undocumented)
     _addDefaultMetaSchema(): void;
-    // Warning: (ae-forgotten-export) The symbol "Format" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
-    addFormat(name: string, format: Format): Ajv$1;
+    addFormat(name: string, format: Format): Ajv;
     // (undocumented)
-    addKeyword(kwdOrDef: string | KeywordDefinition, def?: KeywordDefinition): Ajv$1;
+    addKeyword(kwdOrDef: string | KeywordDefinition, def?: KeywordDefinition): Ajv;
     // (undocumented)
     addMetaSchema(schema: AnySchemaObject, key?: string,
     // schema key
-    _validateSchema?: boolean | "log"): Ajv$1;
+    _validateSchema?: boolean | "log"): Ajv;
     // (undocumented)
     addSchema(schema: AnySchema | AnySchema[],
     // If array is passed, `key` will be ignored
@@ -51,35 +40,25 @@ class Ajv$1 {
     // Optional schema key. Can be passed to `validate` method instead of schema object or id/ref. One schema per instance can have empty `id` and `key`.
     _meta?: boolean,
     // true if schema is a meta-schema. Used internally, addMetaSchema should be used instead.
-    _validateSchema?: boolean | "log"): Ajv$1;
+    _validateSchema?: boolean | "log"): Ajv;
     // (undocumented)
     _addSchema(schema: AnySchema, meta?: boolean, baseId?: string, validateSchema?: boolean | "log", addSchema?: boolean): SchemaEnv;
     // (undocumented)
     _addVocabularies(): void;
-    // Warning: (ae-forgotten-export) The symbol "Vocabulary" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
-    addVocabulary(definitions: Vocabulary): Ajv$1;
+    addVocabulary(definitions: Vocabulary): Ajv;
     // (undocumented)
     readonly _compilations: Set<SchemaEnv>;
-    // Warning: (ae-forgotten-export) The symbol "ValidateFunction" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     compile<T = unknown>(schema: Schema | JSONSchemaType<T>, _meta?: boolean): ValidateFunction<T>;
     // (undocumented)
     compile<T = unknown>(schema: JTDSchemaType<T>, _meta?: boolean): ValidateFunction<T>;
     // (undocumented)
     compile<N extends never, T extends SomeJTDSchemaType>(schema: T, _meta?: boolean): ValidateFunction<JTDDataType<T>>;
-    // Warning: (ae-forgotten-export) The symbol "AsyncValidateFunction" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     compile<T = unknown>(schema: AsyncSchema, _meta?: boolean): AsyncValidateFunction<T>;
-    // Warning: (ae-forgotten-export) The symbol "AnyValidateFunction" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     compile<T = unknown>(schema: AnySchema, _meta?: boolean): AnyValidateFunction<T>;
-    // Warning: (ae-forgotten-export) The symbol "SchemaObject" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     compileAsync<T = unknown>(schema: SchemaObject | JSONSchemaType<T>, _meta?: boolean): Promise<ValidateFunction<T>>;
     // (undocumented)
@@ -88,99 +67,60 @@ class Ajv$1 {
     compileAsync<T = unknown>(schema: AsyncSchema, meta?: boolean): Promise<AsyncValidateFunction<T>>;
     // (undocumented)
     compileAsync<T = unknown>(schema: AnySchemaObject, meta?: boolean): Promise<AnyValidateFunction<T>>;
-    // Warning: (ae-forgotten-export) The symbol "AnySchemaObject" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     defaultMeta(): string | AnySchemaObject | undefined;
-    // Warning: (ae-forgotten-export) The symbol "ErrorObject" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     errors?: ErrorObject[] | null;
-    // Warning: (ae-forgotten-export) The symbol "ErrorsTextOptions" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     errorsText(errors?: ErrorObject[] | null | undefined,
     // optional array of validation errors
     input?: ErrorsTextOptions): string;
-    // Warning: (ae-forgotten-export) The symbol "AddedFormat" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     readonly formats: { [Name in string]?: AddedFormat };
-    // Warning: (ae-forgotten-export) The symbol "AddedKeywordDefinition" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     getKeyword(keyword: string): AddedKeywordDefinition | boolean;
     // (undocumented)
     getSchema<T = unknown>(keyRef: string): AnyValidateFunction<T> | undefined;
-    // Warning: (ae-forgotten-export) The symbol "Logger" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     logger: Logger;
-    // Warning: (ae-forgotten-export) The symbol "MissingRefError" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     static MissingRefError: typeof MissingRefError;
-    // Warning: (ae-forgotten-export) The symbol "InstanceOptions" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     opts: InstanceOptions;
     // (undocumented)
     readonly refs: { [Ref in string]?: SchemaEnv | string };
     // (undocumented)
-    removeKeyword(keyword: string): Ajv$1;
+    removeKeyword(keyword: string): Ajv;
     // (undocumented)
-    removeSchema(schemaKeyRef?: AnySchema | string | RegExp): Ajv$1;
-    // Warning: (ae-forgotten-export) The symbol "ValidationRules" needs to be exported by the entry point ajv.d.ts
-    //
+    removeSchema(schemaKeyRef?: AnySchema | string | RegExp): Ajv;
     // (undocumented)
     readonly RULES: ValidationRules;
-    // Warning: (ae-forgotten-export) The symbol "SchemaEnv" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     readonly schemas: { [Key in string]?: SchemaEnv };
-    // Warning: (ae-forgotten-export) The symbol "ValueScope" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     readonly scope: ValueScope;
-    // Warning: (ae-forgotten-export) The symbol "Schema" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     validate(schema: Schema | string, data: unknown): boolean;
-    // Warning: (ae-forgotten-export) The symbol "AnySchema" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     validate(schemaKeyRef: AnySchema | string, data: unknown): boolean | Promise<unknown>;
-    // Warning: (ae-forgotten-export) The symbol "JSONSchemaType" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     validate<T>(schema: Schema | JSONSchemaType<T> | string, data: unknown): data is T;
-    // Warning: (ae-forgotten-export) The symbol "JTDSchemaType" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     validate<T>(schema: JTDSchemaType<T>, data: unknown): data is T;
-    // Warning: (ae-forgotten-export) The symbol "SomeJTDSchemaType" needs to be exported by the entry point ajv.d.ts
-    // Warning: (ae-forgotten-export) The symbol "JTDDataType" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     validate<N extends never, T extends SomeJTDSchemaType>(schema: T, data: unknown): data is JTDDataType<T>;
-    // Warning: (ae-forgotten-export) The symbol "AsyncSchema" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     validate<T>(schema: AsyncSchema, data: unknown | T): Promise<T>;
     // (undocumented)
     validate<T>(schemaKeyRef: AnySchema | string, data: unknown): data is T | Promise<T>;
     // (undocumented)
     validateSchema(schema: AnySchema, throwOrLogError?: boolean): boolean | Promise<unknown>;
-    // Warning: (ae-forgotten-export) The symbol "ValidationError" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     static ValidationError: typeof ValidationError;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Ajv$1" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
-export class Ajv extends Ajv$1 {
+export class Ajv extends Ajv {
     // (undocumented)
     _addDefaultMetaSchema(): void;
     // (undocumented)
@@ -189,23 +129,15 @@ export class Ajv extends Ajv$1 {
     defaultMeta(): string | AnySchemaObject | undefined;
 }
 
-// Warning: (ae-forgotten-export) The symbol "jsonSchemaValidator" needs to be exported by the entry point ajv.d.ts
-//
 // @public
 export class AjvJsonSchemaValidator implements jsonSchemaValidator {
-    // Warning: (ae-forgotten-export) The symbol "AjvLike" needs to be exported by the entry point ajv.d.ts
     constructor(ajv?: AjvLike);
-    // Warning: (ae-forgotten-export) The symbol "JsonSchemaType" needs to be exported by the entry point ajv.d.ts
-    // Warning: (ae-forgotten-export) The symbol "JsonSchemaValidator" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
 }
 
 // @public
 interface AjvLike {
-    // Warning: (ae-forgotten-export) The symbol "AjvValidateFunction" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     compile: (schema: unknown) => AjvValidateFunction;
     // (undocumented)
@@ -235,14 +167,10 @@ type AnyValidateFunction<T = any> = ValidateFunction<T> | AsyncValidateFunction<
 interface AsyncFormatDefinition<T extends string | number> {
     // (undocumented)
     async: true;
-    // Warning: (ae-forgotten-export) The symbol "FormatCompare" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     compare?: FormatCompare<T>;
     // (undocumented)
     type?: T extends string ? "string" | undefined : "number";
-    // Warning: (ae-forgotten-export) The symbol "AsyncFormatValidator" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     validate: AsyncFormatValidator<T>;
 }
@@ -250,8 +178,6 @@ interface AsyncFormatDefinition<T extends string | number> {
 // @public (undocumented)
 type AsyncFormatValidator<T extends string | number> = (data: T) => Promise<boolean>;
 
-// Warning: (ae-forgotten-export) The symbol "_SchemaObject" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 interface AsyncSchema extends _SchemaObject {
     // (undocumented)
@@ -266,30 +192,19 @@ interface AsyncValidateFunction<T = unknown> extends ValidateFunction<T> {
     (...args: Parameters<ValidateFunction<T>>): Promise<T>;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Code" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type Block = Code | (() => void);
 
-// Warning: (ae-forgotten-export) The symbol "_Code" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "Name" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type Code = _Code | Name;
 
-// Warning: (ae-forgotten-export) The symbol "_CodeOrName" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 class _Code extends _CodeOrName {
     constructor(code: string | readonly CodeItem[]);
     // (undocumented)
     emptyStr(): boolean;
-    // Warning: (ae-forgotten-export) The symbol "CodeItem" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     readonly _items: readonly CodeItem[];
-    // Warning: (ae-forgotten-export) The symbol "UsedNames" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     get names(): UsedNames;
     // (undocumented)
@@ -300,7 +215,6 @@ class _Code extends _CodeOrName {
 
 // @public (undocumented)
 class CodeGen {
-    // Warning: (ae-forgotten-export) The symbol "CodeGenOptions" needs to be exported by the entry point ajv.d.ts
     constructor(extScope: ValueScope, opts?: CodeGenOptions);
     // (undocumented)
     add(lhs: Code, rhs: SafeExpr): CodeGen;
@@ -310,12 +224,8 @@ class CodeGen {
     block(body?: Block, nodeCount?: number): CodeGen;
     // (undocumented)
     break(label?: Code): CodeGen;
-    // Warning: (ae-forgotten-export) The symbol "Block" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     code(c: Block | SafeExpr): CodeGen;
-    // Warning: (ae-forgotten-export) The symbol "SafeExpr" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     const(nameOrPrefix: Name | string, rhs: SafeExpr, _constant?: boolean): Name;
     // (undocumented)
@@ -358,20 +268,14 @@ class CodeGen {
     optimize(n?: number): void;
     // (undocumented)
     return(value: Block | SafeExpr): CodeGen;
-    // Warning: (ae-forgotten-export) The symbol "Scope" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     readonly _scope: Scope;
     // (undocumented)
     scopeCode(): Code;
-    // Warning: (ae-forgotten-export) The symbol "ValueScopeName" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     scopeName(prefix: string): ValueScopeName;
     // (undocumented)
     scopeRefs(scopeName: Name): Code;
-    // Warning: (ae-forgotten-export) The symbol "NameValue" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     scopeValue(prefixOrName: ValueScopeName | string, value: NameValue): Name;
     // (undocumented)
@@ -380,8 +284,6 @@ class CodeGen {
     toString(): string;
     // (undocumented)
     try(tryBody: Block, catchCode?: (e: Name) => void, finallyCode?: Block): CodeGen;
-    // Warning: (ae-forgotten-export) The symbol "ScopeValueSets" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     readonly _values: ScopeValueSets;
     // (undocumented)
@@ -401,12 +303,8 @@ interface CodeGenOptions {
 // @public (undocumented)
 type CodeItem = Name | string | number | boolean | null;
 
-// Warning: (ae-forgotten-export) The symbol "_KeywordDef" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 interface CodeKeywordDefinition extends _KeywordDef {
-    // Warning: (ae-forgotten-export) The symbol "KeywordCxt" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     code: (cxt: KeywordCxt, ruleType?: string) => void;
     // (undocumented)
@@ -427,8 +325,6 @@ interface CodeOptions {
     optimize?: boolean | number;
     // (undocumented)
     process?: (code: string, schema?: SchemaEnv) => string;
-    // Warning: (ae-forgotten-export) The symbol "RegExpEngine" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     regExp?: RegExpEngine;
     // (undocumented)
@@ -447,9 +343,6 @@ abstract class _CodeOrName {
     abstract toString(): string;
 }
 
-// Warning: (ae-forgotten-export) The symbol "SchemaObjCxt" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "DataValidateFunction" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type CompileKeywordFunc = (schema: any, parentSchema: AnySchemaObject, it: SchemaObjCxt) => DataValidateFunction;
 
@@ -469,8 +362,6 @@ interface CurrentOptions {
     allowMatchingProperties?: boolean;
     // (undocumented)
     allowUnionTypes?: boolean;
-    // Warning: (ae-forgotten-export) The symbol "CodeOptions" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     code?: CodeOptions;
     // (undocumented)
@@ -539,8 +430,6 @@ interface CurrentOptions {
     unevaluated?: boolean;
     // (undocumented)
     unicodeRegExp?: boolean;
-    // Warning: (ae-forgotten-export) The symbol "UriResolver" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     uriResolver?: UriResolver;
     // (undocumented)
@@ -589,13 +478,13 @@ interface DeprecatedOptions {
 type EnumString<T> = [T] extends [never] ? null : T extends string ? string extends T ? null : T : null;
 
 // @public (undocumented)
-interface ErrorObject<K$1 extends string = string, P = Record<string, any>, S = unknown> {
+interface ErrorObject<K extends string = string, P = Record<string, any>, S = unknown> {
     // (undocumented)
     data?: unknown;
     // (undocumented)
     instancePath: string;
     // (undocumented)
-    keyword: K$1;
+    keyword: K;
     // (undocumented)
     message?: string;
     // (undocumented)
@@ -634,12 +523,8 @@ interface Evaluated {
     dynamicItems: boolean;
     // (undocumented)
     dynamicProps: boolean;
-    // Warning: (ae-forgotten-export) The symbol "EvaluatedItems" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     items?: EvaluatedItems;
-    // Warning: (ae-forgotten-export) The symbol "EvaluatedProperties" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     props?: EvaluatedProperties;
 }
@@ -676,34 +561,23 @@ type FormatName = "date" | "time" | "date-time" | "iso-time" | "iso-date-time" |
 
 // @public (undocumented)
 interface FormatOptions {
-    // Warning: (ae-forgotten-export) The symbol "FormatName" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     formats?: FormatName[];
     // (undocumented)
     keywords?: boolean;
-    // Warning: (ae-forgotten-export) The symbol "FormatMode" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     mode?: FormatMode;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Plugin_2" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "FormatsPluginOptions" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 interface FormatsPlugin extends Plugin_2<FormatsPluginOptions> {
     // (undocumented)
     get: (format: FormatName, mode?: FormatMode) => Format;
 }
 
-// Warning: (ae-forgotten-export) The symbol "FormatsPlugin" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 const formatsPlugin: FormatsPlugin;
 
-// Warning: (ae-forgotten-export) The symbol "FormatOptions" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type FormatsPluginOptions = FormatName[] | FormatOptions;
 
@@ -714,8 +588,6 @@ type FormatValidator<T extends string | number> = (data: T) => boolean;
 interface FuncKeywordDefinition extends _KeywordDef {
     // (undocumented)
     async?: boolean;
-    // Warning: (ae-forgotten-export) The symbol "CompileKeywordFunc" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     compile?: CompileKeywordFunc;
     // (undocumented)
@@ -726,8 +598,6 @@ interface FuncKeywordDefinition extends _KeywordDef {
     schema?: boolean;
     // (undocumented)
     valid?: boolean;
-    // Warning: (ae-forgotten-export) The symbol "SchemaValidateFunction" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     validate?: SchemaValidateFunction | DataValidateFunction;
 }
@@ -740,51 +610,36 @@ interface InstanceCodeOptions extends CodeOptions {
     regExp: RegExpEngine;
 }
 
-// Warning: (ae-forgotten-export) The symbol "RequiredInstanceOptions" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type InstanceOptions = Options & RequiredInstanceOptions;
 
-// Warning: (ae-forgotten-export) The symbol "IsUnion" needs to be exported by the entry point ajv.d.ts
-//
 // @public
 type IsElements<T> = false extends IsUnion<T> ? [T] extends [readonly unknown[]] ? undefined extends T[0.5] ? false : true : false : false;
 
 // @public
 type IsEmptyRecord<T> = [T] extends [Record<string, never>] ? [T] extends [never] ? false : true : false;
 
-// Warning: (ae-forgotten-export) The symbol "EnumString" needs to be exported by the entry point ajv.d.ts
-//
 // @public
 type IsEnum<T> = null extends EnumString<T> ? false : true;
 
 // @public
 type IsRecord<T, Union extends boolean> = Union extends IsUnion<T> ? null extends EnumString<keyof T> ? false : true : false;
 
-// Warning: (ae-forgotten-export) The symbol "IsUnion_" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type IsUnion<T> = IsUnion_<T>;
 
 // @public
 type IsUnion_<T, U extends T = T> = false extends (T extends unknown ? ([U] extends [T] ? false : true) : never) ? false : true;
 
-// Warning: (ae-forgotten-export) The symbol "TypeEquality" needs to be exported by the entry point ajv.d.ts
-//
 // @public
 type IsValues<T> = false extends IsUnion<T> ? TypeEquality<keyof T, string> : false;
 
-// Warning: (ae-forgotten-export) The symbol "StrictNullChecksWrapper" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "UncheckedJSONSchemaType" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type JSONSchemaType<T> = StrictNullChecksWrapper<"JSONSchemaType", UncheckedJSONSchemaType<T, false>>;
 
 // @public
 type JsonSchemaType = JSONSchema.Interface;
 
-// Warning: (ae-forgotten-export) The symbol "JsonSchemaValidatorResult" needs to be exported by the entry point ajv.d.ts
-//
 // @public
 type JsonSchemaValidator<T> = (input: unknown) => JsonSchemaValidatorResult<T>;
 
@@ -804,10 +659,8 @@ type JsonSchemaValidatorResult<T> = {
     errorMessage: string;
 };
 
-// Warning: (ae-forgotten-export) The symbol "_jsonTypes" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
-type JSONType$1 = (typeof _jsonTypes)[number];
+type JSONType = (typeof _jsonTypes)[number];
 
 // @public (undocumented)
 type JSONType<T extends string, IsPartial extends boolean> = IsPartial extends true ? T | undefined : T;
@@ -849,22 +702,11 @@ type JTDDataDef<S, D extends Record<string, unknown>> =
     nullable: true;
 } ? null : never);
 
-// Warning: (ae-forgotten-export) The symbol "JTDDataDef" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type JTDDataType<S> = S extends {
     definitions: Record<string, unknown>;
 } ? JTDDataDef<S, S["definitions"]> : JTDDataDef<S, Record<string, never>>;
 
-// Warning: (ae-forgotten-export) The symbol "NullTypeEquality" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "IsEnum" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "IsElements" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "IsEmptyRecord" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "IsValues" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "IsRecord" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "RequiredKeys" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "OptionalKeys" needs to be exported by the entry point ajv.d.ts
-//
 // @public
 type JTDSchemaType<T, D extends Record<string, unknown> = Record<string, never>> = (
 // refs - where null wasn't specified, must match exactly
@@ -919,8 +761,6 @@ type JTDSchemaType<T, D extends Record<string, unknown> = Record<string, never>>
     definitions?: { [K in keyof D]: JTDSchemaType<D[K], D> };
 };
 
-// Warning: (ae-forgotten-export) The symbol "KeywordErrorCxt" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 class KeywordCxt implements KeywordErrorCxt {
     // (undocumented)
@@ -938,8 +778,6 @@ class KeywordCxt implements KeywordErrorCxt {
     readonly data: Name;
     // (undocumented)
     readonly def: AddedKeywordDefinition;
-    // Warning: (ae-forgotten-export) The symbol "ErrorPaths" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     error(append?: boolean, errorParams?: KeywordCxtParams, errorPaths?: ErrorPaths): void;
     // (undocumented)
@@ -950,8 +788,6 @@ class KeywordCxt implements KeywordErrorCxt {
     fail(condition?: Code): void;
     // (undocumented)
     failResult(condition: Code, successAction?: () => void, failAction?: () => void): void;
-    // Warning: (ae-forgotten-export) The symbol "CodeGen" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     readonly gen: CodeGen;
     // (undocumented)
@@ -966,8 +802,6 @@ class KeywordCxt implements KeywordErrorCxt {
     mergeValidEvaluated(schemaCxt: SchemaCxt, valid: Name): boolean | void;
     // (undocumented)
     ok(cond: Code | boolean): void;
-    // Warning: (ae-forgotten-export) The symbol "KeywordCxtParams" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     params: KeywordCxtParams;
     // (undocumented)
@@ -983,14 +817,11 @@ class KeywordCxt implements KeywordErrorCxt {
     // (undocumented)
     readonly schemaCode: Code | number | boolean;
     // (undocumented)
-    readonly schemaType: JSONType$1[];
+    readonly schemaType: JSONType[];
     // (undocumented)
     readonly schemaValue: Code | number | boolean;
     // (undocumented)
     setParams(obj: KeywordCxtParams, assign?: true): void;
-    // Warning: (ae-forgotten-export) The symbol "SubschemaArgs" needs to be exported by the entry point ajv.d.ts
-    // Warning: (ae-forgotten-export) The symbol "SchemaCxt" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     subschema(appl: SubschemaArgs, valid: Name): SchemaCxt;
 }
@@ -1010,8 +841,6 @@ interface _KeywordDef {
     before?: string;
     // (undocumented)
     dependencies?: string[];
-    // Warning: (ae-forgotten-export) The symbol "KeywordErrorDefinition" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     error?: KeywordErrorDefinition;
     // (undocumented)
@@ -1023,17 +852,13 @@ interface _KeywordDef {
     // (undocumented)
     post?: boolean;
     // (undocumented)
-    schemaType?: JSONType$1 | JSONType$1[];
+    schemaType?: JSONType | JSONType[];
     // (undocumented)
-    type?: JSONType$1 | JSONType$1[];
+    type?: JSONType | JSONType[];
     // (undocumented)
     validateSchema?: AnyValidateFunction;
 }
 
-// Warning: (ae-forgotten-export) The symbol "CodeKeywordDefinition" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "FuncKeywordDefinition" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "MacroKeywordDefinition" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type KeywordDefinition = CodeKeywordDefinition | FuncKeywordDefinition | MacroKeywordDefinition;
 
@@ -1060,7 +885,7 @@ interface KeywordErrorCxt {
     // (undocumented)
     schemaCode: Code | number | boolean;
     // (undocumented)
-    schemaType?: JSONType$1[];
+    schemaType?: JSONType[];
     // (undocumented)
     schemaValue: Code | number | boolean;
 }
@@ -1093,8 +918,6 @@ interface Logger {
 
 // @public (undocumented)
 interface MacroKeywordDefinition extends FuncKeywordDefinition {
-    // Warning: (ae-forgotten-export) The symbol "MacroKeywordFunc" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     macro: MacroKeywordFunc;
 }
@@ -1138,8 +961,6 @@ interface NameValue {
     code?: Code;
     // (undocumented)
     key?: unknown;
-    // Warning: (ae-forgotten-export) The symbol "ValueReference" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     ref: ValueReference;
 }
@@ -1158,7 +979,7 @@ type Nullable<T> = undefined extends T ? {
 };
 
 // @public
-type NullTypeEquality<T, E$1> = TypeEquality<T | null, E$1 | null>;
+type NullTypeEquality<T, E> = TypeEquality<T | null, E | null>;
 
 // @public (undocumented)
 interface NumberKeywords {
@@ -1182,24 +1003,19 @@ type NumberType = "float32" | "float64" | "int8" | "uint8" | "int16" | "uint16" 
 // @public
 type OptionalKeys<T> = { [K in keyof T]-?: undefined extends T[K] ? K : never }[keyof T];
 
-// Warning: (ae-forgotten-export) The symbol "CurrentOptions" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "DeprecatedOptions" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type Options = CurrentOptions & DeprecatedOptions;
 
 // @public (undocumented)
 interface Plugin_2<Opts> {
     // (undocumented)
-    (ajv: Ajv$1, options?: Opts): Ajv$1;
+    (ajv: Ajv, options?: Opts): Ajv;
     // (undocumented)
     [prop: string]: any;
 }
 
 // @public (undocumented)
 interface RegExpEngine {
-    // Warning: (ae-forgotten-export) The symbol "RegExpLike" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     (pattern: string, u: string): RegExpLike;
     // (undocumented)
@@ -1230,12 +1046,10 @@ interface Rule {
 
 // @public (undocumented)
 interface RuleGroup {
-    // Warning: (ae-forgotten-export) The symbol "Rule" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     rules: Rule[];
     // (undocumented)
-    type?: JSONType$1;
+    type?: JSONType;
 }
 
 // @public (undocumented)
@@ -1263,7 +1077,7 @@ interface SchemaCxt {
     // (undocumented)
     readonly dataPathArr: (Code | number)[];
     // (undocumented)
-    dataTypes: JSONType$1[];
+    dataTypes: JSONType[];
     // (undocumented)
     definedProperties: Set<string>;
     // (undocumented)
@@ -1299,7 +1113,7 @@ interface SchemaCxt {
     // (undocumented)
     readonly schemaPath: Code;
     // (undocumented)
-    readonly self: Ajv$1;
+    readonly self: Ajv;
     // (undocumented)
     readonly topSchemaRef: Code;
     // (undocumented)
@@ -1308,8 +1122,6 @@ interface SchemaCxt {
     readonly ValidationError?: Name;
 }
 
-// Warning: (ae-forgotten-export) The symbol "SchemaEnvArgs" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 class SchemaEnv implements SchemaEnvArgs {
     // (undocumented)
@@ -1319,8 +1131,6 @@ class SchemaEnv implements SchemaEnvArgs {
     baseId: string;
     // (undocumented)
     readonly dynamicAnchors: { [Ref in string]?: true };
-    // Warning: (ae-forgotten-export) The symbol "LocalRefs" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     localRefs?: LocalRefs;
     // (undocumented)
@@ -1329,8 +1139,6 @@ class SchemaEnv implements SchemaEnvArgs {
     parse?: (data: string) => unknown;
     // (undocumented)
     parseName?: ValueScopeName;
-    // Warning: (ae-forgotten-export) The symbol "SchemaRefs" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     readonly refs: SchemaRefs;
     // (undocumented)
@@ -1406,8 +1214,6 @@ type SchemaRefs = { [Ref in string]?: SchemaEnv | AnySchema };
 
 // @public (undocumented)
 interface SchemaValidateFunction {
-    // Warning: (ae-forgotten-export) The symbol "DataValidationCxt" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     (schema: any, data: any, parentSchema?: AnySchemaObject, dataCxt?: DataValidationCxt): boolean | Promise<any>;
     // (undocumented)
@@ -1416,12 +1222,9 @@ interface SchemaValidateFunction {
 
 // @public (undocumented)
 class Scope {
-    // Warning: (ae-forgotten-export) The symbol "ScopeOptions" needs to be exported by the entry point ajv.d.ts
     constructor(input?: ScopeOptions);
     // (undocumented)
     name(prefix: string): Name;
-    // Warning: (ae-forgotten-export) The symbol "NameGroup" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     protected readonly _names: { [Prefix in string]?: NameGroup };
     // (undocumented)
@@ -1502,7 +1305,7 @@ interface SourceCode {
 }
 
 // @public (undocumented)
-type StrictNullChecksWrapper<Name$1 extends string, Type$1> = undefined extends null ? `strictNullChecks must be true in tsconfig to use ${Name$1}` : Type$1;
+type StrictNullChecksWrapper<Name extends string, Type> = undefined extends null ? `strictNullChecks must be true in tsconfig to use ${Name}` : Type;
 
 // @public (undocumented)
 interface StringKeywords {
@@ -1529,7 +1332,7 @@ type SubschemaArgs = Partial<{
     topSchemaRef: Code;
     data: Name | Code;
     dataProp: Code | string | number;
-    dataTypes: JSONType$1[];
+    dataTypes: JSONType[];
     definedProperties: Set<string>;
     propertyName: Name;
     dataPropType: Type;
@@ -1549,13 +1352,8 @@ enum Type {
 }
 
 // @public
-type TypeEquality<T, E$1> = [T] extends [E$1] ? ([E$1] extends [T] ? true : false) : false;
+type TypeEquality<T, E> = [T] extends [E] ? ([E] extends [T] ? true : false) : false;
 
-// Warning: (ae-forgotten-export) The symbol "UnionToIntersection" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "NumberKeywords" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "StringKeywords" needs to be exported by the entry point ajv.d.ts
-// Warning: (ae-forgotten-export) The symbol "UncheckedRequiredMembers" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type UncheckedJSONSchemaType<T, IsPartial extends boolean> = (
 // these two unions allow arbitrary unions of types
@@ -1657,8 +1455,6 @@ interface UriResolver {
 // @public (undocumented)
 type UsedNames = Record<string, number | undefined>;
 
-// Warning: (ae-forgotten-export) The symbol "UsedValueState" needs to be exported by the entry point ajv.d.ts
-//
 // @public (undocumented)
 type UsedScopeValues = { [Prefix in string]?: Map<ValueScopeName, UsedValueState | undefined> };
 
@@ -1673,19 +1469,15 @@ enum UsedValueState {
 // @public (undocumented)
 interface ValidateFunction<T = unknown> {
     // (undocumented)
-    (this: Ajv$1 | any, data: any, dataCxt?: DataValidationCxt): data is T;
+    (this: Ajv | any, data: any, dataCxt?: DataValidationCxt): data is T;
     // (undocumented)
     errors?: null | ErrorObject[];
-    // Warning: (ae-forgotten-export) The symbol "Evaluated" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     evaluated?: Evaluated;
     // (undocumented)
     schema: AnySchema;
     // (undocumented)
     schemaEnv: SchemaEnv;
-    // Warning: (ae-forgotten-export) The symbol "SourceCode" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     source?: SourceCode;
 }
@@ -1709,25 +1501,20 @@ interface ValidationRules {
     keywords: { [Key in string]?: boolean };
     // (undocumented)
     post: RuleGroup;
-    // Warning: (ae-forgotten-export) The symbol "RuleGroup" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     rules: RuleGroup[];
-    // Warning: (ae-forgotten-export) The symbol "ValidationTypes" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     types: ValidationTypes;
 }
 
 // @public (undocumented)
-type ValidationTypes = { [K in JSONType$1]: boolean | RuleGroup | undefined };
+type ValidationTypes = { [K in JSONType]: boolean | RuleGroup | undefined };
 
 // @public (undocumented)
 type ValueReference = unknown;
 
 // @public (undocumented)
 class ValueScope extends Scope {
-    // Warning: (ae-forgotten-export) The symbol "ValueScopeOptions" needs to be exported by the entry point ajv.d.ts
     constructor(opts: ValueScopeOptions);
     // (undocumented)
     get(): ScopeStore;
@@ -1735,24 +1522,16 @@ class ValueScope extends Scope {
     getValue(prefix: string, keyOrRef: unknown): ValueScopeName | undefined;
     // (undocumented)
     name(prefix: string): ValueScopeName;
-    // Warning: (ae-forgotten-export) The symbol "VSOptions" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     readonly opts: VSOptions;
-    // Warning: (ae-forgotten-export) The symbol "ScopeStore" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     protected readonly _scope: ScopeStore;
-    // Warning: (ae-forgotten-export) The symbol "UsedScopeValues" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     scopeCode(values?: ScopeValues | ScopeValueSets, usedValues?: UsedScopeValues, getCode?: (n: ValueScopeName) => Code | undefined): Code;
     // (undocumented)
     scopeRefs(scopeName: Name, values?: ScopeValues | ScopeValueSets): Code;
     // (undocumented)
     value(nameOrPrefix: ValueScopeName | string, value: NameValue): ValueScopeName;
-    // Warning: (ae-forgotten-export) The symbol "ScopeValues" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     protected readonly _values: ScopeValues;
 }
@@ -1764,8 +1543,6 @@ class ValueScopeName extends Name {
     readonly prefix: string;
     // (undocumented)
     scopePath?: Code;
-    // Warning: (ae-forgotten-export) The symbol "ScopePath" needs to be exported by the entry point ajv.d.ts
-    //
     // (undocumented)
     setValue(value: NameValue, input: ScopePath): void;
     // (undocumented)
@@ -1790,19 +1567,6 @@ interface VSOptions extends ValueScopeOptions {
     // (undocumented)
     _n: Code;
 }
-
-// Warnings were encountered during analysis:
-//
-// .api-extractor-tmp/server.validators-ajv/ajvProvider-BHpsQRY0.d.mts:203:3 - (ae-forgotten-export) The symbol "Type" needs to be exported by the entry point ajv.d.ts
-// .api-extractor-tmp/server.validators-ajv/ajvProvider-BHpsQRY0.d.mts:280:3 - (ae-forgotten-export) The symbol "JSONType" needs to be exported by the entry point ajv.d.ts
-// .api-extractor-tmp/server.validators-ajv/ajvProvider-BHpsQRY0.d.mts:289:3 - (ae-forgotten-export) The symbol "Nullable" needs to be exported by the entry point ajv.d.ts
-// .api-extractor-tmp/server.validators-ajv/ajvProvider-BHpsQRY0.d.mts:300:3 - (ae-forgotten-export) The symbol "UncheckedPartialSchema" needs to be exported by the entry point ajv.d.ts
-// .api-extractor-tmp/server.validators-ajv/ajvProvider-BHpsQRY0.d.mts:311:3 - (ae-forgotten-export) The symbol "UncheckedPropertiesSchema" needs to be exported by the entry point ajv.d.ts
-// .api-extractor-tmp/server.validators-ajv/ajvProvider-BHpsQRY0.d.mts:342:3 - (ae-forgotten-export) The symbol "Known" needs to be exported by the entry point ajv.d.ts
-// .api-extractor-tmp/server.validators-ajv/ajvProvider-BHpsQRY0.d.mts:440:3 - (ae-forgotten-export) The symbol "StringType" needs to be exported by the entry point ajv.d.ts
-// .api-extractor-tmp/server.validators-ajv/ajvProvider-BHpsQRY0.d.mts:480:3 - (ae-forgotten-export) The symbol "NumberType" needs to be exported by the entry point ajv.d.ts
-// .api-extractor-tmp/server.validators-ajv/ajvProvider-BHpsQRY0.d.mts:603:3 - (ae-forgotten-export) The symbol "InstanceCodeOptions" needs to be exported by the entry point ajv.d.ts
-// .api-extractor-tmp/server.validators-ajv/ajvProvider-BHpsQRY0.d.mts:859:3 - (ae-forgotten-export) The symbol "JSONType$1" needs to be exported by the entry point ajv.d.ts
 
 // (No @packageDocumentation comment for this package)
 

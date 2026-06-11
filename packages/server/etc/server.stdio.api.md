@@ -18,19 +18,12 @@ interface AuthInfo {
     token: string;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Primitive" needs to be exported by the entry point stdio.d.ts
-//
 // @public (undocumented)
-type Flatten<T$1> = T$1 extends Primitive ? T$1 : T$1 extends Array<infer U> ? Array<Flatten<U>> : T$1 extends Set<infer U> ? Set<Flatten<U>> : T$1 extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T$1 extends object ? { [K in keyof T$1]: Flatten<T$1[K]> } : T$1;
+type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Flatten<U>> : T extends Set<infer U> ? Set<Flatten<U>> : T extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T extends object ? { [K in keyof T]: Flatten<T[K]> } : T;
 
-// Warning: (ae-forgotten-export) The symbol "Flatten" needs to be exported by the entry point stdio.d.ts
-//
 // @public (undocumented)
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
-// Warning: (ae-forgotten-export) The symbol "Infer" needs to be exported by the entry point stdio.d.ts
-// Warning: (ae-forgotten-export) The symbol "JSONRPCMessageSchema" needs to be exported by the entry point stdio.d.ts
-//
 // @public (undocumented)
 type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
 
@@ -82,7 +75,6 @@ const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
 
 // @public
 interface MessageExtraInfo {
-    // Warning: (ae-forgotten-export) The symbol "AuthInfo" needs to be exported by the entry point stdio.d.ts
     authInfo?: AuthInfo;
     closeSSEStream?: () => void;
     closeStandaloneSSEStream?: () => void;
@@ -92,16 +84,12 @@ interface MessageExtraInfo {
 // @public (undocumented)
 type Primitive = string | number | boolean | bigint | null | undefined;
 
-// Warning: (ae-forgotten-export) The symbol "RequestIdSchema" needs to be exported by the entry point stdio.d.ts
-//
 // @public (undocumented)
 type RequestId = Infer<typeof RequestIdSchema>;
 
 // @public
 const RequestIdSchema: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
 
-// Warning: (ae-forgotten-export) The symbol "Transport" needs to be exported by the entry point stdio.d.ts
-//
 // @public
 export class StdioServerTransport implements Transport {
     constructor(_stdin?: Readable, _stdout?: Writable, options?: {
@@ -117,8 +105,6 @@ export class StdioServerTransport implements Transport {
     onerror?: (error: Error) => void;
     // (undocumented)
     _onerror: (error: Error) => void;
-    // Warning: (ae-forgotten-export) The symbol "JSONRPCMessage" needs to be exported by the entry point stdio.d.ts
-    //
     // (undocumented)
     onmessage?: (message: JSONRPCMessage) => void;
     // (undocumented)
@@ -133,9 +119,7 @@ interface Transport {
     close(): Promise<void>;
     onclose?: (() => void) | undefined;
     onerror?: ((error: Error) => void) | undefined;
-    // Warning: (ae-forgotten-export) The symbol "MessageExtraInfo" needs to be exported by the entry point stdio.d.ts
-    onmessage?: (<T$1 extends JSONRPCMessage>(message: T$1, extra?: MessageExtraInfo) => void) | undefined;
-    // Warning: (ae-forgotten-export) The symbol "TransportSendOptions" needs to be exported by the entry point stdio.d.ts
+    onmessage?: (<T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void) | undefined;
     send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void>;
     sessionId?: string | undefined;
     setProtocolVersion?: ((version: string) => void) | undefined;
@@ -149,10 +133,6 @@ type TransportSendOptions = {
     resumptionToken?: string | undefined;
     onresumptiontoken?: ((token: string) => void) | undefined;
 };
-
-// Warnings were encountered during analysis:
-//
-// .api-extractor-tmp/server.stdio/index-Du3OvRpx.d.mts:9501:3 - (ae-forgotten-export) The symbol "RequestId" needs to be exported by the entry point stdio.d.ts
 
 // (No @packageDocumentation comment for this package)
 

@@ -118,16 +118,12 @@ export class CustomOAuthError extends OAuthError {
 // @public (undocumented)
 type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
-// Warning: (ae-forgotten-export) The symbol "Primitive" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
-type Flatten<T$1> = T$1 extends Primitive ? T$1 : T$1 extends Array<infer U> ? Array<Flatten<U>> : T$1 extends Set<infer U> ? Set<Flatten<U>> : T$1 extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T$1 extends object ? { [K in keyof T$1]: Flatten<T$1[K]> } : T$1;
+type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Flatten<U>> : T extends Set<infer U> ? Set<Flatten<U>> : T extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T extends object ? { [K in keyof T]: Flatten<T[K]> } : T;
 
 // @public
 export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string;
 
-// Warning: (ae-forgotten-export) The symbol "Flatten" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
@@ -179,9 +175,6 @@ export class InvalidTokenError extends OAuthError {
     static errorCode: string;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Infer" needs to be exported by the entry point index.d.ts
-// Warning: (ae-forgotten-export) The symbol "JSONRPCMessageSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
 
@@ -245,8 +238,6 @@ interface MessageExtraInfo {
     request?: globalThis.Request;
 }
 
-// Warning: (ae-forgotten-export) The symbol "OAuthProtectedResourceMetadata" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResourceMetadata): RequestHandler;
 
@@ -277,8 +268,6 @@ export const OAUTH_ERRORS: {
     readonly [InvalidTargetError.errorCode]: typeof InvalidTargetError;
 };
 
-// Warning: (ae-forgotten-export) The symbol "OAuthClientInformationFullSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthClientInformationFull = z.infer<typeof OAuthClientInformationFullSchema>;
 
@@ -315,12 +304,9 @@ export class OAuthError extends Error {
     get errorCode(): string;
     // (undocumented)
     readonly errorUri?: string | undefined;
-    // Warning: (ae-forgotten-export) The symbol "OAuthErrorResponse" needs to be exported by the entry point index.d.ts
     toResponseObject(): OAuthErrorResponse;
 }
 
-// Warning: (ae-forgotten-export) The symbol "OAuthErrorResponseSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthErrorResponse = z.infer<typeof OAuthErrorResponseSchema>;
 
@@ -331,8 +317,6 @@ const OAuthErrorResponseSchema: z.ZodObject<{
     error_uri: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
 
@@ -359,8 +343,6 @@ const OAuthMetadataSchema: z.ZodObject<{
     client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$loose>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthProtectedResourceMetadataSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthProtectedResourceMetadata = z.infer<typeof OAuthProtectedResourceMetadataSchema>;
 
@@ -384,7 +366,6 @@ const OAuthProtectedResourceMetadataSchema: z.ZodObject<{
 
 // @public
 export interface OAuthRegisteredClientsStore {
-    // Warning: (ae-forgotten-export) The symbol "OAuthClientInformationFull" needs to be exported by the entry point index.d.ts
     getClient(clientId: string): OAuthClientInformationFull | undefined | Promise<OAuthClientInformationFull | undefined>;
     registerClient?(client: Omit<OAuthClientInformationFull, 'client_id' | 'client_id_issued_at'>): OAuthClientInformationFull | Promise<OAuthClientInformationFull>;
 }
@@ -394,17 +375,13 @@ export interface OAuthServerProvider {
     authorize(client: OAuthClientInformationFull, params: AuthorizationParams, res: Response_2): Promise<void>;
     challengeForAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string): Promise<string>;
     get clientsStore(): OAuthRegisteredClientsStore;
-    // Warning: (ae-forgotten-export) The symbol "OAuthTokens" needs to be exported by the entry point index.d.ts
     exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string, codeVerifier?: string, redirectUri?: string, resource?: URL): Promise<OAuthTokens>;
     exchangeRefreshToken(client: OAuthClientInformationFull, refreshToken: string, scopes?: string[], resource?: URL): Promise<OAuthTokens>;
-    // Warning: (ae-forgotten-export) The symbol "OAuthTokenRevocationRequest" needs to be exported by the entry point index.d.ts
     revokeToken?(client: OAuthClientInformationFull, request: OAuthTokenRevocationRequest): Promise<void>;
     skipLocalPkceValidation?: boolean;
     verifyAccessToken(token: string): Promise<AuthInfo>;
 }
 
-// Warning: (ae-forgotten-export) The symbol "OAuthTokenRevocationRequestSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthTokenRevocationRequest = z.infer<typeof OAuthTokenRevocationRequestSchema>;
 
@@ -414,8 +391,6 @@ const OAuthTokenRevocationRequestSchema: z.ZodObject<{
     token_type_hint: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// Warning: (ae-forgotten-export) The symbol "OAuthTokensSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type OAuthTokens = z.infer<typeof OAuthTokensSchema>;
 
@@ -460,8 +435,6 @@ export class ProxyOAuthServerProvider implements OAuthServerProvider {
     exchangeAuthorizationCode(client: OAuthClientInformationFull, authorizationCode: string, codeVerifier?: string, redirectUri?: string, resource?: URL): Promise<OAuthTokens>;
     // (undocumented)
     exchangeRefreshToken(client: OAuthClientInformationFull, refreshToken: string, scopes?: string[], resource?: URL): Promise<OAuthTokens>;
-    // Warning: (ae-forgotten-export) The symbol "FetchLike" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     protected readonly _fetch?: FetchLike;
     // (undocumented)
@@ -487,8 +460,6 @@ export type ProxyOptions = {
 // @public
 export function redirectUriMatches(requested: string, registered: string): boolean;
 
-// Warning: (ae-forgotten-export) The symbol "RequestIdSchema" needs to be exported by the entry point index.d.ts
-//
 // @public (undocumented)
 type RequestId = Infer<typeof RequestIdSchema>;
 
@@ -513,8 +484,6 @@ export class ServerError extends OAuthError {
     static errorCode: string;
 }
 
-// Warning: (ae-forgotten-export) The symbol "Transport" needs to be exported by the entry point index.d.ts
-//
 // @public @deprecated
 export class SSEServerTransport implements Transport {
     constructor(_endpoint: string, res: ServerResponse, options?: SSEServerTransportOptions);
@@ -530,13 +499,8 @@ export class SSEServerTransport implements Transport {
     onclose?: () => void;
     // (undocumented)
     onerror?: ((error: Error) => void) | undefined;
-    // Warning: (ae-forgotten-export) The symbol "JSONRPCMessage" needs to be exported by the entry point index.d.ts
-    // Warning: (ae-forgotten-export) The symbol "MessageExtraInfo" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     onmessage?: (<T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void) | undefined;
-    // Warning: (ae-forgotten-export) The symbol "TransportSendOptions" needs to be exported by the entry point index.d.ts
-    //
     // (undocumented)
     send(message: JSONRPCMessage, _options?: TransportSendOptions): Promise<void>;
     // (undocumented)
@@ -581,7 +545,7 @@ interface Transport {
     close(): Promise<void>;
     onclose?: (() => void) | undefined;
     onerror?: ((error: Error) => void) | undefined;
-    onmessage?: (<T$1 extends JSONRPCMessage>(message: T$1, extra?: MessageExtraInfo) => void) | undefined;
+    onmessage?: (<T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void) | undefined;
     send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void>;
     sessionId?: string | undefined;
     setProtocolVersion?: ((version: string) => void) | undefined;
@@ -619,11 +583,6 @@ export class UnsupportedTokenTypeError extends OAuthError {
     // (undocumented)
     static errorCode: string;
 }
-
-// Warnings were encountered during analysis:
-//
-// .api-extractor-tmp/server-legacy/index-BBUHtY8l.d.mts:237:3 - (ae-forgotten-export) The symbol "OAuthMetadata" needs to be exported by the entry point index.d.ts
-// .api-extractor-tmp/server-legacy/index-DtwY16VE.d.mts:254:3 - (ae-forgotten-export) The symbol "RequestId" needs to be exported by the entry point index.d.ts
 
 // (No @packageDocumentation comment for this package)
 
