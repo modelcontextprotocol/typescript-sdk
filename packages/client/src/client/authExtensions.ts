@@ -10,6 +10,36 @@ import type { CryptoKey, JWK } from 'jose';
 
 import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
 
+type SavedOAuthTokens = {
+    tokens: OAuthTokens;
+    expiresAt?: number;
+};
+
+function saveOAuthTokens(tokens: OAuthTokens): SavedOAuthTokens {
+    const savedTokens: SavedOAuthTokens = { tokens };
+
+    if (tokens.expires_in !== undefined) {
+        savedTokens.expiresAt = Date.now() + tokens.expires_in * 1000;
+    }
+
+    return savedTokens;
+}
+
+function readOAuthTokens(savedTokens: SavedOAuthTokens | undefined): OAuthTokens | undefined {
+    if (savedTokens === undefined) {
+        return undefined;
+    }
+
+    if (savedTokens.expiresAt === undefined) {
+        return savedTokens.tokens;
+    }
+
+    return {
+        ...savedTokens.tokens,
+        expires_in: Math.max(0, Math.ceil((savedTokens.expiresAt - Date.now()) / 1000))
+    };
+}
+
 /**
  * Helper to produce a `private_key_jwt` client authentication function.
  *
@@ -138,7 +168,7 @@ export interface ClientCredentialsProviderOptions {
  * ```
  */
 export class ClientCredentialsProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
+    private _tokens?: SavedOAuthTokens;
     private _clientInfo: OAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
 
@@ -173,11 +203,11 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
     }
 
     tokens(): OAuthTokens | undefined {
-        return this._tokens;
+        return readOAuthTokens(this._tokens);
     }
 
     saveTokens(tokens: OAuthTokens): void {
-        this._tokens = tokens;
+        this._tokens = saveOAuthTokens(tokens);
     }
 
     redirectToAuthorization(): void {
@@ -266,7 +296,7 @@ export interface PrivateKeyJwtProviderOptions {
  * ```
  */
 export class PrivateKeyJwtProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
+    private _tokens?: SavedOAuthTokens;
     private _clientInfo: OAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
     addClientAuthentication: AddClientAuthentication;
@@ -309,11 +339,11 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
     }
 
     tokens(): OAuthTokens | undefined {
-        return this._tokens;
+        return readOAuthTokens(this._tokens);
     }
 
     saveTokens(tokens: OAuthTokens): void {
-        this._tokens = tokens;
+        this._tokens = saveOAuthTokens(tokens);
     }
 
     redirectToAuthorization(): void {
@@ -371,7 +401,7 @@ export interface StaticPrivateKeyJwtProviderOptions {
  * uses it directly for authentication.
  */
 export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
+    private _tokens?: SavedOAuthTokens;
     private _clientInfo: OAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
     addClientAuthentication: AddClientAuthentication;
@@ -412,11 +442,11 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
     }
 
     tokens(): OAuthTokens | undefined {
-        return this._tokens;
+        return readOAuthTokens(this._tokens);
     }
 
     saveTokens(tokens: OAuthTokens): void {
-        this._tokens = tokens;
+        this._tokens = saveOAuthTokens(tokens);
     }
 
     redirectToAuthorization(): void {
@@ -569,7 +599,7 @@ export interface CrossAppAccessProviderOptions {
  * ```
  */
 export class CrossAppAccessProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
+    private _tokens?: SavedOAuthTokens;
     private _clientInfo: OAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
     private _assertionCallback: AssertionCallback;
@@ -610,11 +640,11 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
     }
 
     tokens(): OAuthTokens | undefined {
-        return this._tokens;
+        return readOAuthTokens(this._tokens);
     }
 
     saveTokens(tokens: OAuthTokens): void {
-        this._tokens = tokens;
+        this._tokens = saveOAuthTokens(tokens);
     }
 
     redirectToAuthorization(): void {

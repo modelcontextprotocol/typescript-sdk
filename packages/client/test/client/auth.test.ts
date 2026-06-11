@@ -5,6 +5,7 @@ import { expect, vi } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import {
+    adaptOAuthProvider,
     auth,
     buildDiscoveryUrls,
     determineScope,
@@ -62,6 +63,49 @@ describe('OAuth Authorization', () => {
     });
     afterEach(() => {
         mockedCorsIsPossible = false;
+    });
+
+    describe('adaptOAuthProvider', () => {
+        function providerWithTokens(tokens: OAuthTokens | undefined): OAuthClientProvider {
+            return {
+                get redirectUrl() {
+                    return undefined;
+                },
+                get clientMetadata(): OAuthClientMetadata {
+                    return { redirect_uris: [] };
+                },
+                clientInformation: () => ({ client_id: 'client-id' }),
+                tokens: () => tokens,
+                saveTokens: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: vi.fn()
+            };
+        }
+
+        it('returns the access token when no expiration is supplied', async () => {
+            const provider = adaptOAuthProvider(providerWithTokens({ access_token: 'access-token', token_type: 'Bearer' }));
+
+            await expect(provider.token()).resolves.toBe('access-token');
+        });
+
+        it('returns the access token when it is outside the expiration buffer', async () => {
+            const provider = adaptOAuthProvider(providerWithTokens({ access_token: 'access-token', token_type: 'Bearer', expires_in: 61 }));
+
+            await expect(provider.token()).resolves.toBe('access-token');
+        });
+
+        it('does not return an access token that is expired or inside the expiration buffer', async () => {
+            const nearExpiryProvider = adaptOAuthProvider(
+                providerWithTokens({ access_token: 'near-expiry-token', token_type: 'Bearer', expires_in: 60 })
+            );
+            const expiredProvider = adaptOAuthProvider(
+                providerWithTokens({ access_token: 'expired-token', token_type: 'Bearer', expires_in: 0 })
+            );
+
+            await expect(nearExpiryProvider.token()).resolves.toBeUndefined();
+            await expect(expiredProvider.token()).resolves.toBeUndefined();
+        });
     });
 
     describe('extractWWWAuthenticateParams', () => {
