@@ -35,6 +35,8 @@
         "lint:fix:all": "pnpm sync:snippets && pnpm -r lint:fix",
         "check:all": "pnpm -r typecheck && pnpm -r lint && pnpm run docs:check",
         "test:all": "pnpm -r test",
+        "api-report": "pnpm --filter \"./packages/**\" build && tsx scripts/generate-api-reports.ts",
+        "api-report:check": "pnpm --filter \"./packages/**\" build && tsx scripts/generate-api-reports.ts --check",
         "prepare": "npx --no-install lefthook install",
         "test:conformance:client": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client",
         "test:conformance:client:all": "pnpm --filter @modelcontextprotocol/test-conformance run test:conformance:client:all",
