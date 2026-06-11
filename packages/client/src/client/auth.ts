@@ -155,6 +155,13 @@ export interface OAuthClientProvider {
 
     /**
      * Metadata about this OAuth client.
+     *
+     * Per the MCP authorization specification (SEP-837), clients MUST specify an
+     * appropriate `application_type` when registering dynamically: `'native'` for
+     * desktop/CLI apps using loopback or custom-scheme redirect URIs, `'web'` for
+     * remote browser-based apps. If `application_type` is omitted,
+     * {@linkcode registerClient} infers it from `redirect_uris` (see
+     * {@linkcode inferApplicationType}).
      */
     get clientMetadata(): OAuthClientMetadata;
 
@@ -1693,12 +1700,53 @@ export async function fetchToken(
 }
 
 /**
+ * Infers the OIDC `application_type` for dynamic client registration from a
+ * client's redirect URIs (SEP-837).
+ *
+ * Returns `'native'` when every redirect URI is either a loopback address
+ * (`localhost`, `127.0.0.1`, or `[::1]`) or uses a custom non-http(s) scheme
+ * (e.g. `myapp://callback`); otherwise returns `'web'`.
+ *
+ * OIDC-based authorization servers default `application_type` to `'web'`, which
+ * rejects loopback/custom-scheme redirect URIs — so native apps must declare
+ * themselves explicitly. Invalid or empty inputs conservatively yield `'web'`,
+ * matching the OIDC default.
+ */
+export function inferApplicationType(redirectUris: string[]): 'web' | 'native' {
+    if (redirectUris.length === 0) {
+        return 'web';
+    }
+
+    return redirectUris.every(uri => isNativeRedirectUri(uri)) ? 'native' : 'web';
+}
+
+function isNativeRedirectUri(uri: string): boolean {
+    let url: URL;
+    try {
+        url = new URL(uri);
+    } catch {
+        return false;
+    }
+
+    if (url.protocol === 'http:' || url.protocol === 'https:') {
+        return url.hostname === 'localhost' || url.hostname === '127.0.0.1' || url.hostname === '[::1]';
+    }
+
+    // Custom (non-http/https) schemes are used by native apps.
+    return true;
+}
+
+/**
  * Performs OAuth 2.0 Dynamic Client Registration according to
  * {@link https://datatracker.ietf.org/doc/html/rfc7591 | RFC 7591}.
  *
  * If `scope` is provided, it overrides `clientMetadata.scope` in the registration
  * request body. This allows callers to apply the Scope Selection Strategy (SEP-835)
  * consistently across both DCR and the subsequent authorization request.
+ *
+ * If `clientMetadata.application_type` is absent, it is inferred from
+ * `redirect_uris` via {@linkcode inferApplicationType} (SEP-837). An explicitly
+ * provided `application_type` is never overridden.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,
@@ -1733,6 +1781,9 @@ export async function registerClient(
         },
         body: JSON.stringify({
             ...clientMetadata,
+            ...(clientMetadata.application_type === undefined
+                ? { application_type: inferApplicationType(clientMetadata.redirect_uris) }
+                : {}),
             ...(scope === undefined ? {} : { scope })
         })
     });

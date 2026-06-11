@@ -164,6 +164,8 @@ For a runnable example supporting both auth methods via environment variables, s
 
 For user-facing applications, implement the {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface to handle the full authorization code flow (redirects, code verifiers, token storage, dynamic client registration). The {@linkcode @modelcontextprotocol/client!client/client.Client#connect | connect()} call will throw {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} when authorization is needed — catch it, complete the browser flow, call {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport#finishAuth | transport.finishAuth(code)}, and reconnect.
 
+When registering dynamically, set `application_type` in your client metadata (`'native'` for desktop/CLI apps using loopback or custom-scheme redirect URIs, `'web'` for remote browser-based apps) — OIDC-based authorization servers default to `'web'`, which rejects loopback redirect URIs (SEP-837). If you omit the field, the SDK infers it from `redirect_uris` via {@linkcode @modelcontextprotocol/client!client/auth.inferApplicationType | inferApplicationType}.
+
 For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClient.ts) and [`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleOAuthClientProvider.ts).
 
 ### Cross-App Access (Enterprise Managed Authorization)

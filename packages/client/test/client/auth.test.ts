@@ -14,6 +14,7 @@ import {
     discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
+    inferApplicationType,
     isHttpsUrl,
     refreshAuthorization,
     registerClient,
@@ -2045,7 +2046,9 @@ describe('OAuth Authorization', () => {
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify(validClientMetadata)
+                    // `application_type` is inferred (SEP-837) when absent; localhost-only
+                    // redirect URIs infer 'native'.
+                    body: JSON.stringify({ ...validClientMetadata, application_type: 'native' })
                 })
             );
         });
@@ -2082,7 +2085,7 @@ describe('OAuth Authorization', () => {
                     headers: {
                         'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({ ...validClientMetadata, scope: 'openid profile' })
+                    body: JSON.stringify({ ...clientMetadataWithScope, application_type: 'native', scope: 'openid profile' })
                 })
             );
         });
@@ -2132,6 +2135,122 @@ describe('OAuth Authorization', () => {
                     clientMetadata: validClientMetadata
                 })
             ).rejects.toThrow('Dynamic client registration failed');
+        });
+
+        describe('application_type (SEP-837)', () => {
+            const mockRegistrationResponse = (clientInfo: Record<string, unknown>) => {
+                mockFetch.mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => clientInfo
+                });
+            };
+
+            const lastRegistrationBody = (): Record<string, unknown> => {
+                const [, init] = mockFetch.mock.calls.at(-1)!;
+                return JSON.parse(init.body as string);
+            };
+
+            it('infers native for loopback-only redirect URIs', async () => {
+                mockRegistrationResponse(validClientInfo);
+
+                await registerClient('https://auth.example.com', {
+                    clientMetadata: {
+                        redirect_uris: ['http://localhost:3000/callback', 'http://127.0.0.1:8080/cb', 'http://[::1]:9090/cb']
+                    }
+                });
+
+                expect(lastRegistrationBody().application_type).toBe('native');
+            });
+
+            it('infers native for custom-scheme redirect URIs', async () => {
+                mockRegistrationResponse(validClientInfo);
+
+                await registerClient('https://auth.example.com', {
+                    clientMetadata: {
+                        redirect_uris: ['myapp://oauth/callback']
+                    }
+                });
+
+                expect(lastRegistrationBody().application_type).toBe('native');
+            });
+
+            it('infers web for https redirect URIs', async () => {
+                mockRegistrationResponse(validClientInfo);
+
+                await registerClient('https://auth.example.com', {
+                    clientMetadata: {
+                        redirect_uris: ['https://app.example.com/callback']
+                    }
+                });
+
+                expect(lastRegistrationBody().application_type).toBe('web');
+            });
+
+            it('infers web for mixed loopback and remote redirect URIs', async () => {
+                mockRegistrationResponse(validClientInfo);
+
+                await registerClient('https://auth.example.com', {
+                    clientMetadata: {
+                        redirect_uris: ['http://localhost:3000/callback', 'https://app.example.com/callback']
+                    }
+                });
+
+                expect(lastRegistrationBody().application_type).toBe('web');
+            });
+
+            it('never overrides an explicitly provided application_type', async () => {
+                mockRegistrationResponse(validClientInfo);
+
+                await registerClient('https://auth.example.com', {
+                    clientMetadata: {
+                        // Loopback-only redirect URIs would infer 'native', but the
+                        // explicit value must win.
+                        redirect_uris: ['http://localhost:3000/callback'],
+                        application_type: 'web'
+                    }
+                });
+
+                expect(lastRegistrationBody().application_type).toBe('web');
+            });
+
+            it('retains application_type from the registration response', async () => {
+                mockRegistrationResponse({ ...validClientInfo, application_type: 'native' });
+
+                const clientInfo = await registerClient('https://auth.example.com', {
+                    clientMetadata: validClientMetadata
+                });
+
+                expect(clientInfo.application_type).toBe('native');
+            });
+        });
+    });
+
+    describe('inferApplicationType', () => {
+        it('returns native when every redirect URI is loopback', () => {
+            expect(inferApplicationType(['http://localhost/callback', 'http://127.0.0.1:1234/cb', 'http://[::1]/cb'])).toBe('native');
+        });
+
+        it('returns native for custom non-http(s) schemes', () => {
+            expect(inferApplicationType(['myapp://oauth/callback', 'com.example.app:/redirect'])).toBe('native');
+        });
+
+        it('returns web for remote http(s) redirect URIs', () => {
+            expect(inferApplicationType(['https://app.example.com/callback'])).toBe('web');
+            expect(inferApplicationType(['http://app.example.com/callback'])).toBe('web');
+        });
+
+        it('returns web when any redirect URI is remote', () => {
+            expect(inferApplicationType(['http://localhost:3000/callback', 'https://app.example.com/callback'])).toBe('web');
+        });
+
+        it('does not treat localhost subdomains as loopback', () => {
+            expect(inferApplicationType(['https://localhost.example.com/callback'])).toBe('web');
+        });
+
+        it('returns web for empty or unparseable input', () => {
+            expect(inferApplicationType([])).toBe('web');
+            expect(inferApplicationType(['not a url'])).toBe('web');
         });
     });
 

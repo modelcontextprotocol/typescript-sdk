@@ -26,6 +26,7 @@ export {
     extractResourceMetadataUrl,
     extractWWWAuthenticateParams,
     fetchToken,
+    inferApplicationType,
     isHttpsUrl,
     parseErrorResponse,
     prepareAuthorizationCodeRequest,
