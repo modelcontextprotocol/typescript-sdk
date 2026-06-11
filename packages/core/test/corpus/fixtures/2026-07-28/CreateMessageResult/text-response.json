@@ -1,0 +1,9 @@
+{
+  "role": "assistant",
+  "content": {
+    "type": "text",
+    "text": "The capital of France is Paris."
+  },
+  "model": "claude-3-sonnet-20240307",
+  "stopReason": "endTurn"
+}

@@ -1,0 +1,9 @@
+{
+    "method": "notifications/progress",
+    "params": {
+        "progressToken": 12,
+        "progress": 50,
+        "total": 100,
+        "message": "Halfway there"
+    }
+}
