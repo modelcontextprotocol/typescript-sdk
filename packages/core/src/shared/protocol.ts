@@ -230,7 +230,7 @@ export type BaseContext = {
         /**
          * Metadata from the original request, with the reserved
          * `io.modelcontextprotocol/*` envelope keys already lifted out
-         * (see {@linkcode BaseContext.mcpReq.envelope | envelope}).
+         * (readable via `ctx.mcpReq.envelope`).
          */
         _meta?: RequestMeta;
 
