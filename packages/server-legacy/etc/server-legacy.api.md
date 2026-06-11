@@ -152,10 +152,44 @@ export class InvalidTokenError extends OAuthError {
 }
 
 // @public (undocumented)
-type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
+type JSONRPCErrorResponse = Infer<typeof JSONRPCErrorResponseSchema>;
+
+// @public
+const JSONRPCErrorResponseSchema: z.ZodObject<{
+    jsonrpc: z.ZodLiteral<"2.0">;
+    id: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+    error: z.ZodObject<{
+        code: z.ZodNumber;
+        message: z.ZodString;
+        data: z.ZodOptional<z.ZodUnknown>;
+    }, z.core.$strip>;
+}, z.core.$strict>;
 
 // @public (undocumented)
-const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
+type JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse;
+
+// @public (undocumented)
+type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;
+
+// @public
+const JSONRPCNotificationSchema: z.ZodObject<{
+    method: z.ZodString;
+    params: z.ZodOptional<z.ZodObject<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
+                taskId: z.ZodString;
+            }, z.core.$strip>>;
+        }, z.core.$loose>>;
+    }, z.core.$loose>>;
+    jsonrpc: z.ZodLiteral<"2.0">;
+}, z.core.$strict>;
+
+// @public (undocumented)
+type JSONRPCRequest = Infer<typeof JSONRPCRequestSchema>;
+
+// @public
+const JSONRPCRequestSchema: z.ZodObject<{
     method: z.ZodString;
     params: z.ZodOptional<z.ZodObject<{
         _meta: z.ZodOptional<z.ZodObject<{
@@ -167,18 +201,15 @@ const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$loose>>;
     jsonrpc: z.ZodLiteral<"2.0">;
     id: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
-}, z.core.$strict>, z.ZodObject<{
-    method: z.ZodString;
-    params: z.ZodOptional<z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-    }, z.core.$loose>>;
-    jsonrpc: z.ZodLiteral<"2.0">;
-}, z.core.$strict>, z.ZodObject<{
+}, z.core.$strict>;
+
+// @public (undocumented)
+type JSONRPCResultResponse = Omit<Infer<typeof JSONRPCResultResponseSchema>, 'result'> & {
+    result: Result;
+};
+
+// @public
+const JSONRPCResultResponseSchema: z.ZodObject<{
     jsonrpc: z.ZodLiteral<"2.0">;
     id: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
     result: z.ZodObject<{
@@ -190,15 +221,7 @@ const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
         }, z.core.$loose>>;
         resultType: z.ZodOptional<z.ZodString>;
     }, z.core.$loose>;
-}, z.core.$strict>, z.ZodObject<{
-    jsonrpc: z.ZodLiteral<"2.0">;
-    id: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-    error: z.ZodObject<{
-        code: z.ZodNumber;
-        message: z.ZodString;
-        data: z.ZodOptional<z.ZodUnknown>;
-    }, z.core.$strip>;
-}, z.core.$strict>]>;
+}, z.core.$strict>;
 
 // @public
 interface MessageExtraInfo {
@@ -431,6 +454,20 @@ type RequestId = Infer<typeof RequestIdSchema>;
 const RequestIdSchema: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
 
 // @public (undocumented)
+type Result = StripWireOnly<Infer<typeof ResultSchema>>;
+
+// @public (undocumented)
+const ResultSchema: z.ZodObject<{
+    _meta: z.ZodOptional<z.ZodObject<{
+        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
+            taskId: z.ZodString;
+        }, z.core.$strip>>;
+    }, z.core.$loose>>;
+    resultType: z.ZodOptional<z.ZodString>;
+}, z.core.$loose>;
+
+// @public (undocumented)
 export type RevocationHandlerOptions = {
     provider: OAuthServerProvider;
     rateLimit?: Partial<Options> | false;
@@ -476,6 +513,9 @@ export class ServerError extends OAuthError {
     // (undocumented)
     static errorCode: string;
 }
+
+// @public
+type StripWireOnly<T> = T extends unknown ? { [K in keyof T as K extends WireOnlyResultKey ? never : K]: T[K] } : never;
 
 // @public
 export class TemporarilyUnavailableError extends OAuthError {
@@ -538,6 +578,9 @@ export class UnsupportedTokenTypeError extends OAuthError {
     // (undocumented)
     static errorCode: string;
 }
+
+// @public
+type WireOnlyResultKey = 'resultType';
 
 // @public
 export function allowedMethods(allowedMethods: string[]): RequestHandler;

@@ -662,14 +662,6 @@ type AssertExactKeys<
 /** Constraint: T must resolve to `true`. */
 type Assert<T extends true> = T;
 
-/**
- * Same as {@link AssertExactKeys}, but tolerates the SDK's `resultType` key on
- * result shapes: the SDK follows the 2026-07-28 schema's optional `resultType`
- * passthrough (absent means "complete"), which is not in released 2025-11-25.
- * Every other key still has to match exactly.
- */
-type AssertExactKeysWithResultType<A, B> = AssertExactKeys<A, B & { resultType?: unknown }>;
-
 /*
  * Excluded from key-level assertions (21 entries):
  *
@@ -710,29 +702,27 @@ type _K_ElicitRequestURLParams = Assert<AssertExactKeys<SDKTypes.ElicitRequestUR
 type _K_PaginatedRequestParams = Assert<AssertExactKeys<SDKTypes.PaginatedRequestParams, SpecTypes.PaginatedRequestParams>>;
 type _K_BaseMetadata = Assert<AssertExactKeys<SDKTypes.BaseMetadata, SpecTypes.BaseMetadata>>;
 type _K_Implementation = Assert<AssertExactKeys<SDKTypes.Implementation, SpecTypes.Implementation>>;
-type _K_PaginatedResult = Assert<AssertExactKeysWithResultType<SDKTypes.PaginatedResult, SpecTypes.PaginatedResult>>;
-type _K_ListRootsResult = Assert<AssertExactKeysWithResultType<SDKTypes.ListRootsResult, SpecTypes.ListRootsResult>>;
+type _K_PaginatedResult = Assert<AssertExactKeys<SDKTypes.PaginatedResult, SpecTypes.PaginatedResult>>;
+type _K_ListRootsResult = Assert<AssertExactKeys<SDKTypes.ListRootsResult, SpecTypes.ListRootsResult>>;
 type _K_Root = Assert<AssertExactKeys<SDKTypes.Root, SpecTypes.Root>>;
-type _K_ElicitResult = Assert<AssertExactKeysWithResultType<SDKTypes.ElicitResult, SpecTypes.ElicitResult>>;
-type _K_CompleteResult = Assert<AssertExactKeysWithResultType<SDKTypes.CompleteResult, SpecTypes.CompleteResult>>;
+type _K_ElicitResult = Assert<AssertExactKeys<SDKTypes.ElicitResult, SpecTypes.ElicitResult>>;
+type _K_CompleteResult = Assert<AssertExactKeys<SDKTypes.CompleteResult, SpecTypes.CompleteResult>>;
 type _K_Request = Assert<AssertExactKeys<SDKTypes.Request, SpecTypes.Request>>;
-type _K_Result = Assert<AssertExactKeysWithResultType<SDKTypes.Result, SpecTypes.Result>>;
+type _K_Result = Assert<AssertExactKeys<SDKTypes.Result, SpecTypes.Result>>;
 type _K_JSONRPCRequest = Assert<AssertExactKeys<SDKTypes.JSONRPCRequest, SpecTypes.JSONRPCRequest>>;
 type _K_JSONRPCNotification = Assert<AssertExactKeys<SDKTypes.JSONRPCNotification, SpecTypes.JSONRPCNotification>>;
-type _K_EmptyResult = Assert<AssertExactKeysWithResultType<SDKTypes.EmptyResult, SpecTypes.EmptyResult>>;
+type _K_EmptyResult = Assert<AssertExactKeys<SDKTypes.EmptyResult, SpecTypes.EmptyResult>>;
 type _K_Notification = Assert<AssertExactKeys<SDKTypes.Notification, SpecTypes.Notification>>;
 type _K_ResourceTemplateReference = Assert<AssertExactKeys<SDKTypes.ResourceTemplateReference, SpecTypes.ResourceTemplateReference>>;
 // @ts-expect-error Genuine mismatch: SDK PromptReference is missing 'title' from spec
 type _K_PromptReference = Assert<AssertExactKeys<SDKTypes.PromptReference, SpecTypes.PromptReference>>;
 type _K_ToolAnnotations = Assert<AssertExactKeys<SDKTypes.ToolAnnotations, SpecTypes.ToolAnnotations>>;
 type _K_Tool = Assert<AssertExactKeys<SDKTypes.Tool, SpecTypes.Tool>>;
-type _K_ListToolsResult = Assert<AssertExactKeysWithResultType<SDKTypes.ListToolsResult, SpecTypes.ListToolsResult>>;
-type _K_CallToolResult = Assert<AssertExactKeysWithResultType<SDKTypes.CallToolResult, SpecTypes.CallToolResult>>;
-type _K_ListResourcesResult = Assert<AssertExactKeysWithResultType<SDKTypes.ListResourcesResult, SpecTypes.ListResourcesResult>>;
-type _K_ListResourceTemplatesResult = Assert<
-    AssertExactKeysWithResultType<SDKTypes.ListResourceTemplatesResult, SpecTypes.ListResourceTemplatesResult>
->;
-type _K_ReadResourceResult = Assert<AssertExactKeysWithResultType<SDKTypes.ReadResourceResult, SpecTypes.ReadResourceResult>>;
+type _K_ListToolsResult = Assert<AssertExactKeys<SDKTypes.ListToolsResult, SpecTypes.ListToolsResult>>;
+type _K_CallToolResult = Assert<AssertExactKeys<SDKTypes.CallToolResult, SpecTypes.CallToolResult>>;
+type _K_ListResourcesResult = Assert<AssertExactKeys<SDKTypes.ListResourcesResult, SpecTypes.ListResourcesResult>>;
+type _K_ListResourceTemplatesResult = Assert<AssertExactKeys<SDKTypes.ListResourceTemplatesResult, SpecTypes.ListResourceTemplatesResult>>;
+type _K_ReadResourceResult = Assert<AssertExactKeys<SDKTypes.ReadResourceResult, SpecTypes.ReadResourceResult>>;
 type _K_ResourceContents = Assert<AssertExactKeys<SDKTypes.ResourceContents, SpecTypes.ResourceContents>>;
 type _K_TextResourceContents = Assert<AssertExactKeys<SDKTypes.TextResourceContents, SpecTypes.TextResourceContents>>;
 type _K_BlobResourceContents = Assert<AssertExactKeys<SDKTypes.BlobResourceContents, SpecTypes.BlobResourceContents>>;
@@ -740,8 +730,8 @@ type _K_Resource = Assert<AssertExactKeys<SDKTypes.Resource, SpecTypes.Resource>
 // @ts-expect-error Genuine mismatch: SDK PromptArgument is missing 'title' from spec
 type _K_PromptArgument = Assert<AssertExactKeys<SDKTypes.PromptArgument, SpecTypes.PromptArgument>>;
 type _K_Prompt = Assert<AssertExactKeys<SDKTypes.Prompt, SpecTypes.Prompt>>;
-type _K_ListPromptsResult = Assert<AssertExactKeysWithResultType<SDKTypes.ListPromptsResult, SpecTypes.ListPromptsResult>>;
-type _K_GetPromptResult = Assert<AssertExactKeysWithResultType<SDKTypes.GetPromptResult, SpecTypes.GetPromptResult>>;
+type _K_ListPromptsResult = Assert<AssertExactKeys<SDKTypes.ListPromptsResult, SpecTypes.ListPromptsResult>>;
+type _K_GetPromptResult = Assert<AssertExactKeys<SDKTypes.GetPromptResult, SpecTypes.GetPromptResult>>;
 type _K_TextContent = Assert<AssertExactKeys<SDKTypes.TextContent, SpecTypes.TextContent>>;
 type _K_ImageContent = Assert<AssertExactKeys<SDKTypes.ImageContent, SpecTypes.ImageContent>>;
 type _K_AudioContent = Assert<AssertExactKeys<SDKTypes.AudioContent, SpecTypes.AudioContent>>;
@@ -764,7 +754,7 @@ type _K_TitledMultiSelectEnumSchema = Assert<AssertExactKeys<SDKTypes.TitledMult
 type _K_LegacyTitledEnumSchema = Assert<AssertExactKeys<SDKTypes.LegacyTitledEnumSchema, SpecTypes.LegacyTitledEnumSchema>>;
 type _K_JSONRPCErrorResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCErrorResponse, SpecTypes.JSONRPCErrorResponse>>;
 type _K_JSONRPCResultResponse = Assert<AssertExactKeys<SDKTypes.JSONRPCResultResponse, SpecTypes.JSONRPCResultResponse>>;
-type _K_InitializeResult = Assert<AssertExactKeysWithResultType<SDKTypes.InitializeResult, SpecTypes.InitializeResult>>;
+type _K_InitializeResult = Assert<AssertExactKeys<SDKTypes.InitializeResult, SpecTypes.InitializeResult>>;
 // @ts-expect-error SDK follows the 2026-07-28 schema's `extensions` capability key; not in released 2025-11-25
 type _K_ClientCapabilities = Assert<AssertExactKeys<SDKTypes.ClientCapabilities, SpecTypes.ClientCapabilities>>;
 // @ts-expect-error SDK follows the 2026-07-28 schema's `extensions` capability key; not in released 2025-11-25
@@ -783,11 +773,11 @@ type _K_TaskMetadata = Assert<AssertExactKeys<SDKTypes.TaskMetadata, SpecTypes.T
 type _K_RelatedTaskMetadata = Assert<AssertExactKeys<SDKTypes.RelatedTaskMetadata, SpecTypes.RelatedTaskMetadata>>;
 type _K_TaskAugmentedRequestParams = Assert<AssertExactKeys<SDKTypes.TaskAugmentedRequestParams, SpecTypes.TaskAugmentedRequestParams>>;
 type _K_Task = Assert<AssertExactKeys<SDKTypes.Task, SpecTypes.Task>>;
-type _K_CreateTaskResult = Assert<AssertExactKeysWithResultType<SDKTypes.CreateTaskResult, SpecTypes.CreateTaskResult>>;
-type _K_GetTaskResult = Assert<AssertExactKeysWithResultType<SDKTypes.GetTaskResult, SpecTypes.GetTaskResult>>;
-type _K_GetTaskPayloadResult = Assert<AssertExactKeysWithResultType<SDKTypes.GetTaskPayloadResult, SpecTypes.GetTaskPayloadResult>>;
-type _K_ListTasksResult = Assert<AssertExactKeysWithResultType<SDKTypes.ListTasksResult, SpecTypes.ListTasksResult>>;
-type _K_CancelTaskResult = Assert<AssertExactKeysWithResultType<SDKTypes.CancelTaskResult, SpecTypes.CancelTaskResult>>;
+type _K_CreateTaskResult = Assert<AssertExactKeys<SDKTypes.CreateTaskResult, SpecTypes.CreateTaskResult>>;
+type _K_GetTaskResult = Assert<AssertExactKeys<SDKTypes.GetTaskResult, SpecTypes.GetTaskResult>>;
+type _K_GetTaskPayloadResult = Assert<AssertExactKeys<SDKTypes.GetTaskPayloadResult, SpecTypes.GetTaskPayloadResult>>;
+type _K_ListTasksResult = Assert<AssertExactKeys<SDKTypes.ListTasksResult, SpecTypes.ListTasksResult>>;
+type _K_CancelTaskResult = Assert<AssertExactKeys<SDKTypes.CancelTaskResult, SpecTypes.CancelTaskResult>>;
 type _K_TaskStatusNotificationParams = Assert<
     AssertExactKeys<SDKTypes.TaskStatusNotificationParams, SpecTypes.TaskStatusNotificationParams>
 >;
@@ -855,7 +845,7 @@ type _K_CancelTaskRequest = Assert<AssertExactKeys<WithJSONRPCRequest<SDKTypes.C
 // -- Name mismatches (2) --
 // SDK exports these under different names than the spec.
 
-type _K_CreateMessageResult = Assert<AssertExactKeysWithResultType<SDKTypes.CreateMessageResultWithTools, SpecTypes.CreateMessageResult>>;
+type _K_CreateMessageResult = Assert<AssertExactKeys<SDKTypes.CreateMessageResultWithTools, SpecTypes.CreateMessageResult>>;
 type _K_ResourceTemplate = Assert<AssertExactKeys<SDKTypes.ResourceTemplateType, SpecTypes.ResourceTemplate>>;
 
 // Types excluded from the key-parity completeness guard: union types and primitive aliases

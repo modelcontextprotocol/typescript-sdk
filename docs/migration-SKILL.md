@@ -501,7 +501,19 @@ The 2025-11 task side-channel through `Protocol` is removed (was always `@experi
 
 `TaskStore` / `InMemoryTaskStore` / `CreateTaskOptions` / `isTerminal` (storage layer) are also removed; they will return with the SEP-2663 server-directed plugin.
 
-NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task members of the request/result/notification unions, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
+NOT removed (wire surface, kept for 2025-11-25 interop, now `@deprecated`): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task members of the request/result/notification union types, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
+
+Task methods are excluded from the typed method maps: `RequestMethod`/`RequestTypeMap`/`ResultTypeMap` have no `tasks/*` entries and `NotificationMethod`/`NotificationTypeMap` have no `notifications/tasks/status`, so the method-keyed overloads of `request()`, `ctx.mcpReq.send()`, `setRequestHandler()`, `setNotificationHandler()` reject task methods at compile time. Mechanical fix where task interop is genuinely required: pass an explicit schema (`request({ method: 'tasks/get', params }, GetTaskResultSchema)`-style custom-method form). `ResultTypeMap['tools/call']` is plain `CallToolResult` (no `| CreateTaskResult`); same for `sampling/createMessage` and `elicitation/create`.
+
+## 12b. Wire-only members hidden from public types
+
+`resultType` (2026-07-28 result discrimination) is no longer declared on any public result type; the SDK parses and consumes it internally. The reserved `_meta` envelope keys (`io.modelcontextprotocol/{protocolVersion,clientInfo,clientCapabilities,logLevel}`) and retry fields (`inputResponses`, `requestState`) appear in no public params/result type. `RequestMetaEnvelope` and the `*_META_KEY` constants remain exported.
+
+| Pattern in v2-alpha code              | Mechanical fix                                                                    |
+| ------------------------------------- | --------------------------------------------------------------------------------- |
+| `result.resultType` (typed read)      | delete the read — the SDK consumes the field; results are complete when delivered |
+| `Result['resultType']` type reference | remove; the member is no longer declared                                          |
+| return-type capture of `callTool` etc. | use the named public types (`CallToolResult`, `ListToolsResult`, …)              |
 
 ## 13. Behavioral Changes
 

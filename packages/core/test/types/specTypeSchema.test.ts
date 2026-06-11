@@ -134,7 +134,13 @@ describe('SpecTypeName / SpecTypes (type-level)', () => {
     });
 
     it('SpecTypes[K] matches the named export type', () => {
-        expectTypeOf<SpecTypes['CallToolResult']>().toEqualTypeOf<CallToolResult>();
+        // Result entries are WIRE validator outputs: they carry the wire-only
+        // `resultType` member that the public result types deliberately do not
+        // declare. Stripping it must yield exactly the public type — pinned in
+        // both directions (the wire schema keeps modeling the member).
+        type StripWireOnly<T> = { [K in keyof T as K extends 'resultType' ? never : K]: T[K] };
+        expectTypeOf<StripWireOnly<SpecTypes['CallToolResult']>>().toEqualTypeOf<CallToolResult>();
+        expectTypeOf<SpecTypes['CallToolResult']['resultType']>().toEqualTypeOf<string | undefined>();
         expectTypeOf<SpecTypes['ContentBlock']>().toEqualTypeOf<ContentBlock>();
         expectTypeOf<SpecTypes['Tool']>().toEqualTypeOf<Tool>();
         expectTypeOf<SpecTypes['Implementation']>().toEqualTypeOf<Implementation>();
