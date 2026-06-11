@@ -914,6 +914,12 @@ The protocol revision 2026-07-28 introduces wire-level bookkeeping that the SDK 
 - **High-level methods return the named public types.** `client.callTool()` returns `Promise<CallToolResult>`, `client.listTools()` returns `Promise<ListToolsResult>`, and so on (previously these returned structurally inferred schema types that exposed `resultType?`). Handler return positions are unaffected: results you build keep type-checking, and unknown members still pass through the loose index signature.
 - **The reserved envelope keys and retry fields never appear in a public params/result type.** The `RequestMetaEnvelope` type and the four `*_META_KEY` constants stay exported — they document the wire names and type the context surfacing channel (see below).
 
+The protocol layer enforces the same boundary at runtime:
+
+- **Envelope lift.** On inbound requests and notifications, the reserved `io.modelcontextprotocol/*` envelope keys are lifted out of `params._meta` before handlers run, so handler params are byte-equal to the 2025-era shape under 2026-era traffic. For requests the envelope is readable at `ctx.mcpReq.envelope`; the multi-round-trip retry fields are likewise lifted out of params and surfaced verbatim at `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState`. 2025-era traffic passes through untouched.
+- **Raw-first result discrimination.** The client funnel inspects a response's raw `resultType` before schema validation: `'complete'` is consumed (stripped) and the result parses as the public shape; any other kind (e.g. `input_required`) rejects with a typed local error — `SdkError` with the new code `SdkErrorCode.UnsupportedResultType` and the kind in `error.data.resultType` — instead of being masked into a hollow success by tolerant result schemas. Full multi-round-trip support will replace that error arm.
+- **`MessageExtraInfo.classification`** is a new optional carrier (`{ era, revision?, envelope? }`) for transports that classify inbound messages at the edge. It is not yet consulted during dispatch.
+
 **Before (v2 alpha):**
 
 ```typescript

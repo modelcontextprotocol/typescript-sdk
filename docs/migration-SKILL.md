@@ -515,6 +515,8 @@ Task methods are excluded from the typed method maps: `RequestMethod`/`RequestTy
 | `Result['resultType']` type reference | remove; the member is no longer declared                                          |
 | return-type capture of `callTool` etc. | use the named public types (`CallToolResult`, `ListToolsResult`, …)              |
 
+Runtime counterpart (no code change needed for conforming 2025-era peers): inbound reserved envelope keys are lifted out of `params._meta` before handlers run (readable at `ctx.mcpReq.envelope`); retry fields lift to `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState`; a response carrying a non-`complete` `resultType` rejects with `SdkError` code `UNSUPPORTED_RESULT_TYPE` (kind in `error.data.resultType`); `MessageExtraInfo.classification` is a new optional carrier field.
+
 ## 13. Behavioral Changes
 
 ### Client

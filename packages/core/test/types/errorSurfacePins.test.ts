@@ -74,6 +74,7 @@ describe('SdkErrorCode', () => {
             ConnectionClosed: 'CONNECTION_CLOSED',
             SendFailed: 'SEND_FAILED',
             InvalidResult: 'INVALID_RESULT',
+            UnsupportedResultType: 'UNSUPPORTED_RESULT_TYPE',
             ClientHttpNotImplemented: 'CLIENT_HTTP_NOT_IMPLEMENTED',
             ClientHttpAuthentication: 'CLIENT_HTTP_AUTHENTICATION',
             ClientHttpForbidden: 'CLIENT_HTTP_FORBIDDEN',

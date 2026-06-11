@@ -90,6 +90,9 @@ export type BaseContext = {
         id: RequestId;
         method: string;
         _meta?: RequestMeta;
+        envelope?: RequestMetaEnvelope;
+        inputResponses?: Record<string, unknown>;
+        requestState?: string;
         signal: AbortSignal;
         send: {
             <M extends RequestMethod>(request: {
@@ -4417,8 +4420,16 @@ export class McpServer {
 }
 
 // @public
+export interface MessageClassification {
+    envelope?: RequestMetaEnvelope;
+    era: 'legacy' | 'modern';
+    revision?: string;
+}
+
+// @public
 export interface MessageExtraInfo {
     authInfo?: AuthInfo;
+    classification?: MessageClassification;
     closeSSEStream?: () => void;
     closeStandaloneSSEStream?: () => void;
     request?: globalThis.Request;
@@ -6365,6 +6376,7 @@ export enum SdkErrorCode {
     NotInitialized = "NOT_INITIALIZED",
     RequestTimeout = "REQUEST_TIMEOUT",
     SendFailed = "SEND_FAILED",
+    UnsupportedResultType = "UNSUPPORTED_RESULT_TYPE",
 }
 
 // @public
