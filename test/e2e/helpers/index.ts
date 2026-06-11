@@ -20,6 +20,7 @@ import { InMemoryTransport, ReadBuffer, serializeMessage, WebStandardStreamableH
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
 import type { Transport } from '../types.js';
+import { activeCellIsLegacyEra, assertNoDraftHeaders } from './draft-leak.js';
 import { startLegacySseHost } from './sse-host.js';
 import type { SnifferOptions } from './wire-sniffer.js';
 import { sniffTransport } from './wire-sniffer.js';
@@ -59,7 +60,20 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
         case 'streamableHttpStateless': {
             const handle = transport === 'streamableHttpStateless' ? hostStateless(makeServer) : hostPerSession(makeServer);
             const url = new URL('http://in-process/mcp');
-            const fetch = (u: URL | string, init?: RequestInit) => handle.handleRequest(new Request(u, init));
+            // On legacy-era cells, both HTTP directions are also checked for
+            // draft-spec (2026-07-28) headers — the message bodies are covered
+            // by the wire sniffer (see draft-leak.ts).
+            const fetch = async (u: URL | string, init?: RequestInit) => {
+                const request = new Request(u, init);
+                if (sniff.allowDraftVocabulary !== true && activeCellIsLegacyEra()) {
+                    assertNoDraftHeaders(request.headers, 'client → server HTTP request headers');
+                }
+                const response = await handle.handleRequest(request);
+                if (sniff.allowDraftVocabulary !== true && activeCellIsLegacyEra()) {
+                    assertNoDraftHeaders(response.headers, 'server → client HTTP response headers');
+                }
+                return response;
+            };
             await client.connect(sniffTransport(new StreamableHTTPClientTransport(url, { fetch }), 'client', sniff));
             return {
                 fetch,

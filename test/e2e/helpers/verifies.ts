@@ -20,6 +20,7 @@ import { describe, test } from 'vitest';
 import { REQUIREMENTS } from '../requirements.js';
 import type { TestArgs } from '../types.js';
 import { ALL_SPEC_VERSIONS, ALL_TRANSPORTS } from '../types.js';
+import { runWithCellSpecVersion } from './draft-leak.js';
 
 type TestBody = (args: TestArgs) => Promise<void>;
 
@@ -49,6 +50,9 @@ function registerOne(id: string, fn: TestBody, opts?: { title?: string }): void 
                 (k.specVersion === undefined || k.specVersion === protocolVersion)
         );
         const run = kf ? test.fails : test;
-        run(opts?.title ?? 'verifies', () => fn({ transport, protocolVersion }), 15_000);
+        // Scoping the cell's spec version into the harness lets the wire sniffer
+        // and HTTP hosting apply the draft-vocabulary leak assertion to exactly
+        // the legacy-era cells (see draft-leak.ts).
+        run(opts?.title ?? 'verifies', () => runWithCellSpecVersion(protocolVersion, () => fn({ transport, protocolVersion })), 15_000);
     });
 }

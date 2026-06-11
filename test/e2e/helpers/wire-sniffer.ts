@@ -15,6 +15,8 @@ import {
     isSpecType
 } from '@modelcontextprotocol/server';
 
+import { activeCellIsLegacyEra, assertNoDraftVocabulary } from './draft-leak.js';
+
 export type WireParty = 'client' | 'server';
 
 export interface SnifferOptions {
@@ -22,6 +24,13 @@ export interface SnifferOptions {
     allowCustomMethods?: boolean;
     /** `false` → envelope check only (for tests that deliberately send malformed messages). */
     strictValidation?: boolean;
+    /**
+     * Permit draft-spec (2026-07-28) vocabulary on a legacy-era exchange (for
+     * tests that deliberately put draft vocabulary on the wire). By default the
+     * sniffer asserts that no draft vocabulary appears on 2025-era exchanges
+     * (see draft-leak.ts).
+     */
+    allowDraftVocabulary?: boolean;
 }
 
 const OUTBOUND = {
@@ -107,9 +116,16 @@ export function assertWireMessage(msg: unknown, party: WireParty, opts: SnifferO
 export function sniffTransport<T extends Transport>(transport: T, party: WireParty, opts: SnifferOptions = {}): T {
     const counterpart: WireParty = party === 'client' ? 'server' : 'client';
 
+    const assertNoLeak = (message: unknown, sender: WireParty) => {
+        if (opts.allowDraftVocabulary !== true && activeCellIsLegacyEra()) {
+            assertNoDraftVocabulary(message, `${sender} → ${sender === 'client' ? 'server' : 'client'} JSON-RPC message`);
+        }
+    };
+
     const origSend = transport.send.bind(transport);
     transport.send = (message, sendOpts) => {
         assertWireMessage(message, party, opts);
+        assertNoLeak(message, party);
         return origSend(message, sendOpts);
     };
 
@@ -125,6 +141,7 @@ export function sniffTransport<T extends Transport>(transport: T, party: WirePar
             handler = next
                 ? (message, extra) => {
                       assertWireMessage(message, counterpart, opts);
+                      assertNoLeak(message, counterpart);
                       return next(message, extra);
                   }
                 : next;
