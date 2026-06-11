@@ -59,6 +59,31 @@ jobs:
             # The e2e suite has its own job below; everything else runs here.
             - run: pnpm -r --filter '!@modelcontextprotocol/test-e2e' test
 
+    api-report:
+        runs-on: ubuntu-latest
+
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+              id: pnpm-install
+              with:
+                  run_install: false
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+
+            - run: pnpm install
+
+            # Fails when the built public type surface of any package differs
+            # from its committed API report (packages/*/etc/*.api.md). To accept
+            # an intentional surface change: run `pnpm api-report`, review the
+            # report diff, and commit it. See the header of scripts/generate-api-reports.ts.
+            - run: pnpm run api-report:check
+
     test-e2e:
         runs-on: ubuntu-latest
         strategy:
