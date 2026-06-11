@@ -4,7 +4,9 @@
  * postures are ruled per era by Q1-SD3).
  *
  * A raw relay server (no SDK Server involved) answers tools/call with hand
- * built bodies. The negotiated protocol version selects the wire era:
+ * built bodies. The negotiated protocol version selects the wire era; the
+ * modern arms negotiate it through the real path (versionNegotiation +
+ * server/discover — a 2026 revision is never negotiated via initialize):
  *
  *  - Negotiated 2026-07-28: `resultType` is the REQUIRED discriminator. An
  *    `input_required` body surfaces the discriminated kind as a typed local
@@ -54,6 +56,15 @@ function makeResponder(toolCallBody: unknown) {
         if (request.method === 'initialize') {
             const requested = (request.params as { protocolVersion?: string } | undefined)?.protocolVersion ?? LATEST_PROTOCOL_VERSION;
             return initializeResult(requested);
+        }
+        if (request.method === 'server/discover') {
+            // The modern handshake: the relay advertises the draft revision so a
+            // negotiating client selects it (no initialize on that path).
+            return {
+                supportedVersions: ['2026-07-28'],
+                capabilities: { tools: {} },
+                serverInfo: { name: 'raw-input-required-server', version: '0' }
+            };
         }
         if (request.method === 'tools/call') return toolCallBody;
         return {};
@@ -116,10 +127,14 @@ verifies('typescript:client:raw-result-type-first', async ({ transport }: TestAr
         }
     }
 
-    // ---- Modern negotiation: the client opts into the draft revision, the
-    // relay echoes it back → 2026 era → V-1 discrimination in the codec. ----
+    // ---- Modern negotiation: the client pins the draft revision, the relay
+    // advertises it via server/discover → 2026 era → V-1 discrimination in
+    // the codec. ----
     {
-        const client = new Client({ name: 'raw-result-type-client', version: '0' }, { supportedProtocolVersions: ['2026-07-28'] });
+        const client = new Client(
+            { name: 'raw-result-type-client', version: '0' },
+            { versionNegotiation: { mode: { pin: '2026-07-28' } } }
+        );
         await (transport === 'inMemory'
             ? connectInMemory(client, INPUT_REQUIRED_BODY)
             : connectStreamableHttp(client, INPUT_REQUIRED_BODY));
@@ -141,7 +156,10 @@ verifies('typescript:client:raw-result-type-first', async ({ transport }: TestAr
     // surfaced as a typed error naming it (Q1-SD3 i — the absent⇒complete
     // bridge applies only to earlier-revision servers). ----
     {
-        const client = new Client({ name: 'raw-result-type-client', version: '0' }, { supportedProtocolVersions: ['2026-07-28'] });
+        const client = new Client(
+            { name: 'raw-result-type-client', version: '0' },
+            { versionNegotiation: { mode: { pin: '2026-07-28' } } }
+        );
         await (transport === 'inMemory'
             ? connectInMemory(client, ABSENT_RESULT_TYPE_BODY)
             : connectStreamableHttp(client, ABSENT_RESULT_TYPE_BODY));

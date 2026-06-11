@@ -2193,7 +2193,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'An app created by createMcpExpressApp() with the default localhost host applies DNS-rebinding protection: a request whose Host header is not an allowed local host is rejected with 403 before reaching the MCP transport.',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+        note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. The allowed-host control asserts initialize semantics per spec version: a 2026-era request is answered with the latest legacy version, since 2026-era revisions are never negotiated via initialize.'
     },
     'custom-methods:server-handler:roundtrip': {
         source: 'sdk',
@@ -2384,14 +2384,15 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'transport:standalone:raw-relay': {
         source: 'sdk',
         behavior:
-            'Client and server transports can be driven directly (start/send/onmessage/onclose/onerror) without wrapping them in a Client or Server, supporting message-relay proxies.'
+            'Client and server transports can be driven directly (start/send/onmessage/onclose/onerror) without wrapping them in a Client or Server, supporting message-relay proxies.',
+        note: 'Against real SDK servers the relayed initialize negotiates per initialize semantics: a 2026-era request is answered with the latest legacy version, since 2026-era revisions are never negotiated via initialize.'
     },
     'transport:custom:client-connect': {
         source: 'sdk',
         behavior:
             'Client.connect accepts any consumer-implemented object satisfying the Transport interface and completes the handshake over it.',
         transports: ['inMemory'],
-        note: 'The test supplies its own custom Transport implementation, so the matrix transport arg is ignored; it runs as a single inMemory-labelled cell to avoid duplicate runs.'
+        note: 'The test supplies its own custom Transport implementation, so the matrix transport arg is ignored; it runs as a single inMemory-labelled cell to avoid duplicate runs. On 2026-era cells the handshake is the server/discover negotiation (opted into via versionNegotiation); on 2025-era cells it is the plain initialize exchange.'
     },
     'protocol:transport-callbacks:wrappable-after-connect': {
         source: 'sdk',
