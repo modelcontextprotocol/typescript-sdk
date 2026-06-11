@@ -58,6 +58,12 @@ note: 'stateless hosting has no server→client back-channel'
 `addedInSpecVersion` / `removedInSpecVersion` bound the spec versions a requirement applies to. A behavior changed by a spec release gets a sibling entry: the new entry lists every retired id it replaces in `supersedes` (an array, requires `addedInSpecVersion`), and each retired
 entry points back via `supersededBy` (requires `removedInSpecVersion`). A coverage gate enforces that the links resolve and are exactly symmetric.
 
+## Draft-vocabulary leak assertion
+
+The harness enforces that draft-spec (2026-07-28) vocabulary never appears on 2025-era exchanges: the wire sniffer checks every JSON-RPC message, the HTTP legs and a global-fetch setup check headers and JSON bodies. The negative set (`helpers/draft-vocabulary.ts`) is derived from
+the spec sources — never hand-edited; regenerate with `pnpm generate:draft-vocabulary --spec-dir <spec-checkout>` (or pass a spec-repo commit SHA to fetch from GitHub). Cells registered for a future spec-version axis are exempt automatically; a test that must deliberately put
+draft vocabulary on a 2025-era wire passes `{ allowDraftVocabulary: true }` as `wire()`'s sniffer options.
+
 ## Running
 
 From the repo root (the suite is the `@modelcontextprotocol/test-e2e` workspace package):
