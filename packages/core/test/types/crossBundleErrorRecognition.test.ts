@@ -21,12 +21,7 @@ import type { BaseContext } from '../../src/shared/protocol.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import { InMemoryTransport } from '../../src/util/inMemory.js';
 import type { JSONRPCRequest } from '../../src/types/index.js';
-import {
-    ProtocolError,
-    ProtocolErrorCode,
-    UnsupportedProtocolVersionError,
-    UrlElicitationRequiredError
-} from '../../src/types/index.js';
+import { ProtocolError, ProtocolErrorCode, UnsupportedProtocolVersionError, UrlElicitationRequiredError } from '../../src/types/index.js';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}
@@ -107,14 +102,16 @@ describe('cross-bundle typed-error recognition (data parse, never instanceof)', 
         const original = new UrlElicitationRequiredError([
             { mode: 'url', message: 'visit', url: 'https://example.com/elicit', elicitationId: 'e1' }
         ]);
-        const wireShape = JSON.parse(
-            JSON.stringify({ code: original.code, message: original.message, data: original.data })
-        ) as { code: number; message: string; data: unknown };
+        const wireShape = JSON.parse(JSON.stringify({ code: original.code, message: original.message, data: original.data })) as {
+            code: number;
+            message: string;
+            data: unknown;
+        };
 
         const recognized = ProtocolError.fromError(wireShape.code, wireShape.message, wireShape.data);
         expect(recognized).toBeInstanceOf(UrlElicitationRequiredError);
         expect((recognized as UrlElicitationRequiredError).elicitations).toHaveLength(1);
-        expect((recognized as UrlElicitationRequiredError).elicitations[0].url).toBe('https://example.com/elicit');
+        expect((recognized as UrlElicitationRequiredError).elicitations[0]?.url).toBe('https://example.com/elicit');
     });
 
     test('structurally invalid data falls back to the generic class — no guess, no throw', () => {
