@@ -1420,7 +1420,11 @@ export async function startAuthorization(
         // if the request includes the OIDC-only "offline_access" scope,
         // we need to set the prompt to "consent" to ensure the user is prompted to grant offline access
         // https://openid.net/specs/openid-connect-core-1_0.html#OfflineAccess
-        authorizationUrl.searchParams.append('prompt', 'consent');
+        // Use .set() not .append(): RFC 6749 §3.1 forbids duplicate params, and the
+        // authorization_endpoint may already include a prompt value. Azure AD also rejects the
+        // OIDC space-delimited list form (AADSTS90023), so a single value is the only portable
+        // option; consent is required for offline_access per OIDC §11.
+        authorizationUrl.searchParams.set('prompt', 'consent');
     }
 
     if (resource) {
