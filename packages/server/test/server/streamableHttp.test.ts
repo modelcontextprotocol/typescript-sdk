@@ -705,6 +705,74 @@ describe('Zod v4', () => {
             // Should have id: field in the SSE event
             expect(text).toContain('id:');
         });
+
+        it('should replay a terminal POST SSE response after closeSSEStream disconnects the request stream', async () => {
+            sessionId = await initializeServer();
+
+            mcpServer.registerTool('close-and-complete', { description: 'Disconnects request SSE and completes later' }, async ctx => {
+                ctx.http?.closeSSE?.();
+                return {
+                    content: [{ type: 'text', text: 'Done after reconnect' }]
+                };
+            });
+
+            const request = createRequest(
+                'POST',
+                {
+                    jsonrpc: '2.0',
+                    id: 'tool-close-1',
+                    method: 'tools/call',
+                    params: { name: 'close-and-complete', arguments: {} }
+                } as JSONRPCMessage,
+                { sessionId }
+            );
+            const response = await transport.handleRequest(request);
+
+            expect(response.status).toBe(200);
+
+            const reader = response.body?.getReader();
+            const { value } = await reader!.read();
+            const text = new TextDecoder().decode(value);
+            const idMatch = text.match(/id: ([^\n]+)/);
+            expect(idMatch).toBeTruthy();
+            const lastEventId = idMatch![1]!;
+
+            const closedRead = reader!.read();
+            const closedTimeout = new Promise<{ done: boolean; value: undefined }>((_, reject) =>
+                setTimeout(() => reject(new Error('POST SSE stream did not close in time')), 1000)
+            );
+            const { done } = await Promise.race([closedRead, closedTimeout]);
+            expect(done).toBe(true);
+
+            const reconnectResponse = await transport.handleRequest(
+                createRequest('GET', undefined, {
+                    sessionId,
+                    extraHeaders: {
+                        'last-event-id': lastEventId
+                    }
+                })
+            );
+            expect(reconnectResponse.status).toBe(200);
+
+            const reconnectReader = reconnectResponse.body?.getReader();
+            let replayedText = '';
+            const replayTimeout = setTimeout(() => reconnectReader!.cancel(), 2000);
+            try {
+                while (!replayedText.includes('Done after reconnect')) {
+                    const { value, done } = await reconnectReader!.read();
+                    if (done) break;
+                    replayedText += new TextDecoder().decode(value);
+                }
+            } finally {
+                clearTimeout(replayTimeout);
+            }
+
+            expect(replayedText).toContain('Done after reconnect');
+            expect(parseSSEData(replayedText)).toMatchObject({
+                jsonrpc: '2.0',
+                id: 'tool-close-1'
+            });
+        });
     });
 
     describe('HTTPServerTransport - Protocol Version Validation', () => {

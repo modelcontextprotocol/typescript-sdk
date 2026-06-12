@@ -1002,14 +1002,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         const stream = this._streamMapping.get(streamId);
 
-        if (!this._enableJsonResponse && stream?.controller && stream?.encoder) {
-            // For SSE responses, generate event ID if event store is provided
-            let eventId: string | undefined;
+        let eventId: string | undefined;
+        if (!this._enableJsonResponse && this._eventStore) {
+            // Persist request-scoped SSE events even while the controller is
+            // temporarily disconnected so they can be replayed on reconnect.
+            eventId = await this._eventStore.storeEvent(streamId, message);
+        }
 
-            if (this._eventStore) {
-                eventId = await this._eventStore.storeEvent(streamId, message);
-            }
-            // Write the event to the response stream
+        if (!this._enableJsonResponse && stream?.controller && stream?.encoder) {
+            // Write the event to the active response stream when available.
             this.writeSSEEvent(stream.controller, stream.encoder, message, eventId);
         }
 
@@ -1021,10 +1022,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             const allResponsesReady = relatedIds.every(id => this._requestResponseMap.has(id));
 
             if (allResponsesReady) {
-                if (!stream) {
-                    throw new Error(`No connection established for request ID: ${String(requestId)}`);
-                }
-                if (this._enableJsonResponse && stream.resolveJson) {
+                if (this._enableJsonResponse) {
+                    if (!stream?.resolveJson) {
+                        throw new Error(`No connection established for request ID: ${String(requestId)}`);
+                    }
                     // All responses ready, send as JSON
                     const headers: Record<string, string> = {
                         'Content-Type': 'application/json'
@@ -1040,9 +1041,11 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                     } else {
                         stream.resolveJson(Response.json(responses, { status: 200, headers }));
                     }
-                } else {
+                } else if (stream) {
                     // End the SSE stream
                     stream.cleanup();
+                } else if (!this._eventStore) {
+                    throw new Error(`No connection established for request ID: ${String(requestId)}`);
                 }
                 // Clean up
                 for (const id of relatedIds) {
