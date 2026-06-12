@@ -2,7 +2,7 @@ name: Conformance Tests
 
 on:
     push:
-        branches: [main]
+        branches: [main, v2-2026-07-28]
     pull_request:
     workflow_dispatch:
 
