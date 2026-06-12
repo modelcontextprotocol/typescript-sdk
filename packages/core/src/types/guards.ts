@@ -72,6 +72,12 @@ export const isJSONRPCResponse = (value: unknown): value is JSONRPCResponse => J
 
 /**
  * Checks if a value is a valid {@linkcode CallToolResult}.
+ *
+ * This is a consumer-side VALUE check against the neutral model, not a wire
+ * validator: a raw wire object that additionally carries wire-only members
+ * (e.g. `resultType`) still passes through the loose index signature. Use a
+ * transport-level parse to validate raw wire traffic.
+ *
  * @param value - The value to check.
  *
  * @returns True if the value is a valid {@linkcode CallToolResult}, false otherwise.

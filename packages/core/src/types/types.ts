@@ -4,6 +4,27 @@
 
 import type * as z from 'zod/v4';
 
+// Wire-module schema imports, TYPE-ONLY (erased at runtime): the deprecated
+// task vocabulary and the per-request envelope are wire-era artifacts whose
+// schemas live in the codec modules; their inferred TYPES stay importable
+// from this neutral layer (Q1-SD2).
+import type {
+    CancelTaskRequestSchema,
+    CancelTaskResultSchema,
+    CreateTaskResultSchema,
+    GetTaskPayloadRequestSchema,
+    GetTaskPayloadResultSchema,
+    GetTaskRequestSchema,
+    GetTaskResultSchema,
+    ListTasksRequestSchema,
+    ListTasksResultSchema,
+    TaskCreationParamsSchema,
+    TaskSchema,
+    TaskStatusNotificationParamsSchema,
+    TaskStatusNotificationSchema,
+    TaskStatusSchema
+} from '../wire/rev2025-11-25/schemas.js';
+import type { RequestMetaEnvelopeSchema } from '../wire/rev2026-07-28/schemas.js';
 import type { INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR } from './constants.js';
 import type {
     AnnotationsSchema,
@@ -17,8 +38,6 @@ import type {
     CallToolResultSchema,
     CancelledNotificationParamsSchema,
     CancelledNotificationSchema,
-    CancelTaskRequestSchema,
-    CancelTaskResultSchema,
     ClientCapabilitiesSchema,
     ClientNotificationSchema,
     ClientRequestSchema,
@@ -32,7 +51,6 @@ import type {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    CreateTaskResultSchema,
     CursorSchema,
     DiscoverRequestSchema,
     DiscoverResultSchema,
@@ -49,10 +67,6 @@ import type {
     GetPromptRequestParamsSchema,
     GetPromptRequestSchema,
     GetPromptResultSchema,
-    GetTaskPayloadRequestSchema,
-    GetTaskPayloadResultSchema,
-    GetTaskRequestSchema,
-    GetTaskResultSchema,
     IconSchema,
     IconsSchema,
     ImageContentSchema,
@@ -74,8 +88,6 @@ import type {
     ListResourceTemplatesResultSchema,
     ListRootsRequestSchema,
     ListRootsResultSchema,
-    ListTasksRequestSchema,
-    ListTasksResultSchema,
     ListToolsRequestSchema,
     ListToolsResultSchema,
     LoggingLevelSchema,
@@ -106,7 +118,6 @@ import type {
     ReadResourceResultSchema,
     RelatedTaskMetadataSchema,
     RequestIdSchema,
-    RequestMetaEnvelopeSchema,
     RequestMetaSchema,
     RequestSchema,
     ResourceContentsSchema,
@@ -136,12 +147,7 @@ import type {
     SubscribeRequestParamsSchema,
     SubscribeRequestSchema,
     TaskAugmentedRequestParamsSchema,
-    TaskCreationParamsSchema,
     TaskMetadataSchema,
-    TaskSchema,
-    TaskStatusNotificationParamsSchema,
-    TaskStatusNotificationSchema,
-    TaskStatusSchema,
     TextContentSchema,
     TextResourceContentsSchema,
     TitledMultiSelectEnumSchemaSchema,
@@ -589,6 +595,36 @@ export type ListChangedHandlers = {
 };
 
 /**
+ * Protocol-era classification of an inbound message.
+ *
+ * Populated by transports that classify messages at the edge (e.g. an HTTP
+ * entry distinguishing 2025-era from 2026-era traffic). The protocol layer
+ * consults it during dispatch to resolve the wire codec serving the exchange
+ * (classification wins over the session-negotiated version; unclassified
+ * traffic falls back to the session version, then legacy).
+ */
+export interface MessageClassification {
+    /**
+     * The wire era the message was classified into: `legacy` for the
+     * 2025-11-25 family of revisions, `modern` for 2026-07-28 and later.
+     */
+    era: 'legacy' | 'modern';
+
+    /**
+     * The exact protocol revision, when the classifier derived one.
+     */
+    revision?: string;
+
+    /**
+     * The per-request `_meta` envelope, when the classifier extracted it.
+     * Partial: whichever reserved keys the message actually carried —
+     * envelope requiredness is enforced per request at dispatch time, not at
+     * the classifying edge.
+     */
+    envelope?: Partial<RequestMetaEnvelope>;
+}
+
+/**
  * Extra information about a message.
  */
 export interface MessageExtraInfo {
@@ -596,6 +632,13 @@ export interface MessageExtraInfo {
      * The original HTTP request.
      */
     request?: globalThis.Request;
+
+    /**
+     * Protocol-era classification of the message, when the transport
+     * classified it at the edge. Consulted by the protocol layer's
+     * per-exchange codec resolution.
+     */
+    classification?: MessageClassification;
 
     /**
      * The authentication information.

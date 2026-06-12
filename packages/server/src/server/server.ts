@@ -34,14 +34,9 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
-    CallToolRequestSchema,
-    CallToolResultSchema,
-    CreateMessageResultSchema,
-    CreateMessageResultWithToolsSchema,
-    ElicitResultSchema,
-    EmptyResultSchema,
+    bindWireVersion,
+    codecForContext,
     LATEST_PROTOCOL_VERSION,
-    ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
     parseSchema,
@@ -190,7 +185,19 @@ export class Server extends Protocol<ServerContext> {
             return handler;
         }
         return async (request, ctx) => {
-            const validatedRequest = parseSchema(CallToolRequestSchema, request);
+            // Era-exact validation: the request and result schemas come from
+            // the request's codec, resolved at dispatch time (the era gate
+            // guarantees tools/call exists on the serving era).
+            const codec = codecForContext(ctx);
+            const callToolRequestSchema = codec.requestSchema('tools/call');
+            // The era registry entry IS the plain CallToolResult schema (the
+            // result map is aligned to the typed map — no widened unions),
+            // so no narrower surface is needed.
+            const callToolResultSchema = codec.resultSchema('tools/call');
+            if (!callToolRequestSchema || !callToolResultSchema) {
+                throw new ProtocolError(ProtocolErrorCode.InternalError, 'No wire schema for tools/call in the resolved era');
+            }
+            const validatedRequest = parseSchema(callToolRequestSchema, request);
             if (!validatedRequest.success) {
                 const errorMessage =
                     validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
@@ -199,14 +206,14 @@ export class Server extends Protocol<ServerContext> {
 
             const result = await handler(request, ctx);
 
-            const validationResult = parseSchema(CallToolResultSchema, result);
+            const validationResult = parseSchema(callToolResultSchema, result);
             if (!validationResult.success) {
                 const errorMessage =
                     validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
             }
 
-            return validationResult.data;
+            return validationResult.data as Result;
         };
     }
 
@@ -365,6 +372,10 @@ export class Server extends Protocol<ServerContext> {
             : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
         this._negotiatedProtocolVersion = protocolVersion;
+        // Session-level wire-era binding: the fallback codec source for
+        // hand-wired sessionful transports (per-request classification wins
+        // when present).
+        bindWireVersion(this, protocolVersion);
         this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
@@ -406,7 +417,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async ping(): Promise<EmptyResult> {
-        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema);
+        return this.request({ method: 'ping' });
     }
 
     /**
@@ -486,9 +497,17 @@ export class Server extends Protocol<ServerContext> {
 
         // Use different schemas based on whether tools are provided
         if (params.tools) {
-            return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
+            return this._requestWithNarrowSchema<CreateMessageResultWithTools>(
+                { method: 'sampling/createMessage', params },
+                'sampling/createMessage:withTools',
+                options
+            );
         }
-        return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
+        return this._requestWithNarrowSchema<CreateMessageResult>(
+            { method: 'sampling/createMessage', params },
+            'sampling/createMessage:plain',
+            options
+        );
     }
 
     /**
@@ -508,7 +527,9 @@ export class Server extends Protocol<ServerContext> {
                 }
 
                 const urlParams = params as ElicitRequestURLParams;
-                return this._requestWithSchema({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+                // Method-keyed request(): the era registry's plain
+                // ElicitResult schema is exactly the narrow surface.
+                return this.request({ method: 'elicitation/create', params: urlParams }, options);
             }
             case 'form': {
                 if (!this._clientCapabilities?.elicitation?.form) {
@@ -518,11 +539,7 @@ export class Server extends Protocol<ServerContext> {
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
-                const result = await this._requestWithSchema(
-                    { method: 'elicitation/create', params: formParams },
-                    ElicitResultSchema,
-                    options
-                );
+                const result = await this.request({ method: 'elicitation/create', params: formParams }, options);
 
                 if (result.action === 'accept' && result.content && formParams.requestedSchema) {
                     try {
@@ -579,7 +596,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions): Promise<ListRootsResult> {
-        return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
+        return this.request({ method: 'roots/list', params }, options);
     }
 
     /**
