@@ -503,9 +503,18 @@ The 2025-11 task side-channel through `Protocol` is removed (was always `@experi
 
 NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task members of the request/result/notification unions, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
 
-## 13. Client Behavioral Changes
+## 13. Behavioral Changes
+
+### Client
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
+
+### Server (Streamable HTTP transport)
+
+No code changes required; these are wire-behavior notes:
+
+- Resumability behavior (SSE priming events, `closeSSEStream` / `closeStandaloneSSEStream` callbacks) is only enabled for protocol versions in the transport's supported-versions list that are `>= 2025-11-25`. Unknown future version strings in an `initialize` request body no longer enable it. Behavior for all currently supported protocol versions is unchanged.
+- Session-ID mismatch still responds `404 Not Found` with JSON-RPC error code `-32001` (`Session not found`), unchanged from v1. This `-32001` usage is an SDK convention, not a spec-assigned code, and may be re-derived as 2026 protocol revision error handling is adopted — migrated client code should key off the HTTP `404` status, not the `-32001` code.
 
 ## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
