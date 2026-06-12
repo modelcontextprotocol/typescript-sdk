@@ -2,7 +2,7 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
-import { McpServer } from '../../src/index.js';
+import { McpServer, ResourceTemplate } from '../../src/index.js';
 import type { InferRawShape } from '../../src/server/mcp.js';
 import { completable } from '../../src/server/completable.js';
 
@@ -125,5 +125,71 @@ describe('InferRawShape', () => {
     it('preserves optionality from .optional() as ?: keys', () => {
         type S = InferRawShape<{ a: z.ZodString; b: z.ZodOptional<z.ZodString> }>;
         expectTypeOf<S>().toEqualTypeOf<{ a: string; b?: string | undefined }>();
+    });
+});
+
+describe('registered item key updates', () => {
+    it('tracks the current tool name across repeated renames and removal', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        const tool = server.registerTool('first', {}, async () => ({
+            content: [{ type: 'text' as const, text: 'ok' }]
+        }));
+
+        tool.update({ name: 'second' });
+        tool.update({ name: 'third' });
+
+        const tools = (server as unknown as { _registeredTools: Record<string, unknown> })._registeredTools;
+        expect(Object.keys(tools)).toEqual(['third']);
+
+        tool.remove();
+        expect(Object.keys(tools)).toEqual([]);
+    });
+
+    it('tracks the current prompt name across repeated renames and removal', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        const prompt = server.registerPrompt('first', {}, async () => ({
+            messages: [{ role: 'user' as const, content: { type: 'text' as const, text: 'ok' } }]
+        }));
+
+        prompt.update({ name: 'second' });
+        prompt.update({ name: 'third' });
+
+        const prompts = (server as unknown as { _registeredPrompts: Record<string, unknown> })._registeredPrompts;
+        expect(Object.keys(prompts)).toEqual(['third']);
+
+        prompt.remove();
+        expect(Object.keys(prompts)).toEqual([]);
+    });
+
+    it('tracks the current static resource URI across repeated URI updates and removal', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        const resource = server.registerResource('resource', 'file:///first', {}, async uri => ({
+            contents: [{ uri: uri.href, text: 'ok' }]
+        }));
+
+        resource.update({ uri: 'file:///second' });
+        resource.update({ uri: 'file:///third' });
+
+        const resources = (server as unknown as { _registeredResources: Record<string, unknown> })._registeredResources;
+        expect(Object.keys(resources)).toEqual(['file:///third']);
+
+        resource.remove();
+        expect(Object.keys(resources)).toEqual([]);
+    });
+
+    it('tracks the current resource template name across repeated renames and removal', () => {
+        const server = new McpServer({ name: 't', version: '1.0.0' });
+        const template = server.registerResource('first', new ResourceTemplate('file:///{id}', { list: undefined }), {}, async uri => ({
+            contents: [{ uri: uri.href, text: 'ok' }]
+        }));
+
+        template.update({ name: 'second' });
+        template.update({ name: 'third' });
+
+        const templates = (server as unknown as { _registeredResourceTemplates: Record<string, unknown> })._registeredResourceTemplates;
+        expect(Object.keys(templates)).toEqual(['third']);
+
+        template.remove();
+        expect(Object.keys(templates)).toEqual([]);
     });
 });
