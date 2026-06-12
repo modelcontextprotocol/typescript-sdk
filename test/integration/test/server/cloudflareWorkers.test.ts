@@ -179,13 +179,32 @@ export default {
     });
 
     it('should handle MCP requests', async () => {
-        const client = new Client({ name: 'test-client', version: '1.0.0' });
-        const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${PORT}/`));
-        await client.connect(transport);
-
-        const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
-        expect(result.content).toEqual([{ type: 'text', text: 'Hello, World!' }]);
-
-        await client.close();
+        // Retry the full interaction — wrangler may report "Ready" before it can
+        // reliably handle all requests (initialize succeeds but subsequent calls
+        // can still get "Network connection lost." on slower runtimes like Node 20).
+        // Only transport/connection errors are retried; assertion failures re-throw immediately.
+        let lastError: unknown;
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const client = new Client({ name: 'test-client', version: '1.0.0' });
+            const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${PORT}/`));
+            try {
+                await client.connect(transport);
+                const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
+                expect(result.content).toEqual([{ type: 'text', text: 'Hello, World!' }]);
+                await client.close();
+                return;
+            } catch (error) {
+                // Re-throw assertion failures immediately — only retry transport errors.
+                if (error instanceof Error && 'matcherResult' in error) throw error;
+                lastError = error;
+                try {
+                    await client.close();
+                } catch {
+                    /* ignore cleanup errors */
+                }
+                if (attempt < 4) await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+        throw lastError;
     }, 30_000);
 });
