@@ -17,7 +17,7 @@ export * from './util/inMemory.js';
 export * from './util/schema.js';
 export * from './util/standardSchema.js';
 export * from './util/zodCompat.js';
-export { bindWireVersion, codecForContext } from './wire/codec.js';
+export { bindWireVersion, codecForContext, unbindWireVersion } from './wire/codec.js';
 
 // Validator providers are type-only here — import the runtime classes from the explicit
 // `@modelcontextprotocol/{core,client,server}/validators/{ajv,cf-worker}` subpaths to customise.

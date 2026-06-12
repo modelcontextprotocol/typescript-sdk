@@ -218,6 +218,19 @@ export function bindWireVersion(owner: object, version: string | undefined): voi
     outboundWireVersion.set(owner, version);
 }
 
+/**
+ * Clear a protocol instance's outbound wire-version binding. Called at the
+ * start of a FRESH connect (no session to resume): the binding is connection
+ * state, and a binding left over from a previous connection must not route
+ * the new connection's lifecycle messages — an unbound instance is
+ * legacy-era and its `initialize` rides the bootstrap pin. The resume path
+ * (transport with a sessionId) deliberately does NOT clear: it re-binds the
+ * originally negotiated version instead.
+ */
+export function unbindWireVersion(owner: object): void {
+    outboundWireVersion.delete(owner);
+}
+
 /** The codec serving a protocol instance's outbound traffic (legacy when unbound). */
 export function outboundCodecFor(owner: object): WireCodec {
     return codecForVersion(outboundWireVersion.get(owner));

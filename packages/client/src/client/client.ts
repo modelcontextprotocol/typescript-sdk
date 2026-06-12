@@ -56,7 +56,8 @@ import {
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    unbindWireVersion
 } from '@modelcontextprotocol/core';
 
 /**
@@ -450,6 +451,14 @@ export class Client extends Protocol<ClientContext> {
             }
             return;
         }
+        // Fresh connect: a wire-era binding left over from a previous
+        // connection is stale connection state — clear it so the initialize
+        // handshake below rides the pre-negotiation bootstrap pin (legacy
+        // era) instead of a dead session's era. Without this, an instance
+        // that once negotiated a modern era could never re-run a fresh
+        // handshake: `initialize` is physically absent from the modern
+        // registry. (The resume branch above re-binds instead of clearing.)
+        unbindWireVersion(this);
         try {
             const result = await this.request(
                 {
