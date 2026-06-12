@@ -7,16 +7,103 @@
 
 import type { ChildProcess } from 'node:child_process';
 import { execSync, spawn } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
+import { createRequire } from 'node:module';
+import * as net from 'node:net';
 import * as os from 'node:os';
 import path from 'node:path';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-const PORT = 8787;
 const READINESS_TIMEOUT_MS = 60_000;
 const READINESS_POLL_INTERVAL_MS = 100;
+const SHUTDOWN_GRACE_MS = 5000;
+
+/**
+ * Embedded in the worker's `serverInfo.version` and asserted by the readiness probe, so a
+ * leftover server from an earlier run can never satisfy the probe for this run.
+ */
+const SERVER_VERSION_NONCE = randomUUID();
+
+/**
+ * The workspace's own wrangler installation (pinned by pnpm-lock). Running it directly —
+ * instead of `npm install`-ing wrangler into the temp project and going through `npx` —
+ * keeps the wrangler version deterministic, avoids a ~90MB download per test run, and
+ * removes two shell layers from the spawned process tree. Resolved through the package's
+ * `bin` field rather than a hardcoded internal file path.
+ */
+const WRANGLER_BIN = (() => {
+    const pkgPath = createRequire(import.meta.url).resolve('wrangler/package.json');
+    const bin = (JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { bin: Record<string, string> }).bin.wrangler;
+    return path.resolve(path.dirname(pkgPath), bin);
+})();
+
+/** Ask the kernel for a currently-free port instead of hardcoding one. */
+async function getFreePort(): Promise<number> {
+    return new Promise((resolve, reject) => {
+        const probe = net.createServer();
+        probe.unref();
+        probe.on('error', reject);
+        probe.listen(0, '127.0.0.1', () => {
+            const { port } = probe.address() as net.AddressInfo;
+            probe.close(() => resolve(port));
+        });
+    });
+}
+
+/**
+ * Kill the whole `wrangler dev` process tree.
+ *
+ * `wrangler dev` fans out into several processes (wrangler bin shim → wrangler CLI →
+ * esbuild service + two workerd instances), and non-interactive wrangler installs no
+ * SIGTERM handler that would dispose them. Signalling just `proc.pid` kills the top of
+ * the tree and orphans workerd, which keeps running — and keeps its port bound —
+ * indefinitely. So the process is spawned `detached` (own process group) and the whole
+ * group is signalled here, with a SIGKILL sweep afterwards because a wedged workerd can
+ * ignore SIGTERM. Orphaned workerd is a known recurring wrangler bug class (e.g.
+ * cloudflare/workers-sdk#9193); Cloudflare's own CI harness likewise tree-kills rather
+ * than trusting signal propagation.
+ *
+ * Caveat: if the test runner itself dies abruptly (`kill -9`, OOM), nothing here runs and
+ * the detached tree is orphaned; a process 'exit' guard in beforeAll covers ordinary
+ * fatal exits, and an orphan can't affect later runs (ephemeral port + readiness nonce).
+ */
+async function killWranglerTree(proc: ChildProcess): Promise<void> {
+    if (proc.pid === undefined) {
+        return;
+    }
+    if (process.platform === 'win32') {
+        try {
+            execSync(`taskkill /pid ${proc.pid} /T /F`, { stdio: 'ignore' });
+        } catch {
+            // Tree already gone
+        }
+        return;
+    }
+    try {
+        process.kill(-proc.pid, 'SIGTERM');
+    } catch {
+        // Group already gone
+    }
+    // Wait on 'exit', not 'close': surviving grandchildren inherit the stdio pipes, so
+    // 'close' can stay pending long after wrangler itself died.
+    if (proc.exitCode === null && proc.signalCode === null) {
+        await new Promise<void>(resolve => {
+            const timer = setTimeout(resolve, SHUTDOWN_GRACE_MS);
+            proc.once('exit', () => {
+                clearTimeout(timer);
+                resolve();
+            });
+        });
+    }
+    try {
+        process.kill(-proc.pid, 'SIGKILL');
+    } catch {
+        // Group already gone — the expected case after a clean SIGTERM shutdown
+    }
+}
 
 /**
  * Wait until the worker can serve a real MCP `initialize` request.
@@ -24,34 +111,48 @@ const READINESS_POLL_INTERVAL_MS = 100;
  * Wrangler's "Ready on …" stdout line is unreliable: miniflare can print it before the user
  * worker is actually wired, and subsequent POSTs come back as `500 Network connection lost` or
  * `ECONNREFUSED`. The only signal we can trust is "the server returned an MCP-shaped response
- * to a protocol request".
+ * to a protocol request" — and specifically a response carrying this run's
+ * {@link SERVER_VERSION_NONCE}, so a stale server from a previous run can't pass the probe.
  *
- * Polls the configured port with an MCP `initialize` POST every {@link READINESS_POLL_INTERVAL_MS}ms
- * until either a JSON-RPC result body comes back, the wrangler process exits, or
- * {@link READINESS_TIMEOUT_MS} elapses.
+ * Polls the given port with an MCP `initialize` POST every {@link READINESS_POLL_INTERVAL_MS}ms
+ * until either a matching JSON-RPC result body comes back, the wrangler process exits, or
+ * {@link READINESS_TIMEOUT_MS} elapses. Each probe is individually bounded so a wedged server
+ * that accepts connections but never responds can't stall the loop.
  */
-async function waitForMcpReady(proc: ChildProcess): Promise<void> {
+async function waitForMcpReady(proc: ChildProcess, port: number): Promise<void> {
     let stderrTail = '';
     proc.stderr?.on('data', d => {
         stderrTail = (stderrTail + d.toString()).slice(-2048);
     });
+    // Keep stdout flowing too: nothing reads it otherwise, and a full pipe buffer would make
+    // wrangler queue log writes in memory for as long as the server runs.
+    let stdoutTail = '';
+    proc.stdout?.on('data', d => {
+        stdoutTail = (stdoutTail + d.toString()).slice(-2048);
+    });
 
-    let processExitedWithCode: number | null = null;
-    proc.on('exit', code => {
-        processExitedWithCode = code ?? -1;
+    let processFailure: string | null = null;
+    proc.on('exit', (code, signal) => {
+        processFailure = signal === null ? `exited with code ${code ?? -1}` : `was killed by ${signal}`;
+    });
+    proc.on('error', error => {
+        processFailure = `failed to spawn: ${error.message}`;
     });
 
     const deadline = Date.now() + READINESS_TIMEOUT_MS;
     let lastFailure = 'no attempts made';
 
     while (Date.now() < deadline) {
-        if (processExitedWithCode !== null) {
-            throw new Error(`wrangler dev exited with code ${processExitedWithCode} before becoming ready.\nstderr tail:\n${stderrTail}`);
+        if (processFailure !== null) {
+            throw new Error(
+                `wrangler dev ${processFailure} before becoming ready.\nstdout tail:\n${stdoutTail}\nstderr tail:\n${stderrTail}`
+            );
         }
 
         try {
-            const response = await fetch(`http://127.0.0.1:${PORT}/`, {
+            const response = await fetch(`http://127.0.0.1:${port}/`, {
                 method: 'POST',
+                signal: AbortSignal.timeout(2000),
                 headers: {
                     'Content-Type': 'application/json',
                     Accept: 'application/json, text/event-stream'
@@ -68,7 +169,7 @@ async function waitForMcpReady(proc: ChildProcess): Promise<void> {
                 })
             });
             const body = await response.text();
-            if (response.ok && body.includes('"jsonrpc"') && body.includes('"result"')) {
+            if (response.ok && body.includes('"jsonrpc"') && body.includes('"result"') && body.includes(SERVER_VERSION_NONCE)) {
                 return;
             }
             lastFailure = `status=${response.status} body=${body.slice(0, 200)}`;
@@ -80,57 +181,77 @@ async function waitForMcpReady(proc: ChildProcess): Promise<void> {
     }
 
     throw new Error(
-        `Worker did not become ready within ${READINESS_TIMEOUT_MS}ms.\nLast probe: ${lastFailure}\nstderr tail:\n${stderrTail}`
+        `Worker did not become ready within ${READINESS_TIMEOUT_MS}ms.\nLast probe: ${lastFailure}\nstdout tail:\n${stdoutTail}\nstderr tail:\n${stderrTail}`
     );
 }
 
 describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
+    let port = 0;
     let cleanup: (() => Promise<void>) | null = null;
 
     beforeAll(async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-worker-test-'));
+        let proc: ChildProcess | null = null;
+        let orphanGuard: (() => void) | null = null;
 
-        // Pack server package
-        const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
-        const packOutput = execSync(`pnpm pack --pack-destination ${tempDir}`, {
-            cwd: serverPkgPath,
-            encoding: 'utf8'
-        });
-        const tarballName = path.basename(packOutput.trim().split('\n').pop()!);
-
-        // Write package.json
-        const pkgJson = {
-            name: 'cf-worker-test',
-            private: true,
-            type: 'module',
-            dependencies: {
-                '@modelcontextprotocol/server': `file:./${tarballName}`
-            },
-            devDependencies: {
-                wrangler: '^4.14.4'
+        // Registered before anything can fail (including a vitest hook timeout, which skips
+        // the catch below but still runs afterAll): kill the process tree, then the temp dir.
+        cleanup = async () => {
+            if (orphanGuard) {
+                process.removeListener('exit', orphanGuard);
+                orphanGuard = null;
+            }
+            if (proc) {
+                await killWranglerTree(proc);
+            }
+            try {
+                fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+            } catch {
+                // Ignore cleanup errors
             }
         };
-        fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
 
-        // Write wrangler config
-        const wranglerConfig = {
-            $schema: 'node_modules/wrangler/config-schema.json',
-            name: 'cf-worker-test',
-            main: 'server.ts',
-            compatibility_date: '2025-01-01'
-        };
-        fs.writeFileSync(path.join(tempDir, 'wrangler.jsonc'), JSON.stringify(wranglerConfig, null, 2));
+        try {
+            // Pack server package
+            const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
+            const packOutput = execSync(`pnpm pack --pack-destination "${tempDir}"`, {
+                cwd: serverPkgPath,
+                encoding: 'utf8',
+                timeout: 60_000
+            });
+            const tarballName = path.basename(packOutput.trim().split('\n').pop()!);
 
-        // Write server source
-        const serverSource = `
+            // Write package.json
+            const pkgJson = {
+                name: 'cf-worker-test',
+                private: true,
+                type: 'module',
+                dependencies: {
+                    '@modelcontextprotocol/server': `file:./${tarballName}`
+                }
+            };
+            fs.writeFileSync(path.join(tempDir, 'package.json'), JSON.stringify(pkgJson, null, 2));
+
+            // Write wrangler config
+            const wranglerConfig = {
+                name: 'cf-worker-test',
+                main: 'server.ts',
+                compatibility_date: '2025-01-01'
+            };
+            fs.writeFileSync(path.join(tempDir, 'wrangler.jsonc'), JSON.stringify(wranglerConfig, null, 2));
+
+            // Write server source
+            const serverSource = `
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { z } from 'zod';
 
-const server = new McpServer({ name: "test-server", version: "1.0.0" });
+const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" });
 
 server.registerTool("greet", {
-    description: "Greet someone"
-}, async (args) => ({
-    content: [{ type: "text", text: "Hello, " + (args.name || "World") + "!" }]
+    description: "Greet someone",
+    inputSchema: z.object({ name: z.string() })
+}, async ({ name }) => ({
+    content: [{ type: "text", text: "Hello, " + name + "!" }]
 }));
 
 const transport = new WebStandardStreamableHTTPServerTransport();
@@ -140,51 +261,56 @@ export default {
     fetch: (request) => transport.handleRequest(request)
 };
 `;
-        fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource);
+            fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource);
 
-        // Install dependencies
-        execSync('npm install', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
+            // Install dependencies (just the packed server tarball — wrangler comes from the
+            // workspace, see WRANGLER_BIN)
+            execSync('npm install --no-audit --no-fund --prefer-offline', { cwd: tempDir, stdio: 'pipe', timeout: 60_000 });
 
-        // Start wrangler dev server. Readiness is determined by probing the MCP endpoint, not by
-        // parsing wrangler's stdout — see waitForMcpReady for the reasoning.
-        const proc = spawn('npx', ['wrangler', 'dev', '--local', '--port', String(PORT)], {
-            cwd: tempDir,
-            shell: true,
-            stdio: 'pipe'
-        });
+            // Start wrangler dev directly from the workspace installation, in its own process
+            // group so the whole tree can be torn down — see killWranglerTree. Readiness is
+            // determined by probing the MCP endpoint, not by parsing wrangler's stdout — see
+            // waitForMcpReady for the reasoning.
+            port = await getFreePort();
+            proc = spawn(process.execPath, [WRANGLER_BIN, 'dev', '--local', '--port', String(port)], {
+                cwd: tempDir,
+                stdio: 'pipe',
+                detached: process.platform !== 'win32'
+            });
 
-        try {
-            await waitForMcpReady(proc);
+            // Best-effort orphan guard: if the runner dies without running afterAll
+            // (process.exit, fatal error), take the detached tree down with it. Signal
+            // deaths (SIGKILL, OOM) can't be intercepted — see killWranglerTree.
+            if (process.platform !== 'win32' && proc.pid !== undefined) {
+                const pgid = proc.pid;
+                orphanGuard = () => {
+                    try {
+                        process.kill(-pgid, 'SIGKILL');
+                    } catch {
+                        // Tree already gone
+                    }
+                };
+                process.once('exit', orphanGuard);
+            }
+
+            await waitForMcpReady(proc, port);
         } catch (error) {
-            proc.kill('SIGTERM');
+            await cleanup();
             throw error;
         }
-
-        cleanup = async () => {
-            proc.kill('SIGTERM');
-            await new Promise<void>(resolve => {
-                proc.on('close', () => resolve());
-                setTimeout(resolve, 5000);
-            });
-            try {
-                fs.rmSync(tempDir, { recursive: true, force: true });
-            } catch {
-                // Ignore cleanup errors
-            }
-        };
-    }, 120_000);
+    }, 180_000);
 
     afterAll(async () => {
         await cleanup?.();
-    });
+    }, 30_000);
 
     it('should handle MCP requests', async () => {
         const client = new Client({ name: 'test-client', version: '1.0.0' });
-        const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${PORT}/`));
+        const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/`));
         await client.connect(transport);
 
-        const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
-        expect(result.content).toEqual([{ type: 'text', text: 'Hello, World!' }]);
+        const result = await client.callTool({ name: 'greet', arguments: { name: 'Workers' } });
+        expect(result.content).toEqual([{ type: 'text', text: 'Hello, Workers!' }]);
 
         await client.close();
     }, 30_000);
