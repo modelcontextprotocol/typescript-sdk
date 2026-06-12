@@ -121,7 +121,7 @@ export const mcpServerApiTransform: Transform = {
             }
         }
 
-        changesCount += migrateConstructorTaskOptions(sourceFile, diagnostics);
+        flagRemovedTaskOptions(sourceFile, diagnostics);
 
         return { changesCount, diagnostics };
     }
@@ -414,11 +414,17 @@ function migrateResourceCall(call: CallExpression, _sourceFile: SourceFile): boo
 
 const TASK_OPTIONS = ['taskStore', 'taskMessageQueue'] as const;
 
-function migrateConstructorTaskOptions(sourceFile: SourceFile, diagnostics: Diagnostic[]): number {
+/**
+ * Flag v1 task runtime options on the McpServer constructor as removed.
+ *
+ * The experimental tasks runtime was removed in v2 (SEP-2663) with no replacement, so
+ * these options cannot be migrated automatically. Emit an action-required diagnostic
+ * matching the importMap removal entry for `experimental/tasks`; the source is left
+ * untouched.
+ */
+function flagRemovedTaskOptions(sourceFile: SourceFile, diagnostics: Diagnostic[]): void {
     const localName = resolveLocalImportName(sourceFile, 'McpServer');
-    if (!localName) return 0;
-
-    let changes = 0;
+    if (!localName) return;
 
     for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {
         if (node.wasForgotten()) continue;
@@ -431,110 +437,15 @@ function migrateConstructorTaskOptions(sourceFile: SourceFile, diagnostics: Diag
         const optionsArg = args[1]!;
         if (!Node.isObjectLiteralExpression(optionsArg)) continue;
 
-        // Check if any task options are present at the top level
-        const propsToMove: string[] = [];
         for (const propName of TASK_OPTIONS) {
-            if (optionsArg.getProperty(propName)) {
-                propsToMove.push(propName);
-            }
+            if (!optionsArg.getProperty(propName)) continue;
+            diagnostics.push(
+                actionRequired(
+                    sourceFile.getFilePath(),
+                    node,
+                    `Remove '${propName}' from McpServer options — experimental tasks removed in v2 (SEP-2663 — tasks moved to the Extensions Track). No v2 equivalent.`
+                )
+            );
         }
-        if (propsToMove.length === 0) continue;
-
-        // Find the tasks object's position within the options text using AST,
-        // then do all mutations via a single text replacement to avoid node invalidation.
-        const capabilitiesProp = optionsArg.getProperty('capabilities');
-        let tasksObjStart = -1;
-        let tasksObjEnd = -1;
-        const optionsStart = optionsArg.getStart();
-        if (capabilitiesProp && Node.isPropertyAssignment(capabilitiesProp)) {
-            const capInit = capabilitiesProp.getInitializer();
-            if (capInit && Node.isObjectLiteralExpression(capInit)) {
-                const tasksProp = capInit.getProperty('tasks');
-                if (tasksProp && Node.isPropertyAssignment(tasksProp)) {
-                    const tasksInit = tasksProp.getInitializer();
-                    if (tasksInit && Node.isObjectLiteralExpression(tasksInit)) {
-                        tasksObjStart = tasksInit.getStart() - optionsStart;
-                        tasksObjEnd = tasksInit.getEnd() - optionsStart;
-                    }
-                }
-            }
-        }
-
-        if (tasksObjStart === -1) {
-            for (const propName of propsToMove) {
-                diagnostics.push(
-                    actionRequired(
-                        sourceFile.getFilePath(),
-                        node,
-                        `Move '${propName}' from McpServer options into capabilities.tasks — v2 expects task runtime options inside the tasks capability.`
-                    )
-                );
-            }
-            continue;
-        }
-
-        // Single text replacement: remove top-level props and insert into tasks object.
-        // Use AST nodes (already located via getProperty) to get brace-balanced text and
-        // exact positions, avoiding regex truncation on values containing commas/braces.
-        // Collect all properties first, then process in reverse position order so each
-        // removal doesn't invalidate the positions of subsequent removals.
-        let optionsText = optionsArg.getText();
-        const argStart = optionsArg.getStart();
-        const propsWithPositions: { text: string; start: number; end: number }[] = [];
-        for (const propName of propsToMove) {
-            const prop = optionsArg.getProperty(propName);
-            if (!prop) continue;
-            propsWithPositions.push({
-                text: prop.getText(),
-                start: prop.getStart() - argStart,
-                end: prop.getEnd() - argStart
-            });
-        }
-        const propTexts = propsWithPositions.map(p => p.text);
-
-        // Remove in reverse position order so earlier positions remain valid
-        const sortedProps = propsWithPositions.toSorted((a, b) => b.start - a.start);
-        for (const { start, end } of sortedProps) {
-            let remStart = start;
-            let remEnd = end;
-            // Consume trailing comma and whitespace
-            const afterProp = optionsText.slice(remEnd);
-            const trailingMatch = afterProp.match(/^\s*,?\s*/);
-            if (trailingMatch) {
-                remEnd += trailingMatch[0].length;
-            }
-            // Consume leading whitespace/newline
-            const beforeProp = optionsText.slice(0, remStart);
-            const leadingMatch = beforeProp.match(/[\n\r]?\s*$/);
-            if (leadingMatch) {
-                remStart -= leadingMatch[0].length;
-            }
-            optionsText = optionsText.slice(0, remStart) + optionsText.slice(remEnd);
-            // Adjust tasks position if removal was before it
-            if (remStart < tasksObjStart) {
-                const shift = remEnd - remStart;
-                tasksObjStart -= shift;
-                tasksObjEnd -= shift;
-            }
-        }
-
-        if (propTexts.length === 0) continue;
-
-        // Insert into the tasks object (just before its closing brace)
-        const tasksText = optionsText.slice(tasksObjStart, tasksObjEnd);
-        const closingBrace = tasksText.lastIndexOf('}');
-        const before = tasksText.slice(0, closingBrace).trimEnd();
-        const sep = before.length > 1 ? ',\n' : '\n';
-        const newTasksText = before + sep + propTexts.join(',\n') + '\n' + tasksText.slice(closingBrace);
-        optionsText = optionsText.slice(0, tasksObjStart) + newTasksText + optionsText.slice(tasksObjEnd);
-
-        // Clean up double/trailing commas
-        optionsText = optionsText.replaceAll(/,(\s*,)/g, ',');
-        optionsText = optionsText.replaceAll(/,(\s*})/g, '$1');
-
-        optionsArg.replaceWithText(optionsText);
-        changes += propTexts.length;
     }
-
-    return changes;
 }
