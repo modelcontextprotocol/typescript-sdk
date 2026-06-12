@@ -56,6 +56,27 @@ import {
     ToolUseContentSchema
 } from '../../types/schemas.js';
 
+/* 2026-era capability forks (defined ahead of the envelope, which composes
+ * the client fork). The shared shapes minus the deleted `tasks` key: `tasks`
+ * is 2025-only vocabulary with no slot on this revision, consistent with the
+ * encode-side deletion (Q1-SD3 iii).
+ *
+ * The client fork lists its members EXPLICITLY (composing the shared member
+ * schemas by reference) rather than using `.omit()`: the envelope schema
+ * below reaches the bundled package declarations, and an `.omit()` inference
+ * is a mapped type whose printed member order is unstable across dts-rollup
+ * builds (api-report flap). The explicit list doubles as the fork's deletion
+ * statement — a member added to the shared shape must be re-adjudicated here. */
+const sharedClientCapabilityShape = ClientCapabilitiesSchema.shape;
+export const ClientCapabilities2026Schema = z.object({
+    experimental: sharedClientCapabilityShape.experimental,
+    sampling: sharedClientCapabilityShape.sampling,
+    elicitation: sharedClientCapabilityShape.elicitation,
+    roots: sharedClientCapabilityShape.roots,
+    extensions: sharedClientCapabilityShape.extensions
+});
+export const ServerCapabilities2026Schema = ServerCapabilitiesSchema.omit({ tasks: true });
+
 /* Per-request `_meta` envelope */
 /**
  * The per-request `_meta` envelope carried by every request under protocol revision
@@ -85,9 +106,11 @@ export const RequestMetaEnvelopeSchema = z.looseObject({
     /**
      * The client's capabilities for this specific request. An empty object means the
      * client supports no optional capabilities. Servers must not infer capabilities
-     * from prior requests.
+     * from prior requests. Validated with the 2026 fork: `tasks` has no slot on
+     * this revision (deleted vocabulary), matching the server-side fork wired
+     * into `DiscoverResultSchema`.
      */
-    [CLIENT_CAPABILITIES_META_KEY]: ClientCapabilitiesSchema,
+    [CLIENT_CAPABILITIES_META_KEY]: ClientCapabilities2026Schema,
     /**
      * The desired log level for this request. When absent, the server must not send
      * `notifications/message` notifications for the request.
@@ -156,10 +179,6 @@ export const SamplingMessageSchema = z.object({
     _meta: z.record(z.string(), z.unknown()).optional()
 });
 
-/** 2026-era capabilities: the shared shapes minus the deleted `tasks` key. */
-export const ClientCapabilities2026Schema = ClientCapabilitiesSchema.omit({ tasks: true });
-export const ServerCapabilities2026Schema = ServerCapabilitiesSchema.omit({ tasks: true });
-
 /* ------------------------------------------------------------------------ *
  * Result side. `resultType` is REQUIRED at parse (spec.types.2026-07-28
  * Result.resultType: "Servers implementing this protocol version MUST
@@ -196,14 +215,14 @@ export const CallToolResultSchema = wireResult({
 });
 
 export const ListToolsResultSchema = wireResult({
-    ttlMs: z.number().min(0),
+    ttlMs: z.number().int().min(0),
     cacheScope: z.enum(['public', 'private']),
     tools: z.array(ToolSchema),
     nextCursor: CursorSchema.optional()
 });
 
 export const ListPromptsResultSchema = wireResult({
-    ttlMs: z.number().min(0),
+    ttlMs: z.number().int().min(0),
     cacheScope: z.enum(['public', 'private']),
     prompts: z.array(PromptSchema),
     nextCursor: CursorSchema.optional()
@@ -215,21 +234,21 @@ export const GetPromptResultSchema = wireResult({
 });
 
 export const ListResourcesResultSchema = wireResult({
-    ttlMs: z.number().min(0),
+    ttlMs: z.number().int().min(0),
     cacheScope: z.enum(['public', 'private']),
     resources: z.array(ResourceSchema),
     nextCursor: CursorSchema.optional()
 });
 
 export const ListResourceTemplatesResultSchema = wireResult({
-    ttlMs: z.number().min(0),
+    ttlMs: z.number().int().min(0),
     cacheScope: z.enum(['public', 'private']),
     resourceTemplates: z.array(ResourceTemplateSchema),
     nextCursor: CursorSchema.optional()
 });
 
 export const ReadResourceResultSchema = wireResult({
-    ttlMs: z.number().min(0),
+    ttlMs: z.number().int().min(0),
     cacheScope: z.enum(['public', 'private']),
     contents: z.array(z.union([TextResourceContentsSchema, BlobResourceContentsSchema]))
 });
@@ -246,12 +265,12 @@ export const CompleteResultSchema = wireResult({
 
 /** CacheableResult (SEP-2549): ttlMs and cacheScope REQUIRED per the anchor. */
 export const CacheableResultSchema = wireResult({
-    ttlMs: z.number().min(0),
+    ttlMs: z.number().int().min(0),
     cacheScope: z.enum(['public', 'private'])
 });
 
 export const DiscoverResultSchema = wireResult({
-    ttlMs: z.number().min(0),
+    ttlMs: z.number().int().min(0),
     cacheScope: z.enum(['public', 'private']),
     supportedVersions: z.array(z.string()),
     capabilities: ServerCapabilities2026Schema,
@@ -343,7 +362,7 @@ export const dispatchResultSchemas: Record<string, z.ZodType> = {
         isError: z.boolean().optional()
     }) as unknown as z.ZodType,
     'tools/list': liftedResult({
-        ttlMs: z.number().min(0),
+        ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         tools: z.array(ToolSchema),
         nextCursor: CursorSchema.optional()
@@ -353,25 +372,25 @@ export const dispatchResultSchemas: Record<string, z.ZodType> = {
         messages: z.array(PromptMessageSchema)
     }) as unknown as z.ZodType,
     'prompts/list': liftedResult({
-        ttlMs: z.number().min(0),
+        ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         prompts: z.array(PromptSchema),
         nextCursor: CursorSchema.optional()
     }) as unknown as z.ZodType,
     'resources/list': liftedResult({
-        ttlMs: z.number().min(0),
+        ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         resources: z.array(ResourceSchema),
         nextCursor: CursorSchema.optional()
     }) as unknown as z.ZodType,
     'resources/templates/list': liftedResult({
-        ttlMs: z.number().min(0),
+        ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         resourceTemplates: z.array(ResourceTemplateSchema),
         nextCursor: CursorSchema.optional()
     }) as unknown as z.ZodType,
     'resources/read': liftedResult({
-        ttlMs: z.number().min(0),
+        ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         contents: z.array(z.union([TextResourceContentsSchema, BlobResourceContentsSchema]))
     }) as unknown as z.ZodType,
@@ -385,7 +404,7 @@ export const dispatchResultSchemas: Record<string, z.ZodType> = {
             .loose()
     }) as unknown as z.ZodType,
     'server/discover': liftedResult({
-        ttlMs: z.number().min(0),
+        ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         supportedVersions: z.array(z.string()),
         capabilities: ServerCapabilities2026Schema,

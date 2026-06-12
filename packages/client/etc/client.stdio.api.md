@@ -172,18 +172,6 @@ const RequestMetaEnvelopeSchema: z.ZodObject<{
         roots: z.ZodOptional<z.ZodObject<{
             listChanged: z.ZodOptional<z.ZodBoolean>;
         }, z.core.$strip>>;
-        tasks: z.ZodOptional<z.ZodObject<{
-            list: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-            cancel: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-            requests: z.ZodOptional<z.ZodObject<{
-                sampling: z.ZodOptional<z.ZodObject<{
-                    createMessage: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-                }, z.core.$loose>>;
-                elicitation: z.ZodOptional<z.ZodObject<{
-                    create: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-                }, z.core.$loose>>;
-            }, z.core.$loose>>;
-        }, z.core.$loose>>;
         extensions: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>>;
     }, z.core.$strip>;
     "io.modelcontextprotocol/logLevel": z.ZodOptional<z.ZodEnum<{
