@@ -2015,6 +2015,7 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
 export const ClientRequestSchema = z.union([
     PingRequestSchema,
     InitializeRequestSchema,
+    DiscoverRequestSchema,
     CompleteRequestSchema,
     SetLevelRequestSchema,
     GetPromptRequestSchema,
@@ -2060,6 +2061,7 @@ export const ServerNotificationSchema = z.union([
 export const ServerResultSchema = z.union([
     EmptyResultSchema,
     InitializeResultSchema,
+    DiscoverResultSchema,
     CompleteResultSchema,
     GetPromptResultSchema,
     ListPromptsResultSchema,

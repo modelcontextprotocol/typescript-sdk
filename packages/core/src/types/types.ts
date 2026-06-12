@@ -466,6 +466,7 @@ export type NotificationTypeMap = MethodToTypeMap<Exclude<ClientNotification | S
 export type ResultTypeMap = {
     ping: EmptyResult;
     initialize: InitializeResult;
+    'server/discover': DiscoverResult;
     'completion/complete': CompleteResult;
     'logging/setLevel': EmptyResult;
     'prompts/get': GetPromptResult;
