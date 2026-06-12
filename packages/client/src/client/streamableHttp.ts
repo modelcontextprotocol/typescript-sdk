@@ -550,8 +550,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 ...this._requestInit,
                 method: 'POST',
                 headers,
-                body: JSON.stringify(message),
-                signal: this._abortController?.signal
+                body: JSON.stringify(message)
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
@@ -720,8 +719,7 @@ export class StreamableHTTPClientTransport implements Transport {
             const init = {
                 ...this._requestInit,
                 method: 'DELETE',
-                headers,
-                signal: this._abortController?.signal
+                headers
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
