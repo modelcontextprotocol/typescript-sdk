@@ -34,4 +34,37 @@ describe('standardSchemaToJsonSchema — zod fallback paths', () => {
         expect(() => standardSchemaToJsonSchema(fake as unknown as SchemaArg)).toThrow(/mylib/);
         expect(() => standardSchemaToJsonSchema(fake as unknown as SchemaArg)).toThrow(/fromJsonSchema/);
     });
+
+    it('inlines reused subschemas on the zod-fallback path (issue #2100)', () => {
+        // The fallback path goes through z.toJSONSchema directly; verify the SDK
+        // forces `reused: 'inline'` there too, so older zod versions whose default
+        // was 'ref' still produce a $ref-free schema for strict MCP clients.
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const Address = z.object({ street: z.string(), city: z.string() });
+        const real = z.object({ shipping: Address, billing: Address });
+
+        // Simulate zod 4.0–4.1: drop `~standard.jsonSchema` so the fallback path fires.
+        const { jsonSchema: _drop, ...stdNoJson } = real['~standard'] as unknown as Record<string, unknown>;
+        void _drop;
+        Object.defineProperty(real, '~standard', { value: { ...stdNoJson, vendor: 'zod' }, configurable: true });
+
+        const result = standardSchemaToJsonSchema(real as unknown as SchemaArg);
+
+        // Walk the result and assert no `$ref` keys appear anywhere.
+        const refs: string[] = [];
+        const walk = (v: unknown) => {
+            if (v == null || typeof v !== 'object') return;
+            if (Array.isArray(v)) {
+                for (const x of v) walk(x);
+                return;
+            }
+            for (const [k, x] of Object.entries(v as Record<string, unknown>)) {
+                if (k === '$ref' && typeof x === 'string') refs.push(x);
+                walk(x);
+            }
+        };
+        walk(result);
+        expect(refs).toEqual([]);
+        warn.mockRestore();
+    });
 });
