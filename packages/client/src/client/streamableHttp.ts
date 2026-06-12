@@ -163,6 +163,25 @@ export type StreamableHTTPClientTransportOptions = {
     protocolVersion?: string;
 };
 
+function setMcpStandardPostHeaders(headers: Headers, message: JSONRPCMessage | JSONRPCMessage[]): void {
+    if (Array.isArray(message) || !('method' in message) || typeof message.method !== 'string') {
+        return;
+    }
+
+    headers.set('Mcp-Method', message.method);
+
+    const params = 'params' in message ? message.params : undefined;
+    if (!params || typeof params !== 'object' || Array.isArray(params)) {
+        return;
+    }
+
+    const requestParams = params as { name?: unknown; uri?: unknown };
+    const mcpName = typeof requestParams.name === 'string' ? requestParams.name : requestParams.uri;
+    if (typeof mcpName === 'string') {
+        headers.set('Mcp-Name', mcpName);
+    }
+}
+
 /**
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
@@ -545,6 +564,7 @@ export class StreamableHTTPClientTransport implements Transport {
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
+            setMcpStandardPostHeaders(headers, message);
 
             const init = {
                 ...this._requestInit,
