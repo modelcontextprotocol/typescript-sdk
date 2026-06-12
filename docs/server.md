@@ -252,6 +252,9 @@ server.registerResource(
 );
 ```
 
+> [!IMPORTANT]
+> **Security note:** If a resource is backed by the filesystem (for example, a `file://` server or a template whose variables map onto file paths), the spec requires sanitizing any user-influenced path before use. Resolve the requested path and verify it stays within the intended root directory, rejecting traversal sequences such as `..` (including encoded forms) and symlinks that escape the root. Never pass template variables or client-supplied URIs to filesystem APIs unchecked.
+
 ## Prompts
 
 Prompts are reusable templates that help structure interactions with models (see [Prompts](https://modelcontextprotocol.io/docs/learn/server-concepts#prompts) in the MCP overview). Use a prompt when you want to offer a canned interaction pattern that users invoke explicitly; use a [tool](#tools) when the LLM should decide when to call it.

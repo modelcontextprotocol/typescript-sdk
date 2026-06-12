@@ -657,11 +657,12 @@ export class Client extends Protocol<ClientContext> {
      * ```ts source="./client.examples.ts#Client_listPrompts_pagination"
      * const allPrompts: Prompt[] = [];
      * let cursor: string | undefined;
+     * // Note: an empty-string cursor is valid and does not signal the end of results.
      * do {
      *     const { prompts, nextCursor } = await client.listPrompts({ cursor });
      *     allPrompts.push(...prompts);
      *     cursor = nextCursor;
-     * } while (cursor);
+     * } while (cursor !== undefined);
      * console.log(
      *     'Available prompts:',
      *     allPrompts.map(p => p.name)
@@ -687,11 +688,12 @@ export class Client extends Protocol<ClientContext> {
      * ```ts source="./client.examples.ts#Client_listResources_pagination"
      * const allResources: Resource[] = [];
      * let cursor: string | undefined;
+     * // Note: an empty-string cursor is valid and does not signal the end of results.
      * do {
      *     const { resources, nextCursor } = await client.listResources({ cursor });
      *     allResources.push(...resources);
      *     cursor = nextCursor;
-     * } while (cursor);
+     * } while (cursor !== undefined);
      * console.log(
      *     'Available resources:',
      *     allResources.map(r => r.name)
@@ -850,11 +852,12 @@ export class Client extends Protocol<ClientContext> {
      * ```ts source="./client.examples.ts#Client_listTools_pagination"
      * const allTools: Tool[] = [];
      * let cursor: string | undefined;
+     * // Note: an empty-string cursor is valid and does not signal the end of results.
      * do {
      *     const { tools, nextCursor } = await client.listTools({ cursor });
      *     allTools.push(...tools);
      *     cursor = nextCursor;
-     * } while (cursor);
+     * } while (cursor !== undefined);
      * console.log(
      *     'Available tools:',
      *     allTools.map(t => t.name)
