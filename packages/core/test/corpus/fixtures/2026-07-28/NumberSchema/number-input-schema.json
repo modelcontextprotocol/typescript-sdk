@@ -1,0 +1,8 @@
+{
+  "type": "number",
+  "title": "Display Name",
+  "description": "Description text",
+  "minimum": 0,
+  "maximum": 100,
+  "default": 50
+}

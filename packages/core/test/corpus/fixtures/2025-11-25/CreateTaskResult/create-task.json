@@ -1,0 +1,10 @@
+{
+    "task": {
+        "taskId": "786af6b0-2779-48ed-9cc1-b8a8a25b8a86",
+        "status": "working",
+        "createdAt": "2025-11-25T10:30:00Z",
+        "ttl": 60000,
+        "pollInterval": 5000,
+        "lastUpdatedAt": "2025-11-25T10:30:05Z"
+    }
+}
