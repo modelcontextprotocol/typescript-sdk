@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { localhostHostValidation } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, EventId, EventStore, GetPromptResult, ReadResourceResult, StreamId } from '@modelcontextprotocol/server';
-import { isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { fromJsonSchema, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
@@ -597,19 +597,43 @@ function createMcpServer() {
         }
     );
 
-    // SEP-1613: JSON Schema 2020-12 conformance test tool
+    // SEP-1613 / SEP-2106: JSON Schema 2020-12 conformance test tool. The `json-schema-2020-12`
+    // scenario asserts that `$schema`, `$defs`/`$anchor`, `additionalProperties`, composition
+    // (`allOf`/`anyOf`), and conditional (`if`/`then`/`else`) keywords are preserved verbatim in
+    // the tools/list response, so the schema is registered as raw JSON Schema via fromJsonSchema().
     mcpServer.registerTool(
         'json_schema_2020_12_tool',
         {
-            description: 'Tool with JSON Schema 2020-12 features for conformance testing (SEP-1613)',
-            inputSchema: z.object({
-                name: z.string().optional(),
-                address: z
-                    .object({
-                        street: z.string().optional(),
-                        city: z.string().optional()
-                    })
-                    .optional()
+            description: 'Tool with JSON Schema 2020-12 features for conformance testing (SEP-1613, SEP-2106)',
+            inputSchema: fromJsonSchema<{ name?: string; address?: { street?: string; city?: string } }>({
+                $schema: 'https://json-schema.org/draft/2020-12/schema',
+                type: 'object',
+                $defs: {
+                    address: {
+                        $anchor: 'addressDef',
+                        type: 'object',
+                        properties: {
+                            street: { type: 'string' },
+                            city: { type: 'string' }
+                        }
+                    }
+                },
+                properties: {
+                    name: { type: 'string' },
+                    address: { $ref: '#/$defs/address' },
+                    contactMethod: { type: 'string', enum: ['phone', 'email'] },
+                    phone: { type: 'string' },
+                    email: { type: 'string' }
+                },
+                allOf: [{ anyOf: [{ required: ['phone'] }, { required: ['email'] }] }],
+                if: {
+                    properties: { contactMethod: { const: 'phone' } },
+                    required: ['contactMethod']
+                },
+                // eslint-disable-next-line unicorn/no-thenable -- JSON Schema conditional keyword, not a Promise
+                then: { required: ['phone'] },
+                else: { required: ['email'] },
+                additionalProperties: false
             })
         },
         async (args: { name?: string; address?: { street?: string; city?: string } }): Promise<CallToolResult> => {

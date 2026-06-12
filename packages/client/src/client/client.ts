@@ -2,6 +2,8 @@ import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/client/_shims'
 import type {
     BaseContext,
     CallToolRequest,
+    CallToolResult,
+    CallToolResultWithStructuredContent,
     ClientCapabilities,
     ClientContext,
     ClientNotification,
@@ -13,6 +15,7 @@ import type {
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
+    JSONValue,
     ListChangedHandlers,
     ListChangedOptions,
     ListPromptsRequest,
@@ -215,6 +218,13 @@ export class Client extends Protocol<ClientContext> {
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
+    /**
+     * Tools whose advertised `outputSchema` could not be compiled into a validator (e.g. it tripped
+     * the SEP-2106 safety guards — a non-local `$ref` or an over-budget schema). The error is stored
+     * per-tool and surfaced only when that tool is called, so one malformed tool definition does not
+     * break `listTools()` or the use of every other tool from the same server.
+     */
+    private _toolOutputValidatorErrors: Map<string, Error> = new Map();
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
@@ -763,27 +773,48 @@ export class Client extends Protocol<ClientContext> {
      * console.log(result.content);
      * ```
      *
+     * Per SEP-2106 `structuredContent` may be any JSON value (object, array, string, number,
+     * boolean, or null). The return type's `structuredContent` defaults to {@linkcode JSONValue};
+     * pass a type argument to get a precise type for a tool whose output shape you know:
+     *
      * @example Structured output
      * ```ts source="./client.examples.ts#Client_callTool_structuredOutput"
-     * const result = await client.callTool({
+     * const result = await client.callTool<{ bmi: number }>({
      *     name: 'calculate-bmi',
      *     arguments: { weightKg: 70, heightM: 1.75 }
      * });
      *
      * // Machine-readable output for the client application
-     * if (result.structuredContent) {
-     *     console.log(result.structuredContent); // e.g. { bmi: 22.86 }
+     * if (result.structuredContent !== undefined) {
+     *     console.log(result.structuredContent.bmi); // typed as number
      * }
      * ```
      */
-    async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
+    callTool<StructuredContent = JSONValue>(
+        params: CallToolRequest['params'],
+        options?: RequestOptions
+    ): Promise<CallToolResultWithStructuredContent<StructuredContent>>;
+    async callTool(params: CallToolRequest['params'], options?: RequestOptions): Promise<CallToolResult> {
         const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
+
+        // If the tool advertised an outputSchema that failed to compile (e.g. a SEP-2106 safety-guard
+        // rejection), surface that error now — scoped to this tool — rather than silently skipping
+        // output validation.
+        const validatorError = this._toolOutputValidatorErrors.get(params.name);
+        if (validatorError) {
+            throw new ProtocolError(
+                ProtocolErrorCode.InvalidParams,
+                `Tool ${params.name} has an output schema that could not be compiled: ${validatorError.message}`
+            );
+        }
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
         if (validator) {
-            // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
-            if (!result.structuredContent && !result.isError) {
+            // If tool has outputSchema, it MUST return structuredContent (unless it's an error).
+            // Per SEP-2106 structuredContent may be a falsy JSON value (0, false, "", null), so
+            // check explicitly for `undefined` rather than truthiness.
+            if (result.structuredContent === undefined && !result.isError) {
                 throw new ProtocolError(
                     ProtocolErrorCode.InvalidRequest,
                     `Tool ${params.name} has an output schema but did not return structured content`
@@ -791,7 +822,7 @@ export class Client extends Protocol<ClientContext> {
             }
 
             // Only validate structured content if present (not when there's an error)
-            if (result.structuredContent) {
+            if (result.structuredContent !== undefined) {
                 try {
                     // Validate the structured content against the schema
                     const validationResult = validator(result.structuredContent);
@@ -823,12 +854,19 @@ export class Client extends Protocol<ClientContext> {
      */
     private cacheToolMetadata(tools: Tool[]): void {
         this._cachedToolOutputValidators.clear();
+        this._toolOutputValidatorErrors.clear();
 
         for (const tool of tools) {
-            // If the tool has an outputSchema, create and cache the validator
+            // If the tool has an outputSchema, create and cache the validator. Compilation can throw
+            // (invalid schema, or a SEP-2106 safety-guard rejection); scope that failure to the
+            // offending tool rather than letting it reject the whole listTools() call.
             if (tool.outputSchema) {
-                const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
-                this._cachedToolOutputValidators.set(tool.name, toolValidator);
+                try {
+                    const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
+                    this._cachedToolOutputValidators.set(tool.name, toolValidator);
+                } catch (error) {
+                    this._toolOutputValidatorErrors.set(tool.name, error instanceof Error ? error : new Error(String(error)));
+                }
             }
         }
     }

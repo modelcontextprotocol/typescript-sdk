@@ -1360,25 +1360,27 @@ export const ToolSchema = z.object({
     description: z.string().optional(),
     /**
      * A JSON Schema 2020-12 object defining the expected parameters for the tool.
-     * Must have `type: 'object'` at the root level per MCP spec.
+     *
+     * Tool arguments are always JSON objects, so `type: 'object'` is required at the root.
+     * Beyond that, any JSON Schema 2020-12 keyword may appear — composition (`oneOf`/`anyOf`/
+     * `allOf`/`not`), conditional (`if`/`then`/`else`), reference (`$ref`/`$defs`/`$anchor`), etc.
      */
     inputSchema: z
         .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), JSONValueSchema).optional(),
-            required: z.array(z.string()).optional()
+            $schema: z.string().optional(),
+            type: z.literal('object')
         })
         .catchall(z.unknown()),
     /**
      * An optional JSON Schema 2020-12 object defining the structure of the tool's output
      * returned in the `structuredContent` field of a `CallToolResult`.
-     * Must have `type: 'object'` at the root level per MCP spec.
+     *
+     * Per SEP-2106 this may be any valid JSON Schema 2020-12 — objects, arrays, primitives,
+     * or compositions. It is no longer restricted to `type: 'object'` at the root.
      */
     outputSchema: z
         .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), JSONValueSchema).optional(),
-            required: z.array(z.string()).optional()
+            $schema: z.string().optional()
         })
         .catchall(z.unknown())
         .optional(),
@@ -1425,11 +1427,15 @@ export const CallToolResultSchema = ResultSchema.extend({
     content: z.array(ContentBlockSchema).default([]),
 
     /**
-     * An object containing structured tool output.
+     * A JSON value containing structured tool output.
      *
-     * If the `Tool` defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
+     * If the `Tool` defines an outputSchema, this field MUST be present in the result, and contain a JSON value that matches the schema.
+     *
+     * Per SEP-2106 this may be any JSON value (object, array, string, number, boolean, or null),
+     * not just an object. Servers returning a non-object value SHOULD also emit a `TextContent`
+     * block with the serialized JSON so pre-SEP clients can fall back to the text content.
      */
-    structuredContent: z.record(z.string(), z.unknown()).optional(),
+    structuredContent: z.unknown().optional(),
 
     /**
      * Whether the tool call ended in an error.
@@ -1656,7 +1662,7 @@ export const ToolResultContentSchema = z.object({
     type: z.literal('tool_result'),
     toolUseId: z.string().describe('The unique identifier for the corresponding tool call.'),
     content: z.array(ContentBlockSchema).default([]),
-    structuredContent: z.object({}).loose().optional(),
+    structuredContent: z.unknown().optional(),
     isError: z.boolean().optional(),
 
     /**

@@ -48,7 +48,10 @@ verifies('standardschema:tool:arktype-input', async ({ transport }: TestArgs) =>
         type: 'object',
         properties: { sku: { type: 'string' }, quantity: { type: 'number' } }
     });
-    expect([...(tool.inputSchema.required ?? [])].toSorted()).toEqual(['quantity', 'sku']);
+    // Per SEP-2106 `inputSchema` allows arbitrary JSON Schema 2020-12 keywords, so `required` is
+    // loosely typed (`unknown`). Narrow at runtime instead of asserting a type.
+    const required = tool.inputSchema.required;
+    expect((Array.isArray(required) ? required : []).toSorted()).toEqual(['quantity', 'sku']);
 
     const r = await client.callTool({ name: 'submit-order', arguments: { sku: 'SKU-1042', quantity: 3 } });
     expect(r.isError).toBeFalsy();
@@ -85,7 +88,10 @@ verifies('standardschema:tool:valibot-input', async ({ transport }: TestArgs) =>
         type: 'object',
         properties: { sku: { type: 'string' }, quantity: { type: 'number' } }
     });
-    expect([...(tool.inputSchema.required ?? [])].toSorted()).toEqual(['quantity', 'sku']);
+    // Per SEP-2106 `inputSchema` allows arbitrary JSON Schema 2020-12 keywords, so `required` is
+    // loosely typed (`unknown`). Narrow at runtime instead of asserting a type.
+    const required = tool.inputSchema.required;
+    expect((Array.isArray(required) ? required : []).toSorted()).toEqual(['quantity', 'sku']);
 
     const r = await client.callTool({ name: 'restock-item', arguments: { sku: 'SKU-7', quantity: 2 } });
     expect(r.isError).toBeFalsy();
@@ -135,12 +141,14 @@ verifies('standardschema:tool:output-schema-validation', async ({ transport }: T
             structuredContent: { healthy: true, uptimeSeconds: 12_345 },
             content: [{ type: 'text', text: JSON.stringify({ healthy: true, uptimeSeconds: 12_345 }) }]
         }));
-        s.registerTool(
-            'get-server-status-corrupt',
-            { inputSchema: type({}), outputSchema },
-            // intentionally nonconforming structuredContent (server-side output validation must reject it)
-            () => ({ structuredContent: { healthy: 'definitely', uptimeSeconds: 'a while' }, content: [] })
-        );
+        // Intentionally non-conforming structuredContent: the typed callback correctly rejects this at
+        // compile time, so suppress the error to exercise the server's runtime output validation
+        // (simulating an untyped or non-TypeScript server).
+        // @ts-expect-error structuredContent does not match outputSchema — that is the point of this test
+        s.registerTool('get-server-status-corrupt', { inputSchema: type({}), outputSchema }, () => ({
+            structuredContent: { healthy: 'definitely', uptimeSeconds: 'a while' },
+            content: []
+        }));
         return s;
     };
     const client = newClient();

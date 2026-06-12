@@ -1941,6 +1941,60 @@ describe('outputSchema validation', () => {
     });
 
     /***
+     * Test: A single tool with an uncompilable outputSchema does not break listTools()
+     * or the use of other tools (SEP-2106 safety-guard isolation).
+     */
+    test('isolates a tool whose outputSchema fails to compile from the rest of the server', async () => {
+        const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+
+        server.setRequestHandler('initialize', async request => ({
+            protocolVersion: request.params.protocolVersion,
+            capabilities: { tools: {} },
+            serverInfo: { name: 'test-server', version: '1.0.0' }
+        }));
+
+        server.setRequestHandler('tools/list', async () => ({
+            tools: [
+                {
+                    name: 'bad-tool',
+                    description: 'advertises a non-local $ref the SEP-2106 guard rejects',
+                    inputSchema: { type: 'object', properties: {} },
+                    // Non-same-document $ref: assertSchemaSafeToCompile throws when this is compiled.
+                    outputSchema: { $ref: 'https://evil.example/schema.json' }
+                },
+                {
+                    name: 'good-tool',
+                    description: 'a normal tool that must remain usable',
+                    inputSchema: { type: 'object', properties: {} },
+                    outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] }
+                }
+            ]
+        }));
+
+        server.setRequestHandler('tools/call', async request => {
+            if (request.params.name === 'good-tool') {
+                return { content: [], structuredContent: { ok: true } };
+            }
+            return { content: [], structuredContent: { irrelevant: true } };
+        });
+
+        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+        // listTools() must NOT reject just because one tool's schema is uncompilable.
+        const listed = await client.listTools();
+        expect(listed.tools.map(t => t.name).toSorted()).toEqual(['bad-tool', 'good-tool']);
+
+        // The good tool is fully usable.
+        const good = await client.callTool({ name: 'good-tool' });
+        expect(good.structuredContent).toEqual({ ok: true });
+
+        // The bad tool surfaces a scoped, descriptive error only when it is called.
+        await expect(client.callTool({ name: 'bad-tool' })).rejects.toThrow(/output schema that could not be compiled/i);
+    });
+
+    /***
      * Test: Handle Tools Without outputSchema Normally
      */
     test('should handle tools without outputSchema normally', async () => {

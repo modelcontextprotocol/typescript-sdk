@@ -18,5 +18,7 @@ export * from './util/zodCompat.js';
 // `@modelcontextprotocol/{core,client,server}/validators/{ajv,cf-worker}` subpaths to customise.
 export type { AjvJsonSchemaValidator } from './validators/ajvProvider.js';
 export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from './validators/cfWorkerProvider.js';
+export * from './validators/externalRefResolver.js';
 export * from './validators/fromJsonSchema.js';
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types.js';
+export { MCP_DEFAULT_SCHEMA_DIALECT } from './validators/types.js';

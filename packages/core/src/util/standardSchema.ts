@@ -167,12 +167,14 @@ let warnedZodFallback = false;
 /**
  * Converts a StandardSchema to JSON Schema for use as an MCP tool/prompt schema.
  *
- * MCP requires `type: "object"` at the root of tool inputSchema/outputSchema and
- * prompt argument schemas. Zod's discriminated unions emit `{oneOf: [...]}` without
- * a top-level `type`, so this function defaults `type` to `"object"` when absent.
+ * For `io: 'input'` (tool inputSchema and prompt argument schemas), MCP requires `type: "object"`
+ * at the root: tool arguments are always a JSON object. Zod's discriminated unions emit
+ * `{oneOf: [...]}` without a top-level `type`, so this function defaults `type` to `"object"` when
+ * absent, and throws if the schema has an explicit non-object `type` (e.g. `z.string()`).
  *
- * Throws if the schema has an explicit non-object `type` (e.g. `z.string()`),
- * since that cannot satisfy the MCP spec.
+ * For `io: 'output'` (tool outputSchema), per SEP-2106 the schema may be any valid JSON Schema
+ * 2020-12 — objects, arrays, primitives, or compositions — so the converted schema is returned
+ * unchanged with no root-`type` constraint.
  */
 export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
     const std = schema['~standard'];
@@ -204,13 +206,21 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
                 `Upgrade to a version that does, or wrap your JSON Schema with fromJsonSchema().`
         );
     }
-    if (result.type !== undefined && result.type !== 'object') {
-        throw new Error(
-            `MCP tool and prompt schemas must describe objects (got type: ${JSON.stringify(result.type)}). ` +
-                `Wrap your schema in z.object({...}) or equivalent.`
-        );
+    if (io === 'input') {
+        // MCP requires tool inputSchema (and prompt argument schemas) to describe an object: tool
+        // arguments are always passed as a JSON object.
+        if (result.type !== undefined && result.type !== 'object') {
+            throw new Error(
+                `MCP tool input and prompt schemas must describe objects (got type: ${JSON.stringify(result.type)}). ` +
+                    `Wrap your schema in z.object({...}) or equivalent.`
+            );
+        }
+        return { type: 'object', ...result };
     }
-    return { type: 'object', ...result };
+    // Per SEP-2106, a tool's outputSchema may be any valid JSON Schema 2020-12 — objects, arrays,
+    // primitives, or compositions. Return the converted schema unchanged; do not force a root
+    // `type: 'object'`.
+    return result;
 }
 
 // Validation

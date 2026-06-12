@@ -39,9 +39,11 @@ server.registerTool(
         // Parameters are available but not used in this example
         void city;
         void country;
-        // Simulate weather API call
+        // Simulate weather API call. The option arrays are typed so that the values flowing into
+        // `structuredContent` are checked against `outputSchema` at compile time (per SEP-2106).
         const temp_c = Math.round((Math.random() * 35 - 5) * 10) / 10;
-        const conditions = ['sunny', 'cloudy', 'rainy', 'stormy', 'snowy'][Math.floor(Math.random() * 5)];
+        const conditionOptions: Array<'sunny' | 'cloudy' | 'rainy' | 'stormy' | 'snowy'> = ['sunny', 'cloudy', 'rainy', 'stormy', 'snowy'];
+        const conditions = conditionOptions[Math.floor(Math.random() * conditionOptions.length)] ?? 'sunny';
 
         const structuredContent = {
             temperature: {
@@ -52,7 +54,7 @@ server.registerTool(
             humidity: Math.round(Math.random() * 100),
             wind: {
                 speed_kmh: Math.round(Math.random() * 50),
-                direction: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.floor(Math.random() * 8)]
+                direction: ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][Math.floor(Math.random() * 8)] ?? 'N'
             }
         };
 
