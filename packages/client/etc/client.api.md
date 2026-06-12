@@ -4464,8 +4464,16 @@ export type LoggingOptions = {
 export const METHOD_NOT_FOUND = -32601;
 
 // @public
+export interface MessageClassification {
+    envelope?: Partial<RequestMetaEnvelope>;
+    era: 'legacy' | 'modern';
+    revision?: string;
+}
+
+// @public
 export interface MessageExtraInfo {
     authInfo?: AuthInfo;
+    classification?: MessageClassification;
     closeSSEStream?: () => void;
     closeStandaloneSSEStream?: () => void;
     request?: globalThis.Request;
@@ -6423,6 +6431,7 @@ export enum SdkErrorCode {
     ClientHttpUnexpectedContent = "CLIENT_HTTP_UNEXPECTED_CONTENT",
     ConnectionClosed = "CONNECTION_CLOSED",
     InvalidResult = "INVALID_RESULT",
+    MethodNotSupportedByProtocolVersion = "METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION",
     NotConnected = "NOT_CONNECTED",
     NotInitialized = "NOT_INITIALIZED",
     RequestTimeout = "REQUEST_TIMEOUT",
