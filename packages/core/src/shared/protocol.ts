@@ -580,14 +580,21 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const messageId = Number(progressToken);
 
         const handler = this._progressHandlers.get(messageId);
-        if (!handler) {
+        const responseHandler = this._responseHandlers.get(messageId);
+        const timeoutInfo = this._timeoutInfo.get(messageId);
+
+        // A progress notification is only "unknown" when nothing is associated with
+        // its token — no `onprogress` handler AND no in-flight request. A request
+        // that is in-flight but registered no `onprogress` handler is still known:
+        // `resetTimeoutOnProgress` is documented to work on its own (#2076).
+        if (!handler && !responseHandler) {
             this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
             return;
         }
 
-        const responseHandler = this._responseHandlers.get(messageId);
-        const timeoutInfo = this._timeoutInfo.get(messageId);
-
+        // Reset the request timeout on progress when requested. This must run even
+        // when no `onprogress` handler was registered (#2076) — hence it is no longer
+        // gated behind the handler lookup above.
         if (timeoutInfo && responseHandler && timeoutInfo.resetTimeoutOnProgress) {
             try {
                 this._resetTimeout(messageId);
@@ -601,7 +608,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
             }
         }
 
-        handler(params);
+        // Deliver to the progress handler if one was registered.
+        if (handler) {
+            handler(params);
+        }
     }
 
     private _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
