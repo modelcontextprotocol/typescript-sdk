@@ -9,6 +9,7 @@ import type {
     ClientRequest,
     CompleteRequest,
     CompleteResult,
+    DiscoverResult,
     EmptyResult,
     GetPromptRequest,
     GetPromptResult,
@@ -47,6 +48,7 @@ import {
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
+    DiscoverResultSchema,
     isModernProtocolVersion,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
@@ -750,6 +752,12 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
 
+            case 'server/discover': {
+                // No specific capability required for discover (protocol revision
+                // 2026-07-28; servers on that revision MUST implement it)
+                break;
+            }
+
             case 'ping': {
                 // No specific capability required for ping
                 break;
@@ -833,6 +841,21 @@ export class Client extends Protocol<ClientContext> {
 
     async ping(options?: RequestOptions): Promise<EmptyResult> {
         return this.request({ method: 'ping' }, options);
+    }
+
+    /**
+     * Asks the server to advertise its supported protocol versions, capabilities,
+     * and implementation info (`server/discover`, protocol revision 2026-07-28).
+     *
+     * Servers on the 2026-07-28 revision MUST implement this; the connect-time
+     * version negotiation issues it automatically. The method exists only on
+     * the 2026-07-28 era: on a connection negotiated to a 2025-era version it
+     * is rejected locally with a typed `SdkError`
+     * (`MethodNotSupportedByProtocolVersion`) before anything reaches the
+     * transport.
+     */
+    async discover(options?: RequestOptions): Promise<DiscoverResult> {
+        return this._requestWithSchema({ method: 'server/discover' }, DiscoverResultSchema, options);
     }
 
     /** Requests argument autocompletion suggestions from the server for a prompt or resource. */
