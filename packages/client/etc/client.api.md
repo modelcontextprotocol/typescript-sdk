@@ -104,7 +104,7 @@ export type BaseContext = {
         id: RequestId;
         method: string;
         _meta?: RequestMeta;
-        envelope?: RequestMetaEnvelope;
+        envelope?: Partial<RequestMetaEnvelope>;
         inputResponses?: Record<string, unknown>;
         requestState?: string;
         signal: AbortSignal;

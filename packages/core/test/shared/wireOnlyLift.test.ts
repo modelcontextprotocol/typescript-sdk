@@ -10,13 +10,13 @@
  * 2025-era traffic passes through untouched (same reference — no cloning on
  * the hot path).
  */
-import { describe, expect, test } from 'vitest';
+import { describe, expect, expectTypeOf, test } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { BaseContext } from '../../src/shared/protocol.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import { InMemoryTransport } from '../../src/util/inMemory.js';
-import type { JSONRPCMessage, JSONRPCRequest, Result } from '../../src/types/index.js';
+import type { JSONRPCMessage, JSONRPCRequest, RequestMetaEnvelope, Result } from '../../src/types/index.js';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -100,6 +100,36 @@ describe('envelope lift on inbound requests', () => {
         expect(seenCtx?.mcpReq._meta).toEqual({ progressToken: 7, [RELATED_TASK_META_KEY]: { taskId: 't-1' } });
         // …and the envelope is surfaced verbatim, un-deleted.
         expect(seenCtx?.mcpReq.envelope).toEqual(ENVELOPE);
+    });
+
+    test('a partial envelope (a subset of the reserved keys) surfaces as received and types as Partial', async () => {
+        // A one-revision-old peer may legally send only some reserved keys
+        // (e.g. just the log-level opt-in). The lift surfaces whatever was
+        // present, and the ctx slot's type says so: every member is optional.
+        let seenCtx: BaseContext | undefined;
+        const { peer } = await wireReceiver(receiver => {
+            receiver.setRequestHandler('tools/call', (_request, ctx) => {
+                seenCtx = ctx;
+                return { content: [] };
+            });
+        });
+
+        await peer.send({
+            jsonrpc: '2.0',
+            id: 7,
+            method: 'tools/call',
+            params: { name: 'echo', arguments: {}, _meta: { [LOG_LEVEL_META_KEY]: 'debug' } }
+        } as JSONRPCMessage);
+        await flush();
+
+        expect(seenCtx?.mcpReq.envelope).toEqual({ [LOG_LEVEL_META_KEY]: 'debug' });
+        // The slot is Partial<RequestMetaEnvelope>: a key the request did not
+        // carry reads as possibly-undefined — there is no claim that the
+        // required envelope members exist (requiredness is enforced per
+        // request at dispatch time, not by the lift).
+        expectTypeOf<NonNullable<BaseContext['mcpReq']['envelope']>>().toEqualTypeOf<Partial<RequestMetaEnvelope>>();
+        expectTypeOf(seenCtx!.mcpReq.envelope![PROTOCOL_VERSION_META_KEY]).toEqualTypeOf<string | undefined>();
+        expect(seenCtx?.mcpReq.envelope?.[PROTOCOL_VERSION_META_KEY]).toBeUndefined();
     });
 
     test('a _meta that holds only envelope keys disappears entirely (exact 2025 shape)', async () => {

@@ -153,7 +153,10 @@ const RESERVED_ENVELOPE_META_KEYS: readonly string[] = [
 const RETRY_PARAMS_KEYS = ['inputResponses', 'requestState'] as const;
 
 interface LiftedWireMaterial {
-    envelope?: RequestMetaEnvelope;
+    // Partial: the lift surfaces whichever reserved keys the request actually
+    // carried — a peer on an adjacent revision may legally send a subset, and
+    // envelope requiredness is enforced per request at dispatch time, not here.
+    envelope?: Partial<RequestMetaEnvelope>;
     inputResponses?: Record<string, unknown>;
     requestState?: string;
 }
@@ -186,7 +189,7 @@ function liftWireOnlyMaterial<T extends JSONRPCRequest | JSONRPCNotification>(me
         }
         // Surfaced as received; validation/enforcement is the dispatch-time
         // classifier's job, not the lift's.
-        lifted.envelope = envelope as RequestMetaEnvelope;
+        lifted.envelope = envelope as Partial<RequestMetaEnvelope>;
         if (Object.keys(nextMeta).length > 0) {
             nextParams._meta = nextMeta;
         } else {
@@ -238,9 +241,12 @@ export type BaseContext = {
          * The per-request `_meta` envelope (protocol revision 2026-07-28):
          * the reserved `io.modelcontextprotocol/*` keys carried by the
          * request, lifted out of the `_meta` the handler sees. Surfaced as
-         * received; only present when the request carried envelope keys.
+         * received — `Partial` because only the keys the request actually
+         * carried are present (envelope requiredness is enforced per request
+         * at dispatch time, not by the lift); only present at all when the
+         * request carried envelope keys.
          */
-        envelope?: RequestMetaEnvelope;
+        envelope?: Partial<RequestMetaEnvelope>;
 
         /**
          * Multi-round-trip input responses carried by a retried request
