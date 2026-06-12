@@ -20,6 +20,7 @@
  * Twin refresh is ATOMIC with the matching anchor (lifecycle rule 4,
  * packages/core/src/types/README.md); provenance in schema-twins/manifest.json.
  */
+import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -29,6 +30,31 @@ import { describe, expect, test } from 'vitest';
 
 const FIXTURES_ROOT = join(__dirname, '../corpus/fixtures');
 const TWINS_ROOT = join(__dirname, '../corpus/schema-twins');
+
+interface TwinManifest {
+    source: { repository: string; commit: string };
+    files: Record<string, { sha256: string; bytes: number; upstreamPath: string }>;
+}
+
+const TWIN_MANIFEST = JSON.parse(readFileSync(join(TWINS_ROOT, 'manifest.json'), 'utf8')) as TwinManifest;
+
+describe('twin provenance integrity (the manifest lock)', () => {
+    // The twins' authority as generated oracles rests on them being the raw
+    // upstream artifacts, byte for byte. Hash the vendored files against the
+    // manifest's provenance values at test time so ANY rewrite — prettier, an
+    // editor, a manual touch-up — fails loudly. Refresh only via
+    // `pnpm fetch:schema-twins` (which recomputes these values from the
+    // fetched bytes), atomically with the matching spec.types anchor.
+    test.each(Object.keys(TWIN_MANIFEST.files))('%s twin is byte-identical to the upstream artifact pinned in the manifest', revision => {
+        const entry = TWIN_MANIFEST.files[revision]!;
+        const raw = readFileSync(join(TWINS_ROOT, `${revision}.schema.json`));
+        expect(raw.byteLength, `byte size drifted for ${revision} — the vendored twin was rewritten`).toBe(entry.bytes);
+        expect(
+            createHash('sha256').update(raw).digest('hex'),
+            `sha256 drifted for ${revision} — the vendored twin was rewritten (re-vendor raw bytes via pnpm fetch:schema-twins)`
+        ).toBe(entry.sha256);
+    });
+});
 
 type JsonSchema = { $defs?: Record<string, { required?: string[] }> };
 

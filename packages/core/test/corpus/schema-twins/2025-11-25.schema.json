@@ -50,7 +50,11 @@
                     "type": "string"
                 }
             },
-            "required": ["data", "mimeType", "type"],
+            "required": [
+                "data",
+                "mimeType",
+                "type"
+            ],
             "type": "object"
         },
         "BaseMetadata": {
@@ -65,7 +69,9 @@
                     "type": "string"
                 }
             },
-            "required": ["name"],
+            "required": [
+                "name"
+            ],
             "type": "object"
         },
         "BlobResourceContents": {
@@ -90,7 +96,10 @@
                     "type": "string"
                 }
             },
-            "required": ["blob", "uri"],
+            "required": [
+                "blob",
+                "uri"
+            ],
             "type": "object"
         },
         "BooleanSchema": {
@@ -109,7 +118,9 @@
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": [
+                "type"
+            ],
             "type": "object"
         },
         "CallToolRequest": {
@@ -130,7 +141,12 @@
                     "$ref": "#/$defs/CallToolRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "CallToolRequestParams": {
@@ -161,7 +177,9 @@
                     "description": "If specified, the caller is requesting task-augmented execution for this request.\nThe request will return a CreateTaskResult immediately, and the actual result can be\nretrieved later via tasks/result.\n\nTask augmentation is subject to capability negotiation - receivers MUST declare support\nfor task augmentation of specific request types in their capabilities."
                 }
             },
-            "required": ["name"],
+            "required": [
+                "name"
+            ],
             "type": "object"
         },
         "CallToolResult": {
@@ -189,7 +207,9 @@
                     "type": "object"
                 }
             },
-            "required": ["content"],
+            "required": [
+                "content"
+            ],
             "type": "object"
         },
         "CancelTaskRequest": {
@@ -213,11 +233,18 @@
                             "type": "string"
                         }
                     },
-                    "required": ["taskId"],
+                    "required": [
+                        "taskId"
+                    ],
                     "type": "object"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "CancelTaskResult": {
@@ -246,7 +273,11 @@
                     "$ref": "#/$defs/CancelledNotificationParams"
                 }
             },
-            "required": ["jsonrpc", "method", "params"],
+            "required": [
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "CancelledNotificationParams": {
@@ -497,7 +528,12 @@
                     "$ref": "#/$defs/CompleteRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "CompleteRequestParams": {
@@ -526,7 +562,10 @@
                             "type": "string"
                         }
                     },
-                    "required": ["name", "value"],
+                    "required": [
+                        "name",
+                        "value"
+                    ],
                     "type": "object"
                 },
                 "context": {
@@ -553,7 +592,10 @@
                     ]
                 }
             },
-            "required": ["argument", "ref"],
+            "required": [
+                "argument",
+                "ref"
+            ],
             "type": "object"
         },
         "CompleteResult": {
@@ -582,11 +624,15 @@
                             "type": "array"
                         }
                     },
-                    "required": ["values"],
+                    "required": [
+                        "values"
+                    ],
                     "type": "object"
                 }
             },
-            "required": ["completion"],
+            "required": [
+                "completion"
+            ],
             "type": "object"
         },
         "ContentBlock": {
@@ -626,7 +672,12 @@
                     "$ref": "#/$defs/CreateMessageRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "CreateMessageRequestParams": {
@@ -645,7 +696,11 @@
                 },
                 "includeContext": {
                     "description": "A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.\nThe client MAY ignore this request.\n\nDefault is \"none\". Values \"thisServer\" and \"allServers\" are soft-deprecated. Servers SHOULD only use these values if the client\ndeclares ClientCapabilities.sampling.context. These values may be removed in future spec releases.",
-                    "enum": ["allServers", "none", "thisServer"],
+                    "enum": [
+                        "allServers",
+                        "none",
+                        "thisServer"
+                    ],
                     "type": "string"
                 },
                 "maxTokens": {
@@ -697,7 +752,10 @@
                     "type": "array"
                 }
             },
-            "required": ["maxTokens", "messages"],
+            "required": [
+                "maxTokens",
+                "messages"
+            ],
             "type": "object"
         },
         "CreateMessageResult": {
@@ -745,7 +803,11 @@
                     "type": "string"
                 }
             },
-            "required": ["content", "model", "role"],
+            "required": [
+                "content",
+                "model",
+                "role"
+            ],
             "type": "object"
         },
         "CreateTaskResult": {
@@ -760,7 +822,9 @@
                     "$ref": "#/$defs/Task"
                 }
             },
-            "required": ["task"],
+            "required": [
+                "task"
+            ],
             "type": "object"
         },
         "Cursor": {
@@ -785,7 +849,12 @@
                     "$ref": "#/$defs/ElicitRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "ElicitRequestFormParams": {
@@ -834,7 +903,10 @@
                             "type": "string"
                         }
                     },
-                    "required": ["properties", "type"],
+                    "required": [
+                        "properties",
+                        "type"
+                    ],
                     "type": "object"
                 },
                 "task": {
@@ -842,7 +914,10 @@
                     "description": "If specified, the caller is requesting task-augmented execution for this request.\nThe request will return a CreateTaskResult immediately, and the actual result can be\nretrieved later via tasks/result.\n\nTask augmentation is subject to capability negotiation - receivers MUST declare support\nfor task augmentation of specific request types in their capabilities."
                 }
             },
-            "required": ["message", "requestedSchema"],
+            "required": [
+                "message",
+                "requestedSchema"
+            ],
             "type": "object"
         },
         "ElicitRequestParams": {
@@ -893,7 +968,12 @@
                     "type": "string"
                 }
             },
-            "required": ["elicitationId", "message", "mode", "url"],
+            "required": [
+                "elicitationId",
+                "message",
+                "mode",
+                "url"
+            ],
             "type": "object"
         },
         "ElicitResult": {
@@ -906,7 +986,11 @@
                 },
                 "action": {
                     "description": "The user action in response to the elicitation.\n- \"accept\": User submitted the form/confirmed the action\n- \"decline\": User explicitly decline the action\n- \"cancel\": User dismissed without making an explicit choice",
-                    "enum": ["accept", "cancel", "decline"],
+                    "enum": [
+                        "accept",
+                        "cancel",
+                        "decline"
+                    ],
                     "type": "string"
                 },
                 "content": {
@@ -919,7 +1003,11 @@
                                 "type": "array"
                             },
                             {
-                                "type": ["string", "integer", "boolean"]
+                                "type": [
+                                    "string",
+                                    "integer",
+                                    "boolean"
+                                ]
                             }
                         ]
                     },
@@ -927,7 +1015,9 @@
                     "type": "object"
                 }
             },
-            "required": ["action"],
+            "required": [
+                "action"
+            ],
             "type": "object"
         },
         "ElicitationCompleteNotification": {
@@ -948,11 +1038,17 @@
                             "type": "string"
                         }
                     },
-                    "required": ["elicitationId"],
+                    "required": [
+                        "elicitationId"
+                    ],
                     "type": "object"
                 }
             },
-            "required": ["jsonrpc", "method", "params"],
+            "required": [
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "EmbeddedResource": {
@@ -982,7 +1078,10 @@
                     "type": "string"
                 }
             },
-            "required": ["resource", "type"],
+            "required": [
+                "resource",
+                "type"
+            ],
             "type": "object"
         },
         "EmptyResult": {
@@ -1021,7 +1120,10 @@
                     "type": "string"
                 }
             },
-            "required": ["code", "message"],
+            "required": [
+                "code",
+                "message"
+            ],
             "type": "object"
         },
         "GetPromptRequest": {
@@ -1042,7 +1144,12 @@
                     "$ref": "#/$defs/GetPromptRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "GetPromptRequestParams": {
@@ -1071,7 +1178,9 @@
                     "type": "string"
                 }
             },
-            "required": ["name"],
+            "required": [
+                "name"
+            ],
             "type": "object"
         },
         "GetPromptResult": {
@@ -1093,7 +1202,9 @@
                     "type": "array"
                 }
             },
-            "required": ["messages"],
+            "required": [
+                "messages"
+            ],
             "type": "object"
         },
         "GetTaskPayloadRequest": {
@@ -1117,11 +1228,18 @@
                             "type": "string"
                         }
                     },
-                    "required": ["taskId"],
+                    "required": [
+                        "taskId"
+                    ],
                     "type": "object"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "GetTaskPayloadResult": {
@@ -1157,11 +1275,18 @@
                             "type": "string"
                         }
                     },
-                    "required": ["taskId"],
+                    "required": [
+                        "taskId"
+                    ],
                     "type": "object"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "GetTaskResult": {
@@ -1196,11 +1321,16 @@
                 },
                 "theme": {
                     "description": "Optional specifier for the theme this icon is designed for. `light` indicates\nthe icon is designed to be used with a light background, and `dark` indicates\nthe icon is designed to be used with a dark background.\n\nIf not provided, the client should assume the icon can be used with any theme.",
-                    "enum": ["dark", "light"],
+                    "enum": [
+                        "dark",
+                        "light"
+                    ],
                     "type": "string"
                 }
             },
-            "required": ["src"],
+            "required": [
+                "src"
+            ],
             "type": "object"
         },
         "Icons": {
@@ -1242,7 +1372,11 @@
                     "type": "string"
                 }
             },
-            "required": ["data", "mimeType", "type"],
+            "required": [
+                "data",
+                "mimeType",
+                "type"
+            ],
             "type": "object"
         },
         "Implementation": {
@@ -1276,7 +1410,10 @@
                     "type": "string"
                 }
             },
-            "required": ["name", "version"],
+            "required": [
+                "name",
+                "version"
+            ],
             "type": "object"
         },
         "InitializeRequest": {
@@ -1297,7 +1434,12 @@
                     "$ref": "#/$defs/InitializeRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "InitializeRequestParams": {
@@ -1325,7 +1467,11 @@
                     "type": "string"
                 }
             },
-            "required": ["capabilities", "clientInfo", "protocolVersion"],
+            "required": [
+                "capabilities",
+                "clientInfo",
+                "protocolVersion"
+            ],
             "type": "object"
         },
         "InitializeResult": {
@@ -1351,7 +1497,11 @@
                     "$ref": "#/$defs/Implementation"
                 }
             },
-            "required": ["capabilities", "protocolVersion", "serverInfo"],
+            "required": [
+                "capabilities",
+                "protocolVersion",
+                "serverInfo"
+            ],
             "type": "object"
         },
         "InitializedNotification": {
@@ -1369,7 +1519,10 @@
                     "$ref": "#/$defs/NotificationParams"
                 }
             },
-            "required": ["jsonrpc", "method"],
+            "required": [
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "JSONRPCErrorResponse": {
@@ -1386,7 +1539,10 @@
                     "type": "string"
                 }
             },
-            "required": ["error", "jsonrpc"],
+            "required": [
+                "error",
+                "jsonrpc"
+            ],
             "type": "object"
         },
         "JSONRPCMessage": {
@@ -1421,7 +1577,10 @@
                     "type": "object"
                 }
             },
-            "required": ["jsonrpc", "method"],
+            "required": [
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "JSONRPCRequest": {
@@ -1442,7 +1601,11 @@
                     "type": "object"
                 }
             },
-            "required": ["id", "jsonrpc", "method"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "JSONRPCResponse": {
@@ -1470,7 +1633,11 @@
                     "$ref": "#/$defs/Result"
                 }
             },
-            "required": ["id", "jsonrpc", "result"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "result"
+            ],
             "type": "object"
         },
         "LegacyTitledEnumSchema": {
@@ -1503,7 +1670,10 @@
                     "type": "string"
                 }
             },
-            "required": ["enum", "type"],
+            "required": [
+                "enum",
+                "type"
+            ],
             "type": "object"
         },
         "ListPromptsRequest": {
@@ -1524,7 +1694,11 @@
                     "$ref": "#/$defs/PaginatedRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "ListPromptsResult": {
@@ -1546,7 +1720,9 @@
                     "type": "array"
                 }
             },
-            "required": ["prompts"],
+            "required": [
+                "prompts"
+            ],
             "type": "object"
         },
         "ListResourceTemplatesRequest": {
@@ -1567,7 +1743,11 @@
                     "$ref": "#/$defs/PaginatedRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "ListResourceTemplatesResult": {
@@ -1589,7 +1769,9 @@
                     "type": "array"
                 }
             },
-            "required": ["resourceTemplates"],
+            "required": [
+                "resourceTemplates"
+            ],
             "type": "object"
         },
         "ListResourcesRequest": {
@@ -1610,7 +1792,11 @@
                     "$ref": "#/$defs/PaginatedRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "ListResourcesResult": {
@@ -1632,7 +1818,9 @@
                     "type": "array"
                 }
             },
-            "required": ["resources"],
+            "required": [
+                "resources"
+            ],
             "type": "object"
         },
         "ListRootsRequest": {
@@ -1653,7 +1841,11 @@
                     "$ref": "#/$defs/RequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "ListRootsResult": {
@@ -1671,7 +1863,9 @@
                     "type": "array"
                 }
             },
-            "required": ["roots"],
+            "required": [
+                "roots"
+            ],
             "type": "object"
         },
         "ListTasksRequest": {
@@ -1692,7 +1886,11 @@
                     "$ref": "#/$defs/PaginatedRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "ListTasksResult": {
@@ -1714,7 +1912,9 @@
                     "type": "array"
                 }
             },
-            "required": ["tasks"],
+            "required": [
+                "tasks"
+            ],
             "type": "object"
         },
         "ListToolsRequest": {
@@ -1735,7 +1935,11 @@
                     "$ref": "#/$defs/PaginatedRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "ListToolsResult": {
@@ -1757,12 +1961,23 @@
                     "type": "array"
                 }
             },
-            "required": ["tools"],
+            "required": [
+                "tools"
+            ],
             "type": "object"
         },
         "LoggingLevel": {
             "description": "The severity of a log message.\n\nThese map to syslog message severities, as specified in RFC-5424:\nhttps://datatracker.ietf.org/doc/html/rfc5424#section-6.2.1",
-            "enum": ["alert", "critical", "debug", "emergency", "error", "info", "notice", "warning"],
+            "enum": [
+                "alert",
+                "critical",
+                "debug",
+                "emergency",
+                "error",
+                "info",
+                "notice",
+                "warning"
+            ],
             "type": "string"
         },
         "LoggingMessageNotification": {
@@ -1780,7 +1995,11 @@
                     "$ref": "#/$defs/LoggingMessageNotificationParams"
                 }
             },
-            "required": ["jsonrpc", "method", "params"],
+            "required": [
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "LoggingMessageNotificationParams": {
@@ -1803,7 +2022,10 @@
                     "type": "string"
                 }
             },
-            "required": ["data", "level"],
+            "required": [
+                "data",
+                "level"
+            ],
             "type": "object"
         },
         "ModelHint": {
@@ -1867,7 +2089,9 @@
                     "type": "object"
                 }
             },
-            "required": ["method"],
+            "required": [
+                "method"
+            ],
             "type": "object"
         },
         "NotificationParams": {
@@ -1898,11 +2122,16 @@
                     "type": "string"
                 },
                 "type": {
-                    "enum": ["integer", "number"],
+                    "enum": [
+                        "integer",
+                        "number"
+                    ],
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": [
+                "type"
+            ],
             "type": "object"
         },
         "PaginatedRequest": {
@@ -1921,7 +2150,11 @@
                     "$ref": "#/$defs/PaginatedRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "PaginatedRequestParams": {
@@ -1977,7 +2210,11 @@
                     "$ref": "#/$defs/RequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "PrimitiveSchemaDefinition": {
@@ -2024,7 +2261,11 @@
                     "$ref": "#/$defs/ProgressNotificationParams"
                 }
             },
-            "required": ["jsonrpc", "method", "params"],
+            "required": [
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "ProgressNotificationParams": {
@@ -2052,12 +2293,18 @@
                     "type": "number"
                 }
             },
-            "required": ["progress", "progressToken"],
+            "required": [
+                "progress",
+                "progressToken"
+            ],
             "type": "object"
         },
         "ProgressToken": {
             "description": "A progress token, used to associate progress notifications with the original request.",
-            "type": ["string", "integer"]
+            "type": [
+                "string",
+                "integer"
+            ]
         },
         "Prompt": {
             "description": "A prompt or prompt template that the server offers.",
@@ -2094,7 +2341,9 @@
                     "type": "string"
                 }
             },
-            "required": ["name"],
+            "required": [
+                "name"
+            ],
             "type": "object"
         },
         "PromptArgument": {
@@ -2117,7 +2366,9 @@
                     "type": "string"
                 }
             },
-            "required": ["name"],
+            "required": [
+                "name"
+            ],
             "type": "object"
         },
         "PromptListChangedNotification": {
@@ -2135,7 +2386,10 @@
                     "$ref": "#/$defs/NotificationParams"
                 }
             },
-            "required": ["jsonrpc", "method"],
+            "required": [
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "PromptMessage": {
@@ -2148,7 +2402,10 @@
                     "$ref": "#/$defs/Role"
                 }
             },
-            "required": ["content", "role"],
+            "required": [
+                "content",
+                "role"
+            ],
             "type": "object"
         },
         "PromptReference": {
@@ -2167,7 +2424,10 @@
                     "type": "string"
                 }
             },
-            "required": ["name", "type"],
+            "required": [
+                "name",
+                "type"
+            ],
             "type": "object"
         },
         "ReadResourceRequest": {
@@ -2188,7 +2448,12 @@
                     "$ref": "#/$defs/ReadResourceRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "ReadResourceRequestParams": {
@@ -2211,7 +2476,9 @@
                     "type": "string"
                 }
             },
-            "required": ["uri"],
+            "required": [
+                "uri"
+            ],
             "type": "object"
         },
         "ReadResourceResult": {
@@ -2236,7 +2503,9 @@
                     "type": "array"
                 }
             },
-            "required": ["contents"],
+            "required": [
+                "contents"
+            ],
             "type": "object"
         },
         "RelatedTaskMetadata": {
@@ -2247,7 +2516,9 @@
                     "type": "string"
                 }
             },
-            "required": ["taskId"],
+            "required": [
+                "taskId"
+            ],
             "type": "object"
         },
         "Request": {
@@ -2260,12 +2531,17 @@
                     "type": "object"
                 }
             },
-            "required": ["method"],
+            "required": [
+                "method"
+            ],
             "type": "object"
         },
         "RequestId": {
             "description": "A uniquely identifying ID for a request in JSON-RPC.",
-            "type": ["string", "integer"]
+            "type": [
+                "string",
+                "integer"
+            ]
         },
         "RequestParams": {
             "description": "Common params for any request.",
@@ -2329,7 +2605,10 @@
                     "type": "string"
                 }
             },
-            "required": ["name", "uri"],
+            "required": [
+                "name",
+                "uri"
+            ],
             "type": "object"
         },
         "ResourceContents": {
@@ -2350,7 +2629,9 @@
                     "type": "string"
                 }
             },
-            "required": ["uri"],
+            "required": [
+                "uri"
+            ],
             "type": "object"
         },
         "ResourceLink": {
@@ -2402,7 +2683,11 @@
                     "type": "string"
                 }
             },
-            "required": ["name", "type", "uri"],
+            "required": [
+                "name",
+                "type",
+                "uri"
+            ],
             "type": "object"
         },
         "ResourceListChangedNotification": {
@@ -2420,7 +2705,10 @@
                     "$ref": "#/$defs/NotificationParams"
                 }
             },
-            "required": ["jsonrpc", "method"],
+            "required": [
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "ResourceRequestParams": {
@@ -2443,7 +2731,9 @@
                     "type": "string"
                 }
             },
-            "required": ["uri"],
+            "required": [
+                "uri"
+            ],
             "type": "object"
         },
         "ResourceTemplate": {
@@ -2487,7 +2777,10 @@
                     "type": "string"
                 }
             },
-            "required": ["name", "uriTemplate"],
+            "required": [
+                "name",
+                "uriTemplate"
+            ],
             "type": "object"
         },
         "ResourceTemplateReference": {
@@ -2503,7 +2796,10 @@
                     "type": "string"
                 }
             },
-            "required": ["type", "uri"],
+            "required": [
+                "type",
+                "uri"
+            ],
             "type": "object"
         },
         "ResourceUpdatedNotification": {
@@ -2521,7 +2817,11 @@
                     "$ref": "#/$defs/ResourceUpdatedNotificationParams"
                 }
             },
-            "required": ["jsonrpc", "method", "params"],
+            "required": [
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "ResourceUpdatedNotificationParams": {
@@ -2538,7 +2838,9 @@
                     "type": "string"
                 }
             },
-            "required": ["uri"],
+            "required": [
+                "uri"
+            ],
             "type": "object"
         },
         "Result": {
@@ -2554,7 +2856,10 @@
         },
         "Role": {
             "description": "The sender or recipient of messages and data in a conversation.",
-            "enum": ["assistant", "user"],
+            "enum": [
+                "assistant",
+                "user"
+            ],
             "type": "string"
         },
         "Root": {
@@ -2575,7 +2880,9 @@
                     "type": "string"
                 }
             },
-            "required": ["uri"],
+            "required": [
+                "uri"
+            ],
             "type": "object"
         },
         "RootsListChangedNotification": {
@@ -2593,7 +2900,10 @@
                     "$ref": "#/$defs/NotificationParams"
                 }
             },
-            "required": ["jsonrpc", "method"],
+            "required": [
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "SamplingMessage": {
@@ -2633,7 +2943,10 @@
                     "$ref": "#/$defs/Role"
                 }
             },
-            "required": ["content", "role"],
+            "required": [
+                "content",
+                "role"
+            ],
             "type": "object"
         },
         "SamplingMessageContentBlock": {
@@ -2877,7 +3190,12 @@
                     "$ref": "#/$defs/SetLevelRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "SetLevelRequestParams": {
@@ -2899,7 +3217,9 @@
                     "description": "The level of logging that the client wants to receive from the server. The server should send all logs at this level and higher (i.e., more severe) to the client as notifications/message."
                 }
             },
-            "required": ["level"],
+            "required": [
+                "level"
+            ],
             "type": "object"
         },
         "SingleSelectEnumSchema": {
@@ -2921,7 +3241,12 @@
                     "type": "string"
                 },
                 "format": {
-                    "enum": ["date", "date-time", "email", "uri"],
+                    "enum": [
+                        "date",
+                        "date-time",
+                        "email",
+                        "uri"
+                    ],
                     "type": "string"
                 },
                 "maxLength": {
@@ -2938,7 +3263,9 @@
                     "type": "string"
                 }
             },
-            "required": ["type"],
+            "required": [
+                "type"
+            ],
             "type": "object"
         },
         "SubscribeRequest": {
@@ -2959,7 +3286,12 @@
                     "$ref": "#/$defs/SubscribeRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "SubscribeRequestParams": {
@@ -2982,7 +3314,9 @@
                     "type": "string"
                 }
             },
-            "required": ["uri"],
+            "required": [
+                "uri"
+            ],
             "type": "object"
         },
         "Task": {
@@ -3014,10 +3348,19 @@
                 },
                 "ttl": {
                     "description": "Actual retention duration from creation in milliseconds, null for unlimited.",
-                    "type": ["integer", "null"]
+                    "type": [
+                        "integer",
+                        "null"
+                    ]
                 }
             },
-            "required": ["createdAt", "lastUpdatedAt", "status", "taskId", "ttl"],
+            "required": [
+                "createdAt",
+                "lastUpdatedAt",
+                "status",
+                "taskId",
+                "ttl"
+            ],
             "type": "object"
         },
         "TaskAugmentedRequestParams": {
@@ -3053,7 +3396,13 @@
         },
         "TaskStatus": {
             "description": "The status of a task.",
-            "enum": ["cancelled", "completed", "failed", "input_required", "working"],
+            "enum": [
+                "cancelled",
+                "completed",
+                "failed",
+                "input_required",
+                "working"
+            ],
             "type": "string"
         },
         "TaskStatusNotification": {
@@ -3071,7 +3420,11 @@
                     "$ref": "#/$defs/TaskStatusNotificationParams"
                 }
             },
-            "required": ["jsonrpc", "method", "params"],
+            "required": [
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "TaskStatusNotificationParams": {
@@ -3106,7 +3459,10 @@
                     "type": "string"
                 }
             },
-            "required": ["text", "type"],
+            "required": [
+                "text",
+                "type"
+            ],
             "type": "object"
         },
         "TextResourceContents": {
@@ -3130,7 +3486,10 @@
                     "type": "string"
                 }
             },
-            "required": ["text", "uri"],
+            "required": [
+                "text",
+                "uri"
+            ],
             "type": "object"
         },
         "TitledMultiSelectEnumSchema": {
@@ -3163,13 +3522,18 @@
                                         "type": "string"
                                     }
                                 },
-                                "required": ["const", "title"],
+                                "required": [
+                                    "const",
+                                    "title"
+                                ],
                                 "type": "object"
                             },
                             "type": "array"
                         }
                     },
-                    "required": ["anyOf"],
+                    "required": [
+                        "anyOf"
+                    ],
                     "type": "object"
                 },
                 "maxItems": {
@@ -3189,7 +3553,10 @@
                     "type": "string"
                 }
             },
-            "required": ["items", "type"],
+            "required": [
+                "items",
+                "type"
+            ],
             "type": "object"
         },
         "TitledSingleSelectEnumSchema": {
@@ -3216,7 +3583,10 @@
                                 "type": "string"
                             }
                         },
-                        "required": ["const", "title"],
+                        "required": [
+                            "const",
+                            "title"
+                        ],
                         "type": "object"
                     },
                     "type": "array"
@@ -3230,7 +3600,10 @@
                     "type": "string"
                 }
             },
-            "required": ["oneOf", "type"],
+            "required": [
+                "oneOf",
+                "type"
+            ],
             "type": "object"
         },
         "Tool": {
@@ -3285,7 +3658,9 @@
                             "type": "string"
                         }
                     },
-                    "required": ["type"],
+                    "required": [
+                        "type"
+                    ],
                     "type": "object"
                 },
                 "name": {
@@ -3317,7 +3692,9 @@
                             "type": "string"
                         }
                     },
-                    "required": ["type"],
+                    "required": [
+                        "type"
+                    ],
                     "type": "object"
                 },
                 "title": {
@@ -3325,7 +3702,10 @@
                     "type": "string"
                 }
             },
-            "required": ["inputSchema", "name"],
+            "required": [
+                "inputSchema",
+                "name"
+            ],
             "type": "object"
         },
         "ToolAnnotations": {
@@ -3359,7 +3739,11 @@
             "properties": {
                 "mode": {
                     "description": "Controls the tool use ability of the model:\n- \"auto\": Model decides whether to use tools (default)\n- \"required\": Model MUST use at least one tool before completing\n- \"none\": Model MUST NOT use any tools",
-                    "enum": ["auto", "none", "required"],
+                    "enum": [
+                        "auto",
+                        "none",
+                        "required"
+                    ],
                     "type": "string"
                 }
             },
@@ -3370,7 +3754,11 @@
             "properties": {
                 "taskSupport": {
                     "description": "Indicates whether this tool supports task-augmented execution.\nThis allows clients to handle long-running operations through polling\nthe task system.\n\n- \"forbidden\": Tool does not support task-augmented execution (default when absent)\n- \"optional\": Tool may support task-augmented execution\n- \"required\": Tool requires task-augmented execution\n\nDefault: \"forbidden\"",
-                    "enum": ["forbidden", "optional", "required"],
+                    "enum": [
+                        "forbidden",
+                        "optional",
+                        "required"
+                    ],
                     "type": "string"
                 }
             },
@@ -3391,7 +3779,10 @@
                     "$ref": "#/$defs/NotificationParams"
                 }
             },
-            "required": ["jsonrpc", "method"],
+            "required": [
+                "jsonrpc",
+                "method"
+            ],
             "type": "object"
         },
         "ToolResultContent": {
@@ -3427,7 +3818,11 @@
                     "type": "string"
                 }
             },
-            "required": ["content", "toolUseId", "type"],
+            "required": [
+                "content",
+                "toolUseId",
+                "type"
+            ],
             "type": "object"
         },
         "ToolUseContent": {
@@ -3456,7 +3851,12 @@
                     "type": "string"
                 }
             },
-            "required": ["id", "input", "name", "type"],
+            "required": [
+                "id",
+                "input",
+                "name",
+                "type"
+            ],
             "type": "object"
         },
         "URLElicitationRequiredError": {
@@ -3483,11 +3883,16 @@
                                             "type": "array"
                                         }
                                     },
-                                    "required": ["elicitations"],
+                                    "required": [
+                                        "elicitations"
+                                    ],
                                     "type": "object"
                                 }
                             },
-                            "required": ["code", "data"],
+                            "required": [
+                                "code",
+                                "data"
+                            ],
                             "type": "object"
                         }
                     ]
@@ -3500,7 +3905,10 @@
                     "type": "string"
                 }
             },
-            "required": ["error", "jsonrpc"],
+            "required": [
+                "error",
+                "jsonrpc"
+            ],
             "type": "object"
         },
         "UnsubscribeRequest": {
@@ -3521,7 +3929,12 @@
                     "$ref": "#/$defs/UnsubscribeRequestParams"
                 }
             },
-            "required": ["id", "jsonrpc", "method", "params"],
+            "required": [
+                "id",
+                "jsonrpc",
+                "method",
+                "params"
+            ],
             "type": "object"
         },
         "UnsubscribeRequestParams": {
@@ -3544,7 +3957,9 @@
                     "type": "string"
                 }
             },
-            "required": ["uri"],
+            "required": [
+                "uri"
+            ],
             "type": "object"
         },
         "UntitledMultiSelectEnumSchema": {
@@ -3576,7 +3991,10 @@
                             "type": "string"
                         }
                     },
-                    "required": ["enum", "type"],
+                    "required": [
+                        "enum",
+                        "type"
+                    ],
                     "type": "object"
                 },
                 "maxItems": {
@@ -3596,7 +4014,10 @@
                     "type": "string"
                 }
             },
-            "required": ["items", "type"],
+            "required": [
+                "items",
+                "type"
+            ],
             "type": "object"
         },
         "UntitledSingleSelectEnumSchema": {
@@ -3626,8 +4047,12 @@
                     "type": "string"
                 }
             },
-            "required": ["enum", "type"],
+            "required": [
+                "enum",
+                "type"
+            ],
             "type": "object"
         }
     }
 }
+
