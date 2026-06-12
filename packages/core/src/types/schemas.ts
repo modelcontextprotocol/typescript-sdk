@@ -2249,7 +2249,13 @@ export const ServerResultSchema = z.union([
 ]);
 
 /* Runtime schema lookup — result schemas by method */
-const resultSchemas: Record<string, z.core.$ZodType> = {
+// Keyed by `RequestMethod` so the runtime map and the typed `ResultTypeMap`
+// cannot drift: `getResultSchema`'s typed overload asserts each entry parses
+// to `ResultTypeMap[M]`, so no entry may be looser than the typed map
+// (no task-result union members) and no key may fall outside it (no `tasks/*`
+// entries — the task methods are 2025-11-25 wire vocabulary with no SDK
+// runtime; callers needing task interop pass an explicit schema).
+const resultSchemas: Record<RequestMethod, z.core.$ZodType> = {
     ping: EmptyResultSchema,
     initialize: InitializeResultSchema,
     'completion/complete': CompleteResultSchema,
@@ -2261,15 +2267,11 @@ const resultSchemas: Record<string, z.core.$ZodType> = {
     'resources/read': ReadResourceResultSchema,
     'resources/subscribe': EmptyResultSchema,
     'resources/unsubscribe': EmptyResultSchema,
-    'tools/call': z.union([CallToolResultSchema, CreateTaskResultSchema]),
+    'tools/call': CallToolResultSchema,
     'tools/list': ListToolsResultSchema,
-    'sampling/createMessage': z.union([CreateMessageResultWithToolsSchema, CreateTaskResultSchema]),
-    'elicitation/create': z.union([ElicitResultSchema, CreateTaskResultSchema]),
-    'roots/list': ListRootsResultSchema,
-    'tasks/get': GetTaskResultSchema,
-    'tasks/result': ResultSchema,
-    'tasks/list': ListTasksResultSchema,
-    'tasks/cancel': CancelTaskResultSchema
+    'sampling/createMessage': CreateMessageResultWithToolsSchema,
+    'elicitation/create': ElicitResultSchema,
+    'roots/list': ListRootsResultSchema
 };
 
 /**
