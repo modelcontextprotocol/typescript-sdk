@@ -358,6 +358,13 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
+    ElicitationCompleteNotificationParams: (
+        sdk: SDKTypes.ElicitationCompleteNotificationParams,
+        spec: SpecTypes.ElicitationCompleteNotificationParams
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
     ElicitationCompleteNotification: (
         sdk: WithJSONRPC<SDKTypes.ElicitationCompleteNotification>,
         spec: SpecTypes.ElicitationCompleteNotification
@@ -451,7 +458,9 @@ const MISSING_SDK_TYPES_2026_07_28 = [
     // SEP-2575 sessionless discovery: the SDK ships the wire shapes
     // (DiscoverRequestSchema / DiscoverResultSchema), but the 2026-07-28 shapes embed the
     // required `_meta` envelope (request) and required `resultType` (result → MRTR PR),
-    // so they do not match yet; DiscoverResultResponse is a response wrapper (→ MRTR PR):
+    // and DiscoverResult now extends CacheableResult (required `ttlMs`/`cacheScope`
+    // → PR for SEP-2549), so they do not match yet; DiscoverResultResponse is a
+    // response wrapper (→ MRTR PR):
     'DiscoverRequest',
     'DiscoverResult',
     'DiscoverResultResponse',
@@ -518,7 +527,7 @@ describe('Spec Types (2026-07-28)', () => {
         expect(specTypes).toContain('DiscoverRequest');
         expect(specTypes).toContain('InputRequiredResult');
         expect(specTypes).toContain('SubscriptionsListenRequest');
-        expect(specTypes).toHaveLength(150);
+        expect(specTypes).toHaveLength(151);
     });
 
     it('should only allowlist types that exist in the 2026-07-28 schema', () => {

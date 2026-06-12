@@ -36,6 +36,8 @@ export const CursorSchema = z.string();
 
 /**
  * Task creation parameters, used to ask that the server create a task to represent a request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const TaskCreationParamsSchema = z.looseObject({
     /**
@@ -49,6 +51,7 @@ export const TaskCreationParamsSchema = z.looseObject({
     pollInterval: z.number().optional()
 });
 
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export const TaskMetadataSchema = z.object({
     ttl: z.number().optional()
 });
@@ -56,6 +59,8 @@ export const TaskMetadataSchema = z.object({
 /**
  * Metadata for associating messages with a task.
  * Include this in the `_meta` field under the key `io.modelcontextprotocol/related-task`.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const RelatedTaskMetadataSchema = z.object({
     taskId: z.string()
@@ -84,6 +89,8 @@ export const BaseRequestParamsSchema = z.object({
 
 /**
  * Common params for any task-augmented request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
@@ -347,6 +354,8 @@ const ElicitationCapabilitySchema = z.preprocess(
 
 /**
  * Task capabilities for clients, indicating which request types support task creation.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const ClientTasksCapabilitySchema = z.looseObject({
     /**
@@ -384,6 +393,8 @@ export const ClientTasksCapabilitySchema = z.looseObject({
 
 /**
  * Task capabilities for servers, indicating which request types support task creation.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const ServerTasksCapabilitySchema = z.looseObject({
     /**
@@ -452,6 +463,8 @@ export const ClientCapabilitiesSchema = z.object({
         .optional(),
     /**
      * Present if the client supports task creation.
+     *
+     * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; parsed for interoperability only — servers built on this SDK never advertise it.
      */
     tasks: ClientTasksCapabilitySchema.optional(),
     /**
@@ -532,6 +545,8 @@ export const ServerCapabilitiesSchema = z.object({
         .optional(),
     /**
      * Present if the server supports task creation.
+     *
+     * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; parsed for interoperability only — servers built on this SDK never advertise it.
      */
     tasks: ServerTasksCapabilitySchema.optional(),
     /**
@@ -669,12 +684,16 @@ export const PaginatedResultSchema = ResultSchema.extend({
 
 /**
  * The status of a task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  * */
 export const TaskStatusSchema = z.enum(['working', 'input_required', 'completed', 'failed', 'cancelled']);
 
 /* Tasks */
 /**
  * A pollable state object associated with a request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const TaskSchema = z.object({
     taskId: z.string(),
@@ -701,6 +720,8 @@ export const TaskSchema = z.object({
 
 /**
  * Result returned when a task is created, containing the task data wrapped in a `task` field.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const CreateTaskResultSchema = ResultSchema.extend({
     task: TaskSchema
@@ -708,11 +729,15 @@ export const CreateTaskResultSchema = ResultSchema.extend({
 
 /**
  * Parameters for task status notification.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
 
 /**
  * A notification sent when a task's status changes.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const TaskStatusNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/tasks/status'),
@@ -721,6 +746,8 @@ export const TaskStatusNotificationSchema = NotificationSchema.extend({
 
 /**
  * A request to get the state of a specific task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const GetTaskRequestSchema = RequestSchema.extend({
     method: z.literal('tasks/get'),
@@ -731,11 +758,15 @@ export const GetTaskRequestSchema = RequestSchema.extend({
 
 /**
  * The response to a {@linkcode GetTaskRequest | tasks/get} request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const GetTaskResultSchema = ResultSchema.merge(TaskSchema);
 
 /**
  * A request to get the result of a specific task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const GetTaskPayloadRequestSchema = RequestSchema.extend({
     method: z.literal('tasks/result'),
@@ -749,11 +780,14 @@ export const GetTaskPayloadRequestSchema = RequestSchema.extend({
  * The structure matches the result type of the original request.
  * For example, a {@linkcode CallToolRequest | tools/call} task would return the `CallToolResult` structure.
  *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const GetTaskPayloadResultSchema = ResultSchema.loose();
 
 /**
  * A request to list tasks.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
     method: z.literal('tasks/list')
@@ -761,6 +795,8 @@ export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
 
 /**
  * The response to a {@linkcode ListTasksRequest | tasks/list} request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const ListTasksResultSchema = PaginatedResultSchema.extend({
     tasks: z.array(TaskSchema)
@@ -768,6 +804,8 @@ export const ListTasksResultSchema = PaginatedResultSchema.extend({
 
 /**
  * A request to cancel a specific task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const CancelTaskRequestSchema = RequestSchema.extend({
     method: z.literal('tasks/cancel'),
@@ -778,6 +816,8 @@ export const CancelTaskRequestSchema = RequestSchema.extend({
 
 /**
  * The response to a {@linkcode CancelTaskRequest | tasks/cancel} request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
  */
 export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
 
@@ -2249,7 +2289,13 @@ export const ServerResultSchema = z.union([
 ]);
 
 /* Runtime schema lookup — result schemas by method */
-const resultSchemas: Record<string, z.core.$ZodType> = {
+// Keyed by `RequestMethod` so the runtime map and the typed `ResultTypeMap`
+// cannot drift: `getResultSchema`'s typed overload asserts each entry parses
+// to `ResultTypeMap[M]`, so no entry may be looser than the typed map
+// (no task-result union members) and no key may fall outside it (no `tasks/*`
+// entries — the task methods are 2025-11-25 wire vocabulary with no SDK
+// runtime; callers needing task interop pass an explicit schema).
+const resultSchemas: Record<RequestMethod, z.core.$ZodType> = {
     ping: EmptyResultSchema,
     initialize: InitializeResultSchema,
     'completion/complete': CompleteResultSchema,
@@ -2261,15 +2307,11 @@ const resultSchemas: Record<string, z.core.$ZodType> = {
     'resources/read': ReadResourceResultSchema,
     'resources/subscribe': EmptyResultSchema,
     'resources/unsubscribe': EmptyResultSchema,
-    'tools/call': z.union([CallToolResultSchema, CreateTaskResultSchema]),
+    'tools/call': CallToolResultSchema,
     'tools/list': ListToolsResultSchema,
-    'sampling/createMessage': z.union([CreateMessageResultWithToolsSchema, CreateTaskResultSchema]),
-    'elicitation/create': z.union([ElicitResultSchema, CreateTaskResultSchema]),
-    'roots/list': ListRootsResultSchema,
-    'tasks/get': GetTaskResultSchema,
-    'tasks/result': ResultSchema,
-    'tasks/list': ListTasksResultSchema,
-    'tasks/cancel': CancelTaskResultSchema
+    'sampling/createMessage': CreateMessageResultWithToolsSchema,
+    'elicitation/create': ElicitResultSchema,
+    'roots/list': ListRootsResultSchema
 };
 
 /**

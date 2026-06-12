@@ -28,6 +28,12 @@ export enum SdkErrorCode {
     SendFailed = 'SEND_FAILED',
     /** Response result failed local schema validation */
     InvalidResult = 'INVALID_RESULT',
+    /**
+     * The response carried a `resultType` discriminator (protocol revision
+     * 2026-07-28) naming a result kind this client cannot consume yet, e.g.
+     * `input_required`. The kind is carried in `data.resultType`.
+     */
+    UnsupportedResultType = 'UNSUPPORTED_RESULT_TYPE',
 
     // Transport errors
     ClientHttpNotImplemented = 'CLIENT_HTTP_NOT_IMPLEMENTED',

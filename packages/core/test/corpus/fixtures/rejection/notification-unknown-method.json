@@ -1,0 +1,8 @@
+{
+    "description": "A notification with no registered handler is silently ignored (no response, no out-of-band error).",
+    "message": {
+        "jsonrpc": "2.0",
+        "method": "notifications/definitely-unknown"
+    },
+    "expect": "ignored"
+}

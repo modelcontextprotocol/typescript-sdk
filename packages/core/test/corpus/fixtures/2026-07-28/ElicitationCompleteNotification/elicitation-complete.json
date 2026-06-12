@@ -1,0 +1,7 @@
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/elicitation/complete",
+  "params": {
+    "elicitationId": "550e8400-e29b-41d4-a716-446655440000"
+  }
+}
