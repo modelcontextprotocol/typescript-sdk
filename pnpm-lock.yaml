@@ -1102,8 +1102,8 @@ importers:
         specifier: workspace:^
         version: link:../../packages/client
       '@modelcontextprotocol/conformance':
-        specifier: 0.2.0-alpha.2
-        version: 0.2.0-alpha.2(@cfworker/json-schema@4.1.1)
+        specifier: 0.2.0-alpha.3
+        version: 0.2.0-alpha.3(@cfworker/json-schema@4.1.1)
       '@modelcontextprotocol/core':
         specifier: workspace:^
         version: link:../../packages/core
@@ -2127,8 +2127,8 @@ packages:
   '@microsoft/tsdoc@0.16.0':
     resolution: {integrity: sha512-xgAyonlVVS+q7Vc7qLW0UrJU7rSFcETRWsqdXZtjzRU8dF+6CkozTK4V4y1LwOX7j8r/vHphjDeMeGI4tNGeGA==}
 
-  '@modelcontextprotocol/conformance@0.2.0-alpha.2':
-    resolution: {integrity: sha512-/8bde9d0mfsvgd9IwQgNIl1AS9uNOp/+ZG+2nNRWXtPs6xrz/cNp4ObBMmGY9kP8dkDaF3bvjtC/2Hj8TStMRg==}
+  '@modelcontextprotocol/conformance@0.2.0-alpha.3':
+    resolution: {integrity: sha512-YjdEKaKWswkJtRl0G3RmZCfljkAct3je834sqGHgasGeU2eUp7sb+6sJL0uNEaAY3XXWYumN/mjr6aPZbnbJMA==}
     hasBin: true
 
   '@modelcontextprotocol/sdk@1.29.0':
@@ -6131,7 +6131,7 @@ snapshots:
 
   '@microsoft/tsdoc@0.16.0': {}
 
-  '@modelcontextprotocol/conformance@0.2.0-alpha.2(@cfworker/json-schema@4.1.1)':
+  '@modelcontextprotocol/conformance@0.2.0-alpha.3(@cfworker/json-schema@4.1.1)':
     dependencies:
       '@modelcontextprotocol/sdk': 1.29.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@octokit/rest': 22.0.1
