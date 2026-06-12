@@ -234,7 +234,16 @@ export interface OAuthClientProvider {
      * RFC 8707 Resource Indicator. If left undefined, default
      * validation behavior will be used.
      *
-     * Implementations must verify the returned resource matches the MCP server.
+     * The default validation accepts URL `resource` values with no fragment that share
+     * origin with, and are equal to or a parent path of, the MCP server URL. This is
+     * stricter than RFC 8707 (which permits any absolute URI) and looser than RFC 9728
+     * §3.3 (which requires identity with the resource identifier used for discovery).
+     * Implement this hook to opt in to accepting:
+     *  - non-URL absolute URI resource indicators per RFC 8707 §2 (e.g. `urn:...`, `api://...`)
+     *  - identifiers served from a different origin than the MCP endpoint
+     *
+     * Implementations remain responsible for any audience-binding policy required by the
+     * application. See RFC 9728 §3.3 / §7.3 for the security rationale behind the strict default.
      */
     validateResourceURL?(serverUrl: string | URL, resource?: string): Promise<URL | undefined>;
 
@@ -857,9 +866,15 @@ export async function selectResourceURL(
         return undefined;
     }
 
-    // Validate that the metadata's resource is compatible with our request
+    // Validate that the metadata's resource is compatible with our request.
+    // Per RFC 9728 §3.3 / §7.3, refusing mismatched PRM resources prevents an attacker-controlled
+    // endpoint from advertising metadata that impersonates another resource.
     if (!checkResourceAllowed({ requestedResource: defaultResource, configuredResource: resourceMetadata.resource })) {
-        throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${defaultResource} (or origin)`);
+        throw new Error(
+            `Protected resource ${resourceMetadata.resource} does not match expected ${defaultResource} (or origin). ` +
+                `Override OAuthClientProvider.validateResourceURL to opt in to accepting non-URL RFC 8707 resource indicators ` +
+                `(e.g. 'urn:' or 'api://') or identifiers served from a different origin.`
+        );
     }
     // Prefer the resource from metadata since it's what the server is telling us to request
     return new URL(resourceMetadata.resource);
