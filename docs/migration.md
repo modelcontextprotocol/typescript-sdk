@@ -984,6 +984,50 @@ protocol.setRequestHandler(
 
 ## Enhancements
 
+### Opt-in protocol version negotiation (2026-07-28 draft)
+
+The client can now negotiate the protocol era at connect time. This is **opt-in**: if you do nothing, `connect()` performs exactly the same 2025 `initialize` handshake as before, byte for byte.
+
+```typescript
+import { Client } from '@modelcontextprotocol/client';
+
+// Auto-negotiate: try the 2026-07-28 draft revision, fall back to the 2025
+// handshake automatically when the server is a 2025-era deployment.
+const client = new Client(
+    { name: 'my-client', version: '1.0.0' },
+    { versionNegotiation: { mode: 'auto' } }
+);
+await client.connect(transport);
+
+client.getProtocolEra(); // 'modern' | 'legacy'
+client.getNegotiatedProtocolVersion(); // e.g. '2026-07-28' or '2025-11-25'
+```
+
+How the modes behave:
+
+- **absent / `mode: 'legacy'`** (default): today's behavior, unchanged. No probe, no new headers.
+- **`mode: 'auto'`**: `connect()` first sends a single `server/discover` probe. A modern server answers it and no `initialize` is sent; a 2025-era server rejects it (deployed servers answer fast, e.g. `-32601` or a `400`), and the client falls back to the plain legacy
+  handshake **on the same connection** — byte-equivalent to a 2025 client, including the `initialize` body version and with zero 2026 headers. The probe costs one round trip against an old server and nothing else.
+- **`mode: { pin: '2026-07-28' }`**: modern era at exactly that revision. No fallback — if the server does not offer the pinned version, `connect()` rejects with a typed error. Use `pin` where a silent downgrade would be worse than an error (tests, CI, servers you control).
+
+Failure semantics under `'auto'` are deliberately conservative but never silent about infrastructure problems: anything the probe does not positively recognize as modern falls back to the legacy era, while a network outage or probe timeout rejects with a typed connect error
+(`SdkError` with `EraNegotiationFailed` or `RequestTimeout`) — a dead server is never misreported as a legacy server. One browser-specific exception: an opaque CORS/preflight `TypeError` during the probe falls back to the legacy era, because deployed 2025 servers commonly
+have CORS allow-lists that predate the 2026 headers and the legacy handshake sends none of them.
+
+Probe policy is configured under `versionNegotiation.probe`:
+
+```typescript
+versionNegotiation: {
+    mode: 'auto',
+    probe: {
+        timeoutMs: 10_000, // default: the standard request timeout
+        maxRetries: 1 // default: 0
+    }
+}
+```
+
+Note that `maxRetries` governs timeout re-sends only; the `-32004` corrective continuation (selecting a mutually supported version after a version rejection and continuing) is mandated by the specification and is not counted against it.
+
 ### Automatic JSON Schema validator selection by runtime
 
 The SDK now automatically selects the appropriate JSON Schema validator based on your runtime environment:

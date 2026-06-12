@@ -61,6 +61,7 @@ export type { LoggingOptions, Middleware, RequestLogger } from './client/middlew
 export { applyMiddlewares, createMiddleware, withLogging, withOAuth } from './client/middleware.js';
 export type { SSEClientTransportOptions } from './client/sse.js';
 export { SSEClientTransport, SseError } from './client/sse.js';
+export type { VersionNegotiationMode, VersionNegotiationOptions, VersionNegotiationProbeOptions } from './client/versionNegotiation.js';
 // StdioClientTransport, getDefaultEnvironment, DEFAULT_INHERITED_ENV_VARS, StdioServerParameters are exported from
 // the './stdio' subpath to keep the root entry free of process-spawning runtime dependencies (child_process, cross-spawn).
 export type {

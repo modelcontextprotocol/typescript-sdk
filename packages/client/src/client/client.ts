@@ -46,6 +46,8 @@ import {
     codecForVersion,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    DEFAULT_REQUEST_TIMEOUT_MSEC,
+    isModernProtocolVersion,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
@@ -58,6 +60,9 @@ import {
     SdkErrorCode,
     setNegotiatedProtocolVersion
 } from '@modelcontextprotocol/core';
+
+import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation.js';
+import { detectProbeEnvironment, negotiateEra, resolveVersionNegotiation } from './versionNegotiation.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
@@ -150,6 +155,27 @@ export type ClientOptions = ProtocolOptions & {
     jsonSchemaValidator?: jsonSchemaValidator;
 
     /**
+     * Opt-in protocol version negotiation (protocol revision 2026-07-28 and later).
+     *
+     * - absent or `mode: 'legacy'` — the plain 2025 connect sequence, byte-identical
+     *   to today's behavior (no probe, no new headers).
+     * - `mode: 'auto'` — `connect()` probes the server with `server/discover` first:
+     *   definitive modern evidence selects the modern era; definitive legacy signals
+     *   (and anything unrecognized) fall back to the plain legacy `initialize`
+     *   handshake on the same connection, byte-equivalent to a 2025 client. Network
+     *   outage and probe timeout reject with typed connect errors — they are never
+     *   converted to an era verdict.
+     * - `mode: { pin: '2026-07-28' }` — modern era at exactly the pinned revision;
+     *   no probe-and-fallback: anything else fails loudly.
+     *
+     * Probe policy lives under `probe: { timeoutMs?, maxRetries? }`; the probe
+     * inherits the client's standard request timeout unless overridden. Note
+     * `maxRetries` governs timeout re-sends only — the `-32004` corrective
+     * continuation is spec-mandated and not counted against it.
+     */
+    versionNegotiation?: VersionNegotiationOptions;
+
+    /**
      * Configure handlers for list changed notifications (tools, prompts, resources).
      *
      * @example
@@ -222,6 +248,8 @@ export class Client extends Protocol<ClientContext> {
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
+    private _versionNegotiation?: VersionNegotiationOptions;
+    private _supportedProtocolVersionsOption?: string[];
 
     /**
      * Initializes this client with the given name and version information.
@@ -234,6 +262,8 @@ export class Client extends Protocol<ClientContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
+        this._versionNegotiation = options?.versionNegotiation;
+        this._supportedProtocolVersionsOption = options?.supportedProtocolVersions;
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -439,6 +469,11 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
+        const negotiation = resolveVersionNegotiation(this._versionNegotiation, this._supportedProtocolVersionsOption);
+        if (negotiation.kind !== 'legacy') {
+            return this._connectNegotiated(transport, negotiation, options);
+        }
+        // Plain legacy connect — the pinned 2025 sequence, byte-untouched.
         await super.connect(transport);
         // When transport sessionId is already set this means we are trying to reconnect.
         // Restore the protocol version negotiated during the original initialize handshake
@@ -462,6 +497,19 @@ export class Client extends Protocol<ClientContext> {
         // never re-run a fresh handshake: `initialize` is physically absent
         // from the modern registry. (The resume branch above keeps it instead.)
         setNegotiatedProtocolVersion(this, undefined);
+        await this._legacyHandshake(transport, options);
+    }
+
+    /**
+     * The 2025 `initialize` handshake — the body of the plain legacy connect.
+     * Also the `'auto'`-mode fallback path, on the same connection: fallback is
+     * structurally this client's own plain legacy connect under identical
+     * options (same `initialize` body including the protocol version, zero
+     * 2026 headers). Callers clear the negotiated protocol version before the
+     * handshake (the fresh-connect clear), so the exchange rides the bootstrap
+     * pins; its completion sets the negotiated (legacy) version.
+     */
+    private async _legacyHandshake(transport: Transport, options?: RequestOptions): Promise<void> {
         try {
             const result = await this.request(
                 {
@@ -518,6 +566,87 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
+     * Negotiated connect (`versionNegotiation` mode `'auto'` or `{ pin }`): run
+     * the `server/discover` probe in the wiring layer before the Protocol
+     * machinery attaches, then either establish the modern era or perform the
+     * plain legacy handshake on the same connection.
+     */
+    private async _connectNegotiated(
+        transport: Transport,
+        negotiation: Extract<ResolvedVersionNegotiation, { kind: 'auto' | 'pin' }>,
+        options?: RequestOptions
+    ): Promise<void> {
+        // Session-resuming reconnect: restore the previously negotiated version,
+        // never re-probe mid-session.
+        if (transport.sessionId !== undefined) {
+            await super.connect(transport);
+            const negotiatedProtocolVersion = negotiatedProtocolVersionOf(this);
+            if (negotiatedProtocolVersion !== undefined && transport.setProtocolVersion) {
+                transport.setProtocolVersion(negotiatedProtocolVersion);
+            }
+            return;
+        }
+
+        // Fresh connect: same property as the plain legacy path — the
+        // negotiated protocol version is connection state, and a value left
+        // over from a previous connection must not survive into a new
+        // negotiation. Every fresh negotiated connect re-runs the probe.
+        setNegotiatedProtocolVersion(this, undefined);
+
+        let result: Awaited<ReturnType<typeof negotiateEra>>;
+        try {
+            result = await negotiateEra(negotiation, {
+                transport,
+                clientInfo: this._clientInfo,
+                capabilities: this._capabilities,
+                environment: detectProbeEnvironment(),
+                defaultTimeoutMs: options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC
+            });
+        } catch (error) {
+            // Typed connect error — close the channel like a failed initialize does.
+            await transport.close().catch(() => {});
+            throw error;
+        }
+
+        await super.connect(transport);
+
+        if (result.era === 'legacy') {
+            // Conservative fallback: the plain legacy handshake on the SAME
+            // connection — structurally the same code path as a plain legacy
+            // connect (the transport version slot was never touched during the
+            // probe, so there is nothing to clear: zero 2026 headers by
+            // construction). The handshake's completion sets the negotiated
+            // (legacy) protocol version exactly like a plain connect.
+            await this._legacyHandshake(transport, options);
+            return;
+        }
+
+        this._serverCapabilities = result.discover.capabilities;
+        this._serverVersion = result.discover.serverInfo;
+        this._instructions = result.discover.instructions;
+        // Modern selection: the negotiated protocol version is the instance's
+        // connection state (the same channel the legacy handshake completion
+        // uses), and with it the wire era for everything this connection
+        // sends/receives from here on.
+        setNegotiatedProtocolVersion(this, result.version);
+        // After the era resolves modern, source per-request headers exactly the
+        // way the legacy path does after initialize — the single
+        // setProtocolVersion call site on this path.
+        if (transport.setProtocolVersion) {
+            transport.setProtocolVersion(result.version);
+        }
+        // The modern era has no notifications/initialized. List-changed handlers
+        // are still configured from the advertised capabilities (the discover
+        // advertisement excludes listChanged-class capabilities until the
+        // subscriptions/listen milestone lands, so this is a structural no-op
+        // today).
+        if (this._pendingListChangedConfig) {
+            this._setupListChangedHandlers(this._pendingListChangedConfig);
+            this._pendingListChangedConfig = undefined;
+        }
+    }
+
+    /**
      * After initialization has completed, this will be populated with the server's reported capabilities.
      */
     getServerCapabilities(): ServerCapabilities | undefined {
@@ -538,6 +667,22 @@ export class Client extends Protocol<ClientContext> {
      */
     getNegotiatedProtocolVersion(): string | undefined {
         return negotiatedProtocolVersionOf(this);
+    }
+
+    /**
+     * The protocol era of the current connection: `'modern'` for a 2026-07-28+
+     * connection negotiated via `server/discover`, `'legacy'` for a 2025
+     * `initialize` handshake (including the plain connect without
+     * `versionNegotiation`). `undefined` before negotiation completes. A thin
+     * read of the negotiated protocol version (the same connection state
+     * {@linkcode getNegotiatedProtocolVersion} exposes) — never persisted.
+     */
+    getProtocolEra(): 'legacy' | 'modern' | undefined {
+        const version = negotiatedProtocolVersionOf(this);
+        if (version === undefined) {
+            return undefined;
+        }
+        return isModernProtocolVersion(version) ? 'modern' : 'legacy';
     }
 
     /**
