@@ -1063,7 +1063,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 //   lift, then today's schema validation decides.
                 // Either way a non-complete body can never be masked into a
                 // hollow success by a tolerant result schema.
-                const decoded = codec.decodeResult(request.method, response.result);
+                // Guarded: this callback runs synchronously inside
+                // `_onresponse`, so a throw out of the decode hop would
+                // otherwise propagate into the transport's onmessage instead
+                // of failing this request.
+                let decoded: ReturnType<WireCodec['decodeResult']>;
+                try {
+                    decoded = codec.decodeResult(request.method, response.result);
+                } catch (error) {
+                    return reject(error instanceof Error ? error : new Error(String(error)));
+                }
                 if (decoded.kind === 'invalid') {
                     return reject(decoded.error);
                 }

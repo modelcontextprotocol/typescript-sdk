@@ -955,6 +955,31 @@ describe('codec-seam hardening in the protocol funnels', () => {
 
         await protocol.close();
     });
+
+    test('a synchronous throw out of codec.decodeResult rejects the request instead of escaping into transport.onmessage', async () => {
+        const [protocolTx, peerTx] = InMemoryTransport.createLinkedPair();
+        peerTx.onmessage = message => {
+            const request = message as JSONRPCRequest;
+            void peerTx.send({ jsonrpc: '2.0', id: request.id, result: {} });
+        };
+        await peerTx.start();
+
+        const protocol = createTestProtocol();
+        await protocol.connect(protocolTx);
+
+        // The response callback runs synchronously inside _onresponse; an
+        // unguarded throw here would propagate into the transport instead of
+        // failing the request. (The concrete production vector is the 2026
+        // codec's method-keyed schema lookup — see the own-key guard in
+        // rev2026-07-28/codec.ts.)
+        vi.spyOn(rev2025Codec, 'decodeResult').mockImplementationOnce(() => {
+            throw new Error('decode exploded');
+        });
+
+        await expect(protocol.request({ method: 'ping' })).rejects.toThrow('decode exploded');
+
+        await protocol.close();
+    });
 });
 
 describe('inbound validation precedence: −32601 outranks envelope −32602', () => {

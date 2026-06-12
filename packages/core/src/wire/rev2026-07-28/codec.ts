@@ -153,7 +153,10 @@ export const rev2026Codec: WireCodec = {
         }
 
         // Step 2 — wire-exact parse (registry methods), with resultType present.
-        const wireSchema = WIRE_RESULT_SCHEMAS[method];
+        // Own-key lookup: `method` is peer-influenced on related-request
+        // paths, and a prototype-chain hit (e.g. 'constructor') must not
+        // masquerade as a schema and throw out of the decode hop.
+        const wireSchema = Object.hasOwn(WIRE_RESULT_SCHEMAS, method) ? WIRE_RESULT_SCHEMAS[method] : undefined;
         if (wireSchema !== undefined) {
             const parsed = wireSchema.safeParse(raw);
             if (!parsed.success) {
