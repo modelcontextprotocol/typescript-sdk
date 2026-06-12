@@ -265,6 +265,21 @@ describe('OAuth Authorization', () => {
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource/path/name');
         });
 
+        it('normalizes duplicate trailing slashes in path before metadata discovery', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => validMetadata
+            });
+
+            const metadata = await discoverOAuthProtectedResourceMetadata('https://resource.example.com/path/name//');
+            expect(metadata).toEqual(validMetadata);
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(1);
+            const [url] = calls[0]!;
+            expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource/path/name');
+        });
+
         it('preserves query parameters in path-aware discovery', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -402,6 +417,24 @@ describe('OAuth Authorization', () => {
 
             const calls = mockFetch.mock.calls;
             expect(calls.length).toBe(1); // Should not attempt fallback
+
+            const [url] = calls[0]!;
+            expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
+        });
+
+        it('does not fallback for URLs that normalize to root with extra slashes', async () => {
+            // First call returns 404
+            mockFetch.mockResolvedValueOnce({
+                ok: false,
+                status: 404
+            });
+
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com//')).rejects.toThrow(
+                'Resource server does not implement OAuth 2.0 Protected Resource Metadata.'
+            );
+
+            const calls = mockFetch.mock.calls;
+            expect(calls.length).toBe(1);
 
             const [url] = calls[0]!;
             expect(url.toString()).toBe('https://resource.example.com/.well-known/oauth-protected-resource');
@@ -850,6 +883,27 @@ describe('OAuth Authorization', () => {
                     url: 'https://auth.example.com/tenant1/.well-known/openid-configuration',
                     type: 'oidc'
                 }
+            ]);
+        });
+
+        it('normalizes trailing slashes in server URLs before discovery', () => {
+            const urls = buildDiscoveryUrls('https://auth.example.com/tenant1//');
+
+            expect(urls).toHaveLength(3);
+            expect(urls.map(u => u.url.toString())).toEqual([
+                'https://auth.example.com/.well-known/oauth-authorization-server/tenant1',
+                'https://auth.example.com/.well-known/openid-configuration/tenant1',
+                'https://auth.example.com/tenant1/.well-known/openid-configuration'
+            ]);
+        });
+
+        it('treats double-slashed paths as root', () => {
+            const urls = buildDiscoveryUrls('https://auth.example.com//');
+
+            expect(urls).toHaveLength(2);
+            expect(urls.map(u => u.url.toString())).toEqual([
+                'https://auth.example.com/.well-known/oauth-authorization-server',
+                'https://auth.example.com/.well-known/openid-configuration'
             ]);
         });
 
