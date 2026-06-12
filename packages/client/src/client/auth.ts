@@ -532,6 +532,71 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
 }
 
 /**
+ * Validates the `iss` parameter of an authorization response against the issuer
+ * recorded from the authorization server's validated metadata, per RFC 9207
+ * (OAuth 2.0 Authorization Server Issuer Identification) Section 2.4.
+ *
+ * The `iss` argument is tri-state, because the SDK does not see the authorization
+ * response itself — the caller does:
+ * - `string`: the `iss` parameter received in the authorization response. Validated.
+ * - `null`: the caller inspected the authorization response and it contained no `iss`.
+ *   The RFC 9207 fail-closed rule applies: if the AS metadata advertises
+ *   `authorization_response_iss_parameter_supported: true`, the response is rejected.
+ * - `undefined`: the caller did not supply authorization-response parameters at all
+ *   (e.g. legacy `finishAuth(code)` callers that only plumb the code). Validation is
+ *   skipped — the SDK cannot distinguish "the response had no iss" from "the caller
+ *   did not look", so it does not fail closed on the caller's behalf.
+ *
+ * Decision table (for callers that did inspect the response, i.e. `iss` is a string or `null`):
+ * 1. The AS metadata advertises `authorization_response_iss_parameter_supported: true`
+ *    but the response carries no `iss` (`null`) → reject.
+ * 2. The response carries an `iss` (whether or not support was advertised) → it must be
+ *    an exact, character-by-character match of the recorded issuer (no normalization) —
+ *    mismatch → reject.
+ * 3. Support is not advertised and no `iss` is present → proceed (validation not possible).
+ * 4. On rejection, callers MUST NOT process the rest of the authorization response
+ *    (including any `error`/`error_description` parameters).
+ *
+ * @param metadata - The authorization server metadata recorded before the redirect, if available
+ * @param iss - The `iss` parameter from the authorization response (`null` = response had no
+ * `iss`; `undefined` = caller did not provide response parameters, skip validation)
+ * @throws Error if the response must be rejected per RFC 9207
+ */
+export function validateAuthorizationResponseIssuer(
+    metadata: { issuer: string; authorization_response_iss_parameter_supported?: boolean } | undefined,
+    iss: string | null | undefined
+): void {
+    if (iss === undefined) {
+        // The caller did not provide authorization-response parameters; there is
+        // nothing to validate and no signal that an advertised iss was dropped.
+        return;
+    }
+
+    if (iss === null) {
+        if (metadata?.authorization_response_iss_parameter_supported === true) {
+            throw new Error(
+                'Authorization server metadata advertises authorization_response_iss_parameter_supported, but the authorization response did not include an iss parameter (RFC 9207)'
+            );
+        }
+        // Neither advertised nor present: validation is not possible; proceed.
+        return;
+    }
+
+    if (metadata === undefined) {
+        throw new Error(
+            'Authorization response included an iss parameter, but no authorization server metadata was recorded to validate it against (RFC 9207)'
+        );
+    }
+
+    // Exact string comparison — no normalization of any kind (RFC 9207 Section 2.4).
+    if (iss !== metadata.issuer) {
+        throw new Error(
+            `Authorization response iss parameter does not match the expected issuer: expected ${metadata.issuer}, got ${iss} (RFC 9207). The authorization response must not be processed.`
+        );
+    }
+}
+
+/**
  * Orchestrates the full auth flow with a server.
  *
  * This can be used as a single entry point for all authorization functionality,
@@ -542,6 +607,20 @@ export async function auth(
     options: {
         serverUrl: string | URL;
         authorizationCode?: string;
+        /**
+         * The `iss` parameter received alongside the authorization code in the
+         * authorization response, validated per RFC 9207 against the issuer recorded
+         * in the authorization server metadata before the code is exchanged.
+         *
+         * Pass the string value when the authorization response contained an `iss`
+         * parameter. Pass `null` to assert that you inspected the authorization
+         * response and it contained no `iss` — this enables the RFC 9207 fail-closed
+         * rejection when the AS advertises
+         * `authorization_response_iss_parameter_supported: true`. Leave `undefined`
+         * when the response parameters were not available to you; validation is then
+         * skipped entirely.
+         */
+        iss?: string | null;
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
@@ -603,12 +682,14 @@ async function authInternal(
     {
         serverUrl,
         authorizationCode,
+        iss,
         scope,
         resourceMetadataUrl,
         fetchFn
     }: {
         serverUrl: string | URL;
         authorizationCode?: string;
+        iss?: string | null;
         scope?: string;
         resourceMetadataUrl?: URL;
         fetchFn?: FetchLike;
@@ -747,6 +828,13 @@ async function authInternal(
 
     // Exchange authorization code for tokens, or fetch tokens directly for non-interactive flows
     if (authorizationCode !== undefined || nonInteractiveFlow) {
+        if (authorizationCode !== undefined) {
+            // RFC 9207: validate the authorization response issuer against the recorded
+            // AS metadata BEFORE the code is sent to any token endpoint. Skipped when the
+            // caller did not provide authorization-response parameters (iss === undefined).
+            validateAuthorizationResponseIssuer(metadata, iss);
+        }
+
         const tokens = await fetchToken(provider, authorizationServerUrl, {
             metadata,
             resource,
