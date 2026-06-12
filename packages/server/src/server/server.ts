@@ -6,6 +6,7 @@ import type {
     CreateMessageRequestParamsWithTools,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    DiscoverResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
@@ -38,8 +39,10 @@ import {
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     LATEST_PROTOCOL_VERSION,
+    legacyProtocolVersions,
     LoggingLevelSchema,
     mergeCapabilities,
+    modernProtocolVersions,
     negotiatedProtocolVersionOf,
     parseSchema,
     Protocol,
@@ -113,6 +116,14 @@ export class Server extends Protocol<ServerContext> {
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
+
+        // server/discover (protocol revision 2026-07-28) is installed ONLY when
+        // the supported-versions list carries a modern revision: a legacy-only
+        // server (today's default constant) keeps answering -32601, byte-identical
+        // to the deployed fleet. This is structural era gating, not a flag.
+        if (modernProtocolVersions(this._supportedProtocolVersions).length > 0) {
+            this.setRequestHandler('server/discover', () => this._ondiscover());
+        }
 
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
@@ -386,9 +397,19 @@ export class Server extends Protocol<ServerContext> {
         this._clientCapabilities = request.params.capabilities;
         this._clientVersion = request.params.clientInfo;
 
-        const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
+        // Era-aware list semantics: a 2026-07-28-or-later revision is NEVER
+        // negotiated via the legacy `initialize` handshake — those revisions
+        // are only ever selected through `server/discover`. `initialize` is a
+        // legacy-era handshake, so both the accept check and the counter-offer
+        // consult only the legacy subset of the supported versions: a modern
+        // revision can never be accepted or counter-offered here, even when
+        // the list carries one, and a legacy-era client can never meet a
+        // modern version string at this site. (With today's default constant
+        // the subset is the whole list, byte-identical behavior.)
+        const legacyVersions = legacyProtocolVersions(this._supportedProtocolVersions);
+        const protocolVersion = legacyVersions.includes(requestedVersion)
             ? requestedVersion
-            : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
+            : (legacyVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
         // The negotiated version is the instance's connection state — it IS
         // the wire-era selection for everything this instance sends and
@@ -399,6 +420,25 @@ export class Server extends Protocol<ServerContext> {
         return {
             protocolVersion,
             capabilities: this.getCapabilities(),
+            serverInfo: this._serverInfo,
+            ...(this._instructions && { instructions: this._instructions })
+        };
+    }
+
+    /**
+     * Answers `server/discover` (protocol revision 2026-07-28). The
+     * advertisement is era-aware in both directions:
+     *
+     * - `supportedVersions` lists ONLY modern revisions (the modern subset of
+     *   the supported-versions list) — discover never advertises 2025-era
+     *   versions; those are negotiated via `initialize`.
+     * - the advertised capabilities exclude the listChanged/subscribe-class
+     *   capabilities (see {@linkcode discoverAdvertisedCapabilities}).
+     */
+    private _ondiscover(): DiscoverResult {
+        return {
+            supportedVersions: modernProtocolVersions(this._supportedProtocolVersions),
+            capabilities: discoverAdvertisedCapabilities(this.getCapabilities()),
             serverInfo: this._serverInfo,
             ...(this._instructions && { instructions: this._instructions })
         };
@@ -670,4 +710,36 @@ export class Server extends Protocol<ServerContext> {
     async sendPromptListChanged() {
         return this.notification({ method: 'notifications/prompts/list_changed' });
     }
+}
+
+/**
+ * The capability set a server advertises on `server/discover`.
+ *
+ * A11 rider: until the subscriptions/listen milestone (#14 / M6.1) lands, the
+ * discover advertisement must NOT include the listChanged/subscribe-class
+ * capabilities — on the 2026-07-28 revision those flows are replaced by
+ * `subscriptions/listen`, which the SDK does not serve yet, so advertising
+ * them would promise notification flows a modern-era connection cannot get.
+ * The listen milestone removes this stripping when it wires the real
+ * subscription machinery (cross-referenced from that milestone).
+ *
+ * Pure: never mutates the input; the legacy `initialize` advertisement is
+ * untouched by construction (it calls `getCapabilities()` directly).
+ */
+export function discoverAdvertisedCapabilities(capabilities: ServerCapabilities): ServerCapabilities {
+    const advertised: ServerCapabilities = { ...capabilities };
+    if (capabilities.tools) {
+        advertised.tools = { ...capabilities.tools };
+        delete advertised.tools.listChanged;
+    }
+    if (capabilities.prompts) {
+        advertised.prompts = { ...capabilities.prompts };
+        delete advertised.prompts.listChanged;
+    }
+    if (capabilities.resources) {
+        advertised.resources = { ...capabilities.resources };
+        delete advertised.resources.listChanged;
+        delete advertised.resources.subscribe;
+    }
+    return advertised;
 }
