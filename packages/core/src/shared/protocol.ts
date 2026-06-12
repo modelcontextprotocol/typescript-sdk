@@ -51,6 +51,7 @@ import type { LiftedWireMaterial, NarrowResultKey, WireCodec } from '../wire/cod
 import {
     bindRequestCodec,
     codecForContext,
+    hasBoundWireVersion,
     inboundCodecFor,
     isSpecNotificationMethod,
     isSpecRequestMethod,
@@ -877,10 +878,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>>;
     request(request: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions): Promise<unknown> {
-        // Outbound codec resolution: lifecycle messages are bootstrap-pinned
-        // (they precede negotiation and self-identify their era); everything
-        // else rides the instance's negotiated era (legacy when unbound).
-        const codec = bootstrapOutboundCodec(request.method) ?? outboundCodecFor(this);
+        const codec = this._resolveOutboundCodec(request.method);
         this._assertOutboundRequestInEra(codec, request.method);
         if (isStandardSchema(schemaOrOptions)) {
             return this._requestWithSchemaViaCodec(codec, request, schemaOrOptions, maybeOptions);
@@ -899,6 +897,21 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Methods outside the spec universe are consumer-owned extension methods
      * and stay era-blind.
      */
+    /**
+     * Outbound codec resolution: BEFORE negotiation, lifecycle messages are
+     * bootstrap-pinned (they self-identify their era — `initialize` IS the
+     * legacy handshake, `server/discover` IS the modern probe); AFTER a wire
+     * version is bound, the negotiated era is authoritative for everything —
+     * a negotiated session never re-routes a method onto the other era.
+     */
+    private _resolveOutboundCodec(method: string): WireCodec {
+        if (!hasBoundWireVersion(this)) {
+            const pinned = bootstrapOutboundCodec(method);
+            if (pinned) return pinned;
+        }
+        return outboundCodecFor(this);
+    }
+
     private _assertOutboundRequestInEra(codec: WireCodec, method: string): void {
         if (isSpecRequestMethod(method) && !codec.hasRequestMethod(method)) {
             throw new SdkError(
@@ -919,7 +932,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * dispatch time, like every other method-keyed binding.
      */
     protected _requestWithNarrowSchema<R extends Result>(request: Request, narrow: NarrowResultKey, options?: RequestOptions): Promise<R> {
-        const codec = bootstrapOutboundCodec(request.method) ?? outboundCodecFor(this);
+        const codec = this._resolveOutboundCodec(request.method);
         this._assertOutboundRequestInEra(codec, request.method);
         const schema = codec.narrowResultSchema(narrow);
         if (!schema) {
@@ -943,12 +956,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         resultSchema: T,
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>> {
-        return this._requestWithSchemaViaCodec(
-            bootstrapOutboundCodec(request.method) ?? outboundCodecFor(this),
-            request,
-            resultSchema,
-            options
-        );
+        return this._requestWithSchemaViaCodec(this._resolveOutboundCodec(request.method), request, resultSchema, options);
     }
 
     /**
@@ -1045,55 +1053,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     return reject(response);
                 }
 
-                // Raw-first result discrimination (protocol revision
-                // 2026-07-28): inspect `resultType` BEFORE any schema
-                // validation, so a non-complete result can never be masked
-                // into a hollow success by a tolerant result schema (e.g.
-                // defaults filling in absent members).
-                let result = response.result;
-                if (isPlainObject(result) && result['resultType'] !== undefined) {
-                    const rawResultType = result['resultType'];
-                    if (typeof rawResultType !== 'string') {
-                        // Defense in depth, not a reachable rejection today:
-                        // the wire schema types `resultType` as a string, so
-                        // message classification rejects a non-string carrier
-                        // before it can reach this funnel (the request then
-                        // hangs until timeout — the pre-existing failure mode
-                        // for malformed responses). The arm stays so the
-                        // raw-first check is self-contained if classification
-                        // ever loosens.
-                        return reject(
-                            new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: non-string resultType`, {
-                                resultType: rawResultType
-                            })
-                        );
-                    }
-                    if (rawResultType !== 'complete') {
-                        // Surface the discriminated kind; no retry. This arm
-                        // is replaced by full multi-round-trip handling when
-                        // the client driver lands.
-                        return reject(
-                            new SdkError(
-                                SdkErrorCode.UnsupportedResultType,
-                                `Unsupported result type '${rawResultType}' for ${request.method}`,
-                                { resultType: rawResultType, method: request.method }
-                            )
-                        );
-                    }
-                    // 'complete': the SDK consumes the wire discriminator;
-                    // strip it before validation so consumers receive the
-                    // public result shape.
-                    const rest = { ...result };
-                    delete rest['resultType'];
-                    result = rest as Result;
-                }
-
-                // Codec decode hop (the structural V-1 home): the era codec
-                // applies its raw-first posture before schema validation.
-                // NOTE (staging): the funnel block above predates the codec
-                // split and still runs first; it is removed when the
-                // 2026-era codec lands and the codecs own the postures.
-                const decoded = codec.decodeResult(request.method, result);
+                // Codec decode hop — the structural V-1 home. The era codec
+                // owns the raw-first resultType postures (Q1-SD3):
+                // - 2026 era: REQUIRED discriminator; absent → typed error
+                //   naming the spec violation; input_required → driver seam;
+                //   unknown kind → invalid, no retry; complete → wire-exact
+                //   parse then lift.
+                // - 2025 era: resultType is foreign vocabulary → strip-on-
+                //   lift, then today's schema validation decides.
+                // Either way a non-complete body can never be masked into a
+                // hollow success by a tolerant result schema.
+                const decoded = codec.decodeResult(request.method, response.result);
                 if (decoded.kind === 'invalid') {
                     return reject(decoded.error);
                 }
@@ -1108,7 +1078,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         })
                     );
                 }
-                result = decoded.result;
+                const result = decoded.result;
 
                 validateStandardSchema(resultSchema, result).then(parseResult => {
                     if (parseResult.success) {
@@ -1150,7 +1120,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Emits a notification, which is a one-way message that does not expect a response.
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
-        return this._notificationViaCodec(bootstrapOutboundCodec(notification.method) ?? outboundCodecFor(this), notification, options);
+        return this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, options);
     }
 
     /**

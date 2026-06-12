@@ -43,6 +43,7 @@ import type * as z from 'zod/v4';
 import type { SdkError } from '../errors/sdkErrors.js';
 import type { MessageClassification, RequestMetaEnvelope, Result } from '../types/types.js';
 import { rev2025Codec } from './rev2025-11-25/codec.js';
+import { rev2026Codec } from './rev2026-07-28/codec.js';
 
 /** Wire eras with distinct vocabulary. */
 export type WireEra = '2025-11-25' | '2026-07-28';
@@ -159,13 +160,9 @@ export interface WireCodec {
  * 2026-era codec; `undefined`/unknown → legacy (the DV-13 default posture —
  * hand-constructed instances and unclassified traffic are legacy-era).
  *
- * NOTE (staging): the 2026-era codec lands with Q1 increment-2 step 5; until
- * then every version resolves to the 2025-era codec and behavior is
- * byte-identical to the pre-split SDK.
  */
 export function codecForVersion(version: string | undefined): WireCodec {
-    void version;
-    return rev2025Codec;
+    return version === MODERN_WIRE_REVISION ? rev2026Codec : rev2025Codec;
 }
 
 /**
@@ -195,7 +192,7 @@ export function isSpecNotificationMethod(method: string): boolean {
     return ALL_CODECS.some(codec => codec.hasNotificationMethod(method));
 }
 
-const ALL_CODECS: readonly WireCodec[] = [rev2025Codec];
+const ALL_CODECS: readonly WireCodec[] = [rev2025Codec, rev2026Codec];
 
 /* ------------------------------------------------------------------------ *
  * Internal binding channels.
@@ -234,6 +231,11 @@ export function unbindWireVersion(owner: object): void {
 /** The codec serving a protocol instance's outbound traffic (legacy when unbound). */
 export function outboundCodecFor(owner: object): WireCodec {
     return codecForVersion(outboundWireVersion.get(owner));
+}
+
+/** Whether a negotiated wire version has been bound for this instance. */
+export function hasBoundWireVersion(owner: object): boolean {
+    return outboundWireVersion.has(owner);
 }
 
 /**
