@@ -47,7 +47,7 @@ import {
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
 import { bootstrapOutboundCodec } from '../wire/bootstrap.js';
-import type { WireCodec } from '../wire/codec.js';
+import type { NarrowResultKey, WireCodec } from '../wire/codec.js';
 import {
     bindRequestCodec,
     codecForContext,
@@ -898,6 +898,29 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 { method, era: codec.era }
             );
         }
+    }
+
+    /**
+     * Sends a spec-method request whose result validation deliberately uses a
+     * NARROWER era schema than the generic per-method registry entry. With
+     * the result map aligned to the typed map, the only such surface is
+     * `server.createMessage`, whose result schema depends on the REQUEST
+     * params (tools vs no tools) — something a method-keyed registry entry
+     * cannot express. The schema is resolved from the outbound era codec at
+     * dispatch time, like every other method-keyed binding.
+     */
+    protected _requestWithNarrowSchema<R extends Result>(request: Request, narrow: NarrowResultKey, options?: RequestOptions): Promise<R> {
+        const codec = bootstrapOutboundCodec(request.method) ?? outboundCodecFor(this);
+        this._assertOutboundRequestInEra(codec, request.method);
+        const schema = codec.narrowResultSchema(narrow);
+        if (!schema) {
+            throw new SdkError(
+                SdkErrorCode.MethodNotSupportedByProtocolVersion,
+                `Method '${request.method}' is not supported by the negotiated protocol version (wire era ${codec.era})`,
+                { method: request.method, era: codec.era }
+            );
+        }
+        return this._requestWithSchemaViaCodec(codec, request, schema as unknown as StandardSchemaV1, options) as Promise<R>;
     }
 
     /**

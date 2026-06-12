@@ -4500,6 +4500,9 @@ const MultiSelectEnumSchemaSchema: z.ZodUnion<readonly [z.ZodObject<{
     default: z.ZodOptional<z.ZodArray<z.ZodString>>;
 }, z.core.$strip>]>;
 
+// @public
+type NarrowResultKey = 'sampling/createMessage:plain' | 'sampling/createMessage:withTools';
+
 // @public (undocumented)
 export type NotificationMethod = Exclude<ClientNotification['method'] | ServerNotification['method'], TaskNotificationMethod>;
 
@@ -5231,6 +5234,7 @@ abstract class Protocol<ContextT extends BaseContext> {
     }, options?: RequestOptions): Promise<ResultTypeMap[M]>;
     // (undocumented)
     request<T extends StandardSchemaV1>(request: Request_2, resultSchema: T, options?: RequestOptions): Promise<StandardSchemaV1.InferOutput<T>>;
+    protected _requestWithNarrowSchema<R extends Result>(request: Request_2, narrow: NarrowResultKey, options?: RequestOptions): Promise<R>;
     protected _requestWithSchema<T extends StandardSchemaV1>(request: Request_2, resultSchema: T, options?: RequestOptions): Promise<StandardSchemaV1.InferOutput<T>>;
     setNotificationHandler<M extends NotificationMethod>(method: M, handler: (notification: NotificationTypeMap[M]) => void | Promise<void>): void;
     // (undocumented)
