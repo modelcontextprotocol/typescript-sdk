@@ -110,6 +110,16 @@ Then:
 4. Run `pnpm test:all` to verify all tests pass
 5. Submit a pull request
 
+### API Reports
+
+Every public package's type surface is pinned by a committed API report (`packages/<pkg>/etc/<name>.api.md`), and CI fails when the built surface differs from the committed baseline. A failing `api-report` check does not mean your change is wrong — it means it is surface-visible.
+
+- If the surface change is intentional: run `pnpm api-report` (~30s: builds the packages and regenerates the reports), review the report diff like source, and commit it together with your change — plus a changeset if it is consumer-facing.
+- Never hand-edit a report; the check compares byte-exactly against regenerated output.
+- Resolve merge conflicts in `.api.md` files by taking either side and rerunning `pnpm api-report`, not by hand-merging.
+
+See the header of `scripts/generate-api-reports.ts` for how the reports are produced and which packages are covered.
+
 ### Running Examples
 
 See [`examples/server/README.md`](examples/server/README.md) and [`examples/client/README.md`](examples/client/README.md) for a full list of runnable examples.
