@@ -286,6 +286,20 @@ describe('Zod v4', () => {
             expect(response.headers.get('mcp-session-id')).toBeDefined();
         });
 
+        it('should initialize from valid JSON without Content-Type header', async () => {
+            const response = await fetch(baseUrl, {
+                method: 'POST',
+                headers: {
+                    Accept: 'application/json, text/event-stream'
+                },
+                body: new TextEncoder().encode(JSON.stringify(TEST_MESSAGES.initialize))
+            });
+
+            expect(response.status).toBe(200);
+            expect(response.headers.get('content-type')).toBe('text/event-stream');
+            expect(response.headers.get('mcp-session-id')).toBeDefined();
+        });
+
         it('should reject second initialization request', async () => {
             // First initialize
             const sessionId = await initializeServer();
@@ -680,10 +694,9 @@ describe('Zod v4', () => {
             expectErrorResponse(errorData, -32_000, /Client must accept both application\/json and text\/event-stream/);
         });
 
-        it('should reject unsupported Content-Type', async () => {
+        it('should reject invalid JSON regardless of Content-Type', async () => {
             sessionId = await initializeServer();
 
-            // Try POST with text/plain Content-Type
             const response = await fetch(baseUrl, {
                 method: 'POST',
                 headers: {
@@ -694,9 +707,9 @@ describe('Zod v4', () => {
                 body: 'This is plain text'
             });
 
-            expect(response.status).toBe(415);
+            expect(response.status).toBe(400);
             const errorData = await response.json();
-            expectErrorResponse(errorData, -32_000, /Content-Type must be application\/json/);
+            expectErrorResponse(errorData, -32_700, /Parse error.*Invalid JSON/);
         });
 
         it('should handle JSON-RPC batch notification messages with 202 response', async () => {
