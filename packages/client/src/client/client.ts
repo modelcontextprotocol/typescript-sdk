@@ -9,6 +9,9 @@ import type {
     ClientRequest,
     CompleteRequest,
     CompleteResult,
+    CreateMessageRequest,
+    ElicitRequest,
+    ElicitResult,
     EmptyResult,
     GetPromptRequest,
     GetPromptResult,
@@ -43,28 +46,15 @@ import type {
     UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
-    CallToolResultSchema,
-    CompleteResultSchema,
-    CreateMessageRequestSchema,
-    CreateMessageResultSchema,
-    CreateMessageResultWithToolsSchema,
-    ElicitRequestSchema,
-    ElicitResultSchema,
-    EmptyResultSchema,
-    GetPromptResultSchema,
-    InitializeResultSchema,
+    bindWireVersion,
+    codecForContext,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListResourceTemplatesResultSchema,
-    ListToolsResultSchema,
     mergeCapabilities,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
-    ReadResourceResultSchema,
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
@@ -302,7 +292,19 @@ export class Client extends Protocol<ClientContext> {
     ): (request: JSONRPCRequest, ctx: ClientContext) => Promise<Result> {
         if (method === 'elicitation/create') {
             return async (request, ctx) => {
-                const validatedRequest = parseSchema(ElicitRequestSchema, request);
+                // Era-exact validation: the schemas are resolved from the
+                // request's codec at dispatch time (the era gate guarantees
+                // the method exists on the serving era before we get here).
+                const codec = codecForContext(ctx);
+                const elicitRequestSchema = codec.requestSchema('elicitation/create');
+                // The era registry entry IS the plain ElicitResult schema
+                // (the result map is aligned to the typed map — no widened
+                // unions), so no narrower surface is needed.
+                const elicitResultSchema = codec.resultSchema('elicitation/create');
+                if (!elicitRequestSchema || !elicitResultSchema) {
+                    throw new ProtocolError(ProtocolErrorCode.InternalError, 'No wire schema for elicitation/create in the resolved era');
+                }
+                const validatedRequest = parseSchema(elicitRequestSchema, request);
                 if (!validatedRequest.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -310,7 +312,7 @@ export class Client extends Protocol<ClientContext> {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
                 }
 
-                const { params } = validatedRequest.data;
+                const { params } = validatedRequest.data as ElicitRequest;
                 params.mode = params.mode ?? 'form';
                 const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
 
@@ -324,7 +326,7 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
-                const validationResult = parseSchema(ElicitResultSchema, result);
+                const validationResult = parseSchema(elicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -332,7 +334,7 @@ export class Client extends Protocol<ClientContext> {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
                 }
 
-                const validatedResult = validationResult.data;
+                const validatedResult = validationResult.data as ElicitResult;
                 const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
 
                 if (
@@ -355,19 +357,36 @@ export class Client extends Protocol<ClientContext> {
 
         if (method === 'sampling/createMessage') {
             return async (request, ctx) => {
-                const validatedRequest = parseSchema(CreateMessageRequestSchema, request);
+                // Era-exact validation via the request's codec (see above).
+                const codec = codecForContext(ctx);
+                const samplingRequestSchema = codec.requestSchema('sampling/createMessage');
+                if (!samplingRequestSchema) {
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InternalError,
+                        'No wire schema for sampling/createMessage in the resolved era'
+                    );
+                }
+                const validatedRequest = parseSchema(samplingRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
                 }
 
-                const { params } = validatedRequest.data;
+                const { params } = validatedRequest.data as CreateMessageRequest;
 
                 const result = await handler(request, ctx);
 
                 const hasTools = params.tools || params.toolChoice;
-                const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
+                const resultSchema = codec.narrowResultSchema(
+                    hasTools ? 'sampling/createMessage:withTools' : 'sampling/createMessage:plain'
+                );
+                if (!resultSchema) {
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InternalError,
+                        'No wire schema for sampling/createMessage in the resolved era'
+                    );
+                }
                 const validationResult = parseSchema(resultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =
@@ -375,7 +394,7 @@ export class Client extends Protocol<ClientContext> {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
                 }
 
-                return validationResult.data;
+                return validationResult.data as Result;
             };
         }
 
@@ -423,13 +442,16 @@ export class Client extends Protocol<ClientContext> {
         // Restore the protocol version negotiated during the original initialize handshake
         // so HTTP transports include the required mcp-protocol-version header, but skip re-init.
         if (transport.sessionId !== undefined) {
-            if (this._negotiatedProtocolVersion !== undefined && transport.setProtocolVersion) {
-                transport.setProtocolVersion(this._negotiatedProtocolVersion);
+            if (this._negotiatedProtocolVersion !== undefined) {
+                // Reconnection restores the original negotiation: re-bind the
+                // wire codec alongside the transport header.
+                bindWireVersion(this, this._negotiatedProtocolVersion);
+                transport.setProtocolVersion?.(this._negotiatedProtocolVersion);
             }
             return;
         }
         try {
-            const result = await this._requestWithSchema(
+            const result = await this.request(
                 {
                     method: 'initialize',
                     params: {
@@ -438,7 +460,6 @@ export class Client extends Protocol<ClientContext> {
                         clientInfo: this._clientInfo
                     }
                 },
-                InitializeResultSchema,
                 options
             );
 
@@ -453,6 +474,10 @@ export class Client extends Protocol<ClientContext> {
             this._serverCapabilities = result.capabilities;
             this._serverVersion = result.serverInfo;
             this._negotiatedProtocolVersion = result.protocolVersion;
+            // The negotiated version selects the wire codec for everything
+            // this connection sends/receives from here on (the negotiated
+            // version cashes out as the negotiated wire ERA - Q1-SD1).
+            bindWireVersion(this, result.protocolVersion);
             // HTTP transports must set the protocol version in each header after initialization.
             if (transport.setProtocolVersion) {
                 transport.setProtocolVersion(result.protocolVersion);
@@ -638,22 +663,22 @@ export class Client extends Protocol<ClientContext> {
     }
 
     async ping(options?: RequestOptions): Promise<EmptyResult> {
-        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
+        return this.request({ method: 'ping' }, options);
     }
 
     /** Requests argument autocompletion suggestions from the server for a prompt or resource. */
     async complete(params: CompleteRequest['params'], options?: RequestOptions): Promise<CompleteResult> {
-        return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
+        return this.request({ method: 'completion/complete', params }, options);
     }
 
     /** Sets the minimum severity level for log messages sent by the server. */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions): Promise<EmptyResult> {
-        return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
+        return this.request({ method: 'logging/setLevel', params: { level } }, options);
     }
 
     /** Retrieves a prompt by name from the server, passing the given arguments for template substitution. */
     async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions): Promise<GetPromptResult> {
-        return this._requestWithSchema({ method: 'prompts/get', params }, GetPromptResultSchema, options);
+        return this.request({ method: 'prompts/get', params }, options);
     }
 
     /**
@@ -683,7 +708,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
-        return this._requestWithSchema({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
+        return this.request({ method: 'prompts/list', params }, options);
     }
 
     /**
@@ -713,7 +738,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
-        return this._requestWithSchema({ method: 'resources/list', params }, ListResourcesResultSchema, options);
+        return this.request({ method: 'resources/list', params }, options);
     }
 
     /**
@@ -733,22 +758,22 @@ export class Client extends Protocol<ClientContext> {
             );
             return { resourceTemplates: [] };
         }
-        return this._requestWithSchema({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
+        return this.request({ method: 'resources/templates/list', params }, options);
     }
 
     /** Reads the contents of a resource by URI. */
     async readResource(params: ReadResourceRequest['params'], options?: RequestOptions): Promise<ReadResourceResult> {
-        return this._requestWithSchema({ method: 'resources/read', params }, ReadResourceResultSchema, options);
+        return this.request({ method: 'resources/read', params }, options);
     }
 
     /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
     async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions): Promise<EmptyResult> {
-        return this._requestWithSchema({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
+        return this.request({ method: 'resources/subscribe', params }, options);
     }
 
     /** Unsubscribes from change notifications for a resource. */
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions): Promise<EmptyResult> {
-        return this._requestWithSchema({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
+        return this.request({ method: 'resources/unsubscribe', params }, options);
     }
 
     /**
@@ -789,7 +814,11 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: RequestOptions): Promise<CallToolResult> {
-        const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
+        // The method-keyed request() path validates the era registry's plain
+        // CallToolResult schema — with the result map aligned to the typed
+        // map there is no wider union to narrow away (Q1-SD2 holds by
+        // construction).
+        const result = await this.request({ method: 'tools/call', params }, options);
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
@@ -879,7 +908,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
-        const result = await this._requestWithSchema({ method: 'tools/list', params }, ListToolsResultSchema, options);
+        const result = await this.request({ method: 'tools/list', params }, options);
 
         // Cache the tools and their output schemas for future validation
         this.cacheToolMetadata(result.tools);
