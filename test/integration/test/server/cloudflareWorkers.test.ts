@@ -65,6 +65,10 @@ async function getFreePort(): Promise<number> {
  * ignore SIGTERM. Orphaned workerd is a known recurring wrangler bug class (e.g.
  * cloudflare/workers-sdk#9193); Cloudflare's own CI harness likewise tree-kills rather
  * than trusting signal propagation.
+ *
+ * Caveat: if the test runner itself dies abruptly (`kill -9`, OOM), nothing here runs and
+ * the detached tree is orphaned; a process 'exit' guard in beforeAll covers ordinary
+ * fatal exits, and an orphan can't affect later runs (ephemeral port + readiness nonce).
  */
 async function killWranglerTree(proc: ChildProcess): Promise<void> {
     if (proc.pid === undefined) {
@@ -128,8 +132,8 @@ async function waitForMcpReady(proc: ChildProcess, port: number): Promise<void> 
     });
 
     let processFailure: string | null = null;
-    proc.on('exit', code => {
-        processFailure = `exited with code ${code ?? -1}`;
+    proc.on('exit', (code, signal) => {
+        processFailure = signal === null ? `exited with code ${code ?? -1}` : `was killed by ${signal}`;
     });
     proc.on('error', error => {
         processFailure = `failed to spawn: ${error.message}`;
@@ -188,15 +192,20 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
     beforeAll(async () => {
         const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cf-worker-test-'));
         let proc: ChildProcess | null = null;
+        let orphanGuard: (() => void) | null = null;
 
         // Registered before anything can fail (including a vitest hook timeout, which skips
         // the catch below but still runs afterAll): kill the process tree, then the temp dir.
         cleanup = async () => {
+            if (orphanGuard) {
+                process.removeListener('exit', orphanGuard);
+                orphanGuard = null;
+            }
             if (proc) {
                 await killWranglerTree(proc);
             }
             try {
-                fs.rmSync(tempDir, { recursive: true, force: true });
+                fs.rmSync(tempDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
             } catch {
                 // Ignore cleanup errors
             }
@@ -207,7 +216,8 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
             const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
             const packOutput = execSync(`pnpm pack --pack-destination "${tempDir}"`, {
                 cwd: serverPkgPath,
-                encoding: 'utf8'
+                encoding: 'utf8',
+                timeout: 60_000
             });
             const tarballName = path.basename(packOutput.trim().split('\n').pop()!);
 
@@ -233,13 +243,15 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
             // Write server source
             const serverSource = `
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { z } from 'zod';
 
 const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" });
 
 server.registerTool("greet", {
-    description: "Greet someone"
-}, async (args) => ({
-    content: [{ type: "text", text: "Hello, " + (args.name || "World") + "!" }]
+    description: "Greet someone",
+    inputSchema: z.object({ name: z.string() })
+}, async ({ name }) => ({
+    content: [{ type: "text", text: "Hello, " + name + "!" }]
 }));
 
 const transport = new WebStandardStreamableHTTPServerTransport();
@@ -266,6 +278,21 @@ export default {
                 detached: process.platform !== 'win32'
             });
 
+            // Best-effort orphan guard: if the runner dies without running afterAll
+            // (process.exit, fatal error), take the detached tree down with it. Signal
+            // deaths (SIGKILL, OOM) can't be intercepted — see killWranglerTree.
+            if (process.platform !== 'win32' && proc.pid !== undefined) {
+                const pgid = proc.pid;
+                orphanGuard = () => {
+                    try {
+                        process.kill(-pgid, 'SIGKILL');
+                    } catch {
+                        // Tree already gone
+                    }
+                };
+                process.once('exit', orphanGuard);
+            }
+
             await waitForMcpReady(proc, port);
         } catch (error) {
             await cleanup();
@@ -275,15 +302,15 @@ export default {
 
     afterAll(async () => {
         await cleanup?.();
-    });
+    }, 30_000);
 
     it('should handle MCP requests', async () => {
         const client = new Client({ name: 'test-client', version: '1.0.0' });
         const transport = new StreamableHTTPClientTransport(new URL(`http://127.0.0.1:${port}/`));
         await client.connect(transport);
 
-        const result = await client.callTool({ name: 'greet', arguments: { name: 'World' } });
-        expect(result.content).toEqual([{ type: 'text', text: 'Hello, World!' }]);
+        const result = await client.callTool({ name: 'greet', arguments: { name: 'Workers' } });
+        expect(result.content).toEqual([{ type: 'text', text: 'Hello, Workers!' }]);
 
         await client.close();
     }, 30_000);
