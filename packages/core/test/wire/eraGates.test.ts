@@ -204,6 +204,28 @@ describe('2026-era envelope requiredness at dispatch', () => {
         await h.flush();
         expect(resultOf(h.sent[0])).toMatchObject({ tools: [] });
     });
+
+    test('−32601 outranks the missing envelope: unknown/era-deleted/unserved methods answer method-not-found', async () => {
+        // Method existence outranks parameter validity (the canonical
+        // precedence table for the full inbound validation ladder arrives
+        // with the validation-ladder milestone; this pins the
+        // −32601-over-−32602 rule on the modern leg). All three −32601
+        // producers win over the envelope −32602:
+        const h = await harness();
+
+        // (a) out-of-universe method, no handler registered;
+        h.deliver({ jsonrpc: '2.0', id: 4, method: 'acme/no-such-method', params: {} } as JSONRPCMessage, MODERN);
+        // (b) spec method deleted from the era (the era gate runs first);
+        h.deliver({ jsonrpc: '2.0', id: 5, method: 'tasks/get', params: { taskId: 't-1' } } as JSONRPCMessage, MODERN);
+        // (c) spec method IN era but with no handler registered.
+        h.deliver({ jsonrpc: '2.0', id: 6, method: 'tools/list', params: {} } as JSONRPCMessage, MODERN);
+        await h.flush();
+
+        expect(h.sent).toHaveLength(3);
+        for (const message of h.sent) {
+            expect(errorOf(message)).toMatchObject({ code: -32601, message: 'Method not found' });
+        }
+    });
 });
 
 describe('the stamp seam and the never-stamp guarantee', () => {
