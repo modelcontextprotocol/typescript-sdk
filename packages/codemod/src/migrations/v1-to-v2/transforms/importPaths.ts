@@ -5,7 +5,7 @@ import { renameAllReferences } from '../../../utils/astUtils.js';
 import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics.js';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
-import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
+import { isAuthImport, resolveImportMapping } from '../mappings/importMap.js';
 import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
 
 const REEXPORT_WARNINGS: Record<string, string> = {
@@ -71,7 +71,7 @@ export const importPathsTransform: Transform = {
             const defaultImport = imp.getDefaultImport();
             const namespaceImport = imp.getNamespaceImport();
 
-            let mapping = IMPORT_MAP[specifier];
+            let mapping = resolveImportMapping(specifier);
 
             if (!mapping && isAuthImport(specifier)) {
                 mapping = {
@@ -223,7 +223,7 @@ function rewriteExportDeclarations(
         if (!specifier) continue;
 
         const line = exp.getStartLineNumber();
-        let mapping = IMPORT_MAP[specifier];
+        let mapping = resolveImportMapping(specifier);
 
         if (!mapping && isAuthImport(specifier)) {
             mapping = {

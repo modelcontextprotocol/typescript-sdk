@@ -603,4 +603,53 @@ describe('import-paths transform', () => {
             expect(result).toContain('jsonSchemaValidator');
         });
     });
+
+    describe('extensionless and directory-style specifiers', () => {
+        it('rewrites an extensionless file specifier (/types) the same as /types.js', () => {
+            const input = `import type { CallToolResult } from '@modelcontextprotocol/sdk/types';\n`;
+            const result = applyTransform(input, { projectType: 'server' });
+            expect(result).toContain(`from "@modelcontextprotocol/server"`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
+
+        it('rewrites a directory-style server specifier (/server resolves to server/index.js)', () => {
+            const input = `import { Server } from '@modelcontextprotocol/sdk/server';\n`;
+            const result = applyTransform(input, { projectType: 'server' });
+            expect(result).toContain(`from "@modelcontextprotocol/server"`);
+            expect(result).toContain('Server');
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
+
+        it('rewrites a directory-style client specifier (/client)', () => {
+            const input = `import { Client } from '@modelcontextprotocol/sdk/client';\n`;
+            const result = applyTransform(input, { projectType: 'client' });
+            expect(result).toContain(`from "@modelcontextprotocol/client"`);
+            expect(result).toContain('Client');
+        });
+
+        it('rewrites extensionless shared/* and inMemory specifiers', () => {
+            const input = [
+                `import type { Transport } from '@modelcontextprotocol/sdk/shared/transport';`,
+                `import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory';`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input, { projectType: 'server' });
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+            expect(result).not.toMatch(/Unknown SDK import path/);
+        });
+
+        it('does not emit "Unknown SDK import path" for the extensionless twin of a mapped specifier', () => {
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('t.ts', `import type { Tool } from '@modelcontextprotocol/sdk/types';\n`);
+            const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+            expect(result.diagnostics.some(d => d.message.includes('Unknown SDK import path'))).toBe(false);
+        });
+
+        it('still reports genuinely unknown subpaths', () => {
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('t.ts', `import { Thing } from '@modelcontextprotocol/sdk/does/not/exist';\n`);
+            const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+            expect(result.diagnostics.some(d => d.message.includes('Unknown SDK import path'))).toBe(true);
+        });
+    });
 });

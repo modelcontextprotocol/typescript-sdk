@@ -13,7 +13,7 @@ import {
     OpenIdProviderDiscoveryMetadataSchema,
     OpenIdProviderMetadataSchema
 } from '../shared/auth.js';
-import type { StandardSchemaV1, StandardSchemaV1Sync } from '../util/standardSchema.js';
+import type { StandardSchemaV1Sync } from '../util/standardSchema.js';
 import * as schemas from './schemas.js';
 
 /**
@@ -238,10 +238,33 @@ type SpecTypeInputs = {
     [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.input<SchemaFor<K>> : never;
 };
 
-type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1Sync<SpecTypeInputs[K], SpecTypes[K]> };
+/**
+ * Zod-compatible validation methods retained on every {@linkcode specTypeSchemas} entry.
+ *
+ * In the v1 SDK these spec schemas were exported as Zod schemas, so consumer code validated with
+ * `SomeSchema.parse(value)` / `SomeSchema.safeParse(value)`. v2 routes the schemas through the
+ * curated {@linkcode specTypeSchemas} map and types them as Standard Schema, but the underlying
+ * runtime values are still the same Zod schemas. Surfacing `parse`/`safeParse` lets v1 validation
+ * code migrate by a reference rename — `SomeSchema.parse(x)` becomes `specTypeSchemas.Some.parse(x)`
+ * — with identical runtime behavior, including the `ZodError` thrown by `parse` on invalid input.
+ *
+ * These are the only two Zod methods exposed; the rest of the Zod schema surface (`.extend`,
+ * `.optional`, …) stays internal. New code should prefer the library-agnostic Standard Schema
+ * interface (`specTypeSchemas.Some['~standard'].validate(x)`) or {@linkcode isSpecType}.
+ */
+export interface ZodCompatValidation<Output> {
+    /** Validate `value`, returning the parsed output or throwing a `ZodError` if it is invalid. */
+    parse(value: unknown): Output;
+    /** Validate `value` without throwing; returns `{ success: true, data }` or `{ success: false, error }`. */
+    safeParse(value: unknown): z.ZodSafeParseResult<Output>;
+}
+
+type SchemaRecord = {
+    readonly [K in SpecTypeName]: StandardSchemaV1Sync<SpecTypeInputs[K], SpecTypes[K]> & ZodCompatValidation<SpecTypes[K]>;
+};
 type GuardRecord = { readonly [K in SpecTypeName]: (value: unknown) => value is SpecTypeInputs[K] };
 
-const _specTypeSchemas: Record<string, StandardSchemaV1> = {};
+const _specTypeSchemas: Record<string, z.ZodType> = {};
 const _isSpecType: Record<string, (value: unknown) => boolean> = {};
 function register(key: string, schema: z.ZodType): void {
     const name = key.slice(0, -'Schema'.length);
@@ -274,7 +297,7 @@ for (const [key, schema] of Object.entries(authSchemas)) {
  * }
  * ```
  */
-export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas as SchemaRecord);
+export const specTypeSchemas: SchemaRecord = Object.freeze(_specTypeSchemas as unknown as SchemaRecord);
 
 /**
  * Type predicates for every MCP spec type, keyed by type name.
