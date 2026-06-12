@@ -34,9 +34,6 @@ import type {
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
-    getNotificationSchema,
-    getRequestSchema,
-    getResultSchema,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
@@ -49,6 +46,7 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
+import { getNotificationSchema, getRequestSchema, getResultSchema } from '../wire/rev2025-11-25/registry.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
