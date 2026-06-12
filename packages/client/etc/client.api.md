@@ -4464,16 +4464,8 @@ export type LoggingOptions = {
 export const METHOD_NOT_FOUND = -32601;
 
 // @public
-export interface MessageClassification {
-    envelope?: RequestMetaEnvelope;
-    era: 'legacy' | 'modern';
-    revision?: string;
-}
-
-// @public
 export interface MessageExtraInfo {
     authInfo?: AuthInfo;
-    classification?: MessageClassification;
     closeSSEStream?: () => void;
     closeStandaloneSSEStream?: () => void;
     request?: globalThis.Request;

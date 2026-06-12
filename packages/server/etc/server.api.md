@@ -4420,16 +4420,8 @@ export class McpServer {
 }
 
 // @public
-export interface MessageClassification {
-    envelope?: RequestMetaEnvelope;
-    era: 'legacy' | 'modern';
-    revision?: string;
-}
-
-// @public
 export interface MessageExtraInfo {
     authInfo?: AuthInfo;
-    classification?: MessageClassification;
     closeSSEStream?: () => void;
     closeStandaloneSSEStream?: () => void;
     request?: globalThis.Request;

@@ -28,14 +28,6 @@ type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Fla
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
 // @public (undocumented)
-type JSONArray = JSONValue[];
-
-// @public (undocumented)
-type JSONObject = {
-    [key: string]: JSONValue;
-};
-
-// @public (undocumented)
 type JSONRPCErrorResponse = Infer<typeof JSONRPCErrorResponseSchema>;
 
 // @public
@@ -107,20 +99,9 @@ const JSONRPCResultResponseSchema: z.ZodObject<{
     }, z.core.$loose>;
 }, z.core.$strict>;
 
-// @public (undocumented)
-type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
-
-// @public
-interface MessageClassification {
-    envelope?: RequestMetaEnvelope;
-    era: 'legacy' | 'modern';
-    revision?: string;
-}
-
 // @public
 interface MessageExtraInfo {
     authInfo?: AuthInfo;
-    classification?: MessageClassification;
     closeSSEStream?: () => void;
     closeStandaloneSSEStream?: () => void;
     request?: globalThis.Request;
@@ -134,70 +115,6 @@ type RequestId = Infer<typeof RequestIdSchema>;
 
 // @public
 const RequestIdSchema: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
-
-// @public
-type RequestMetaEnvelope = Infer<typeof RequestMetaEnvelopeSchema>;
-
-// @public
-const RequestMetaEnvelopeSchema: z.ZodObject<{
-    progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-    "io.modelcontextprotocol/protocolVersion": z.ZodString;
-    "io.modelcontextprotocol/clientInfo": z.ZodObject<{
-        version: z.ZodString;
-        websiteUrl: z.ZodOptional<z.ZodString>;
-        description: z.ZodOptional<z.ZodString>;
-        icons: z.ZodOptional<z.ZodArray<z.ZodObject<{
-            src: z.ZodString;
-            mimeType: z.ZodOptional<z.ZodString>;
-            sizes: z.ZodOptional<z.ZodArray<z.ZodString>>;
-            theme: z.ZodOptional<z.ZodEnum<{
-                light: "light";
-                dark: "dark";
-            }>>;
-        }, z.core.$strip>>>;
-        name: z.ZodString;
-        title: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
-    "io.modelcontextprotocol/clientCapabilities": z.ZodObject<{
-        experimental: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>>;
-        sampling: z.ZodOptional<z.ZodObject<{
-            context: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-            tools: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-        }, z.core.$strip>>;
-        elicitation: z.ZodOptional<z.ZodPipe<z.ZodTransform<unknown, unknown>, z.ZodIntersection<z.ZodObject<{
-            form: z.ZodOptional<z.ZodIntersection<z.ZodObject<{
-                applyDefaults: z.ZodOptional<z.ZodBoolean>;
-            }, z.core.$strip>, z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>>;
-            url: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-        }, z.core.$strip>, z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>>>>;
-        roots: z.ZodOptional<z.ZodObject<{
-            listChanged: z.ZodOptional<z.ZodBoolean>;
-        }, z.core.$strip>>;
-        tasks: z.ZodOptional<z.ZodObject<{
-            list: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-            cancel: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-            requests: z.ZodOptional<z.ZodObject<{
-                sampling: z.ZodOptional<z.ZodObject<{
-                    createMessage: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-                }, z.core.$loose>>;
-                elicitation: z.ZodOptional<z.ZodObject<{
-                    create: z.ZodOptional<z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>;
-                }, z.core.$loose>>;
-            }, z.core.$loose>>;
-        }, z.core.$loose>>;
-        extensions: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>>;
-    }, z.core.$strip>;
-    "io.modelcontextprotocol/logLevel": z.ZodOptional<z.ZodEnum<{
-        error: "error";
-        debug: "debug";
-        info: "info";
-        notice: "notice";
-        warning: "warning";
-        critical: "critical";
-        alert: "alert";
-        emergency: "emergency";
-    }>>;
-}, z.core.$loose>;
 
 // @public (undocumented)
 type Result = StripWireOnly<Infer<typeof ResultSchema>>;
