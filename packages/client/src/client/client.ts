@@ -2,12 +2,16 @@ import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/client/_shims'
 import type {
     BaseContext,
     CallToolRequest,
+    CallToolResult,
     ClientCapabilities,
     ClientContext,
     ClientNotification,
     ClientRequest,
     CompleteRequest,
+    CompleteResult,
+    EmptyResult,
     GetPromptRequest,
+    GetPromptResult,
     Implementation,
     JSONRPCRequest,
     JsonSchemaType,
@@ -16,14 +20,19 @@ import type {
     ListChangedHandlers,
     ListChangedOptions,
     ListPromptsRequest,
+    ListPromptsResult,
     ListResourcesRequest,
+    ListResourcesResult,
     ListResourceTemplatesRequest,
+    ListResourceTemplatesResult,
     ListToolsRequest,
+    ListToolsResult,
     LoggingLevel,
     MessageExtraInfo,
     NotificationMethod,
     ProtocolOptions,
     ReadResourceRequest,
+    ReadResourceResult,
     RequestMethod,
     RequestOptions,
     Result,
@@ -642,12 +651,12 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
-    async ping(options?: RequestOptions) {
+    async ping(options?: RequestOptions): Promise<EmptyResult> {
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
     }
 
     /** Requests argument autocompletion suggestions from the server for a prompt or resource. */
-    async complete(params: CompleteRequest['params'], options?: RequestOptions) {
+    async complete(params: CompleteRequest['params'], options?: RequestOptions): Promise<CompleteResult> {
         return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
@@ -658,12 +667,12 @@ export class Client extends Protocol<ClientContext> {
      * Remains functional during the deprecation window (at least twelve months).
      * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
      */
-    async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
+    async setLoggingLevel(level: LoggingLevel, options?: RequestOptions): Promise<EmptyResult> {
         return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
 
     /** Retrieves a prompt by name from the server, passing the given arguments for template substitution. */
-    async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions) {
+    async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions): Promise<GetPromptResult> {
         return this._requestWithSchema({ method: 'prompts/get', params }, GetPromptResultSchema, options);
     }
 
@@ -689,7 +698,7 @@ export class Client extends Protocol<ClientContext> {
      * );
      * ```
      */
-    async listPrompts(params?: ListPromptsRequest['params'], options?: RequestOptions) {
+    async listPrompts(params?: ListPromptsRequest['params'], options?: RequestOptions): Promise<ListPromptsResult> {
         if (!this._serverCapabilities?.prompts && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support prompts
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
@@ -720,7 +729,7 @@ export class Client extends Protocol<ClientContext> {
      * );
      * ```
      */
-    async listResources(params?: ListResourcesRequest['params'], options?: RequestOptions) {
+    async listResources(params?: ListResourcesRequest['params'], options?: RequestOptions): Promise<ListResourcesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
@@ -735,7 +744,10 @@ export class Client extends Protocol<ClientContext> {
      * Returns an empty list if the server does not advertise resources capability
      * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
      */
-    async listResourceTemplates(params?: ListResourceTemplatesRequest['params'], options?: RequestOptions) {
+    async listResourceTemplates(
+        params?: ListResourceTemplatesRequest['params'],
+        options?: RequestOptions
+    ): Promise<ListResourceTemplatesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
             console.debug(
@@ -747,17 +759,17 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /** Reads the contents of a resource by URI. */
-    async readResource(params: ReadResourceRequest['params'], options?: RequestOptions) {
+    async readResource(params: ReadResourceRequest['params'], options?: RequestOptions): Promise<ReadResourceResult> {
         return this._requestWithSchema({ method: 'resources/read', params }, ReadResourceResultSchema, options);
     }
 
     /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
-    async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions) {
+    async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions): Promise<EmptyResult> {
         return this._requestWithSchema({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
     }
 
     /** Unsubscribes from change notifications for a resource. */
-    async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions) {
+    async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions): Promise<EmptyResult> {
         return this._requestWithSchema({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
     }
 
@@ -798,7 +810,7 @@ export class Client extends Protocol<ClientContext> {
      * }
      * ```
      */
-    async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
+    async callTool(params: CallToolRequest['params'], options?: RequestOptions): Promise<CallToolResult> {
         const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
 
         // Check if the tool has an outputSchema
@@ -884,7 +896,7 @@ export class Client extends Protocol<ClientContext> {
      * );
      * ```
      */
-    async listTools(params?: ListToolsRequest['params'], options?: RequestOptions) {
+    async listTools(params?: ListToolsRequest['params'], options?: RequestOptions): Promise<ListToolsResult> {
         if (!this._serverCapabilities?.tools && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support tools
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');

@@ -129,5 +129,29 @@ describe('Server', () => {
 
             await server.close();
         });
+
+        it('counter-offers only released versions when a draft revision is requested', async () => {
+            // ORDERING PIN — counter-offer leak guard. The initialize
+            // counter-offer is `supportedProtocolVersions[0]`: whatever sits at
+            // the head of that list is offered to EVERY legacy-era client whose
+            // requested version is unknown. Era-aware supported-version list
+            // semantics must therefore land BEFORE any LATEST/SUPPORTED
+            // constant bump that adds a 2026-era revision — bumping first
+            // would leak the modern revision into 2025-era initialize
+            // handshakes via this exact site. If this pin goes red because the
+            // constants moved, do NOT update it until the counter-offer is
+            // era-aware.
+            const DRAFT_REVISION = '2026-07-28';
+            expect(SUPPORTED_PROTOCOL_VERSIONS).not.toContain(DRAFT_REVISION);
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });
+
+            const respondedVersion = await initializeServer(server, DRAFT_REVISION);
+
+            expect(respondedVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect(respondedVersion).not.toBe(DRAFT_REVISION);
+            expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+
+            await server.close();
+        });
     });
 });
