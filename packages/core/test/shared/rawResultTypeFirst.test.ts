@@ -183,3 +183,19 @@ describe('raw-first resultType handling — 2025 era (strip-on-lift, Q1-SD3 ii)'
         await protocol.close();
     });
 });
+
+describe('decode step 2 — the wire-exact schema lookup is own-key only', () => {
+    test("a prototype-chain method name (e.g. 'constructor') skips the wire-exact parse instead of throwing", async () => {
+        const { rev2026Codec } = await import('../../src/wire/rev2026-07-28/codec.js');
+        // A bare object-prototype hit would surface Function (not a schema)
+        // and throw a TypeError out of the decode hop. The lookup must treat
+        // non-own keys exactly like unknown methods: no wire-exact parse,
+        // straight to the lift.
+        const decoded = rev2026Codec.decodeResult('constructor', { resultType: 'complete', anything: 'kept' });
+        expect(decoded.kind).toBe('complete');
+        if (decoded.kind === 'complete') {
+            expect((decoded.result as Record<string, unknown>).anything).toBe('kept');
+            expect('resultType' in decoded.result).toBe(false);
+        }
+    });
+});
