@@ -23,7 +23,9 @@ import type { BaseContext } from '../../src/shared/protocol.js';
 import { Protocol } from '../../src/shared/protocol.js';
 import { InMemoryTransport } from '../../src/util/inMemory.js';
 import type { JSONRPCRequest } from '../../src/types/index.js';
-import { getResultSchema } from '../../src/types/index.js';
+// Post-relocation home (Q1 increment-2 step 1): the runtime registries live
+// behind the per-era wire-codec interface now.
+import { getResultSchema } from '../../src/wire/rev2025-11-25/registry.js';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}
