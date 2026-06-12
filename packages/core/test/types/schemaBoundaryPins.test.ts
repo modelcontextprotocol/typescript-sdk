@@ -23,9 +23,11 @@ import {
     JSONRPCNotificationSchema,
     JSONRPCRequestSchema,
     JSONRPCResultResponseSchema,
-    RequestMetaEnvelopeSchema,
     ResultSchema
 } from '../../src/types/index.js';
+// The per-request envelope is wire-only vocabulary and now lives in the
+// 2026-era wire module (Q1 increment 2); its accept/reject line is unchanged.
+import { RequestMetaEnvelopeSchema } from '../../src/wire/rev2026-07-28/schemas.js';
 import type {
     CallToolResult,
     CompleteResult,
@@ -80,10 +82,17 @@ describe('EmptyResultSchema is strict', () => {
         expect(issueCodes(parsed.error)).toContain('unrecognized_keys');
     });
 
-    test('the declared _meta and resultType members are accepted', () => {
+    test('the declared _meta member is accepted; resultType now rejects (deliberate flip)', () => {
         expect(EmptyResultSchema.safeParse({}).success).toBe(true);
         expect(EmptyResultSchema.safeParse({ _meta: { note: 'x' } }).success).toBe(true);
-        expect(EmptyResultSchema.safeParse({ resultType: 'complete' }).success).toBe(true);
+        // BEHAVIOR MIGRATION (Q1 increment 2, ledgered): `resultType` was cut
+        // from the base ResultSchema, so the strict empty-result ack now
+        // REJECTS `{resultType}` bodies at the schema level. On the protocol
+        // path this is invisible for conforming peers: the era codec consumes
+        // (2026) or strips (2025, Q1-SD3 ii) the wire member before any
+        // schema validation runs. Changeset: codec-split-wire-break;
+        // docs/migration.md "Wire schemas no longer model resultType".
+        expect(EmptyResultSchema.safeParse({ resultType: 'complete' }).success).toBe(false);
     });
 });
 
@@ -99,10 +108,18 @@ describe('typed request params strip unknown siblings', () => {
 });
 
 describe('typed result schemas are loose', () => {
-    test('the base ResultSchema declares resultType and passes unknown siblings through', () => {
+    test('the base ResultSchema no longer declares resultType (the masking surface is gone)', () => {
+        // BEHAVIOR MIGRATION (Q1 increment 2, ledgered): the optional
+        // `resultType` member that every legacy-leg parse silently accepted
+        // is cut. The key still passes the loose parse as a FOREIGN sibling
+        // (guards are consumer-side value checks, not wire validators), but
+        // no neutral schema declares it; on the protocol path the 2025-era
+        // codec strips it on lift (Q1-SD3 ii) and the 2026-era codec consumes
+        // it. Changeset: codec-split-wire-break.
         const parsed = ResultSchema.parse({ resultType: 'complete', futureField: 'kept' });
-        expect(parsed.resultType).toBe('complete');
+        expect('resultType' in parsed).toBe(true); // loose passthrough, undeclared
         expect((parsed as Record<string, unknown>).futureField).toBe('kept');
+        expect(Object.keys(ResultSchema.shape)).toEqual(['_meta']);
     });
 
     test('unknown top-level siblings on a tools/call result survive the parse', () => {
@@ -112,15 +129,20 @@ describe('typed result schemas are loose', () => {
             ttlMs: 5
         });
         expect(parsed.content).toEqual([{ type: 'text', text: 'metered' }]);
-        expect(parsed.resultType).toBe('complete');
+        expect((parsed as Record<string, unknown>).resultType).toBe('complete'); // undeclared foreign key, loose passthrough
         expect((parsed as Record<string, unknown>).ttlMs).toBe(5);
     });
 
-    test('CallToolResult content defaults to the empty array when absent', () => {
-        // A tool result may carry only structuredContent; the parse then supplies
-        // content: [] for backwards compatibility. Removing the default would be a
-        // consumer-visible change for every result that omits content.
-        const parsed = CallToolResultSchema.parse({ structuredContent: { ok: true } });
+    test('CallToolResult requires content on the wire (the silent-empty-success default is gone)', () => {
+        // BEHAVIOR MIGRATION (Q1 increment 2, ledgered): `content.default([])`
+        // was removed from the wire schema. The default was the T6 width-leak
+        // root: a task-shaped (or otherwise content-less) body parsed as a
+        // silent `{content: []}` success. Content is required by the spec in
+        // every revision; a content-less body now fails the parse LOUDLY.
+        // Changeset: codec-split-wire-break; docs/migration.md
+        // "tools/call results must include content".
+        expect(CallToolResultSchema.safeParse({ structuredContent: { ok: true } }).success).toBe(false);
+        const parsed = CallToolResultSchema.parse({ content: [], structuredContent: { ok: true } });
         expect(parsed.content).toEqual([]);
         expect(parsed.structuredContent).toEqual({ ok: true });
     });

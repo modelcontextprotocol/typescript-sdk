@@ -1264,9 +1264,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
             };
         } else if (maybeHandler) {
             stored = async (request, ctx) => {
-                const userParams = { ...request.params };
-                delete userParams._meta;
-                const parsed = await validateStandardSchema(schemasOrHandler.params, userParams);
+                // Custom handlers receive `_meta` present-minus-reserved: the
+                // wire-only lift already removed the reserved envelope keys,
+                // and the remaining metadata (progressToken, extension keys)
+                // is handler material — consistent with the spec-method path.
+                // (Behavior migration: `_meta` used to be deleted here.)
+                const parsed = await validateStandardSchema(schemasOrHandler.params, { ...request.params });
                 if (!parsed.success) {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error}`);
                 }
@@ -1361,9 +1364,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new TypeError('setNotificationHandler: handler is required');
         }
         this._notificationHandlers.set(method, async notification => {
-            const userParams = { ...notification.params };
-            delete userParams._meta;
-            const parsed = await validateStandardSchema(schemasOrHandler.params, userParams);
+            // `_meta` present-minus-reserved, matching the custom request
+            // path (the lift already removed the reserved envelope keys).
+            const parsed = await validateStandardSchema(schemasOrHandler.params, { ...notification.params });
             if (!parsed.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for notification ${method}: ${parsed.error}`);
             }

@@ -14,6 +14,19 @@ import path from 'node:path';
 
 import type * as SpecTypes from '../src/types/spec.types.2025-11-25.js';
 import type * as SDKTypes from '../src/types/index.js';
+// The era-faithful 2025 wire role unions (Q1 increment 2): the NEUTRAL role
+// aggregates no longer carry task vocabulary — the 2025-era wire module does.
+// Role-union comparisons against this FROZEN revision's anchor therefore
+// target the wire-era artifacts.
+import type * as Wire2025 from '../src/wire/rev2025-11-25/schemas.js';
+import type * as z4 from 'zod/v4';
+
+type Wire2025ClientRequest = z4.infer<typeof Wire2025.ClientRequestSchema>;
+type Wire2025ClientNotification = z4.infer<typeof Wire2025.ClientNotificationSchema>;
+type Wire2025ClientResult = z4.infer<typeof Wire2025.ClientResultSchema>;
+type Wire2025ServerRequest = z4.infer<typeof Wire2025.ServerRequestSchema>;
+type Wire2025ServerNotification = z4.infer<typeof Wire2025.ServerNotificationSchema>;
+type Wire2025ServerResult = z4.infer<typeof Wire2025.ServerResultSchema>;
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 
@@ -220,15 +233,15 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ClientResult: (sdk: SDKTypes.ClientResult, spec: SpecTypes.ClientResult) => {
+    ClientResult: (sdk: Wire2025ClientResult, spec: SpecTypes.ClientResult) => {
         sdk = spec;
         spec = sdk;
     },
-    ClientNotification: (sdk: WithJSONRPC<SDKTypes.ClientNotification>, spec: SpecTypes.ClientNotification) => {
+    ClientNotification: (sdk: WithJSONRPC<Wire2025ClientNotification>, spec: SpecTypes.ClientNotification) => {
         sdk = spec;
         spec = sdk;
     },
-    ServerResult: (sdk: SDKTypes.ServerResult, spec: SpecTypes.ServerResult) => {
+    ServerResult: (sdk: Wire2025ServerResult, spec: SpecTypes.ServerResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -502,12 +515,12 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ClientRequest: (sdk: WithJSONRPCRequest<SDKTypes.ClientRequest>, spec: SpecTypes.ClientRequest) => {
+    ClientRequest: (sdk: WithJSONRPCRequest<Wire2025ClientRequest>, spec: SpecTypes.ClientRequest) => {
         // @ts-expect-error 2025-11-25 types capabilities.experimental values as `object` (via the InitializeRequest member); the SDK follows the 2026-07-28 schema's JSONObject
         sdk = spec;
         spec = sdk;
     },
-    ServerRequest: (sdk: WithJSONRPCRequest<SDKTypes.ServerRequest>, spec: SpecTypes.ServerRequest) => {
+    ServerRequest: (sdk: WithJSONRPCRequest<Wire2025ServerRequest>, spec: SpecTypes.ServerRequest) => {
         // @ts-expect-error 2025-11-25 vs 2026-07-28 typing of CreateMessageRequest params; see the CreateMessageRequestParams check above
         sdk = spec;
         // @ts-expect-error 2025-11-25 vs 2026-07-28 typing of CreateMessageRequest params; see the CreateMessageRequestParams check above
@@ -517,7 +530,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ServerNotification: (sdk: WithJSONRPC<SDKTypes.ServerNotification>, spec: SpecTypes.ServerNotification) => {
+    ServerNotification: (sdk: WithJSONRPC<Wire2025ServerNotification>, spec: SpecTypes.ServerNotification) => {
         sdk = spec;
         spec = sdk;
     },
