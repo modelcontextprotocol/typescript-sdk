@@ -113,7 +113,6 @@ const JSONRPCResultResponseSchema: z.ZodObject<{
                 taskId: z.ZodString;
             }, z.core.$strip>>;
         }, z.core.$loose>>;
-        resultType: z.ZodOptional<z.ZodString>;
     }, z.core.$loose>;
 }, z.core.$strict>;
 
@@ -245,7 +244,6 @@ const ResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
 }, z.core.$loose>;
 
 // @public (undocumented)

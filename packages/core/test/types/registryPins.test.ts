@@ -24,7 +24,6 @@ import {
     CallToolRequestSchema,
     CallToolResultSchema,
     CancelledNotificationSchema,
-    CancelTaskRequestSchema,
     CompleteRequestSchema,
     CompleteResultSchema,
     CreateMessageRequestSchema,
@@ -35,8 +34,6 @@ import {
     EmptyResultSchema,
     GetPromptRequestSchema,
     GetPromptResultSchema,
-    GetTaskPayloadRequestSchema,
-    GetTaskRequestSchema,
     InitializedNotificationSchema,
     InitializeRequestSchema,
     InitializeResultSchema,
@@ -48,7 +45,6 @@ import {
     ListResourceTemplatesResultSchema,
     ListRootsRequestSchema,
     ListRootsResultSchema,
-    ListTasksRequestSchema,
     ListToolsRequestSchema,
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
@@ -62,13 +58,22 @@ import {
     RootsListChangedNotificationSchema,
     SetLevelRequestSchema,
     SubscribeRequestSchema,
-    TaskStatusNotificationSchema,
     ToolListChangedNotificationSchema,
     UnsubscribeRequestSchema
 } from '../../src/types/index.js';
 // Post-relocation home (Q1 increment-2 step 1): the pinned contents are
 // unchanged — only the module housing the registries moved.
 import { getNotificationSchema, getRequestSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry.js';
+// The 2025-only task wire vocabulary now lives in the era's schema module
+// (Q1 increment-2 step 4); the schema OBJECTS serving the registry are the
+// same — these pins still hold by reference.
+import {
+    CancelTaskRequestSchema,
+    GetTaskPayloadRequestSchema,
+    GetTaskRequestSchema,
+    ListTasksRequestSchema,
+    TaskStatusNotificationSchema
+} from '../../src/wire/rev2025-11-25/schemas.js';
 
 /** The exact 2025-era request-method → schema map (today's wire surface, verbatim). */
 const EXPECTED_REQUEST_SCHEMAS = {

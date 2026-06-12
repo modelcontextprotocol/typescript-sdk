@@ -24,8 +24,6 @@ import type * as z from 'zod/v4';
 
 import {
     CallToolResultSchema,
-    ClientNotificationSchema,
-    ClientRequestSchema,
     CompleteResultSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
@@ -38,11 +36,10 @@ import {
     ListResourceTemplatesResultSchema,
     ListRootsResultSchema,
     ListToolsResultSchema,
-    ReadResourceResultSchema,
-    ServerNotificationSchema,
-    ServerRequestSchema
+    ReadResourceResultSchema
 } from '../../types/schemas.js';
 import type { NotificationMethod, NotificationTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types.js';
+import { ClientNotificationSchema, ClientRequestSchema, ServerNotificationSchema, ServerRequestSchema } from './schemas.js';
 
 /* Runtime schema lookup — result schemas by method */
 // Keyed by `RequestMethod` so the runtime map and the typed `ResultTypeMap`

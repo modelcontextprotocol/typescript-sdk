@@ -219,8 +219,7 @@ const CallToolResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
-    content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+    content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
         type: z.ZodLiteral<"text">;
         text: z.ZodString;
         annotations: z.ZodOptional<z.ZodObject<{
@@ -306,7 +305,7 @@ const CallToolResultSchema: z.ZodObject<{
             lastModified: z.ZodOptional<z.ZodISODateTime>;
         }, z.core.$strip>>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-    }, z.core.$strip>]>>>;
+    }, z.core.$strip>]>>;
     structuredContent: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     isError: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$loose>;
@@ -339,7 +338,6 @@ const CancelTaskResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     taskId: z.ZodString;
     status: z.ZodEnum<{
         working: "working";
@@ -559,29 +557,6 @@ const ClientNotificationSchema: z.ZodUnion<readonly [z.ZodObject<{
             }, z.core.$strip>>;
         }, z.core.$loose>>;
     }, z.core.$strip>>;
-}, z.core.$strip>, z.ZodObject<{
-    method: z.ZodLiteral<"notifications/tasks/status">;
-    params: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        taskId: z.ZodString;
-        status: z.ZodEnum<{
-            working: "working";
-            input_required: "input_required";
-            completed: "completed";
-            failed: "failed";
-            cancelled: "cancelled";
-        }>;
-        ttl: z.ZodUnion<readonly [z.ZodNumber, z.ZodNull]>;
-        createdAt: z.ZodString;
-        lastUpdatedAt: z.ZodString;
-        pollInterval: z.ZodOptional<z.ZodNumber>;
-        statusMessage: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
 }, z.core.$strip>]>;
 
 // @public (undocumented)
@@ -809,50 +784,6 @@ const ClientRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
         cursor: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>>;
     method: z.ZodLiteral<"tools/list">;
-}, z.core.$strip>, z.ZodObject<{
-    method: z.ZodLiteral<"tasks/get">;
-    params: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        taskId: z.ZodString;
-    }, z.core.$strip>;
-}, z.core.$strip>, z.ZodObject<{
-    method: z.ZodLiteral<"tasks/result">;
-    params: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        taskId: z.ZodString;
-    }, z.core.$strip>;
-}, z.core.$strip>, z.ZodObject<{
-    params: z.ZodOptional<z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        cursor: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>>;
-    method: z.ZodLiteral<"tasks/list">;
-}, z.core.$strip>, z.ZodObject<{
-    method: z.ZodLiteral<"tasks/cancel">;
-    params: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        taskId: z.ZodString;
-    }, z.core.$strip>;
 }, z.core.$strip>]>;
 
 // @public (undocumented)
@@ -866,7 +797,6 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>, z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -874,7 +804,6 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     model: z.ZodString;
     stopReason: z.ZodOptional<z.ZodUnion<[z.ZodEnum<{
         maxTokens: "maxTokens";
@@ -931,7 +860,6 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     model: z.ZodString;
     stopReason: z.ZodOptional<z.ZodUnion<[z.ZodEnum<{
         maxTokens: "maxTokens";
@@ -990,7 +918,7 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>, z.ZodObject<{
         type: z.ZodLiteral<"tool_result">;
         toolUseId: z.ZodString;
-        content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+        content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
             type: z.ZodLiteral<"text">;
             text: z.ZodString;
             annotations: z.ZodOptional<z.ZodObject<{
@@ -1076,7 +1004,7 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
                 lastModified: z.ZodOptional<z.ZodISODateTime>;
             }, z.core.$strip>>;
             _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-        }, z.core.$strip>]>>>;
+        }, z.core.$strip>]>>;
         structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
         isError: z.ZodOptional<z.ZodBoolean>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -1127,7 +1055,7 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>, z.ZodObject<{
         type: z.ZodLiteral<"tool_result">;
         toolUseId: z.ZodString;
-        content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+        content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
             type: z.ZodLiteral<"text">;
             text: z.ZodString;
             annotations: z.ZodOptional<z.ZodObject<{
@@ -1213,7 +1141,7 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
                 lastModified: z.ZodOptional<z.ZodISODateTime>;
             }, z.core.$strip>>;
             _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-        }, z.core.$strip>]>>>;
+        }, z.core.$strip>]>>;
         structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
         isError: z.ZodOptional<z.ZodBoolean>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -1225,7 +1153,6 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     action: z.ZodEnum<{
         cancel: "cancel";
         accept: "accept";
@@ -1239,80 +1166,11 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     roots: z.ZodArray<z.ZodObject<{
         uri: z.ZodString;
         name: z.ZodOptional<z.ZodString>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     }, z.core.$strip>>;
-}, z.core.$loose>, z.ZodObject<{
-    _meta: z.ZodOptional<z.ZodObject<{
-        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-            taskId: z.ZodString;
-        }, z.core.$strip>>;
-    }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
-    taskId: z.ZodString;
-    status: z.ZodEnum<{
-        working: "working";
-        input_required: "input_required";
-        completed: "completed";
-        failed: "failed";
-        cancelled: "cancelled";
-    }>;
-    ttl: z.ZodUnion<readonly [z.ZodNumber, z.ZodNull]>;
-    createdAt: z.ZodString;
-    lastUpdatedAt: z.ZodString;
-    pollInterval: z.ZodOptional<z.ZodNumber>;
-    statusMessage: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>, z.ZodObject<{
-    _meta: z.ZodOptional<z.ZodObject<{
-        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-            taskId: z.ZodString;
-        }, z.core.$strip>>;
-    }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
-    nextCursor: z.ZodOptional<z.ZodString>;
-    tasks: z.ZodArray<z.ZodObject<{
-        taskId: z.ZodString;
-        status: z.ZodEnum<{
-            working: "working";
-            input_required: "input_required";
-            completed: "completed";
-            failed: "failed";
-            cancelled: "cancelled";
-        }>;
-        ttl: z.ZodUnion<readonly [z.ZodNumber, z.ZodNull]>;
-        createdAt: z.ZodString;
-        lastUpdatedAt: z.ZodString;
-        pollInterval: z.ZodOptional<z.ZodNumber>;
-        statusMessage: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>>;
-}, z.core.$loose>, z.ZodObject<{
-    _meta: z.ZodOptional<z.ZodObject<{
-        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-            taskId: z.ZodString;
-        }, z.core.$strip>>;
-    }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
-    task: z.ZodObject<{
-        taskId: z.ZodString;
-        status: z.ZodEnum<{
-            working: "working";
-            input_required: "input_required";
-            completed: "completed";
-            failed: "failed";
-            cancelled: "cancelled";
-        }>;
-        ttl: z.ZodUnion<readonly [z.ZodNumber, z.ZodNull]>;
-        createdAt: z.ZodString;
-        lastUpdatedAt: z.ZodString;
-        pollInterval: z.ZodOptional<z.ZodNumber>;
-        statusMessage: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
 }, z.core.$loose>]>;
 
 // @public (undocumented)
@@ -1326,8 +1184,7 @@ const CompatibilityCallToolResultSchema: z.ZodUnion<[z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
-    content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+    content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
         type: z.ZodLiteral<"text">;
         text: z.ZodString;
         annotations: z.ZodOptional<z.ZodObject<{
@@ -1413,7 +1270,7 @@ const CompatibilityCallToolResultSchema: z.ZodUnion<[z.ZodObject<{
             lastModified: z.ZodOptional<z.ZodISODateTime>;
         }, z.core.$strip>>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-    }, z.core.$strip>]>>>;
+    }, z.core.$strip>]>>;
     structuredContent: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     isError: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$loose>, z.ZodObject<{
@@ -1423,7 +1280,6 @@ const CompatibilityCallToolResultSchema: z.ZodUnion<[z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     toolResult: z.ZodUnknown;
 }, z.core.$loose>]>;
 
@@ -1509,7 +1365,6 @@ const CompleteResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     completion: z.ZodObject<{
         values: z.ZodArray<z.ZodString>;
         total: z.ZodOptional<z.ZodNumber>;
@@ -1681,7 +1536,7 @@ const CreateMessageRequestParamsSchema: z.ZodObject<{
         }, z.core.$strip>, z.ZodObject<{
             type: z.ZodLiteral<"tool_result">;
             toolUseId: z.ZodString;
-            content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+            content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
                 type: z.ZodLiteral<"text">;
                 text: z.ZodString;
                 annotations: z.ZodOptional<z.ZodObject<{
@@ -1767,7 +1622,7 @@ const CreateMessageRequestParamsSchema: z.ZodObject<{
                     lastModified: z.ZodOptional<z.ZodISODateTime>;
                 }, z.core.$strip>>;
                 _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-            }, z.core.$strip>]>>>;
+            }, z.core.$strip>]>>;
             structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
             isError: z.ZodOptional<z.ZodBoolean>;
             _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -1818,7 +1673,7 @@ const CreateMessageRequestParamsSchema: z.ZodObject<{
         }, z.core.$strip>, z.ZodObject<{
             type: z.ZodLiteral<"tool_result">;
             toolUseId: z.ZodString;
-            content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+            content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
                 type: z.ZodLiteral<"text">;
                 text: z.ZodString;
                 annotations: z.ZodOptional<z.ZodObject<{
@@ -1904,7 +1759,7 @@ const CreateMessageRequestParamsSchema: z.ZodObject<{
                     lastModified: z.ZodOptional<z.ZodISODateTime>;
                 }, z.core.$strip>>;
                 _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-            }, z.core.$strip>]>>>;
+            }, z.core.$strip>]>>;
             structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
             isError: z.ZodOptional<z.ZodBoolean>;
             _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -2048,7 +1903,7 @@ const CreateMessageRequestSchema: z.ZodObject<{
             }, z.core.$strip>, z.ZodObject<{
                 type: z.ZodLiteral<"tool_result">;
                 toolUseId: z.ZodString;
-                content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+                content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
                     type: z.ZodLiteral<"text">;
                     text: z.ZodString;
                     annotations: z.ZodOptional<z.ZodObject<{
@@ -2134,7 +1989,7 @@ const CreateMessageRequestSchema: z.ZodObject<{
                         lastModified: z.ZodOptional<z.ZodISODateTime>;
                     }, z.core.$strip>>;
                     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-                }, z.core.$strip>]>>>;
+                }, z.core.$strip>]>>;
                 structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
                 isError: z.ZodOptional<z.ZodBoolean>;
                 _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -2185,7 +2040,7 @@ const CreateMessageRequestSchema: z.ZodObject<{
             }, z.core.$strip>, z.ZodObject<{
                 type: z.ZodLiteral<"tool_result">;
                 toolUseId: z.ZodString;
-                content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+                content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
                     type: z.ZodLiteral<"text">;
                     text: z.ZodString;
                     annotations: z.ZodOptional<z.ZodObject<{
@@ -2271,7 +2126,7 @@ const CreateMessageRequestSchema: z.ZodObject<{
                         lastModified: z.ZodOptional<z.ZodISODateTime>;
                     }, z.core.$strip>>;
                     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-                }, z.core.$strip>]>>>;
+                }, z.core.$strip>]>>;
                 structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
                 isError: z.ZodOptional<z.ZodBoolean>;
                 _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -2356,7 +2211,6 @@ const CreateMessageResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     model: z.ZodString;
     stopReason: z.ZodOptional<z.ZodUnion<[z.ZodEnum<{
         maxTokens: "maxTokens";
@@ -2419,7 +2273,6 @@ const CreateMessageResultWithToolsSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     model: z.ZodString;
     stopReason: z.ZodOptional<z.ZodUnion<[z.ZodEnum<{
         maxTokens: "maxTokens";
@@ -2478,7 +2331,7 @@ const CreateMessageResultWithToolsSchema: z.ZodObject<{
     }, z.core.$strip>, z.ZodObject<{
         type: z.ZodLiteral<"tool_result">;
         toolUseId: z.ZodString;
-        content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+        content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
             type: z.ZodLiteral<"text">;
             text: z.ZodString;
             annotations: z.ZodOptional<z.ZodObject<{
@@ -2564,7 +2417,7 @@ const CreateMessageResultWithToolsSchema: z.ZodObject<{
                 lastModified: z.ZodOptional<z.ZodISODateTime>;
             }, z.core.$strip>>;
             _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-        }, z.core.$strip>]>>>;
+        }, z.core.$strip>]>>;
         structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
         isError: z.ZodOptional<z.ZodBoolean>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -2615,7 +2468,7 @@ const CreateMessageResultWithToolsSchema: z.ZodObject<{
     }, z.core.$strip>, z.ZodObject<{
         type: z.ZodLiteral<"tool_result">;
         toolUseId: z.ZodString;
-        content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+        content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
             type: z.ZodLiteral<"text">;
             text: z.ZodString;
             annotations: z.ZodOptional<z.ZodObject<{
@@ -2701,7 +2554,7 @@ const CreateMessageResultWithToolsSchema: z.ZodObject<{
                 lastModified: z.ZodOptional<z.ZodISODateTime>;
             }, z.core.$strip>>;
             _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-        }, z.core.$strip>]>>>;
+        }, z.core.$strip>]>>;
         structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
         isError: z.ZodOptional<z.ZodBoolean>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -2719,7 +2572,6 @@ const CreateTaskResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     task: z.ZodObject<{
         taskId: z.ZodString;
         status: z.ZodEnum<{
@@ -2827,7 +2679,6 @@ const DiscoverResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     supportedVersions: z.ZodArray<z.ZodString>;
     capabilities: z.ZodObject<{
         experimental: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>>;
@@ -3226,7 +3077,6 @@ const ElicitResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     action: z.ZodEnum<{
         cancel: "cancel";
         accept: "accept";
@@ -3305,7 +3155,6 @@ const EmptyResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>;
 
 // @public (undocumented)
@@ -3413,7 +3262,6 @@ const GetPromptResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     description: z.ZodOptional<z.ZodString>;
     messages: z.ZodArray<z.ZodObject<{
         role: z.ZodEnum<{
@@ -3538,7 +3386,6 @@ const GetTaskPayloadResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
 }, z.core.$loose>;
 
 // @public @deprecated (undocumented)
@@ -3569,7 +3416,6 @@ const GetTaskResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     taskId: z.ZodString;
     status: z.ZodEnum<{
         working: "working";
@@ -3828,7 +3674,6 @@ const InitializeResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     protocolVersion: z.ZodString;
     capabilities: z.ZodObject<{
         experimental: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>>;
@@ -3994,7 +3839,6 @@ const JSONRPCResultResponseSchema: z.ZodObject<{
                 taskId: z.ZodString;
             }, z.core.$strip>>;
         }, z.core.$loose>>;
-        resultType: z.ZodOptional<z.ZodString>;
     }, z.core.$loose>;
 }, z.core.$strict>;
 
@@ -4092,7 +3936,6 @@ const ListPromptsResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     nextCursor: z.ZodOptional<z.ZodString>;
     prompts: z.ZodArray<z.ZodObject<{
         description: z.ZodOptional<z.ZodString>;
@@ -4144,7 +3987,6 @@ const ListResourceTemplatesResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     nextCursor: z.ZodOptional<z.ZodString>;
     resourceTemplates: z.ZodArray<z.ZodObject<{
         uriTemplate: z.ZodString;
@@ -4201,7 +4043,6 @@ const ListResourcesResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     nextCursor: z.ZodOptional<z.ZodString>;
     resources: z.ZodArray<z.ZodObject<{
         uri: z.ZodString;
@@ -4258,7 +4099,6 @@ const ListRootsResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     roots: z.ZodArray<z.ZodObject<{
         uri: z.ZodString;
         name: z.ZodOptional<z.ZodString>;
@@ -4294,7 +4134,6 @@ const ListTasksResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     nextCursor: z.ZodOptional<z.ZodString>;
     tasks: z.ZodArray<z.ZodObject<{
         taskId: z.ZodString;
@@ -4341,7 +4180,6 @@ const ListToolsResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     nextCursor: z.ZodOptional<z.ZodString>;
     tools: z.ZodArray<z.ZodObject<{
         description: z.ZodOptional<z.ZodString>;
@@ -4966,7 +4804,6 @@ const PaginatedResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     nextCursor: z.ZodOptional<z.ZodString>;
 }, z.core.$loose>;
 
@@ -5468,7 +5305,6 @@ const ReadResourceResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     contents: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
         uri: z.ZodString;
         mimeType: z.ZodOptional<z.ZodString>;
@@ -5830,7 +5666,6 @@ const ResultSchema: z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
 }, z.core.$loose>;
 
 // @public (undocumented)
@@ -5889,7 +5724,7 @@ const RootsListChangedNotificationSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public
-const SPEC_SCHEMA_KEYS: readonly ["AnnotationsSchema", "AudioContentSchema", "BaseMetadataSchema", "BlobResourceContentsSchema", "BooleanSchemaSchema", "CallToolRequestSchema", "CallToolRequestParamsSchema", "CallToolResultSchema", "CancelledNotificationSchema", "CancelledNotificationParamsSchema", "CancelTaskRequestSchema", "CancelTaskResultSchema", "ClientCapabilitiesSchema", "ClientNotificationSchema", "ClientRequestSchema", "ClientResultSchema", "CompatibilityCallToolResultSchema", "CompleteRequestSchema", "CompleteRequestParamsSchema", "CompleteResultSchema", "ContentBlockSchema", "CreateMessageRequestSchema", "CreateMessageRequestParamsSchema", "CreateMessageResultSchema", "CreateMessageResultWithToolsSchema", "CreateTaskResultSchema", "CursorSchema", "DiscoverRequestSchema", "DiscoverResultSchema", "ElicitationCompleteNotificationSchema", "ElicitationCompleteNotificationParamsSchema", "ElicitRequestSchema", "ElicitRequestFormParamsSchema", "ElicitRequestParamsSchema", "ElicitRequestURLParamsSchema", "ElicitResultSchema", "EmbeddedResourceSchema", "EmptyResultSchema", "EnumSchemaSchema", "GetPromptRequestSchema", "GetPromptRequestParamsSchema", "GetPromptResultSchema", "GetTaskPayloadRequestSchema", "GetTaskPayloadResultSchema", "GetTaskRequestSchema", "GetTaskResultSchema", "IconSchema", "IconsSchema", "ImageContentSchema", "ImplementationSchema", "InitializedNotificationSchema", "InitializeRequestSchema", "InitializeRequestParamsSchema", "InitializeResultSchema", "JSONArraySchema", "JSONObjectSchema", "JSONRPCErrorResponseSchema", "JSONRPCMessageSchema", "JSONRPCNotificationSchema", "JSONRPCRequestSchema", "JSONRPCResponseSchema", "JSONRPCResultResponseSchema", "JSONValueSchema", "LegacyTitledEnumSchemaSchema", "ListPromptsRequestSchema", "ListPromptsResultSchema", "ListResourcesRequestSchema", "ListResourcesResultSchema", "ListResourceTemplatesRequestSchema", "ListResourceTemplatesResultSchema", "ListRootsRequestSchema", "ListRootsResultSchema", "ListTasksRequestSchema", "ListTasksResultSchema", "ListToolsRequestSchema", "ListToolsResultSchema", "LoggingLevelSchema", "LoggingMessageNotificationSchema", "LoggingMessageNotificationParamsSchema", "ModelHintSchema", "ModelPreferencesSchema", "MultiSelectEnumSchemaSchema", "NotificationSchema", "NumberSchemaSchema", "PaginatedRequestSchema", "PaginatedRequestParamsSchema", "PaginatedResultSchema", "PingRequestSchema", "PrimitiveSchemaDefinitionSchema", "ProgressSchema", "ProgressNotificationSchema", "ProgressNotificationParamsSchema", "ProgressTokenSchema", "PromptSchema", "PromptArgumentSchema", "PromptListChangedNotificationSchema", "PromptMessageSchema", "PromptReferenceSchema", "ReadResourceRequestSchema", "ReadResourceRequestParamsSchema", "ReadResourceResultSchema", "RelatedTaskMetadataSchema", "RequestSchema", "RequestIdSchema", "RequestMetaEnvelopeSchema", "RequestMetaSchema", "ResourceSchema", "ResourceContentsSchema", "ResourceLinkSchema", "ResourceListChangedNotificationSchema", "ResourceRequestParamsSchema", "ResourceTemplateSchema", "ResourceTemplateReferenceSchema", "ResourceUpdatedNotificationSchema", "ResourceUpdatedNotificationParamsSchema", "ResultSchema", "RoleSchema", "RootSchema", "RootsListChangedNotificationSchema", "SamplingContentSchema", "SamplingMessageSchema", "SamplingMessageContentBlockSchema", "ServerCapabilitiesSchema", "ServerNotificationSchema", "ServerRequestSchema", "ServerResultSchema", "SetLevelRequestSchema", "SetLevelRequestParamsSchema", "SingleSelectEnumSchemaSchema", "StringSchemaSchema", "SubscribeRequestSchema", "SubscribeRequestParamsSchema", "TaskSchema", "TaskAugmentedRequestParamsSchema", "TaskCreationParamsSchema", "TaskMetadataSchema", "TaskStatusSchema", "TaskStatusNotificationSchema", "TaskStatusNotificationParamsSchema", "TextContentSchema", "TextResourceContentsSchema", "TitledMultiSelectEnumSchemaSchema", "TitledSingleSelectEnumSchemaSchema", "ToolSchema", "ToolAnnotationsSchema", "ToolChoiceSchema", "ToolExecutionSchema", "ToolListChangedNotificationSchema", "ToolResultContentSchema", "ToolUseContentSchema", "UnsubscribeRequestSchema", "UnsubscribeRequestParamsSchema", "UntitledMultiSelectEnumSchemaSchema", "UntitledSingleSelectEnumSchemaSchema"];
+const SPEC_SCHEMA_KEYS: readonly ["AnnotationsSchema", "AudioContentSchema", "BaseMetadataSchema", "BlobResourceContentsSchema", "BooleanSchemaSchema", "CallToolRequestSchema", "CallToolRequestParamsSchema", "CallToolResultSchema", "CancelledNotificationSchema", "CancelledNotificationParamsSchema", "ClientCapabilitiesSchema", "ClientNotificationSchema", "ClientRequestSchema", "ClientResultSchema", "CompatibilityCallToolResultSchema", "CompleteRequestSchema", "CompleteRequestParamsSchema", "CompleteResultSchema", "ContentBlockSchema", "CreateMessageRequestSchema", "CreateMessageRequestParamsSchema", "CreateMessageResultSchema", "CreateMessageResultWithToolsSchema", "CursorSchema", "DiscoverRequestSchema", "DiscoverResultSchema", "ElicitationCompleteNotificationSchema", "ElicitationCompleteNotificationParamsSchema", "ElicitRequestSchema", "ElicitRequestFormParamsSchema", "ElicitRequestParamsSchema", "ElicitRequestURLParamsSchema", "ElicitResultSchema", "EmbeddedResourceSchema", "EmptyResultSchema", "EnumSchemaSchema", "GetPromptRequestSchema", "GetPromptRequestParamsSchema", "GetPromptResultSchema", "IconSchema", "IconsSchema", "ImageContentSchema", "ImplementationSchema", "InitializedNotificationSchema", "InitializeRequestSchema", "InitializeRequestParamsSchema", "InitializeResultSchema", "JSONArraySchema", "JSONObjectSchema", "JSONRPCErrorResponseSchema", "JSONRPCMessageSchema", "JSONRPCNotificationSchema", "JSONRPCRequestSchema", "JSONRPCResponseSchema", "JSONRPCResultResponseSchema", "JSONValueSchema", "LegacyTitledEnumSchemaSchema", "ListPromptsRequestSchema", "ListPromptsResultSchema", "ListResourcesRequestSchema", "ListResourcesResultSchema", "ListResourceTemplatesRequestSchema", "ListResourceTemplatesResultSchema", "ListRootsRequestSchema", "ListRootsResultSchema", "ListToolsRequestSchema", "ListToolsResultSchema", "LoggingLevelSchema", "LoggingMessageNotificationSchema", "LoggingMessageNotificationParamsSchema", "ModelHintSchema", "ModelPreferencesSchema", "MultiSelectEnumSchemaSchema", "NotificationSchema", "NumberSchemaSchema", "PaginatedRequestSchema", "PaginatedRequestParamsSchema", "PaginatedResultSchema", "PingRequestSchema", "PrimitiveSchemaDefinitionSchema", "ProgressSchema", "ProgressNotificationSchema", "ProgressNotificationParamsSchema", "ProgressTokenSchema", "PromptSchema", "PromptArgumentSchema", "PromptListChangedNotificationSchema", "PromptMessageSchema", "PromptReferenceSchema", "ReadResourceRequestSchema", "ReadResourceRequestParamsSchema", "ReadResourceResultSchema", "RelatedTaskMetadataSchema", "RequestSchema", "RequestIdSchema", "RequestMetaSchema", "ResourceSchema", "ResourceContentsSchema", "ResourceLinkSchema", "ResourceListChangedNotificationSchema", "ResourceRequestParamsSchema", "ResourceTemplateSchema", "ResourceTemplateReferenceSchema", "ResourceUpdatedNotificationSchema", "ResourceUpdatedNotificationParamsSchema", "ResultSchema", "RoleSchema", "RootSchema", "RootsListChangedNotificationSchema", "SamplingContentSchema", "SamplingMessageSchema", "SamplingMessageContentBlockSchema", "ServerCapabilitiesSchema", "ServerNotificationSchema", "ServerRequestSchema", "ServerResultSchema", "SetLevelRequestSchema", "SetLevelRequestParamsSchema", "SingleSelectEnumSchemaSchema", "StringSchemaSchema", "SubscribeRequestSchema", "SubscribeRequestParamsSchema", "TaskAugmentedRequestParamsSchema", "TaskMetadataSchema", "TextContentSchema", "TextResourceContentsSchema", "TitledMultiSelectEnumSchemaSchema", "TitledSingleSelectEnumSchemaSchema", "ToolSchema", "ToolAnnotationsSchema", "ToolChoiceSchema", "ToolExecutionSchema", "ToolListChangedNotificationSchema", "ToolResultContentSchema", "ToolUseContentSchema", "UnsubscribeRequestSchema", "UnsubscribeRequestParamsSchema", "UntitledMultiSelectEnumSchemaSchema", "UntitledSingleSelectEnumSchemaSchema"];
 
 // @public @deprecated
 export class SSEClientTransport implements Transport {
@@ -6023,7 +5858,7 @@ const SamplingMessageContentBlockSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
 }, z.core.$strip>, z.ZodObject<{
     type: z.ZodLiteral<"tool_result">;
     toolUseId: z.ZodString;
-    content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+    content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
         type: z.ZodLiteral<"text">;
         text: z.ZodString;
         annotations: z.ZodOptional<z.ZodObject<{
@@ -6109,7 +5944,7 @@ const SamplingMessageContentBlockSchema: z.ZodDiscriminatedUnion<[z.ZodObject<{
             lastModified: z.ZodOptional<z.ZodISODateTime>;
         }, z.core.$strip>>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-    }, z.core.$strip>]>>>;
+    }, z.core.$strip>]>>;
     structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
     isError: z.ZodOptional<z.ZodBoolean>;
     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -6168,7 +6003,7 @@ const SamplingMessageSchema: z.ZodObject<{
     }, z.core.$strip>, z.ZodObject<{
         type: z.ZodLiteral<"tool_result">;
         toolUseId: z.ZodString;
-        content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+        content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
             type: z.ZodLiteral<"text">;
             text: z.ZodString;
             annotations: z.ZodOptional<z.ZodObject<{
@@ -6254,7 +6089,7 @@ const SamplingMessageSchema: z.ZodObject<{
                 lastModified: z.ZodOptional<z.ZodISODateTime>;
             }, z.core.$strip>>;
             _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-        }, z.core.$strip>]>>>;
+        }, z.core.$strip>]>>;
         structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
         isError: z.ZodOptional<z.ZodBoolean>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -6305,7 +6140,7 @@ const SamplingMessageSchema: z.ZodObject<{
     }, z.core.$strip>, z.ZodObject<{
         type: z.ZodLiteral<"tool_result">;
         toolUseId: z.ZodString;
-        content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+        content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
             type: z.ZodLiteral<"text">;
             text: z.ZodString;
             annotations: z.ZodOptional<z.ZodObject<{
@@ -6391,7 +6226,7 @@ const SamplingMessageSchema: z.ZodObject<{
                 lastModified: z.ZodOptional<z.ZodISODateTime>;
             }, z.core.$strip>>;
             _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-        }, z.core.$strip>]>>>;
+        }, z.core.$strip>]>>;
         structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
         isError: z.ZodOptional<z.ZodBoolean>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -6602,29 +6437,6 @@ const ServerNotificationSchema: z.ZodUnion<readonly [z.ZodObject<{
         }, z.core.$loose>>;
     }, z.core.$strip>>;
 }, z.core.$strip>, z.ZodObject<{
-    method: z.ZodLiteral<"notifications/tasks/status">;
-    params: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        taskId: z.ZodString;
-        status: z.ZodEnum<{
-            working: "working";
-            input_required: "input_required";
-            completed: "completed";
-            failed: "failed";
-            cancelled: "cancelled";
-        }>;
-        ttl: z.ZodUnion<readonly [z.ZodNumber, z.ZodNull]>;
-        createdAt: z.ZodString;
-        lastUpdatedAt: z.ZodString;
-        pollInterval: z.ZodOptional<z.ZodNumber>;
-        statusMessage: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
-}, z.core.$strip>, z.ZodObject<{
     method: z.ZodLiteral<"notifications/elicitation/complete">;
     params: z.ZodObject<{
         _meta: z.ZodOptional<z.ZodObject<{
@@ -6715,7 +6527,7 @@ const ServerRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
             }, z.core.$strip>, z.ZodObject<{
                 type: z.ZodLiteral<"tool_result">;
                 toolUseId: z.ZodString;
-                content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+                content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
                     type: z.ZodLiteral<"text">;
                     text: z.ZodString;
                     annotations: z.ZodOptional<z.ZodObject<{
@@ -6801,7 +6613,7 @@ const ServerRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
                         lastModified: z.ZodOptional<z.ZodISODateTime>;
                     }, z.core.$strip>>;
                     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-                }, z.core.$strip>]>>>;
+                }, z.core.$strip>]>>;
                 structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
                 isError: z.ZodOptional<z.ZodBoolean>;
                 _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -6852,7 +6664,7 @@ const ServerRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
             }, z.core.$strip>, z.ZodObject<{
                 type: z.ZodLiteral<"tool_result">;
                 toolUseId: z.ZodString;
-                content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+                content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
                     type: z.ZodLiteral<"text">;
                     text: z.ZodString;
                     annotations: z.ZodOptional<z.ZodObject<{
@@ -6938,7 +6750,7 @@ const ServerRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
                         lastModified: z.ZodOptional<z.ZodISODateTime>;
                     }, z.core.$strip>>;
                     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-                }, z.core.$strip>]>>>;
+                }, z.core.$strip>]>>;
                 structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
                 isError: z.ZodOptional<z.ZodBoolean>;
                 _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -7128,50 +6940,6 @@ const ServerRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
             }, z.core.$strip>>;
         }, z.core.$loose>>;
     }, z.core.$strip>>;
-}, z.core.$strip>, z.ZodObject<{
-    method: z.ZodLiteral<"tasks/get">;
-    params: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        taskId: z.ZodString;
-    }, z.core.$strip>;
-}, z.core.$strip>, z.ZodObject<{
-    method: z.ZodLiteral<"tasks/result">;
-    params: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        taskId: z.ZodString;
-    }, z.core.$strip>;
-}, z.core.$strip>, z.ZodObject<{
-    params: z.ZodOptional<z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        cursor: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>>;
-    method: z.ZodLiteral<"tasks/list">;
-}, z.core.$strip>, z.ZodObject<{
-    method: z.ZodLiteral<"tasks/cancel">;
-    params: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        taskId: z.ZodString;
-    }, z.core.$strip>;
 }, z.core.$strip>]>;
 
 // @public (undocumented)
@@ -7185,7 +6953,6 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
 }, z.core.$strict>, z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -7193,7 +6960,6 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     protocolVersion: z.ZodString;
     capabilities: z.ZodObject<{
         experimental: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodType<JSONObject, JSONObject, z.core.$ZodTypeInternals<JSONObject, JSONObject>>>>;
@@ -7244,7 +7010,6 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     completion: z.ZodObject<{
         values: z.ZodArray<z.ZodString>;
         total: z.ZodOptional<z.ZodNumber>;
@@ -7257,7 +7022,6 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     description: z.ZodOptional<z.ZodString>;
     messages: z.ZodArray<z.ZodObject<{
         role: z.ZodEnum<{
@@ -7359,7 +7123,6 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     nextCursor: z.ZodOptional<z.ZodString>;
     prompts: z.ZodArray<z.ZodObject<{
         description: z.ZodOptional<z.ZodString>;
@@ -7388,7 +7151,6 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     nextCursor: z.ZodOptional<z.ZodString>;
     resources: z.ZodArray<z.ZodObject<{
         uri: z.ZodString;
@@ -7423,7 +7185,6 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     nextCursor: z.ZodOptional<z.ZodString>;
     resourceTemplates: z.ZodArray<z.ZodObject<{
         uriTemplate: z.ZodString;
@@ -7457,7 +7218,6 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     contents: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
         uri: z.ZodString;
         mimeType: z.ZodOptional<z.ZodString>;
@@ -7476,8 +7236,7 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
-    content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+    content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
         type: z.ZodLiteral<"text">;
         text: z.ZodString;
         annotations: z.ZodOptional<z.ZodObject<{
@@ -7563,7 +7322,7 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             lastModified: z.ZodOptional<z.ZodISODateTime>;
         }, z.core.$strip>>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-    }, z.core.$strip>]>>>;
+    }, z.core.$strip>]>>;
     structuredContent: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
     isError: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$loose>, z.ZodObject<{
@@ -7573,7 +7332,6 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
             taskId: z.ZodString;
         }, z.core.$strip>>;
     }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
     nextCursor: z.ZodOptional<z.ZodString>;
     tools: z.ZodArray<z.ZodObject<{
         description: z.ZodOptional<z.ZodString>;
@@ -7614,74 +7372,6 @@ const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
         name: z.ZodString;
         title: z.ZodOptional<z.ZodString>;
     }, z.core.$strip>>;
-}, z.core.$loose>, z.ZodObject<{
-    _meta: z.ZodOptional<z.ZodObject<{
-        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-            taskId: z.ZodString;
-        }, z.core.$strip>>;
-    }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
-    taskId: z.ZodString;
-    status: z.ZodEnum<{
-        working: "working";
-        input_required: "input_required";
-        completed: "completed";
-        failed: "failed";
-        cancelled: "cancelled";
-    }>;
-    ttl: z.ZodUnion<readonly [z.ZodNumber, z.ZodNull]>;
-    createdAt: z.ZodString;
-    lastUpdatedAt: z.ZodString;
-    pollInterval: z.ZodOptional<z.ZodNumber>;
-    statusMessage: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>, z.ZodObject<{
-    _meta: z.ZodOptional<z.ZodObject<{
-        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-            taskId: z.ZodString;
-        }, z.core.$strip>>;
-    }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
-    nextCursor: z.ZodOptional<z.ZodString>;
-    tasks: z.ZodArray<z.ZodObject<{
-        taskId: z.ZodString;
-        status: z.ZodEnum<{
-            working: "working";
-            input_required: "input_required";
-            completed: "completed";
-            failed: "failed";
-            cancelled: "cancelled";
-        }>;
-        ttl: z.ZodUnion<readonly [z.ZodNumber, z.ZodNull]>;
-        createdAt: z.ZodString;
-        lastUpdatedAt: z.ZodString;
-        pollInterval: z.ZodOptional<z.ZodNumber>;
-        statusMessage: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>>;
-}, z.core.$loose>, z.ZodObject<{
-    _meta: z.ZodOptional<z.ZodObject<{
-        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-            taskId: z.ZodString;
-        }, z.core.$strip>>;
-    }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
-    task: z.ZodObject<{
-        taskId: z.ZodString;
-        status: z.ZodEnum<{
-            working: "working";
-            input_required: "input_required";
-            completed: "completed";
-            failed: "failed";
-            cancelled: "cancelled";
-        }>;
-        ttl: z.ZodUnion<readonly [z.ZodNumber, z.ZodNull]>;
-        createdAt: z.ZodString;
-        lastUpdatedAt: z.ZodString;
-        pollInterval: z.ZodOptional<z.ZodNumber>;
-        statusMessage: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
 }, z.core.$loose>]>;
 
 // @public (undocumented)
@@ -8319,7 +8009,7 @@ export type ToolResultContent = Infer<typeof ToolResultContentSchema>;
 const ToolResultContentSchema: z.ZodObject<{
     type: z.ZodLiteral<"tool_result">;
     toolUseId: z.ZodString;
-    content: z.ZodDefault<z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
+    content: z.ZodArray<z.ZodUnion<readonly [z.ZodObject<{
         type: z.ZodLiteral<"text">;
         text: z.ZodString;
         annotations: z.ZodOptional<z.ZodObject<{
@@ -8405,7 +8095,7 @@ const ToolResultContentSchema: z.ZodObject<{
             lastModified: z.ZodOptional<z.ZodISODateTime>;
         }, z.core.$strip>>;
         _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
-    }, z.core.$strip>]>>>;
+    }, z.core.$strip>]>>;
     structuredContent: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
     isError: z.ZodOptional<z.ZodBoolean>;
     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
@@ -8993,7 +8683,7 @@ export function resourceUrlFromServerUrl(url: URL | string): URL;
 
 // @public (undocumented)
 namespace schemas_d_exports {
-    export { AnnotationsSchema, AudioContentSchema, BaseMetadataSchema, BaseRequestParamsSchema, BlobResourceContentsSchema, BooleanSchemaSchema, CallToolRequestParamsSchema, CallToolRequestSchema, CallToolResultSchema, CancelTaskRequestSchema, CancelTaskResultSchema, CancelledNotificationParamsSchema, CancelledNotificationSchema, ClientCapabilitiesSchema, ClientNotificationSchema, ClientRequestSchema, ClientResultSchema, ClientTasksCapabilitySchema, CompatibilityCallToolResultSchema, CompleteRequestParamsSchema, CompleteRequestSchema, CompleteResultSchema, ContentBlockSchema, CreateMessageRequestParamsSchema, CreateMessageRequestSchema, CreateMessageResultSchema, CreateMessageResultWithToolsSchema, CreateTaskResultSchema, CursorSchema, DiscoverRequestSchema, DiscoverResultSchema, ElicitRequestFormParamsSchema, ElicitRequestParamsSchema, ElicitRequestSchema, ElicitRequestURLParamsSchema, ElicitResultSchema, ElicitationCompleteNotificationParamsSchema, ElicitationCompleteNotificationSchema, EmbeddedResourceSchema, EmptyResultSchema, EnumSchemaSchema, GetPromptRequestParamsSchema, GetPromptRequestSchema, GetPromptResultSchema, GetTaskPayloadRequestSchema, GetTaskPayloadResultSchema, GetTaskRequestSchema, GetTaskResultSchema, IconSchema, IconsSchema, ImageContentSchema, ImplementationSchema, InitializeRequestParamsSchema, InitializeRequestSchema, InitializeResultSchema, InitializedNotificationSchema, JSONArraySchema, JSONObjectSchema, JSONRPCErrorResponseSchema, JSONRPCMessageSchema, JSONRPCNotificationSchema, JSONRPCRequestSchema, JSONRPCResponseSchema, JSONRPCResultResponseSchema, JSONValueSchema, LegacyTitledEnumSchemaSchema, ListChangedOptionsBaseSchema, ListPromptsRequestSchema, ListPromptsResultSchema, ListResourceTemplatesRequestSchema, ListResourceTemplatesResultSchema, ListResourcesRequestSchema, ListResourcesResultSchema, ListRootsRequestSchema, ListRootsResultSchema, ListTasksRequestSchema, ListTasksResultSchema, ListToolsRequestSchema, ListToolsResultSchema, LoggingLevelSchema, LoggingMessageNotificationParamsSchema, LoggingMessageNotificationSchema, ModelHintSchema, ModelPreferencesSchema, MultiSelectEnumSchemaSchema, NotificationSchema, NotificationsParamsSchema, NumberSchemaSchema, PaginatedRequestParamsSchema, PaginatedRequestSchema, PaginatedResultSchema, PingRequestSchema, PrimitiveSchemaDefinitionSchema, ProgressNotificationParamsSchema, ProgressNotificationSchema, ProgressSchema, ProgressTokenSchema, PromptArgumentSchema, PromptListChangedNotificationSchema, PromptMessageSchema, PromptReferenceSchema, PromptSchema, ReadResourceRequestParamsSchema, ReadResourceRequestSchema, ReadResourceResultSchema, RelatedTaskMetadataSchema, RequestIdSchema, RequestMetaEnvelopeSchema, RequestMetaSchema, RequestSchema, ResourceContentsSchema, ResourceLinkSchema, ResourceListChangedNotificationSchema, ResourceRequestParamsSchema, ResourceSchema, ResourceTemplateReferenceSchema, ResourceTemplateSchema, ResourceUpdatedNotificationParamsSchema, ResourceUpdatedNotificationSchema, ResultSchema, RoleSchema, RootSchema, RootsListChangedNotificationSchema, SamplingContentSchema, SamplingMessageContentBlockSchema, SamplingMessageSchema, ServerCapabilitiesSchema, ServerNotificationSchema, ServerRequestSchema, ServerResultSchema, ServerTasksCapabilitySchema, SetLevelRequestParamsSchema, SetLevelRequestSchema, SingleSelectEnumSchemaSchema, StringSchemaSchema, SubscribeRequestParamsSchema, SubscribeRequestSchema, TaskAugmentedRequestParamsSchema, TaskCreationParamsSchema, TaskMetadataSchema, TaskSchema, TaskStatusNotificationParamsSchema, TaskStatusNotificationSchema, TaskStatusSchema, TextContentSchema, TextResourceContentsSchema, TitledMultiSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema, ToolAnnotationsSchema, ToolChoiceSchema, ToolExecutionSchema, ToolListChangedNotificationSchema, ToolResultContentSchema, ToolSchema, ToolUseContentSchema, UnsubscribeRequestParamsSchema, UnsubscribeRequestSchema, UntitledMultiSelectEnumSchemaSchema, UntitledSingleSelectEnumSchemaSchema };
+    export { AnnotationsSchema, AudioContentSchema, BaseMetadataSchema, BaseRequestParamsSchema, BlobResourceContentsSchema, BooleanSchemaSchema, CallToolRequestParamsSchema, CallToolRequestSchema, CallToolResultSchema, CancelledNotificationParamsSchema, CancelledNotificationSchema, ClientCapabilitiesSchema, ClientNotificationSchema, ClientRequestSchema, ClientResultSchema, ClientTasksCapabilitySchema, CompatibilityCallToolResultSchema, CompleteRequestParamsSchema, CompleteRequestSchema, CompleteResultSchema, ContentBlockSchema, CreateMessageRequestParamsSchema, CreateMessageRequestSchema, CreateMessageResultSchema, CreateMessageResultWithToolsSchema, CursorSchema, DiscoverRequestSchema, DiscoverResultSchema, ElicitRequestFormParamsSchema, ElicitRequestParamsSchema, ElicitRequestSchema, ElicitRequestURLParamsSchema, ElicitResultSchema, ElicitationCompleteNotificationParamsSchema, ElicitationCompleteNotificationSchema, EmbeddedResourceSchema, EmptyResultSchema, EnumSchemaSchema, GetPromptRequestParamsSchema, GetPromptRequestSchema, GetPromptResultSchema, IconSchema, IconsSchema, ImageContentSchema, ImplementationSchema, InitializeRequestParamsSchema, InitializeRequestSchema, InitializeResultSchema, InitializedNotificationSchema, JSONArraySchema, JSONObjectSchema, JSONRPCErrorResponseSchema, JSONRPCMessageSchema, JSONRPCNotificationSchema, JSONRPCRequestSchema, JSONRPCResponseSchema, JSONRPCResultResponseSchema, JSONValueSchema, LegacyTitledEnumSchemaSchema, ListChangedOptionsBaseSchema, ListPromptsRequestSchema, ListPromptsResultSchema, ListResourceTemplatesRequestSchema, ListResourceTemplatesResultSchema, ListResourcesRequestSchema, ListResourcesResultSchema, ListRootsRequestSchema, ListRootsResultSchema, ListToolsRequestSchema, ListToolsResultSchema, LoggingLevelSchema, LoggingMessageNotificationParamsSchema, LoggingMessageNotificationSchema, ModelHintSchema, ModelPreferencesSchema, MultiSelectEnumSchemaSchema, NotificationSchema, NotificationsParamsSchema, NumberSchemaSchema, PaginatedRequestParamsSchema, PaginatedRequestSchema, PaginatedResultSchema, PingRequestSchema, PrimitiveSchemaDefinitionSchema, ProgressNotificationParamsSchema, ProgressNotificationSchema, ProgressSchema, ProgressTokenSchema, PromptArgumentSchema, PromptListChangedNotificationSchema, PromptMessageSchema, PromptReferenceSchema, PromptSchema, ReadResourceRequestParamsSchema, ReadResourceRequestSchema, ReadResourceResultSchema, RelatedTaskMetadataSchema, RequestIdSchema, RequestMetaSchema, RequestSchema, ResourceContentsSchema, ResourceLinkSchema, ResourceListChangedNotificationSchema, ResourceRequestParamsSchema, ResourceSchema, ResourceTemplateReferenceSchema, ResourceTemplateSchema, ResourceUpdatedNotificationParamsSchema, ResourceUpdatedNotificationSchema, ResultSchema, RoleSchema, RootSchema, RootsListChangedNotificationSchema, SamplingContentSchema, SamplingMessageContentBlockSchema, SamplingMessageSchema, ServerCapabilitiesSchema, ServerNotificationSchema, ServerRequestSchema, ServerResultSchema, ServerTasksCapabilitySchema, SetLevelRequestParamsSchema, SetLevelRequestSchema, SingleSelectEnumSchemaSchema, StringSchemaSchema, SubscribeRequestParamsSchema, SubscribeRequestSchema, TaskAugmentedRequestParamsSchema, TaskMetadataSchema, TextContentSchema, TextResourceContentsSchema, TitledMultiSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema, ToolAnnotationsSchema, ToolChoiceSchema, ToolExecutionSchema, ToolListChangedNotificationSchema, ToolResultContentSchema, ToolSchema, ToolUseContentSchema, UnsubscribeRequestParamsSchema, UnsubscribeRequestSchema, UntitledMultiSelectEnumSchemaSchema, UntitledSingleSelectEnumSchemaSchema };
 }
 
 // @public

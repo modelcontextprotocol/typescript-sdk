@@ -93,20 +93,25 @@ describe('task-shaped result bodies against the narrowed runtime map', () => {
         await protocol.close();
     });
 
-    test('tools/call: the tolerant result schema still accepts the body (pre-existing; the old union member was unreachable)', async () => {
-        // Honest pin, not an endorsement: CallToolResultSchema defaults
-        // `content` to [] and is loose, so it accepts ANY object — including
-        // a task body. That made the old union's CreateTaskResultSchema
-        // member unreachable for tools/call (first member always matched),
-        // so the narrowing changes nothing observable here; the body parses
-        // as a content-empty CallToolResult with `task` passing through the
-        // loose index signature, exactly as before. Rejecting it is a result-
-        // schema-strictness question, out of scope for the map alignment.
+    test('tools/call: a CreateTaskResult body is now a typed invalid-result error too (content-default removal flip)', async () => {
+        // FLIPPED PIN (Q1 increment 2, ledgered with the content-default
+        // removal — changeset: codec-split-wire-break). The previous "Honest
+        // pin, not an endorsement" recorded that CallToolResultSchema's
+        // content.default([]) swallowed ANY object — including a task body —
+        // as a content-empty success, which made the old union member
+        // unreachable and the map narrowing observationally invisible for
+        // tools/call. With `content` now REQUIRED at the wire boundary the
+        // masking surface is gone: a task body has no `content`, fails the
+        // plain schema, and surfaces as the same typed invalid-result error
+        // as sampling/elicit. The result-schema-strictness question the old
+        // pin deferred is hereby resolved: loud rejection.
         const protocol = await wireWithRawResult(CREATE_TASK_RESULT_BODY);
 
-        const result = await protocol.request({ method: 'tools/call', params: { name: 'echo', arguments: {} } });
-        expect(result.content).toEqual([]);
-        expect((result as Record<string, unknown>).task).toEqual(CREATE_TASK_RESULT_BODY.task);
+        const rejection = await protocol
+            .request({ method: 'tools/call', params: { name: 'echo', arguments: {} } })
+            .catch((error: unknown) => error);
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.InvalidResult);
 
         await protocol.close();
     });
