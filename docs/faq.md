@@ -47,7 +47,7 @@ authentication flows used by MCP clients.
 - **Node.js v18.x**: `globalThis.crypto` may not be defined by default. In this repository we polyfill it for tests (see `packages/client/vitest.setup.js`), and you should do the same in your app if it is missing – or alternatively, run Node with `--experimental-global-webcrypto`
   as per your Node version documentation. (See https://nodejs.org/dist/latest-v18.x/docs/api/globals.html#crypto )
 
-If you run clients on Node.js versions where `globalThis.crypto` is missing, you can polyfill it using the built-in `node:crypto` module, similar to the SDK's own `vitest.setup.ts`:
+If you run clients on Node.js versions where `globalThis.crypto` is missing, you can polyfill it using the built-in `node:crypto` module, similar to the SDK's own `vitest.setup.js`:
 
 ```typescript
 import { webcrypto } from 'node:crypto';
