@@ -149,6 +149,18 @@ describe('StreamableHTTPClientTransport', () => {
         await reconnectTransport.close().catch(() => {});
     });
 
+    it('can be started again after close()', async () => {
+        await transport.start();
+        const firstAbortController = transport['_abortController'];
+
+        await transport.close();
+
+        expect(firstAbortController?.signal.aborted).toBe(true);
+        expect(transport['_abortController']).toBeUndefined();
+        await expect(transport.start()).resolves.toBeUndefined();
+        expect(transport['_abortController']).toBeDefined();
+    });
+
     it('should terminate session with DELETE request', async () => {
         // First, simulate getting a session ID
         const message: JSONRPCMessage = {
