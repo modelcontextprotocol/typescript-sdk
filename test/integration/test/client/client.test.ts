@@ -172,6 +172,41 @@ test('should restore negotiated protocol version on transport when reconnecting 
 });
 
 /***
+ * Test: The wire-era binding is connection state — it must not survive into a fresh connect.
+ * A client whose previous connection negotiated the modern revision (2026-07-28) must still be
+ * able to run a FRESH initialize handshake: `initialize` is legacy-era vocabulary by definition
+ * (it is physically absent from the modern registry), so a binding left over from the dead
+ * connection would otherwise kill the handshake locally before it reaches the transport.
+ */
+test('should run a fresh initialize handshake after close() when the previous connection negotiated the modern era', async () => {
+    const MODERN_REVISION = '2026-07-28';
+    const supportedProtocolVersions = [MODERN_REVISION, ...SUPPORTED_PROTOCOL_VERSIONS];
+
+    const connectModern = async (client: Client) => {
+        const server = new Server({ name: 'modern server', version: '1.0' }, { capabilities: {}, supportedProtocolVersions });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+    };
+
+    const client = new Client({ name: 'test client', version: '1.0' }, { supportedProtocolVersions });
+
+    // First connection negotiates the modern revision and binds the modern wire era.
+    await connectModern(client);
+    expect(client.getNegotiatedProtocolVersion()).toBe(MODERN_REVISION);
+
+    await client.close();
+
+    // Fresh connect (new transport, no sessionId): the stale binding is cleared, the
+    // handshake rides the pre-negotiation bootstrap pin (legacy era), and the connection
+    // can re-negotiate the modern revision.
+    await connectModern(client);
+    expect(client.getNegotiatedProtocolVersion()).toBe(MODERN_REVISION);
+
+    await client.close();
+});
+
+/***
  * Test: Reject Unsupported Protocol Version
  */
 test('should reject unsupported protocol version', async () => {
