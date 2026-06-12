@@ -13,6 +13,10 @@ pnpm-lock.yaml
 **/src/types/spec.types.2025-11-25.ts
 **/src/types/spec.types.2026-07-28.ts
 
+# Spec example corpora: vendored verbatim from the spec repository
+# (fetch:spec-examples) or hand-built and frozen - byte-faithful artifacts.
+packages/core/test/corpus/fixtures/
+
 # Batch test cloned repos and results
 packages/codemod/batch-test/repos
 packages/codemod/batch-test/results

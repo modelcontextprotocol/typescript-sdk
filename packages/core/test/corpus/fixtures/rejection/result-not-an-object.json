@@ -1,0 +1,9 @@
+{
+    "description": "A response whose result member is not an object fails envelope classification.",
+    "message": {
+        "jsonrpc": "2.0",
+        "id": 7,
+        "result": "nope"
+    },
+    "expect": "onerror"
+}

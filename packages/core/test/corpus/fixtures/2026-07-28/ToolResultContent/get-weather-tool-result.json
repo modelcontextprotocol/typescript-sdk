@@ -1,0 +1,10 @@
+{
+  "type": "tool_result",
+  "toolUseId": "call_abc123",
+  "content": [
+    {
+      "type": "text",
+      "text": "Weather in Paris: 18°C, partly cloudy"
+    }
+  ]
+}
