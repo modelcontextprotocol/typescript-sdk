@@ -100,11 +100,11 @@ export class NodeStreamableHTTPServerTransport implements Transport {
     /**
      * Sets callback for when the transport is closed.
      */
-    set onclose(handler: (() => void) | undefined) {
+    set onclose(handler: Transport['onclose']) {
         this._webStandardTransport.onclose = handler;
     }
 
-    get onclose(): (() => void) | undefined {
+    get onclose(): Transport['onclose'] {
         return this._webStandardTransport.onclose;
     }
 

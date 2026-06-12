@@ -242,7 +242,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _supportedProtocolVersions: string[];
 
     sessionId?: string;
-    onclose?: () => void;
+    onclose?: Transport['onclose'];
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage, extra?: MessageExtraInfo) => void;
 
