@@ -22,7 +22,7 @@ import { randomUUID } from 'node:crypto';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ResourceLink } from '@modelcontextprotocol/server';
-import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { completable, McpServer, ResourceTemplate, TRACEPARENT_META_KEY } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 ```
@@ -377,6 +377,34 @@ server.registerTool(
 ```
 
 `progress` must increase on each call. `total` and `message` are optional. If the client does not provide a `progressToken`, skip the notification.
+
+## Trace context propagation
+
+The MCP specification ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)) reserves the unprefixed `_meta` keys `traceparent`, `tracestate`, and `baggage` for distributed trace context, as an exception to the usual `_meta` key prefix rule. When present, the values must follow the [W3C Trace Context](https://www.w3.org/TR/trace-context/) and [W3C Baggage](https://www.w3.org/TR/baggage/) formats. The SDK does not interpret these keys — `_meta` passes through untouched on any transport, including stdio. The key names are exported as `TRACEPARENT_META_KEY`, `TRACESTATE_META_KEY`, and `BAGGAGE_META_KEY`.
+
+Read the caller's trace context from `ctx.mcpReq._meta` in a handler:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#registerTool_traceContext"
+server.registerTool(
+    'traced-operation',
+    {
+        description: 'Operation that participates in distributed tracing',
+        inputSchema: z.object({ query: z.string() })
+    },
+    async ({ query }, ctx): Promise<CallToolResult> => {
+        // e.g. '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+        const traceparent = ctx.mcpReq._meta?.[TRACEPARENT_META_KEY];
+        if (typeof traceparent === 'string') {
+            // Continue the caller's trace, e.g. start a child span with your
+            // OpenTelemetry tracer using this trace context.
+        }
+
+        return { content: [{ type: 'text', text: `Results for ${query}` }] };
+    }
+);
+```
+
+To propagate context onward (for example on a server-initiated sampling request, or back on a response), set the same keys in the outgoing `_meta`. See the [client guide](./client.md#trace-context-propagation) for injecting trace context on the client side.
 
 ## Server-initiated requests
 
