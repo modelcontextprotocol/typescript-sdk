@@ -1,14 +1,18 @@
 /**
  * Envelope lift, two-sided: wire-only material is hidden from handlers AND
- * reaches the protocol layer un-deleted.
+ * (for requests) reaches the protocol layer un-deleted.
  *
- * Hide set: the reserved `io.modelcontextprotocol/*` envelope `_meta` keys
- * and the multi-round-trip retry fields (`inputResponses`/`requestState`).
- * Under 2026-era traffic, handler params must be byte-equal to the 2025-era
- * shape of the same call; the envelope is readable via `ctx.mcpReq.envelope`
- * and the retry fields via `ctx.mcpReq.inputResponses`/`.requestState`.
- * 2025-era traffic passes through untouched (same reference — no cloning on
- * the hot path).
+ * Hide set, per message kind. Requests: the reserved
+ * `io.modelcontextprotocol/*` envelope `_meta` keys and the multi-round-trip
+ * retry fields (`inputResponses`/`requestState`) — the envelope is readable
+ * via `ctx.mcpReq.envelope` and the retry fields via
+ * `ctx.mcpReq.inputResponses`/`.requestState`. Notifications: ONLY the
+ * envelope `_meta` keys (the spec reserves the retry params names on
+ * client-initiated requests, not notifications), and there is no
+ * per-notification ctx, so the lifted envelope keys are dropped rather than
+ * surfaced. Under 2026-era traffic, handler params must be byte-equal to the
+ * 2025-era shape of the same call; traffic without wire-only material passes
+ * through untouched (same reference — no cloning on the hot path).
  */
 import { describe, expect, expectTypeOf, test } from 'vitest';
 import * as z from 'zod/v4';
@@ -277,6 +281,31 @@ describe('envelope lift on inbound notifications', () => {
         // The raw notification handed to the handler is the lifted one:
         // _meta retains only non-reserved material.
         expect((seenNotification as { params?: { _meta?: unknown } }).params?._meta).toEqual({ progressToken: 1 });
+    });
+
+    test('top-level params named like the retry fields reach notification handlers intact', async () => {
+        // The spec reserves `inputResponses`/`requestState` on
+        // client-initiated REQUESTS only. A vendor notification is free to
+        // use those names as ordinary params — the lift must not touch them
+        // (notifications have no ctx, so a delete would be unrecoverable).
+        let seenParams: unknown;
+        const { peer } = await wireReceiver(receiver => {
+            receiver.setNotificationHandler(
+                'vendor/stateChanged',
+                { params: z.looseObject({ requestState: z.string() }) },
+                params => void (seenParams = params)
+            );
+        });
+
+        await peer.send({
+            jsonrpc: '2.0',
+            method: 'vendor/stateChanged',
+            params: { requestState: 'app-domain-value', inputResponses: { poll: 'yes' }, _meta: { ...ENVELOPE } }
+        } as JSONRPCMessage);
+        await flush();
+
+        // Envelope keys lifted; the retry-named top-level params untouched.
+        expect(seenParams).toEqual({ requestState: 'app-domain-value', inputResponses: { poll: 'yes' } });
     });
 
     test('the fallback notification handler receives the lifted notification', async () => {

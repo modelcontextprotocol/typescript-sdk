@@ -149,7 +149,12 @@ const RESERVED_ENVELOPE_META_KEYS: readonly string[] = [
     LOG_LEVEL_META_KEY
 ];
 
-/** Top-level params members carrying multi-round-trip driver material (protocol revision 2026-07-28). */
+/**
+ * Top-level params members carrying multi-round-trip driver material
+ * (protocol revision 2026-07-28). The spec reserves these names on
+ * client-initiated REQUESTS only — notification params keep them untouched
+ * (a vendor notification may legitimately use the same names).
+ */
 const RETRY_PARAMS_KEYS = ['inputResponses', 'requestState'] as const;
 
 interface LiftedWireMaterial {
@@ -162,19 +167,25 @@ interface LiftedWireMaterial {
 }
 
 /**
- * Lift wire-only material (the reserved `_meta` envelope keys and the
- * multi-round-trip retry fields) out of an inbound request or notification so
- * handlers see exactly the 2025-era shape, and surface it for the protocol
- * layer (requests: via `ctx.mcpReq`). Messages without wire-only material are
- * returned unchanged (same reference).
+ * Lift wire-only material out of an inbound message so handlers see exactly
+ * the 2025-era shape, and surface it for the protocol layer (requests: via
+ * `ctx.mcpReq`). What counts as wire-only depends on the message kind: the
+ * reserved envelope `_meta` keys are reserved on every message, while the
+ * multi-round-trip retry fields (`inputResponses`/`requestState`) are
+ * reserved on client-initiated requests only — so notifications get only the
+ * envelope lift, and their top-level params stay untouched. Messages without
+ * wire-only material are returned unchanged (same reference).
  */
-function liftWireOnlyMaterial<T extends JSONRPCRequest | JSONRPCNotification>(message: T): { message: T; lifted: LiftedWireMaterial } {
+function liftWireOnlyMaterial<T extends JSONRPCRequest | JSONRPCNotification>(
+    message: T,
+    kind: 'request' | 'notification'
+): { message: T; lifted: LiftedWireMaterial } {
     const params = (message as { params?: unknown }).params;
     if (!isPlainObject(params)) return { message, lifted: {} };
 
     const meta = params._meta;
     const envelopeKeys = isPlainObject(meta) ? RESERVED_ENVELOPE_META_KEYS.filter(key => key in meta) : [];
-    const retryKeys = RETRY_PARAMS_KEYS.filter(key => key in params);
+    const retryKeys = kind === 'request' ? RETRY_PARAMS_KEYS.filter(key => key in params) : [];
     if (envelopeKeys.length === 0 && retryKeys.length === 0) return { message, lifted: {} };
 
     const lifted: LiftedWireMaterial = {};
@@ -566,11 +577,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onnotification(rawNotification: JSONRPCNotification): void {
-        // Hide wire-only material from notification handlers too: the
-        // reserved envelope keys are lifted out before dispatch (there is no
-        // per-notification context to surface them on; the protocol layer
-        // owns them).
-        const { message: notification } = liftWireOnlyMaterial(rawNotification);
+        // Hide wire-only material from notification handlers too — but ONLY
+        // the reserved envelope `_meta` keys (the retry params names are
+        // reserved on requests, not notifications). There is no
+        // per-notification context, so the lifted envelope keys are dropped,
+        // not surfaced; the protocol layer owns them.
+        const { message: notification } = liftWireOnlyMaterial(rawNotification, 'notification');
         const handler = this._notificationHandlers.get(notification.method) ?? this.fallbackNotificationHandler;
 
         // Ignore notifications not being subscribed to.
@@ -588,7 +600,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Lift wire-only material before dispatch: handlers (including the
         // fallback handler and the per-method schema parse) see exactly the
         // 2025-era shape; the envelope and retry fields surface via ctx.
-        const { message: request, lifted } = liftWireOnlyMaterial(rawRequest);
+        const { message: request, lifted } = liftWireOnlyMaterial(rawRequest, 'request');
         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
         // Capture the current transport at request time to ensure responses go to the correct client
