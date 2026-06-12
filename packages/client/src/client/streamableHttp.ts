@@ -189,6 +189,7 @@ export class StreamableHTTPClientTransport implements Transport {
     onclose?: () => void;
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
+    onsessionexpired?: () => void | Promise<void>;
 
     constructor(url: URL, opts?: StreamableHTTPClientTransportOptions) {
         this._url = url;
@@ -521,13 +522,14 @@ export class StreamableHTTPClientTransport implements Transport {
         message: JSONRPCMessage | JSONRPCMessage[],
         options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }
     ): Promise<void> {
-        return this._send(message, options, false);
+        return this._send(message, options, false, false);
     }
 
     private async _send(
         message: JSONRPCMessage | JSONRPCMessage[],
         options: { resumptionToken?: string; onresumptiontoken?: (token: string) => void } | undefined,
-        isAuthRetry: boolean
+        isAuthRetry: boolean,
+        isSessionRetry: boolean
     ): Promise<void> {
         try {
             const { resumptionToken, onresumptiontoken } = options || {};
@@ -579,7 +581,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._send(message, options, true);
+                        return this._send(message, options, true, isSessionRetry);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
@@ -592,6 +594,15 @@ export class StreamableHTTPClientTransport implements Transport {
                 }
 
                 const text = await response.text?.().catch(() => null);
+
+                if (response.status === 404 && this._sessionId && !isSessionRetry) {
+                    this._sessionId = undefined;
+                    await this.onsessionexpired?.();
+
+                    if (this._sessionId) {
+                        return this._send(message, options, isAuthRetry, true);
+                    }
+                }
 
                 if (response.status === 403 && this._oauthProvider) {
                     const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
@@ -629,7 +640,7 @@ export class StreamableHTTPClientTransport implements Transport {
                             throw new UnauthorizedError();
                         }
 
-                        return this._send(message, options, isAuthRetry);
+                        return this._send(message, options, isAuthRetry, isSessionRetry);
                     }
                 }
 

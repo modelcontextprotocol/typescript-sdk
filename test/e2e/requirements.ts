@@ -1641,7 +1641,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
 
     'client-transport:http:404-surfaces': {
         source: 'sdk',
-        behavior: 'A 404 (session expired) on a request surfaces as an error to the caller.',
+        behavior:
+            'A 404 (session expired) on a request surfaces as an error to the caller when the transport has no session recovery hook.',
         transports: ['streamableHttp'],
         note: 'Session-id continuity testing requires the per-session host (404 is session-not-found).'
     },
@@ -1650,12 +1651,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'A 404 in response to a request carrying a session ID makes the client start a new session with a fresh InitializeRequest and no session ID attached.',
         transports: ['streamableHttp'],
-        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        knownFailures: [
-            {
-                note: 'On a 404 for an existing session the transport throws StreamableHTTPError (streamableHttp.ts:551) and never re-initializes — no session recovery is attempted.'
-            }
-        ]
+        note: 'This exercises the StreamableHTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'client-transport:http:accept-header-get': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#listening-for-messages-from-the-server',
