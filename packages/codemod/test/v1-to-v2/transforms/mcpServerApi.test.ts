@@ -307,4 +307,63 @@ describe('mcp-server-api transform', () => {
         expect(result).toContain('registerTool("ping", {}');
         expect(result).not.toContain('z.object');
     });
+
+    it('flags taskStore in McpServer options as removed without modifying code', () => {
+        const input = [
+            `const server = new McpServer(`,
+            `    { name: 'test', version: '1.0' },`,
+            `    { taskStore: new InMemoryTaskStore() }`,
+            `);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toBe(MCP_IMPORT + input);
+        const taskDiags = result.diagnostics.filter(d => d.message.includes("'taskStore'"));
+        expect(taskDiags).toHaveLength(1);
+        expect(taskDiags[0]!.message).toContain('experimental tasks removed in v2 (SEP-2663');
+        expect(taskDiags[0]!.message).toContain('No v2 equivalent');
+        expect(taskDiags[0]!.insertComment).toBe(true);
+    });
+
+    it('flags each task option separately when both are present', () => {
+        const input = [
+            `const server = new McpServer(`,
+            `    { name: 'test', version: '1.0' },`,
+            `    { taskStore: store, taskMessageQueue: queue }`,
+            `);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toBe(MCP_IMPORT + input);
+        expect(result.diagnostics.some(d => d.message.includes("'taskStore'"))).toBe(true);
+        expect(result.diagnostics.some(d => d.message.includes("'taskMessageQueue'"))).toBe(true);
+    });
+
+    it('does not move task options into capabilities.tasks even when present', () => {
+        const input = [
+            `const server = new McpServer(`,
+            `    { name: 'test', version: '1.0' },`,
+            `    { taskStore: store, capabilities: { tasks: {} } }`,
+            `);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toBe(MCP_IMPORT + input);
+        expect(sourceFile.getFullText()).toContain('taskStore: store');
+        expect(result.diagnostics.some(d => d.message.includes("'taskStore'"))).toBe(true);
+    });
+
+    it('emits no task diagnostics for McpServer options without task options', () => {
+        const input = [`const server = new McpServer({ name: 'test', version: '1.0' }, { instructions: 'hi' });`, ''].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics).toHaveLength(0);
+    });
 });
