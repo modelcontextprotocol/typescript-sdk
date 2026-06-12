@@ -91,12 +91,13 @@ describe.each(['2025-11-25', '2026-07-28'] as const)('schema-twin conformance lo
     const twin = twinValidatorFactory(revision);
     const dirs = listTypeDirs(revision).filter(dir => twin.defs.has(dir));
 
-    test('the twin covers the corpus (sanity: most directories map to a $defs entry)', () => {
+    test('the twin covers the corpus (the unmapped set is pinned exactly)', () => {
         const unmapped = listTypeDirs(revision).filter(dir => !twin.defs.has(dir));
-        // Unmapped directories are SDK-named shapes with no spec def (e.g.
-        // bare error-object dirs vendored under SDK aliases). They must stay
-        // few — growth here means the twin and the corpus are drifting apart.
-        expect(unmapped.length, `directories without a twin def: ${unmapped.join(', ')}`).toBeLessThanOrEqual(6);
+        // Unmapped directories would be SDK-named shapes with no spec def.
+        // Today there are NONE — the set is pinned exactly, not bounded with
+        // slack: a new unmapped directory means the twin and the corpus are
+        // drifting apart and must be adjudicated here by name.
+        expect(unmapped).toEqual([]);
         expect(dirs.length).toBeGreaterThan(30);
     });
 

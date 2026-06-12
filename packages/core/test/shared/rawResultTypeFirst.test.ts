@@ -155,6 +155,21 @@ describe('raw-first resultType handling — 2025 era (strip-on-lift, Q1-SD3 ii)'
         await protocol.close();
     });
 
+    test('strip-on-lift is VALUE-BLIND: a foreign input_required WITH a valid body resolves, member stripped', async () => {
+        // The strip keys on the member's PRESENCE, never its value — even the
+        // driver kind is foreign vocabulary on this era. With a valid body
+        // the request resolves; the stripped key never surfaces. (The
+        // sibling test above covers the invalid-body arm: there the strip
+        // also runs, and validation then rejects on the actual content.)
+        const protocol = await wireWithRawResult({ resultType: 'input_required', content: [{ type: 'text', text: 'ok' }] });
+
+        const result = await protocol.request({ method: 'tools/call', params: { name: 'echo', arguments: {} } });
+        expect(result.content).toEqual([{ type: 'text', text: 'ok' }]);
+        expect('resultType' in result).toBe(false);
+
+        await protocol.close();
+    });
+
     test('a foreign non-string resultType is stripped; an otherwise-valid result resolves without it', async () => {
         const protocol = await wireWithRawResult({ resultType: 42, content: [{ type: 'text', text: 'ok' }] });
 
