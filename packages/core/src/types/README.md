@@ -17,5 +17,10 @@ They are reference-only test oracles: the comparison suites in `packages/core/te
 3. **The bot proposes; it never auto-merges.** Automated refreshes always go through a pull request that a maintainer reviews and merges. No automation pushes anchor changes directly to `main` or merges its own PRs. A refresh PR that breaks the comparison suites is the desired
    signal — it is fixed in that PR, not bypassed.
 
-4. **Generated twins update atomically with their anchor.** If artifacts derived from an anchor (for example vendored JSON schemas or generated validators) are ever checked into this repository, any refresh that changes the anchor must regenerate those artifacts in the same
-   commit. The anchor and its derived twins must never be out of sync at any commit on `main`. This clause becomes operative the day such generated artifacts are first vendored.
+4. **Generated twins update atomically with their anchor.** If artifacts derived from an anchor (for example vendored JSON schemas or generated validators) are checked into this repository, any refresh that changes the anchor must regenerate those artifacts in the same commit.
+   The anchor and its derived twins must never be out of sync at any commit on `main`.
+
+    **This clause is OPERATIVE.** The vendored twins are the per-revision `schema.json` copies under `packages/core/test/corpus/schema-twins/` (`<revision>.schema.json` + `manifest.json` recording the source commit and content hashes). They are TEST-ONLY oracles consumed by the
+    schema-twin conformance lock (`test/wire/schemaTwinConformance.test.ts`) — never bundled, never imported by runtime code, and the JSON Schema engines stay optional peer dependencies. A refresh of `spec.types.<revision>.ts` must copy the matching upstream
+    `schema/<dir>/schema.json` (same spec commit) over the twin and update `manifest.json` in the same commit; the spec example corpus manifest (`test/corpus/fixtures/<revision>/manifest.json`) records its own source commit and follows the same atomicity rule when the examples
+    are re-vendored. The conformance lock failing after an anchor-only refresh is the desired loud signal of a missed twin update.

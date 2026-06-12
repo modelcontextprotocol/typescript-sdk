@@ -483,10 +483,6 @@ export class Client extends Protocol<ClientContext> {
             this._serverCapabilities = result.capabilities;
             this._serverVersion = result.serverInfo;
             this._negotiatedProtocolVersion = result.protocolVersion;
-            // The negotiated version selects the wire codec for everything
-            // this connection sends/receives from here on (the negotiated
-            // version cashes out as the negotiated wire ERA - Q1-SD1).
-            bindWireVersion(this, result.protocolVersion);
             // HTTP transports must set the protocol version in each header after initialization.
             if (transport.setProtocolVersion) {
                 transport.setProtocolVersion(result.protocolVersion);
@@ -497,6 +493,13 @@ export class Client extends Protocol<ClientContext> {
             await this.notification({
                 method: 'notifications/initialized'
             });
+
+            // The negotiated version selects the wire codec for everything
+            // this connection sends/receives from here on (the negotiated
+            // version cashes out as the negotiated wire ERA - Q1-SD1). Bound
+            // AFTER the initialized notification: the initialize EXCHANGE is
+            // the legacy handshake by definition and completes on that era.
+            bindWireVersion(this, result.protocolVersion);
 
             // Set up list changed handlers now that we know server capabilities
             if (this._pendingListChangedConfig) {

@@ -17,6 +17,7 @@ import { describe, expect, test } from 'vitest';
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
+    ClientCapabilitiesSchema,
     CompleteResultSchema,
     EmptyResultSchema,
     JSONRPCErrorResponseSchema,
@@ -27,7 +28,11 @@ import {
 } from '../../src/types/index.js';
 // The per-request envelope is wire-only vocabulary and now lives in the
 // 2026-era wire module (Q1 increment 2); its accept/reject line is unchanged.
-import { RequestMetaEnvelopeSchema } from '../../src/wire/rev2026-07-28/schemas.js';
+import {
+    ClientCapabilities2026Schema,
+    ListToolsResultSchema as Wire2026ListToolsResultSchema,
+    RequestMetaEnvelopeSchema
+} from '../../src/wire/rev2026-07-28/schemas.js';
 import type {
     CallToolResult,
     CompleteResult,
@@ -199,6 +204,52 @@ describe('RequestMetaEnvelopeSchema', () => {
     test('is loose: foreign _meta keys pass through', () => {
         const parsed = RequestMetaEnvelopeSchema.parse({ ...validEnvelope, 'com.example/custom': 'kept' });
         expect((parsed as Record<string, unknown>)['com.example/custom']).toBe('kept');
+    });
+
+    test('clientCapabilities are validated with the 2026 fork: tasks is not vocabulary on this revision', () => {
+        // The envelope composes ClientCapabilities2026Schema (the shared
+        // shape minus the deleted `tasks` key), matching the server-side
+        // fork wired into DiscoverResultSchema. A tasks-bearing claim is
+        // foreign vocabulary: it neither validates as a capability (a
+        // malformed value cannot reject the envelope) nor survives the parse.
+        const withMalformedTasks = {
+            ...validEnvelope,
+            'io.modelcontextprotocol/clientCapabilities': { tasks: 'not-an-object' }
+        };
+        expect(RequestMetaEnvelopeSchema.safeParse(withMalformedTasks).success).toBe(true);
+
+        const parsed = RequestMetaEnvelopeSchema.parse({
+            ...validEnvelope,
+            'io.modelcontextprotocol/clientCapabilities': { sampling: {}, tasks: { requests: {} } }
+        });
+        const capabilities = parsed['io.modelcontextprotocol/clientCapabilities'] as Record<string, unknown>;
+        expect(capabilities.sampling).toEqual({});
+        expect('tasks' in capabilities).toBe(false);
+    });
+
+    test('the 2026 client-capabilities fork tracks the shared shape exactly (minus tasks, by reference)', () => {
+        // The fork lists its members explicitly (dts-rollup determinism — see
+        // rev2026-07-28/schemas.ts); this oracle keeps the explicit list from
+        // drifting: same keys as the shared schema minus `tasks`, and every
+        // member is the SAME schema object, composed by reference.
+        const sharedKeys = Object.keys(ClientCapabilitiesSchema.shape).filter(key => key !== 'tasks');
+        expect(Object.keys(ClientCapabilities2026Schema.shape)).toEqual(sharedKeys);
+        for (const key of sharedKeys) {
+            expect(
+                (ClientCapabilities2026Schema.shape as Record<string, unknown>)[key],
+                `member '${key}' must be composed by reference from the shared shape`
+            ).toBe((ClientCapabilitiesSchema.shape as Record<string, unknown>)[key]);
+        }
+    });
+});
+
+describe('2026 wire result members', () => {
+    test('ttlMs is an integer at the wire boundary (anchor parity: the twin says integer)', () => {
+        // Type-level parity is structurally blind to this (TS can only say
+        // `number`), so pin it at the runtime boundary.
+        const base = { resultType: 'complete', ttlMs: 1500, cacheScope: 'public', tools: [] };
+        expect(Wire2026ListToolsResultSchema.safeParse(base).success).toBe(true);
+        expect(Wire2026ListToolsResultSchema.safeParse({ ...base, ttlMs: 1500.5 }).success).toBe(false);
     });
 });
 
