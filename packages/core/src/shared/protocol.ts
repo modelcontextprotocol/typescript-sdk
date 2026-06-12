@@ -917,6 +917,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 if (isPlainObject(result) && result['resultType'] !== undefined) {
                     const rawResultType = result['resultType'];
                     if (typeof rawResultType !== 'string') {
+                        // Defense in depth, not a reachable rejection today:
+                        // the wire schema types `resultType` as a string, so
+                        // message classification rejects a non-string carrier
+                        // before it can reach this funnel (the request then
+                        // hangs until timeout — the pre-existing failure mode
+                        // for malformed responses). The arm stays so the
+                        // raw-first check is self-contained if classification
+                        // ever loosens.
                         return reject(
                             new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: non-string resultType`, {
                                 resultType: rawResultType
