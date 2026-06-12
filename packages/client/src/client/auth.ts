@@ -167,6 +167,12 @@ export interface OAuthClientProvider {
      * Loads information about this OAuth client, as registered already with the
      * server, or returns `undefined` if the client is not registered with the
      * server.
+     *
+     * Per SEP-2352 (authorization server binding), implementations that persist
+     * client credentials SHOULD key them by the authorization server's `issuer`
+     * identifier, and SHOULD NOT return credentials that were issued by a
+     * different authorization server. CIMD (HTTPS URL) client IDs are exempt:
+     * they are portable across authorization servers.
      */
     clientInformation(): OAuthClientInformationMixed | undefined | Promise<OAuthClientInformationMixed | undefined>;
 
@@ -177,6 +183,11 @@ export interface OAuthClientProvider {
      *
      * This method is not required to be implemented if client information is
      * statically known (e.g., pre-registered).
+     *
+     * Per SEP-2352 (authorization server binding), implementations SHOULD persist
+     * client credentials keyed by the authorization server's `issuer` identifier,
+     * so credentials registered with one authorization server are never reused
+     * with another.
      */
     saveClientInformation?(clientInformation: OAuthClientInformationMixed): void | Promise<void>;
 
@@ -681,6 +692,40 @@ async function authInternal(
         });
     }
 
+    // SEP-2352: Authorization server binding. Client credentials are bound to the
+    // authorization server that issued them; when discovery shows the authorization
+    // server has changed (e.g., via updated protected resource metadata), stale client
+    // credentials and tokens MUST NOT be reused and the client MUST re-register.
+    //
+    // Canonical comparison key: the validated authorization server metadata `issuer`
+    // (the identifier SEP-2352 specifies), falling back to the authorization server URL
+    // when metadata is unavailable. Under RFC 8414 the issuer and the URL used for
+    // discovery coincide, so a match on either is treated as the same authorization
+    // server to avoid false-positive invalidation.
+    const previousAuthServerIdentities = [
+        cachedState?.authorizationServerMetadata?.issuer,
+        cachedState?.authorizationServerUrl,
+        await provider.authorizationServerUrl?.()
+    ]
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .map(value => normalizeAuthorizationServerIdentity(value));
+    const currentAuthServerIdentities = [metadata?.issuer, String(authorizationServerUrl)]
+        .filter((value): value is string => typeof value === 'string' && value.length > 0)
+        .map(value => normalizeAuthorizationServerIdentity(value));
+    const authorizationServerChanged =
+        previousAuthServerIdentities.length > 0 &&
+        !currentAuthServerIdentities.some(identity => previousAuthServerIdentities.includes(identity));
+
+    if (authorizationServerChanged) {
+        const staleClientInformation = await Promise.resolve(provider.clientInformation());
+        // CIMD (URL-based) client IDs are portable across authorization servers
+        // (SEP-991/SEP-2352) — no invalidation or re-registration is needed.
+        if (staleClientInformation && !isHttpsUrl(staleClientInformation.client_id)) {
+            await provider.invalidateCredentials?.('client');
+            await provider.invalidateCredentials?.('tokens');
+        }
+    }
+
     // Save authorization server URL for providers that need it (e.g., CrossAppAccessProvider)
     await provider.saveAuthorizationServerUrl?.(String(authorizationServerUrl));
 
@@ -837,6 +882,20 @@ export function isHttpsUrl(value?: string): boolean {
         return url.protocol === 'https:' && url.pathname !== '/';
     } catch {
         return false;
+    }
+}
+
+/**
+ * SEP-2352: Normalizes an authorization server identity (issuer identifier or
+ * authorization server URL) for comparison, so that textual variations of the
+ * same URL (e.g. a missing trailing slash on an origin-only issuer) do not
+ * register as an authorization server change.
+ */
+function normalizeAuthorizationServerIdentity(value: string): string {
+    try {
+        return new URL(value).href;
+    } catch {
+        return value;
     }
 }
 
