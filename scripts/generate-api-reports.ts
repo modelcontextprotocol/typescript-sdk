@@ -21,9 +21,10 @@
  *   rather than separately.
  * - The `./_shims` entries are runtime-conditional; the report covers the
  *   default (node) condition.
- * - The codemod package's `mcp-codemod` bin is a CLI, not a type surface; its
- *   contract is covered by the codemod CLI tests and the export-map topology
- *   pins. Its library entry (`.`) is reported like every other package.
+ * - The codemod package is exempt entirely: it is migration tooling — its
+ *   `mcp-codemod` bin is the contract (covered by the codemod CLI tests and
+ *   the export-map topology pins), and its library surface carries no
+ *   stability expectations for external consumers.
  *
  * A failing check does not mean a change is wrong — it means it is
  * surface-visible. To accept it: run `pnpm api-report`, review the report
@@ -87,8 +88,7 @@ const PACKAGES: PackageSpec[] = [
     { dir: 'packages/middleware/express', entries: [{ dist: 'index.d.mts', report: 'express' }] },
     { dir: 'packages/middleware/fastify', entries: [{ dist: 'index.d.mts', report: 'fastify' }] },
     { dir: 'packages/middleware/hono', entries: [{ dist: 'index.d.mts', report: 'hono' }] },
-    { dir: 'packages/middleware/node', entries: [{ dist: 'index.d.mts', report: 'node' }] },
-    { dir: 'packages/codemod', entries: [{ dist: 'index.d.mts', report: 'codemod' }] }
+    { dir: 'packages/middleware/node', entries: [{ dist: 'index.d.mts', report: 'node' }] }
 ];
 
 /** Recursively copy every .d.mts file under distDir into mirrorDir. */
