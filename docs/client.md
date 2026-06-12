@@ -539,7 +539,7 @@ client.onclose = () => {
 
 ### Timeouts
 
-All requests have a 60-second default timeout. Pass a custom `timeout` in the options to override it. On timeout, the SDK sends a cancellation notification to the server and rejects the promise with {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.RequestTimeout | SdkErrorCode.RequestTimeout}:
+All requests have a 60-second default timeout. You can override it globally by setting the `MCP_REQUEST_TIMEOUT_MSEC` environment variable (read once at module load; must be a positive integer up to 43,200,000 / 12 hours), or pass a custom `timeout` in the options per request. On timeout, the SDK sends a cancellation notification to the server and rejects the promise with {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.RequestTimeout | SdkErrorCode.RequestTimeout}:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#errorHandling_timeout"
 try {
