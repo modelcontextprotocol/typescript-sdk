@@ -41,7 +41,7 @@
 import type * as z from 'zod/v4';
 
 import type { SdkError } from '../errors/sdkErrors.js';
-import type { RequestMetaEnvelope, Result } from '../types/types.js';
+import type { MessageClassification, RequestMetaEnvelope, Result } from '../types/types.js';
 import { rev2025Codec } from './rev2025-11-25/codec.js';
 
 /** Wire eras with distinct vocabulary. */
@@ -169,6 +169,18 @@ export function codecForVersion(version: string | undefined): WireCodec {
 }
 
 /**
+ * Resolve the codec for an inbound message from its per-request
+ * classification (Q2 — produced at the transport/entry edge; this layer only
+ * CONSUMES it), falling back to the session-negotiated version, then legacy.
+ */
+export function codecForClassification(classification: MessageClassification | undefined, sessionVersion: string | undefined): WireCodec {
+    if (classification?.revision !== undefined) return codecForVersion(classification.revision);
+    if (classification?.era === 'modern') return codecForVersion(MODERN_WIRE_REVISION);
+    if (classification?.era === 'legacy') return codecForVersion(undefined);
+    return codecForVersion(sessionVersion);
+}
+
+/**
  * The derived spec-method universe: the union of every codec registry. A
  * method in this set is era-gated at dispatch and send time; a method outside
  * it is a consumer-owned extension method (era-blind, schema-explicit).
@@ -209,6 +221,15 @@ export function bindWireVersion(owner: object, version: string | undefined): voi
 /** The codec serving a protocol instance's outbound traffic (legacy when unbound). */
 export function outboundCodecFor(owner: object): WireCodec {
     return codecForVersion(outboundWireVersion.get(owner));
+}
+
+/**
+ * Resolve the codec for an INBOUND message: per-request classification wins
+ * (Q2), the instance's bound session version is the fallback for hand-wired
+ * sessionful transports, and unclassified-unbound traffic is legacy-era.
+ */
+export function inboundCodecFor(owner: object, classification: MessageClassification | undefined): WireCodec {
+    return codecForClassification(classification, outboundWireVersion.get(owner));
 }
 
 const requestCodec = new WeakMap<object, WireCodec>();
