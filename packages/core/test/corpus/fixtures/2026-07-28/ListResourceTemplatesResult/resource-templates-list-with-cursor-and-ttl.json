@@ -1,0 +1,22 @@
+{
+  "resultType": "complete",
+  "resourceTemplates": [
+    {
+      "uriTemplate": "file:///{path}",
+      "name": "Project Files",
+      "title": "📁 Project Files",
+      "description": "Access files in the project directory",
+      "mimeType": "application/octet-stream",
+      "icons": [
+        {
+          "src": "https://example.com/folder-icon.png",
+          "mimeType": "image/png",
+          "sizes": ["48x48"]
+        }
+      ]
+    }
+  ],
+  "nextCursor": "next-page-cursor",
+  "ttlMs": 3600000,
+  "cacheScope": "public"
+}

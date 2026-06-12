@@ -1,0 +1,4 @@
+{
+  "jsonrpc": "2.0",
+  "method": "notifications/prompts/list_changed"
+}
