@@ -598,6 +598,34 @@ export function determineScope(options: {
     return effectiveScope;
 }
 
+/**
+ * Computes the union of one or more space-delimited OAuth scope strings (SEP-2350).
+ *
+ * Per the MCP authorization spec's step-up authorization flow, scope accumulation is a
+ * client-side responsibility: when re-authorizing after an `insufficient_scope` challenge,
+ * clients SHOULD request the union of previously requested/granted scopes and the newly
+ * challenged scopes, so that per-operation challenges don't drop previously granted
+ * permissions.
+ *
+ * Scopes are treated as opaque strings (no hierarchy-aware deduplication). The result
+ * preserves first-seen order and removes exact duplicates. Returns `undefined` when no
+ * scopes are present in any input.
+ */
+export function unionScopes(...scopeStrings: Array<string | undefined>): string | undefined {
+    const seen = new Set<string>();
+    for (const scopeString of scopeStrings) {
+        if (!scopeString) {
+            continue;
+        }
+        for (const scope of scopeString.split(/\s+/)) {
+            if (scope) {
+                seen.add(scope);
+            }
+        }
+    }
+    return seen.size > 0 ? [...seen].join(' ') : undefined;
+}
+
 async function authInternal(
     provider: OAuthClientProvider,
     {

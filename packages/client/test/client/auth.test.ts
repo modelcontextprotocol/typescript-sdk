@@ -19,6 +19,7 @@ import {
     registerClient,
     selectClientAuthMethod,
     startAuthorization,
+    unionScopes,
     validateClientMetadataUrl
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
@@ -4129,5 +4130,45 @@ describe('OAuth Authorization', () => {
                 expect(result).toBe('mcp:read mcp:write');
             });
         });
+    });
+});
+
+describe('unionScopes (SEP-2350)', () => {
+    it('returns undefined when called with no arguments', () => {
+        expect(unionScopes()).toBeUndefined();
+    });
+
+    it('returns undefined when all inputs are undefined or empty', () => {
+        expect(unionScopes(undefined, undefined)).toBeUndefined();
+        expect(unionScopes('', undefined, '')).toBeUndefined();
+        expect(unionScopes('   ')).toBeUndefined();
+    });
+
+    it('returns a single scope string unchanged', () => {
+        expect(unionScopes('read')).toBe('read');
+        expect(unionScopes('read write')).toBe('read write');
+    });
+
+    it('unions multiple scope strings preserving first-seen order', () => {
+        expect(unionScopes('read write', 'admin')).toBe('read write admin');
+        expect(unionScopes('admin', 'read write')).toBe('admin read write');
+    });
+
+    it('deduplicates repeated scopes across inputs', () => {
+        expect(unionScopes('read write', 'write admin')).toBe('read write admin');
+        expect(unionScopes('read', 'read', 'read')).toBe('read');
+    });
+
+    it('skips undefined and empty entries between scope strings', () => {
+        expect(unionScopes(undefined, 'read', undefined, 'write')).toBe('read write');
+        expect(unionScopes('', 'admin')).toBe('admin');
+    });
+
+    it('normalizes extra whitespace between scopes', () => {
+        expect(unionScopes('read   write', ' admin ')).toBe('read write admin');
+    });
+
+    it('does not perform hierarchy-aware deduplication (scopes are opaque strings)', () => {
+        expect(unionScopes('repo', 'repo:read')).toBe('repo repo:read');
     });
 });

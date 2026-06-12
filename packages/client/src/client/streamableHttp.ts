@@ -16,7 +16,7 @@ import {
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 import type { AuthProvider, OAuthClientProvider } from './auth.js';
-import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
+import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError, unionScopes } from './auth.js';
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -609,7 +609,13 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
 
                         if (scope) {
-                            this._scope = scope;
+                            // SEP-2350: scope accumulation is a client-side responsibility. When
+                            // re-authorizing after a scope challenge, request the union of
+                            // previously granted scopes (from the stored tokens), previously
+                            // requested scopes, and the newly challenged scopes, so per-operation
+                            // challenges don't drop previously granted permissions.
+                            const grantedTokens = await this._oauthProvider.tokens();
+                            this._scope = unionScopes(grantedTokens?.scope, this._scope, scope);
                         }
 
                         if (resourceMetadataUrl) {
