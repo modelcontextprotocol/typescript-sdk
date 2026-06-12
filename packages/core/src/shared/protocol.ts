@@ -728,13 +728,25 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         return;
                     }
 
+                    // The outbound stamp seam: the era codec maps the neutral
+                    // handler result to its wire shape. The 2025-era codec is
+                    // the identity (never-stamp); the 2026-era codec stamps
+                    // `resultType` and enforces the deleted-field set. A throw
+                    // here is a NEW failure mode between handler success and
+                    // the transport send (and the seam grows ttlMs/cacheScope
+                    // stamping content in M3.2) — it must answer the peer with
+                    // −32603 rather than stranding the request until timeout.
+                    let encoded: Result;
+                    try {
+                        encoded = codec.encodeResult(request.method, result);
+                    } catch (error) {
+                        this._onerror(new Error(`Failed to encode result for ${request.method}: ${error}`));
+                        sendErrorResponse(ProtocolErrorCode.InternalError, 'Internal error');
+                        return;
+                    }
+
                     const response: JSONRPCResponse = {
-                        // The outbound stamp seam: the era codec maps the
-                        // neutral handler result to its wire shape. The
-                        // 2025-era codec is the identity (never-stamp); the
-                        // 2026-era codec stamps `resultType` and enforces the
-                        // deleted-field set.
-                        result: codec.encodeResult(request.method, result),
+                        result: encoded,
                         jsonrpc: '2.0',
                         id: request.id
                     };

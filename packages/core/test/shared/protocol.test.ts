@@ -22,6 +22,8 @@ import type {
 } from '../../src/types/index.js';
 import { ProtocolError, ProtocolErrorCode } from '../../src/types/index.js';
 import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
+import { InMemoryTransport } from '../../src/util/inMemory.js';
+import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec.js';
 
 // Test Protocol subclass for testing
 class TestProtocolImpl extends Protocol<BaseContext> {
@@ -908,5 +910,49 @@ describe('mergeCapabilities', () => {
         const additional = {};
         const merged = mergeCapabilities(base, additional);
         expect(merged).toEqual({});
+    });
+});
+
+describe('codec-seam hardening in the protocol funnels', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+
+    test('a throw inside codec.encodeResult answers −32603 on the wire — the peer is never stranded', async () => {
+        const [peerTx, protocolTx] = InMemoryTransport.createLinkedPair();
+        const sent: JSONRPCMessage[] = [];
+        peerTx.onmessage = message => void sent.push(message);
+        await peerTx.start();
+
+        const protocol = createTestProtocol();
+        const errors: Error[] = [];
+        protocol.onerror = error => void errors.push(error);
+        protocol.setRequestHandler('acme/op', { params: z.looseObject({}) }, () => ({ ok: true }) as Result);
+        await protocol.connect(protocolTx);
+
+        // The encode hop is the only throw-capable step between handler
+        // success and the transport send (and it grows stamping content in
+        // M3.2). Force it to throw once.
+        vi.spyOn(rev2025Codec, 'encodeResult').mockImplementationOnce(() => {
+            throw new Error('stamp exploded');
+        });
+
+        await peerTx.send({ jsonrpc: '2.0', id: 1, method: 'acme/op', params: {} });
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        expect((sent[0] as JSONRPCErrorResponse).error).toMatchObject({ code: ProtocolErrorCode.InternalError });
+        // Surfaced locally too.
+        expect(errors.some(error => error.message.includes('Failed to encode result'))).toBe(true);
+
+        // The connection stays serviceable: the next request round-trips.
+        await peerTx.send({ jsonrpc: '2.0', id: 2, method: 'acme/op', params: {} });
+        await flush();
+        expect(sent).toHaveLength(2);
+        expect((sent[1] as JSONRPCResultResponse).result).toMatchObject({ ok: true });
+
+        await protocol.close();
     });
 });
