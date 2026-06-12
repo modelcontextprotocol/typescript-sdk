@@ -22,37 +22,38 @@ import {
 } from '../../types/constants.js';
 import {
     AnnotationsSchema,
+    AudioContentSchema,
     BaseMetadataSchema,
     BlobResourceContentsSchema,
     CancelledNotificationSchema,
     ClientCapabilitiesSchema,
-    CompleteRequestParamsSchema,
     ContentBlockSchema,
     CursorSchema,
     ElicitationCompleteNotificationSchema,
-    GetPromptRequestParamsSchema,
     IconsSchema,
+    ImageContentSchema,
     ImplementationSchema,
-    JSONValueSchema,
     LoggingLevelSchema,
     LoggingMessageNotificationSchema,
     ProgressNotificationSchema,
     ProgressTokenSchema,
     PromptListChangedNotificationSchema,
     PromptMessageSchema,
+    PromptReferenceSchema,
     PromptSchema,
     ResourceContentsSchema,
     ResourceListChangedNotificationSchema,
-    ResourceRequestParamsSchema,
     ResourceSchema,
+    ResourceTemplateReferenceSchema,
     ResourceTemplateSchema,
     ResourceUpdatedNotificationSchema,
     RoleSchema,
-    SamplingMessageContentBlockSchema,
     ServerCapabilitiesSchema,
+    TextContentSchema,
     TextResourceContentsSchema,
     ToolAnnotationsSchema,
-    ToolListChangedNotificationSchema
+    ToolListChangedNotificationSchema,
+    ToolUseContentSchema
 } from '../../types/schemas.js';
 
 /* Per-request `_meta` envelope */
@@ -114,24 +115,39 @@ export const ToolSchema = z.object({
     ...BaseMetadataSchema.shape,
     ...IconsSchema.shape,
     description: z.string().optional(),
-    inputSchema: z
-        .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), JSONValueSchema).optional(),
-            required: z.array(z.string()).optional()
-        })
-        .catchall(z.unknown()),
+    // Anchor-exact: { $schema?: string; type: 'object'; [key: string]: unknown }
+    inputSchema: z.looseObject({
+        $schema: z.string().optional(),
+        type: z.literal('object')
+    }),
+    // Anchor-exact: { $schema?: string; [key: string]: unknown }
     outputSchema: z
-        .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), JSONValueSchema).optional(),
-            required: z.array(z.string()).optional()
+        .looseObject({
+            $schema: z.string().optional()
         })
-        .catchall(z.unknown())
         .optional(),
     annotations: ToolAnnotationsSchema.optional(),
     _meta: z.record(z.string(), z.unknown()).optional()
 });
+
+/** 2026-era ToolResultContent (anchor-exact: `structuredContent?: unknown`). */
+export const ToolResultContentSchema = z.object({
+    type: z.literal('tool_result'),
+    toolUseId: z.string(),
+    content: z.array(ContentBlockSchema),
+    structuredContent: z.unknown().optional(),
+    isError: z.boolean().optional(),
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+/** 2026-era sampling content union (composes the forked tool-result shape). */
+export const SamplingMessageContentBlockSchema = z.union([
+    TextContentSchema,
+    ImageContentSchema,
+    AudioContentSchema,
+    ToolUseContentSchema,
+    ToolResultContentSchema
+]);
 
 /** 2026-era SamplingMessage (anchor-exact: single block or array). */
 export const SamplingMessageSchema = z.object({
@@ -169,18 +185,26 @@ function wireResult<T extends z.core.$ZodLooseShape>(shape: T) {
 
 export const ResultSchema = wireResult({});
 
+export const PaginatedResultSchema = wireResult({
+    nextCursor: CursorSchema.optional()
+});
+
 export const CallToolResultSchema = wireResult({
     content: z.array(ContentBlockSchema),
-    structuredContent: z.record(z.string(), z.unknown()).optional(),
+    structuredContent: z.unknown().optional(),
     isError: z.boolean().optional()
 });
 
 export const ListToolsResultSchema = wireResult({
+    ttlMs: z.number().min(0),
+    cacheScope: z.enum(['public', 'private']),
     tools: z.array(ToolSchema),
     nextCursor: CursorSchema.optional()
 });
 
 export const ListPromptsResultSchema = wireResult({
+    ttlMs: z.number().min(0),
+    cacheScope: z.enum(['public', 'private']),
     prompts: z.array(PromptSchema),
     nextCursor: CursorSchema.optional()
 });
@@ -191,16 +215,22 @@ export const GetPromptResultSchema = wireResult({
 });
 
 export const ListResourcesResultSchema = wireResult({
+    ttlMs: z.number().min(0),
+    cacheScope: z.enum(['public', 'private']),
     resources: z.array(ResourceSchema),
     nextCursor: CursorSchema.optional()
 });
 
 export const ListResourceTemplatesResultSchema = wireResult({
+    ttlMs: z.number().min(0),
+    cacheScope: z.enum(['public', 'private']),
     resourceTemplates: z.array(ResourceTemplateSchema),
     nextCursor: CursorSchema.optional()
 });
 
 export const ReadResourceResultSchema = wireResult({
+    ttlMs: z.number().min(0),
+    cacheScope: z.enum(['public', 'private']),
     contents: z.array(z.union([TextResourceContentsSchema, BlobResourceContentsSchema]))
 });
 
@@ -246,15 +276,14 @@ const DispatchRequestMetaSchema = z.looseObject({
     progressToken: ProgressTokenSchema.optional()
 });
 
-function wireRequest<T extends z.core.$ZodLooseShape>(method: string, paramsShape: T, paramsOptional = false) {
-    const params = z.object({ _meta: RequestMetaEnvelopeSchema, ...paramsShape });
+function wireRequest<M extends string, T extends z.core.$ZodLooseShape>(method: M, paramsShape: T) {
     return z.object({
         method: z.literal(method),
-        params: paramsOptional ? params.optional() : params
+        params: z.object({ _meta: RequestMetaEnvelopeSchema, ...paramsShape })
     });
 }
 
-function dispatchRequest<T extends z.core.$ZodLooseShape>(method: string, paramsShape: T) {
+function dispatchRequest<M extends string, T extends z.core.$ZodLooseShape>(method: M, paramsShape: T) {
     return z.object({
         method: z.literal(method),
         params: z.object({ _meta: DispatchRequestMetaSchema.optional(), ...paramsShape }).optional()
@@ -277,18 +306,13 @@ export const GetPromptRequestSchema = wireRequest('prompts/get', {
 export const ListResourcesRequestSchema = wireRequest('resources/list', paginatedParamsShape);
 export const ListResourceTemplatesRequestSchema = wireRequest('resources/templates/list', paginatedParamsShape);
 export const ReadResourceRequestSchema = wireRequest('resources/read', { uri: z.string() });
-export const CompleteRequestSchema = wireRequest('completion/complete', {
-    ref: z.union([
-        z.object({ type: z.literal('ref/prompt'), name: z.string() }).loose(),
-        z.object({ type: z.literal('ref/resource'), uri: z.string() }).loose()
-    ]),
-    argument: z.object({ name: z.string(), value: z.string() }).loose(),
-    context: z
-        .object({ arguments: z.record(z.string(), z.string()).optional() })
-        .loose()
-        .optional()
-});
-export const DiscoverRequestSchema = wireRequest('server/discover', {}, true);
+const completeParamsShape = {
+    ref: z.union([PromptReferenceSchema, ResourceTemplateReferenceSchema]),
+    argument: z.object({ name: z.string(), value: z.string() }),
+    context: z.object({ arguments: z.record(z.string(), z.string()).optional() }).optional()
+};
+export const CompleteRequestSchema = wireRequest('completion/complete', completeParamsShape);
+export const DiscoverRequestSchema = wireRequest('server/discover', {});
 
 /** Dispatch (post-lift) request schemas, keyed by method — registry-internal. */
 export const dispatchRequestSchemas: Record<string, z.ZodType> = {
@@ -302,17 +326,7 @@ export const dispatchRequestSchemas: Record<string, z.ZodType> = {
     'resources/list': dispatchRequest('resources/list', paginatedParamsShape) as unknown as z.ZodType,
     'resources/templates/list': dispatchRequest('resources/templates/list', paginatedParamsShape) as unknown as z.ZodType,
     'resources/read': dispatchRequest('resources/read', { uri: z.string() }) as unknown as z.ZodType,
-    'completion/complete': dispatchRequest('completion/complete', {
-        ref: z.union([
-            z.object({ type: z.literal('ref/prompt'), name: z.string() }).loose(),
-            z.object({ type: z.literal('ref/resource'), uri: z.string() }).loose()
-        ]),
-        argument: z.object({ name: z.string(), value: z.string() }).loose(),
-        context: z
-            .object({ arguments: z.record(z.string(), z.string()).optional() })
-            .loose()
-            .optional()
-    }) as unknown as z.ZodType,
+    'completion/complete': dispatchRequest('completion/complete', completeParamsShape) as unknown as z.ZodType,
     'server/discover': dispatchRequest('server/discover', {}) as unknown as z.ZodType
 };
 
@@ -325,21 +339,40 @@ function liftedResult<T extends z.core.$ZodLooseShape>(shape: T) {
 export const dispatchResultSchemas: Record<string, z.ZodType> = {
     'tools/call': liftedResult({
         content: z.array(ContentBlockSchema),
-        structuredContent: z.record(z.string(), z.unknown()).optional(),
+        structuredContent: z.unknown().optional(),
         isError: z.boolean().optional()
     }) as unknown as z.ZodType,
-    'tools/list': liftedResult({ tools: z.array(ToolSchema), nextCursor: CursorSchema.optional() }) as unknown as z.ZodType,
+    'tools/list': liftedResult({
+        ttlMs: z.number().min(0),
+        cacheScope: z.enum(['public', 'private']),
+        tools: z.array(ToolSchema),
+        nextCursor: CursorSchema.optional()
+    }) as unknown as z.ZodType,
     'prompts/get': liftedResult({
         description: z.string().optional(),
         messages: z.array(PromptMessageSchema)
     }) as unknown as z.ZodType,
-    'prompts/list': liftedResult({ prompts: z.array(PromptSchema), nextCursor: CursorSchema.optional() }) as unknown as z.ZodType,
-    'resources/list': liftedResult({ resources: z.array(ResourceSchema), nextCursor: CursorSchema.optional() }) as unknown as z.ZodType,
+    'prompts/list': liftedResult({
+        ttlMs: z.number().min(0),
+        cacheScope: z.enum(['public', 'private']),
+        prompts: z.array(PromptSchema),
+        nextCursor: CursorSchema.optional()
+    }) as unknown as z.ZodType,
+    'resources/list': liftedResult({
+        ttlMs: z.number().min(0),
+        cacheScope: z.enum(['public', 'private']),
+        resources: z.array(ResourceSchema),
+        nextCursor: CursorSchema.optional()
+    }) as unknown as z.ZodType,
     'resources/templates/list': liftedResult({
+        ttlMs: z.number().min(0),
+        cacheScope: z.enum(['public', 'private']),
         resourceTemplates: z.array(ResourceTemplateSchema),
         nextCursor: CursorSchema.optional()
     }) as unknown as z.ZodType,
     'resources/read': liftedResult({
+        ttlMs: z.number().min(0),
+        cacheScope: z.enum(['public', 'private']),
         contents: z.array(z.union([TextResourceContentsSchema, BlobResourceContentsSchema]))
     }) as unknown as z.ZodType,
     'completion/complete': liftedResult({
@@ -407,6 +440,3 @@ export const DiscoverResultResponseSchema = wireResultResponse(DiscoverResultSch
 // explicit for tooling (these shared payloads serve both eras unchanged).
 void AnnotationsSchema;
 void ResourceContentsSchema;
-void CompleteRequestParamsSchema;
-void GetPromptRequestParamsSchema;
-void ResourceRequestParamsSchema;

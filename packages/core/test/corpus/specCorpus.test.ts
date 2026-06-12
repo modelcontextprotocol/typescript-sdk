@@ -78,8 +78,9 @@ const PENDING_2026: Record<string, string> = {
  * parse, so the entry is removed the moment the widening lands.
  */
 const PENDING_2026_FILES: Record<string, string> = {
-    'CallToolResult/result-with-array-structured-content.json': 'array structuredContent (SEP-2549) is not modeled yet',
-    'Tool/tool-with-array-output-schema.json': 'array outputSchema (SEP-2549) is not modeled yet'
+    // (empty — the SEP-2549 array-shape widenings burned when the 2026-era
+    // wire module landed anchor-exact Tool/CallToolResult forks; the two
+    // examples are real pins now.)
 };
 
 type AnyZod = z.ZodType;
