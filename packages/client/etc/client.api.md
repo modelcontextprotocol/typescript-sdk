@@ -314,7 +314,7 @@ const CallToolResultSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type CancelTaskRequest = Infer<typeof CancelTaskRequestSchema>;
 
-// @public
+// @public @deprecated
 const CancelTaskRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"tasks/cancel">;
     params: z.ZodObject<{
@@ -331,7 +331,7 @@ const CancelTaskRequestSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type CancelTaskResult = StripWireOnly<Infer<typeof CancelTaskResultSchema>>;
 
-// @public
+// @public @deprecated
 const CancelTaskResultSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -2711,7 +2711,7 @@ const CreateMessageResultWithToolsSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type CreateTaskResult = StripWireOnly<Infer<typeof CreateTaskResultSchema>>;
 
-// @public
+// @public @deprecated
 const CreateTaskResultSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -3513,7 +3513,7 @@ const GetPromptResultSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;
 
-// @public
+// @public @deprecated
 const GetTaskPayloadRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"tasks/result">;
     params: z.ZodObject<{
@@ -3530,7 +3530,7 @@ const GetTaskPayloadRequestSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type GetTaskPayloadResult = StripWireOnly<Infer<typeof GetTaskPayloadResultSchema>>;
 
-// @public
+// @public @deprecated
 const GetTaskPayloadResultSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -3544,7 +3544,7 @@ const GetTaskPayloadResultSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
 
-// @public
+// @public @deprecated
 const GetTaskRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"tasks/get">;
     params: z.ZodObject<{
@@ -3561,7 +3561,7 @@ const GetTaskRequestSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type GetTaskResult = StripWireOnly<Infer<typeof GetTaskResultSchema>>;
 
-// @public
+// @public @deprecated
 const GetTaskResultSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -4269,7 +4269,7 @@ const ListRootsResultSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type ListTasksRequest = Infer<typeof ListTasksRequestSchema>;
 
-// @public
+// @public @deprecated
 const ListTasksRequestSchema: z.ZodObject<{
     params: z.ZodOptional<z.ZodObject<{
         _meta: z.ZodOptional<z.ZodObject<{
@@ -4286,7 +4286,7 @@ const ListTasksRequestSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type ListTasksResult = StripWireOnly<Infer<typeof ListTasksResultSchema>>;
 
-// @public
+// @public @deprecated
 const ListTasksResultSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -5398,7 +5398,7 @@ export type ProtocolOptions = {
 // @public (undocumented)
 type ProtocolSchemaKey = (typeof SPEC_SCHEMA_KEYS)[number];
 
-// @public (undocumented)
+// @public @deprecated
 export const RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
 
 // @public
@@ -5476,7 +5476,7 @@ export type ReconnectionScheduler = (reconnect: () => void, delay: number, attem
 // @public @deprecated (undocumented)
 export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
 
-// @public
+// @public @deprecated
 const RelatedTaskMetadataSchema: z.ZodObject<{
     taskId: z.ZodString;
 }, z.core.$strip>;
@@ -8061,7 +8061,7 @@ export type Task = Infer<typeof TaskSchema>;
 // @public @deprecated (undocumented)
 export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
 
-// @public
+// @public @deprecated
 const TaskAugmentedRequestParamsSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -8077,7 +8077,7 @@ const TaskAugmentedRequestParamsSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
 
-// @public
+// @public @deprecated
 const TaskCreationParamsSchema: z.ZodObject<{
     ttl: z.ZodOptional<z.ZodNumber>;
     pollInterval: z.ZodOptional<z.ZodNumber>;
@@ -8086,7 +8086,7 @@ const TaskCreationParamsSchema: z.ZodObject<{
 // @public @deprecated (undocumented)
 export type TaskMetadata = Infer<typeof TaskMetadataSchema>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 const TaskMetadataSchema: z.ZodObject<{
     ttl: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
@@ -8097,7 +8097,7 @@ type TaskNotificationMethod = 'notifications/tasks/status';
 // @public
 type TaskRequestMethod = 'tasks/get' | 'tasks/result' | 'tasks/list' | 'tasks/cancel';
 
-// @public
+// @public @deprecated
 const TaskSchema: z.ZodObject<{
     taskId: z.ZodString;
     status: z.ZodEnum<{
@@ -8123,7 +8123,7 @@ export type TaskStatusNotification = Infer<typeof TaskStatusNotificationSchema>;
 // @public @deprecated (undocumented)
 export type TaskStatusNotificationParams = Infer<typeof TaskStatusNotificationParamsSchema>;
 
-// @public
+// @public @deprecated
 const TaskStatusNotificationParamsSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -8146,7 +8146,7 @@ const TaskStatusNotificationParamsSchema: z.ZodObject<{
     statusMessage: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// @public
+// @public @deprecated
 const TaskStatusNotificationSchema: z.ZodObject<{
     method: z.ZodLiteral<"notifications/tasks/status">;
     params: z.ZodObject<{
@@ -8172,7 +8172,7 @@ const TaskStatusNotificationSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// @public
+// @public @deprecated
 const TaskStatusSchema: z.ZodEnum<{
     working: "working";
     input_required: "input_required";

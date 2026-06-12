@@ -123,6 +123,32 @@ describe('task vocabulary is importable but in no API signature', () => {
         const guardDecl = guards.indexOf('export const isTaskAugmentedRequestParams');
         expect(guards.slice(Math.max(0, guardDecl - 500), guardDecl)).toContain('@deprecated');
     });
+
+    test('the task Zod schemas and the related-task meta key carry @deprecated too', () => {
+        // The migration docs claim the FULL task wire surface is deprecated —
+        // schemas and constants included, not just the inferred types.
+        const schemas = readFileSync(join(__dirname, '..', '..', 'src', 'types', 'schemas.ts'), 'utf8');
+        const schemaExports = [...schemas.matchAll(/export const (\w*Tasks?\w*Schema) /g)].map(match => match[1]);
+        expect(schemaExports.length).toBeGreaterThanOrEqual(19);
+        for (const name of schemaExports) {
+            const declaration = schemas.indexOf(`export const ${name} `);
+            const preceding = schemas.slice(Math.max(0, declaration - 400), declaration);
+            expect(preceding, `'${name}' must carry an @deprecated tag`).toContain('@deprecated');
+        }
+
+        // The `tasks` capability keys on both capability objects.
+        for (const member of ['tasks: ClientTasksCapabilitySchema.optional()', 'tasks: ServerTasksCapabilitySchema.optional()']) {
+            const declaration = schemas.indexOf(member);
+            expect(declaration, `capability member '${member}' must exist`).toBeGreaterThan(-1);
+            expect(schemas.slice(Math.max(0, declaration - 300), declaration), `'${member}' must carry an @deprecated tag`).toContain(
+                '@deprecated'
+            );
+        }
+
+        const constants = readFileSync(join(__dirname, '..', '..', 'src', 'types', 'constants.ts'), 'utf8');
+        const keyDecl = constants.indexOf('export const RELATED_TASK_META_KEY');
+        expect(constants.slice(Math.max(0, keyDecl - 300), keyDecl)).toContain('@deprecated');
+    });
 });
 
 describe('API-report signature scan (no task type in any public signature)', () => {
