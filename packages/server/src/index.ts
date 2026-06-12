@@ -21,7 +21,10 @@ export type {
     RegisteredResourceTemplate,
     RegisteredTool,
     ResourceMetadata,
-    ToolCallback
+    ResourceScopeConfig,
+    ResourceScopeFn,
+    ToolCallback,
+    ToolScopeConfig
 } from './server/mcp.js';
 export { McpServer, ResourceTemplate } from './server/mcp.js';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation.js';
@@ -35,10 +38,14 @@ export type {
     EventId,
     EventStore,
     HandleRequestOptions,
+    ScopeAware,
+    ScopeChallengeConfig,
+    ScopeResolution,
+    ScopeResolver,
     StreamId,
     WebStandardStreamableHTTPServerTransportOptions
 } from './server/streamableHttp.js';
-export { WebStandardStreamableHTTPServerTransport } from './server/streamableHttp.js';
+export { isScopeAware, WebStandardStreamableHTTPServerTransport } from './server/streamableHttp.js';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema.js';
