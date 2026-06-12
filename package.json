@@ -21,6 +21,7 @@
         "mcp"
     ],
     "scripts": {
+        "fetch:schema-twins": "tsx scripts/fetch-schema-twins.ts",
         "fetch:spec-examples": "tsx scripts/fetch-spec-examples.ts",
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
         "sync:snippets": "tsx scripts/sync-snippets.ts",

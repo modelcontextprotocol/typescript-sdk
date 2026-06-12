@@ -1,5 +1,5 @@
 {
-    "comment": "Vendored schema.json twins (TEST-ONLY conformance oracles; never bundled, never runtime). Refresh ATOMICALLY with the matching spec.types anchor (see packages/core/src/types/README.md lifecycle rule 4).",
+    "comment": "Vendored schema.json twins (TEST-ONLY conformance oracles; never bundled, never runtime). RAW upstream bytes - never reformat: each file is locked to the sha256/bytes below by schemaTwinConformance. Refresh via `pnpm fetch:schema-twins [sha]`, ATOMICALLY with the matching spec.types anchor (see packages/core/src/types/README.md lifecycle rule 4).",
     "source": {
         "repository": "modelcontextprotocol/modelcontextprotocol",
         "commit": "0168c57fc74aba6e6dcf8f0b7191db3caaa5ad65"
