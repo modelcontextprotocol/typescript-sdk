@@ -531,7 +531,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'resources:read:unknown-uri': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling',
-        behavior: 'resources/read for an unknown URI returns JSON-RPC error -32002 (resource not found).'
+        behavior: 'resources/read for an unknown URI returns JSON-RPC error -32602 (Invalid params) with the URI in error data.',
+        note: 'SEP-2164: the draft spec upgrades this to MUST -32602 (2025-11-25 said SHOULD -32002); clients SHOULD still accept legacy -32002 from older servers.'
     },
     'resources:subscribe:capability-required': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities',
