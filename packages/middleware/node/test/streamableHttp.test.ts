@@ -1682,6 +1682,50 @@ describe('Zod v4', () => {
             });
             expect(stream2.status).toBe(409); // Conflict - only one stream allowed
         });
+
+        it('should handle subsequent requests when body is pre-read before handleRequest (body-parser pattern)', async () => {
+            // Covers the body-parser / middleware pattern where the server drains the
+            // IncomingMessage body before calling transport.handleRequest(req, res, parsedBody).
+            // Both the initialize request and subsequent non-initialize requests must succeed
+            // when the transport is reused across requests in stateless mode.
+
+            // Build the server manually so the handler closure can reference transport directly
+            const preReadTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            const preReadMcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+            preReadMcpServer.registerTool(
+                'greet',
+                { description: 'A greeting tool', inputSchema: z.object({ name: z.string() }) },
+                async ({ name }): Promise<CallToolResult> => ({ content: [{ type: 'text', text: `Hello, ${name}!` }] })
+            );
+            await preReadMcpServer.connect(preReadTransport);
+
+            const preReadServer = createServer(async (req, res) => {
+                // Simulate body-parser middleware: drain the stream, then pass parsedBody
+                const chunks: Buffer[] = [];
+                for await (const chunk of req) chunks.push(Buffer.from(chunk));
+                const bodyStr = Buffer.concat(chunks).toString();
+                const parsedBody = bodyStr ? (JSON.parse(bodyStr) as unknown) : undefined;
+                try {
+                    await preReadTransport.handleRequest(req, res, parsedBody);
+                } catch (error) {
+                    console.error('Error handling request:', error);
+                    if (!res.headersSent) res.writeHead(500).end();
+                }
+            });
+            const preReadBaseUrl = await listenOnRandomPort(preReadServer);
+
+            try {
+                // Initialize — must succeed
+                const initResponse = await sendPostRequest(preReadBaseUrl, TEST_MESSAGES.initialize);
+                expect(initResponse.status).toBe(200);
+
+                // Subsequent request on the same reused transport — must also succeed
+                const toolsResponse = await sendPostRequest(preReadBaseUrl, TEST_MESSAGES.toolsList);
+                expect(toolsResponse.status).toBe(200);
+            } finally {
+                await stopTestServer({ server: preReadServer, transport: preReadTransport });
+            }
+        });
     });
 
     // Test SSE priming events for POST streams
