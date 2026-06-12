@@ -956,3 +956,56 @@ describe('codec-seam hardening in the protocol funnels', () => {
         await protocol.close();
     });
 });
+
+describe('inbound validation precedence: −32601 outranks envelope −32602', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+
+    async function wireWithFailingEnvelope(setup?: (protocol: TestProtocolImpl) => void) {
+        const [peerTx, protocolTx] = InMemoryTransport.createLinkedPair();
+        const sent: JSONRPCMessage[] = [];
+        peerTx.onmessage = message => void sent.push(message);
+        await peerTx.start();
+
+        const protocol = createTestProtocol();
+        setup?.(protocol);
+        await protocol.connect(protocolTx);
+
+        // Force the era's envelope check to fail for every request, so the
+        // test pins WHERE in the ladder it runs, independent of era wiring.
+        vi.spyOn(rev2025Codec, 'checkInboundEnvelope').mockImplementation(() => 'Request is missing the required _meta envelope');
+
+        return { peerTx, sent, flush };
+    }
+
+    test('a genuinely unknown method answers −32601 even when the envelope check would also fail', async () => {
+        const { peerTx, sent } = await wireWithFailingEnvelope();
+
+        await peerTx.send({ jsonrpc: '2.0', id: 1, method: 'acme/no-such-method', params: {} });
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        expect((sent[0] as JSONRPCErrorResponse).error).toMatchObject({
+            code: ProtocolErrorCode.MethodNotFound,
+            message: 'Method not found'
+        });
+    });
+
+    test('a served method still answers −32602 when the envelope check fails', async () => {
+        const { peerTx, sent } = await wireWithFailingEnvelope(protocol => {
+            protocol.setRequestHandler('acme/known', { params: z.looseObject({}) }, () => ({}) as Result);
+        });
+
+        await peerTx.send({ jsonrpc: '2.0', id: 1, method: 'acme/known', params: {} });
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        expect((sent[0] as JSONRPCErrorResponse).error).toMatchObject({
+            code: ProtocolErrorCode.InvalidParams,
+            message: 'Request is missing the required _meta envelope'
+        });
+    });
+});

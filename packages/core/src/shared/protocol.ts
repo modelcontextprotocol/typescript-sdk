@@ -654,26 +654,32 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
+        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+
+        if (handler === undefined) {
+            sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
+            return;
+        }
+
         // Envelope enforcement: the 2026 era requires the per-request `_meta`
         // envelope on every request (spec.types.2026-07-28 RequestParams).
         // The lift extracted it above; the era codec validates requiredness.
+        // Deliberately AFTER the era gate and the handler-existence check:
+        // an unknown method answers −32601 even when the envelope is also
+        // missing — method existence outranks parameter validity. (The
+        // canonical precedence table for the full inbound validation ladder
+        // arrives with the validation-ladder milestone; this site encodes
+        // only the −32601-over-−32602 rule.)
         const envelopeError = codec.checkInboundEnvelope(lifted);
         if (envelopeError !== undefined) {
             sendErrorResponse(ProtocolErrorCode.InvalidParams, envelopeError);
             return;
         }
 
-        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
-
         const sendNotification = (notification: Notification, options?: NotificationOptions) =>
             this._notificationViaCodec(codec, notification, { ...options, relatedRequestId: request.id });
         const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
             this._requestWithSchemaViaCodec(codec, r, resultSchema, { ...options, relatedRequestId: request.id });
-
-        if (handler === undefined) {
-            sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
-            return;
-        }
 
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
