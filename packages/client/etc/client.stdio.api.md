@@ -24,9 +24,6 @@ export const DEFAULT_INHERITED_ENV_VARS: string[];
 // @public (undocumented)
 type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Flatten<U>> : T extends Set<infer U> ? Set<Flatten<U>> : T extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T extends object ? { [K in keyof T]: Flatten<T[K]> } : T;
 
-// @public
-export function getDefaultEnvironment(): Record<string, string>;
-
 // @public (undocumented)
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
@@ -144,6 +141,8 @@ type TransportSendOptions = {
     onresumptiontoken?: ((token: string) => void) | undefined;
 };
 
-// (No @packageDocumentation comment for this package)
+// @public
+export function getDefaultEnvironment(): Record<string, string>;
 
+// (No @packageDocumentation comment for this package)
 ```

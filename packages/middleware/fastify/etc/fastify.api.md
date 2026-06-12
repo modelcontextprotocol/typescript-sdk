@@ -9,13 +9,13 @@ import { FastifyReply } from 'fastify';
 import { FastifyRequest } from 'fastify';
 
 // @public
-export function createMcpFastifyApp(options?: CreateMcpFastifyAppOptions): FastifyInstance;
-
-// @public
 export interface CreateMcpFastifyAppOptions {
     allowedHosts?: string[];
     host?: string;
 }
+
+// @public
+export function createMcpFastifyApp(options?: CreateMcpFastifyAppOptions): FastifyInstance;
 
 // @public
 export function hostHeaderValidation(allowedHostnames: string[]): (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
@@ -24,5 +24,4 @@ export function hostHeaderValidation(allowedHostnames: string[]): (request: Fast
 export function localhostHostValidation(): (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
 
 // (No @packageDocumentation comment for this package)
-
 ```

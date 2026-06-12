@@ -49,12 +49,6 @@ const AnnotationsSchema: z.ZodObject<{
 export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = undefined> = ToolCallback<Args>;
 
 // @public (undocumented)
-export function assertCompleteRequestPrompt(request: CompleteRequest): asserts request is CompleteRequestPrompt;
-
-// @public (undocumented)
-export function assertCompleteRequestResourceTemplate(request: CompleteRequest): asserts request is CompleteRequestResourceTemplate;
-
-// @public (undocumented)
 export type AudioContent = Infer<typeof AudioContentSchema>;
 
 // @public
@@ -84,195 +78,10 @@ export interface AuthInfo {
 }
 
 // @public (undocumented)
-export type AuthorizationServerMetadata = OAuthMetadata | OpenIdProviderDiscoveryMetadata;
-
-// @public (undocumented)
 type AuthSchemaKey = keyof typeof authSchemas;
 
 // @public (undocumented)
-const authSchemas: {
-    readonly OAuthClientInformationFullSchema: z.ZodObject<{
-        redirect_uris: z.ZodArray<z.ZodURL>;
-        token_endpoint_auth_method: z.ZodOptional<z.ZodString>;
-        grant_types: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        response_types: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        client_name: z.ZodOptional<z.ZodString>;
-        client_uri: z.ZodOptional<z.ZodURL>;
-        logo_uri: z.ZodUnion<[z.ZodOptional<z.ZodURL>, z.ZodPipe<z.ZodLiteral<"">, z.ZodTransform<undefined, "">>]>;
-        scope: z.ZodOptional<z.ZodString>;
-        contacts: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        tos_uri: z.ZodUnion<[z.ZodOptional<z.ZodURL>, z.ZodPipe<z.ZodLiteral<"">, z.ZodTransform<undefined, "">>]>;
-        policy_uri: z.ZodOptional<z.ZodString>;
-        jwks_uri: z.ZodOptional<z.ZodURL>;
-        jwks: z.ZodOptional<z.ZodAny>;
-        software_id: z.ZodOptional<z.ZodString>;
-        software_version: z.ZodOptional<z.ZodString>;
-        software_statement: z.ZodOptional<z.ZodString>;
-        client_id: z.ZodString;
-        client_secret: z.ZodOptional<z.ZodString>;
-        client_id_issued_at: z.ZodOptional<z.ZodNumber>;
-        client_secret_expires_at: z.ZodOptional<z.ZodNumber>;
-    }, z.core.$strip>;
-    readonly OAuthClientInformationSchema: z.ZodObject<{
-        client_id: z.ZodString;
-        client_secret: z.ZodOptional<z.ZodString>;
-        client_id_issued_at: z.ZodOptional<z.ZodNumber>;
-        client_secret_expires_at: z.ZodOptional<z.ZodNumber>;
-    }, z.core.$strip>;
-    readonly OAuthClientMetadataSchema: z.ZodObject<{
-        redirect_uris: z.ZodArray<z.ZodURL>;
-        token_endpoint_auth_method: z.ZodOptional<z.ZodString>;
-        grant_types: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        response_types: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        client_name: z.ZodOptional<z.ZodString>;
-        client_uri: z.ZodOptional<z.ZodURL>;
-        logo_uri: z.ZodUnion<[z.ZodOptional<z.ZodURL>, z.ZodPipe<z.ZodLiteral<"">, z.ZodTransform<undefined, "">>]>;
-        scope: z.ZodOptional<z.ZodString>;
-        contacts: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        tos_uri: z.ZodUnion<[z.ZodOptional<z.ZodURL>, z.ZodPipe<z.ZodLiteral<"">, z.ZodTransform<undefined, "">>]>;
-        policy_uri: z.ZodOptional<z.ZodString>;
-        jwks_uri: z.ZodOptional<z.ZodURL>;
-        jwks: z.ZodOptional<z.ZodAny>;
-        software_id: z.ZodOptional<z.ZodString>;
-        software_version: z.ZodOptional<z.ZodString>;
-        software_statement: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
-    readonly OAuthClientRegistrationErrorSchema: z.ZodObject<{
-        error: z.ZodString;
-        error_description: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
-    readonly OAuthErrorResponseSchema: z.ZodObject<{
-        error: z.ZodString;
-        error_description: z.ZodOptional<z.ZodString>;
-        error_uri: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
-    readonly OAuthMetadataSchema: z.ZodObject<{
-        issuer: z.ZodString;
-        authorization_endpoint: z.ZodURL;
-        token_endpoint: z.ZodURL;
-        registration_endpoint: z.ZodOptional<z.ZodURL>;
-        scopes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        response_types_supported: z.ZodArray<z.ZodString>;
-        response_modes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        grant_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        token_endpoint_auth_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        token_endpoint_auth_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        service_documentation: z.ZodOptional<z.ZodURL>;
-        revocation_endpoint: z.ZodOptional<z.ZodURL>;
-        revocation_endpoint_auth_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        revocation_endpoint_auth_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        introspection_endpoint: z.ZodOptional<z.ZodString>;
-        introspection_endpoint_auth_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        introspection_endpoint_auth_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        code_challenge_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
-    }, z.core.$loose>;
-    readonly OAuthProtectedResourceMetadataSchema: z.ZodObject<{
-        resource: z.ZodString;
-        authorization_servers: z.ZodOptional<z.ZodArray<z.ZodURL>>;
-        jwks_uri: z.ZodOptional<z.ZodString>;
-        scopes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        bearer_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        resource_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        resource_name: z.ZodOptional<z.ZodString>;
-        resource_documentation: z.ZodOptional<z.ZodString>;
-        resource_policy_uri: z.ZodOptional<z.ZodString>;
-        resource_tos_uri: z.ZodOptional<z.ZodString>;
-        tls_client_certificate_bound_access_tokens: z.ZodOptional<z.ZodBoolean>;
-        authorization_details_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        dpop_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        dpop_bound_access_tokens_required: z.ZodOptional<z.ZodBoolean>;
-    }, z.core.$loose>;
-    readonly OAuthTokenRevocationRequestSchema: z.ZodObject<{
-        token: z.ZodString;
-        token_type_hint: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
-    readonly OAuthTokensSchema: z.ZodObject<{
-        access_token: z.ZodString;
-        id_token: z.ZodOptional<z.ZodString>;
-        token_type: z.ZodString;
-        expires_in: z.ZodOptional<z.ZodCoercedNumber<unknown>>;
-        scope: z.ZodOptional<z.ZodString>;
-        refresh_token: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
-    readonly OpenIdProviderDiscoveryMetadataSchema: z.ZodObject<{
-        code_challenge_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        issuer: z.ZodString;
-        authorization_endpoint: z.ZodURL;
-        token_endpoint: z.ZodURL;
-        userinfo_endpoint: z.ZodOptional<z.ZodURL>;
-        jwks_uri: z.ZodURL;
-        registration_endpoint: z.ZodOptional<z.ZodURL>;
-        scopes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        response_types_supported: z.ZodArray<z.ZodString>;
-        response_modes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        grant_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        acr_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        subject_types_supported: z.ZodArray<z.ZodString>;
-        id_token_signing_alg_values_supported: z.ZodArray<z.ZodString>;
-        id_token_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        id_token_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        userinfo_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        userinfo_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        userinfo_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        request_object_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        request_object_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        request_object_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        token_endpoint_auth_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        token_endpoint_auth_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        display_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        claim_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        claims_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        service_documentation: z.ZodOptional<z.ZodString>;
-        claims_locales_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        ui_locales_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        claims_parameter_supported: z.ZodOptional<z.ZodBoolean>;
-        request_parameter_supported: z.ZodOptional<z.ZodBoolean>;
-        request_uri_parameter_supported: z.ZodOptional<z.ZodBoolean>;
-        require_request_uri_registration: z.ZodOptional<z.ZodBoolean>;
-        op_policy_uri: z.ZodOptional<z.ZodURL>;
-        op_tos_uri: z.ZodOptional<z.ZodURL>;
-        client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
-    }, z.core.$strip>;
-    readonly OpenIdProviderMetadataSchema: z.ZodObject<{
-        issuer: z.ZodString;
-        authorization_endpoint: z.ZodURL;
-        token_endpoint: z.ZodURL;
-        userinfo_endpoint: z.ZodOptional<z.ZodURL>;
-        jwks_uri: z.ZodURL;
-        registration_endpoint: z.ZodOptional<z.ZodURL>;
-        scopes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        response_types_supported: z.ZodArray<z.ZodString>;
-        response_modes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        grant_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        acr_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        subject_types_supported: z.ZodArray<z.ZodString>;
-        id_token_signing_alg_values_supported: z.ZodArray<z.ZodString>;
-        id_token_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        id_token_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        userinfo_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        userinfo_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        userinfo_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        request_object_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        request_object_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        request_object_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        token_endpoint_auth_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        token_endpoint_auth_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        display_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        claim_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        claims_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        service_documentation: z.ZodOptional<z.ZodString>;
-        claims_locales_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        ui_locales_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
-        claims_parameter_supported: z.ZodOptional<z.ZodBoolean>;
-        request_parameter_supported: z.ZodOptional<z.ZodBoolean>;
-        request_uri_parameter_supported: z.ZodOptional<z.ZodBoolean>;
-        require_request_uri_registration: z.ZodOptional<z.ZodBoolean>;
-        op_policy_uri: z.ZodOptional<z.ZodURL>;
-        op_tos_uri: z.ZodOptional<z.ZodURL>;
-        client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
-    }, z.core.$loose>;
-};
+export type AuthorizationServerMetadata = OAuthMetadata | OpenIdProviderDiscoveryMetadata;
 
 // @public
 export type BaseContext = {
@@ -339,6 +148,15 @@ const BooleanSchemaSchema: z.ZodObject<{
     description: z.ZodOptional<z.ZodString>;
     default: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$strip>;
+
+// @public
+export const CLIENT_CAPABILITIES_META_KEY = "io.modelcontextprotocol/clientCapabilities";
+
+// @public
+export const CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo";
+
+// @public (undocumented)
+const COMPLETABLE_SYMBOL: unique symbol;
 
 // @public (undocumented)
 export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
@@ -483,39 +301,6 @@ const CallToolResultSchema: z.ZodObject<{
 }, z.core.$loose>;
 
 // @public (undocumented)
-export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
-
-// @public (undocumented)
-export type CancelledNotificationParams = Infer<typeof CancelledNotificationParamsSchema>;
-
-// @public (undocumented)
-const CancelledNotificationParamsSchema: z.ZodObject<{
-    _meta: z.ZodOptional<z.ZodObject<{
-        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-            taskId: z.ZodString;
-        }, z.core.$strip>>;
-    }, z.core.$loose>>;
-    requestId: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-    reason: z.ZodOptional<z.ZodString>;
-}, z.core.$strip>;
-
-// @public
-const CancelledNotificationSchema: z.ZodObject<{
-    method: z.ZodLiteral<"notifications/cancelled">;
-    params: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        requestId: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-        reason: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>;
-}, z.core.$strip>;
-
-// @public (undocumented)
 export type CancelTaskRequest = Infer<typeof CancelTaskRequestSchema>;
 
 // @public
@@ -559,6 +344,39 @@ const CancelTaskResultSchema: z.ZodObject<{
     statusMessage: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
+// @public (undocumented)
+export type CancelledNotification = Infer<typeof CancelledNotificationSchema>;
+
+// @public (undocumented)
+export type CancelledNotificationParams = Infer<typeof CancelledNotificationParamsSchema>;
+
+// @public (undocumented)
+const CancelledNotificationParamsSchema: z.ZodObject<{
+    _meta: z.ZodOptional<z.ZodObject<{
+        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
+            taskId: z.ZodString;
+        }, z.core.$strip>>;
+    }, z.core.$loose>>;
+    requestId: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+    reason: z.ZodOptional<z.ZodString>;
+}, z.core.$strip>;
+
+// @public
+const CancelledNotificationSchema: z.ZodObject<{
+    method: z.ZodLiteral<"notifications/cancelled">;
+    params: z.ZodObject<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
+                taskId: z.ZodString;
+            }, z.core.$strip>>;
+        }, z.core.$loose>>;
+        requestId: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+        reason: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>;
+}, z.core.$strip>;
+
 // @public
 export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
     constructor(options?: {
@@ -570,18 +388,6 @@ export class CfWorkerJsonSchemaValidator implements jsonSchemaValidator {
 
 // @public
 export type CfWorkerSchemaDraft = '4' | '7' | '2019-09' | '2020-12';
-
-// @public
-export function checkResourceAllowed(input: {
-    requestedResource: URL | string;
-    configuredResource: URL | string;
-}): boolean;
-
-// @public
-export const CLIENT_CAPABILITIES_META_KEY = "io.modelcontextprotocol/clientCapabilities";
-
-// @public
-export const CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo";
 
 // @public (undocumented)
 export type ClientCapabilities = Infer<typeof ClientCapabilitiesSchema>;
@@ -1531,12 +1337,6 @@ const CompatibilityCallToolResultSchema: z.ZodUnion<[z.ZodObject<{
     toolResult: z.ZodUnknown;
 }, z.core.$loose>]>;
 
-// @public
-export function completable<T extends StandardSchemaV1>(schema: T, complete: CompleteCallback<T>): CompletableSchema<T>;
-
-// @public (undocumented)
-const COMPLETABLE_SYMBOL: unique symbol;
-
 // @public (undocumented)
 type CompletableMeta<T extends StandardSchemaV1 = StandardSchemaV1> = {
     complete: CompleteCallback<T>;
@@ -1738,9 +1538,6 @@ const ContentBlockSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>>;
     _meta: z.ZodOptional<z.ZodRecord<z.ZodString, z.ZodUnknown>>;
 }, z.core.$strip>]>;
-
-// @public
-export function createFetchWithInit(baseFetch?: FetchLike, baseInit?: RequestInit): FetchLike;
 
 // @public (undocumented)
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
@@ -2883,9 +2680,6 @@ export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = "2025-03-26";
 export const DEFAULT_REQUEST_TIMEOUT_MSEC = 60000;
 
 // @public (undocumented)
-export function deserializeMessage(line: string): JSONRPCMessage;
-
-// @public (undocumented)
 export type DiscoverRequest = Infer<typeof DiscoverRequestSchema>;
 
 // @public
@@ -2957,37 +2751,6 @@ const DiscoverResultSchema: z.ZodObject<{
     }, z.core.$strip>;
     instructions: z.ZodOptional<z.ZodString>;
 }, z.core.$loose>;
-
-// @public (undocumented)
-export type ElicitationCompleteNotification = Infer<typeof ElicitationCompleteNotificationSchema>;
-
-// @public (undocumented)
-export type ElicitationCompleteNotificationParams = Infer<typeof ElicitationCompleteNotificationParamsSchema>;
-
-// @public
-const ElicitationCompleteNotificationParamsSchema: z.ZodObject<{
-    _meta: z.ZodOptional<z.ZodObject<{
-        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-            taskId: z.ZodString;
-        }, z.core.$strip>>;
-    }, z.core.$loose>>;
-    elicitationId: z.ZodString;
-}, z.core.$strip>;
-
-// @public
-const ElicitationCompleteNotificationSchema: z.ZodObject<{
-    method: z.ZodLiteral<"notifications/elicitation/complete">;
-    params: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        elicitationId: z.ZodString;
-    }, z.core.$strip>;
-}, z.core.$strip>;
 
 // @public (undocumented)
 export type ElicitRequest = Infer<typeof ElicitRequestSchema>;
@@ -3352,6 +3115,37 @@ const ElicitResultSchema: z.ZodObject<{
 }, z.core.$loose>;
 
 // @public (undocumented)
+export type ElicitationCompleteNotification = Infer<typeof ElicitationCompleteNotificationSchema>;
+
+// @public (undocumented)
+export type ElicitationCompleteNotificationParams = Infer<typeof ElicitationCompleteNotificationParamsSchema>;
+
+// @public
+const ElicitationCompleteNotificationParamsSchema: z.ZodObject<{
+    _meta: z.ZodOptional<z.ZodObject<{
+        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
+            taskId: z.ZodString;
+        }, z.core.$strip>>;
+    }, z.core.$loose>>;
+    elicitationId: z.ZodString;
+}, z.core.$strip>;
+
+// @public
+const ElicitationCompleteNotificationSchema: z.ZodObject<{
+    method: z.ZodLiteral<"notifications/elicitation/complete">;
+    params: z.ZodObject<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
+                taskId: z.ZodString;
+            }, z.core.$strip>>;
+        }, z.core.$loose>>;
+        elicitationId: z.ZodString;
+    }, z.core.$strip>;
+}, z.core.$strip>;
+
+// @public (undocumented)
 export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
 
 // @public
@@ -3466,16 +3260,6 @@ export type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Respo
 
 // @public (undocumented)
 type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Flatten<U>> : T extends Set<infer U> ? Set<Flatten<U>> : T extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T extends object ? { [K in keyof T]: Flatten<T[K]> } : T;
-
-// @public (undocumented)
-export function fromJsonSchema<T = unknown>(schema: JsonSchemaType, validator?: jsonSchemaValidator): StandardSchemaWithJSON<T, T>;
-
-// @public
-export function getDisplayName(metadata: BaseMetadata | (BaseMetadata & {
-    annotations?: {
-        title?: string;
-    };
-})): string;
 
 // @public (undocumented)
 export type GetPromptRequest = Infer<typeof GetPromptRequestSchema>;
@@ -3702,9 +3486,6 @@ export interface HandleRequestOptions {
     parsedBody?: unknown;
 }
 
-// @public
-export function hostHeaderValidationResponse(req: Request, allowedHostnames: string[]): Response | undefined;
-
 // @public (undocumented)
 export type HostHeaderValidationResult = {
     ok: true;
@@ -3718,10 +3499,16 @@ export type HostHeaderValidationResult = {
 };
 
 // @public (undocumented)
-export type Icon = Infer<typeof IconSchema>;
+export const INTERNAL_ERROR = -32603;
 
 // @public (undocumented)
-export type Icons = Infer<typeof IconsSchema>;
+export const INVALID_PARAMS = -32602;
+
+// @public (undocumented)
+export const INVALID_REQUEST = -32600;
+
+// @public (undocumented)
+export type Icon = Infer<typeof IconSchema>;
 
 // @public
 const IconSchema: z.ZodObject<{
@@ -3733,6 +3520,9 @@ const IconSchema: z.ZodObject<{
         dark: "dark";
     }>>;
 }, z.core.$strip>;
+
+// @public (undocumented)
+export type Icons = Infer<typeof IconsSchema>;
 
 // @public
 const IconsSchema: z.ZodObject<{
@@ -3787,6 +3577,29 @@ const ImplementationSchema: z.ZodObject<{
     title: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
+// @public
+export class InMemoryTransport implements Transport {
+    // (undocumented)
+    close(): Promise<void>;
+    static createLinkedPair(): [InMemoryTransport, InMemoryTransport];
+    // (undocumented)
+    onclose?: () => void;
+    // (undocumented)
+    onerror?: (error: Error) => void;
+    // (undocumented)
+    onmessage?: (message: JSONRPCMessage, extra?: {
+        authInfo?: AuthInfo;
+    }) => void;
+    send(message: JSONRPCMessage, options?: {
+        relatedRequestId?: RequestId;
+        authInfo?: AuthInfo;
+    }): Promise<void>;
+    // (undocumented)
+    sessionId?: string;
+    // (undocumented)
+    start(): Promise<void>;
+}
+
 // @public (undocumented)
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
@@ -3795,22 +3608,6 @@ type InferHandlerResult<R extends StandardSchemaV1 | undefined> = R extends Stan
 
 // @public
 type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
-
-// @public (undocumented)
-export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
-
-// @public
-const InitializedNotificationSchema: z.ZodObject<{
-    method: z.ZodLiteral<"notifications/initialized">;
-    params: z.ZodOptional<z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-    }, z.core.$strip>>;
-}, z.core.$strip>;
 
 // @public (undocumented)
 export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
@@ -3990,43 +3787,27 @@ const InitializeResultSchema: z.ZodObject<{
     instructions: z.ZodOptional<z.ZodString>;
 }, z.core.$loose>;
 
-// @public
-export class InMemoryTransport implements Transport {
-    // (undocumented)
-    close(): Promise<void>;
-    static createLinkedPair(): [InMemoryTransport, InMemoryTransport];
-    // (undocumented)
-    onclose?: () => void;
-    // (undocumented)
-    onerror?: (error: Error) => void;
-    // (undocumented)
-    onmessage?: (message: JSONRPCMessage, extra?: {
-        authInfo?: AuthInfo;
-    }) => void;
-    send(message: JSONRPCMessage, options?: {
-        relatedRequestId?: RequestId;
-        authInfo?: AuthInfo;
-    }): Promise<void>;
-    // (undocumented)
-    sessionId?: string;
-    // (undocumented)
-    start(): Promise<void>;
-}
-
 // @public (undocumented)
-export const INTERNAL_ERROR = -32603;
+export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
+
+// @public
+const InitializedNotificationSchema: z.ZodObject<{
+    method: z.ZodLiteral<"notifications/initialized">;
+    params: z.ZodOptional<z.ZodObject<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
+                taskId: z.ZodString;
+            }, z.core.$strip>>;
+        }, z.core.$loose>>;
+    }, z.core.$strip>>;
+}, z.core.$strip>;
 
 // @public (undocumented)
 export interface InternalError extends JSONRPCErrorObject {
     // (undocumented)
     code: typeof INTERNAL_ERROR;
 }
-
-// @public (undocumented)
-export const INVALID_PARAMS = -32602;
-
-// @public (undocumented)
-export const INVALID_REQUEST = -32600;
 
 // @public (undocumented)
 export interface InvalidParamsError extends JSONRPCErrorObject {
@@ -4040,39 +3821,6 @@ export interface InvalidRequestError extends JSONRPCErrorObject {
     code: typeof INVALID_REQUEST;
 }
 
-// @public
-export const isCallToolResult: (value: unknown) => value is CallToolResult;
-
-// @public
-export function isCompletable(schema: unknown): schema is CompletableSchema<StandardSchemaV1>;
-
-// @public (undocumented)
-export const isInitializedNotification: (value: unknown) => value is InitializedNotification;
-
-// @public (undocumented)
-export const isInitializeRequest: (value: unknown) => value is InitializeRequest;
-
-// @public
-export const isJSONRPCErrorResponse: (value: unknown) => value is JSONRPCErrorResponse;
-
-// @public (undocumented)
-export const isJSONRPCNotification: (value: unknown) => value is JSONRPCNotification;
-
-// @public (undocumented)
-export const isJSONRPCRequest: (value: unknown) => value is JSONRPCRequest;
-
-// @public
-export const isJSONRPCResponse: (value: unknown) => value is JSONRPCResponse;
-
-// @public
-export const isJSONRPCResultResponse: (value: unknown) => value is JSONRPCResultResponse;
-
-// @public
-export const isSpecType: GuardRecord;
-
-// @public
-export const isTaskAugmentedRequestParams: (value: unknown) => value is TaskAugmentedRequestParams;
-
 // @public (undocumented)
 export type JSONArray = JSONValue[];
 
@@ -4080,9 +3828,6 @@ export type JSONArray = JSONValue[];
 export type JSONObject = {
     [key: string]: JSONValue;
 };
-
-// @public (undocumented)
-export const JSONRPC_VERSION = "2.0";
 
 // @public (undocumented)
 type JSONRPCErrorObject = {
@@ -4233,16 +3978,17 @@ const JSONRPCResultResponseSchema: z.ZodObject<{
     }, z.core.$loose>;
 }, z.core.$strict>;
 
+// @public (undocumented)
+export const JSONRPC_VERSION = "2.0";
+
+// @public (undocumented)
+export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
+
 // @public
 export type JsonSchemaType = JSONSchema.Interface;
 
 // @public
 export type JsonSchemaValidator<T> = (input: unknown) => JsonSchemaValidatorResult<T>;
-
-// @public
-export interface jsonSchemaValidator {
-    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
-}
 
 // @public
 export type JsonSchemaValidatorResult<T> = {
@@ -4256,10 +4002,10 @@ export type JsonSchemaValidatorResult<T> = {
 };
 
 // @public (undocumented)
-export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
-
-// @public (undocumented)
 export const LATEST_PROTOCOL_VERSION = "2025-11-25";
+
+// @public @deprecated
+export const LOG_LEVEL_META_KEY = "io.modelcontextprotocol/logLevel";
 
 // @public
 type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape ? (args: InferRawShape<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult> : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
@@ -4349,6 +4095,63 @@ const ListPromptsResultSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$loose>;
 
+// @public (undocumented)
+export type ListResourceTemplatesRequest = Infer<typeof ListResourceTemplatesRequestSchema>;
+
+// @public
+const ListResourceTemplatesRequestSchema: z.ZodObject<{
+    params: z.ZodOptional<z.ZodObject<{
+        _meta: z.ZodOptional<z.ZodObject<{
+            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
+                taskId: z.ZodString;
+            }, z.core.$strip>>;
+        }, z.core.$loose>>;
+        cursor: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>>;
+    method: z.ZodLiteral<"resources/templates/list">;
+}, z.core.$strip>;
+
+// @public (undocumented)
+export type ListResourceTemplatesResult = Infer<typeof ListResourceTemplatesResultSchema>;
+
+// @public
+const ListResourceTemplatesResultSchema: z.ZodObject<{
+    _meta: z.ZodOptional<z.ZodObject<{
+        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
+        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
+            taskId: z.ZodString;
+        }, z.core.$strip>>;
+    }, z.core.$loose>>;
+    resultType: z.ZodOptional<z.ZodString>;
+    nextCursor: z.ZodOptional<z.ZodString>;
+    resourceTemplates: z.ZodArray<z.ZodObject<{
+        uriTemplate: z.ZodString;
+        description: z.ZodOptional<z.ZodString>;
+        mimeType: z.ZodOptional<z.ZodString>;
+        annotations: z.ZodOptional<z.ZodObject<{
+            audience: z.ZodOptional<z.ZodArray<z.ZodEnum<{
+                user: "user";
+                assistant: "assistant";
+            }>>>;
+            priority: z.ZodOptional<z.ZodNumber>;
+            lastModified: z.ZodOptional<z.ZodISODateTime>;
+        }, z.core.$strip>>;
+        _meta: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
+        icons: z.ZodOptional<z.ZodArray<z.ZodObject<{
+            src: z.ZodString;
+            mimeType: z.ZodOptional<z.ZodString>;
+            sizes: z.ZodOptional<z.ZodArray<z.ZodString>>;
+            theme: z.ZodOptional<z.ZodEnum<{
+                light: "light";
+                dark: "dark";
+            }>>;
+        }, z.core.$strip>>>;
+        name: z.ZodString;
+        title: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>>;
+}, z.core.$loose>;
+
 // @public
 export type ListResourcesCallback = (ctx: ServerContext) => ListResourcesResult | Promise<ListResourcesResult>;
 
@@ -4387,63 +4190,6 @@ const ListResourcesResultSchema: z.ZodObject<{
         description: z.ZodOptional<z.ZodString>;
         mimeType: z.ZodOptional<z.ZodString>;
         size: z.ZodOptional<z.ZodNumber>;
-        annotations: z.ZodOptional<z.ZodObject<{
-            audience: z.ZodOptional<z.ZodArray<z.ZodEnum<{
-                user: "user";
-                assistant: "assistant";
-            }>>>;
-            priority: z.ZodOptional<z.ZodNumber>;
-            lastModified: z.ZodOptional<z.ZodISODateTime>;
-        }, z.core.$strip>>;
-        _meta: z.ZodOptional<z.ZodObject<{}, z.core.$loose>>;
-        icons: z.ZodOptional<z.ZodArray<z.ZodObject<{
-            src: z.ZodString;
-            mimeType: z.ZodOptional<z.ZodString>;
-            sizes: z.ZodOptional<z.ZodArray<z.ZodString>>;
-            theme: z.ZodOptional<z.ZodEnum<{
-                light: "light";
-                dark: "dark";
-            }>>;
-        }, z.core.$strip>>>;
-        name: z.ZodString;
-        title: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>>;
-}, z.core.$loose>;
-
-// @public (undocumented)
-export type ListResourceTemplatesRequest = Infer<typeof ListResourceTemplatesRequestSchema>;
-
-// @public
-const ListResourceTemplatesRequestSchema: z.ZodObject<{
-    params: z.ZodOptional<z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        cursor: z.ZodOptional<z.ZodString>;
-    }, z.core.$strip>>;
-    method: z.ZodLiteral<"resources/templates/list">;
-}, z.core.$strip>;
-
-// @public (undocumented)
-export type ListResourceTemplatesResult = Infer<typeof ListResourceTemplatesResultSchema>;
-
-// @public
-const ListResourceTemplatesResultSchema: z.ZodObject<{
-    _meta: z.ZodOptional<z.ZodObject<{
-        progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-        "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-            taskId: z.ZodString;
-        }, z.core.$strip>>;
-    }, z.core.$loose>>;
-    resultType: z.ZodOptional<z.ZodString>;
-    nextCursor: z.ZodOptional<z.ZodString>;
-    resourceTemplates: z.ZodArray<z.ZodObject<{
-        uriTemplate: z.ZodString;
-        description: z.ZodOptional<z.ZodString>;
-        mimeType: z.ZodOptional<z.ZodString>;
         annotations: z.ZodOptional<z.ZodObject<{
             audience: z.ZodOptional<z.ZodArray<z.ZodEnum<{
                 user: "user";
@@ -4620,12 +4366,6 @@ const ListToolsResultSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$loose>;
 
-// @public
-export function localhostAllowedHostnames(): string[];
-
-// @public @deprecated
-export const LOG_LEVEL_META_KEY = "io.modelcontextprotocol/logLevel";
-
 // @public (undocumented)
 export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
 
@@ -4694,6 +4434,9 @@ const LoggingMessageNotificationSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
+// @public (undocumented)
+export const METHOD_NOT_FOUND = -32601;
+
 // @public
 export class McpServer {
     constructor(serverInfo: Implementation, options?: ServerOptions);
@@ -4750,9 +4493,6 @@ export interface MessageExtraInfo {
 
 // @public (undocumented)
 export type MetaObject = Record<string, unknown>;
-
-// @public (undocumented)
-export const METHOD_NOT_FOUND = -32601;
 
 // @public (undocumented)
 export interface MethodNotFoundError extends JSONRPCErrorObject {
@@ -4817,10 +4557,6 @@ const MultiSelectEnumSchemaSchema: z.ZodUnion<readonly [z.ZodObject<{
 }, z.core.$strip>]>;
 
 // @public (undocumented)
-type Notification_2 = Infer<typeof NotificationSchema>;
-export { Notification_2 as Notification }
-
-// @public (undocumented)
 export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
 
 // @public
@@ -4846,6 +4582,13 @@ const NotificationSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
+export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+
+// @public (undocumented)
+type Notification_2 = Infer<typeof NotificationSchema>;
+export { Notification_2 as Notification }
+
+// @public (undocumented)
 const NotificationsParamsSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -4854,9 +4597,6 @@ const NotificationsParamsSchema: z.ZodObject<{
         }, z.core.$strip>>;
     }, z.core.$loose>>;
 }, z.core.$strip>;
-
-// @public (undocumented)
-export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
 
 // @public (undocumented)
 export type NumberSchema = Infer<typeof NumberSchemaSchema>;
@@ -5146,6 +4886,12 @@ const OpenIdProviderMetadataSchema: z.ZodObject<{
 }, z.core.$loose>;
 
 // @public (undocumented)
+export const PARSE_ERROR = -32700;
+
+// @public
+export const PROTOCOL_VERSION_META_KEY = "io.modelcontextprotocol/protocolVersion";
+
+// @public (undocumented)
 export type PaginatedRequest = Infer<typeof PaginatedRequestSchema>;
 
 // @public (undocumented)
@@ -5192,16 +4938,10 @@ const PaginatedResultSchema: z.ZodObject<{
 }, z.core.$loose>;
 
 // @public (undocumented)
-export const PARSE_ERROR = -32700;
-
-// @public (undocumented)
 export interface ParseError extends JSONRPCErrorObject {
     // (undocumented)
     code: typeof PARSE_ERROR;
 }
-
-// @public
-export function parseJSONRPCMessage(value: unknown): JSONRPCMessage;
 
 // @public (undocumented)
 export type PingRequest = Infer<typeof PingRequestSchema>;
@@ -5565,9 +5305,6 @@ abstract class Protocol<ContextT extends BaseContext> {
 }
 
 // @public
-export const PROTOCOL_VERSION_META_KEY = "io.modelcontextprotocol/protocolVersion";
-
-// @public
 export class ProtocolError extends Error {
     constructor(code: number, message: string, data?: unknown | undefined);
     // (undocumented)
@@ -5606,6 +5343,9 @@ export type ProtocolOptions = {
 
 // @public (undocumented)
 type ProtocolSchemaKey = (typeof SPEC_SCHEMA_KEYS)[number];
+
+// @public (undocumented)
+export const RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
 
 // @public
 export class ReadBuffer {
@@ -5773,19 +5513,12 @@ export type RegisteredTool = {
 };
 
 // @public (undocumented)
-export const RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
-
-// @public (undocumented)
 export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
 
 // @public
 const RelatedTaskMetadataSchema: z.ZodObject<{
     taskId: z.ZodString;
 }, z.core.$strip>;
-
-// @public (undocumented)
-type Request_2 = Infer<typeof RequestSchema>;
-export { Request_2 as Request }
 
 // @public
 export interface RequestHandlerSchemas<P extends StandardSchemaV1 = StandardSchemaV1, R extends StandardSchemaV1 | undefined = StandardSchemaV1 | undefined> {
@@ -5909,6 +5642,10 @@ const RequestSchema: z.ZodObject<{
 
 // @public (undocumented)
 export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
+
+// @public (undocumented)
+type Request_2 = Infer<typeof RequestSchema>;
+export { Request_2 as Request }
 
 // @public (undocumented)
 export type Resource = Infer<typeof ResourceSchema>;
@@ -6099,9 +5836,6 @@ const ResourceUpdatedNotificationSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// @public
-export function resourceUrlFromServerUrl(url: URL | string): URL;
-
 // @public (undocumented)
 export type Result = Infer<typeof ResultSchema>;
 
@@ -6174,6 +5908,15 @@ const RootsListChangedNotificationSchema: z.ZodObject<{
         }, z.core.$loose>>;
     }, z.core.$strip>>;
 }, z.core.$strip>;
+
+// @public
+const SPEC_SCHEMA_KEYS: readonly ["AnnotationsSchema", "AudioContentSchema", "BaseMetadataSchema", "BlobResourceContentsSchema", "BooleanSchemaSchema", "CallToolRequestSchema", "CallToolRequestParamsSchema", "CallToolResultSchema", "CancelledNotificationSchema", "CancelledNotificationParamsSchema", "CancelTaskRequestSchema", "CancelTaskResultSchema", "ClientCapabilitiesSchema", "ClientNotificationSchema", "ClientRequestSchema", "ClientResultSchema", "CompatibilityCallToolResultSchema", "CompleteRequestSchema", "CompleteRequestParamsSchema", "CompleteResultSchema", "ContentBlockSchema", "CreateMessageRequestSchema", "CreateMessageRequestParamsSchema", "CreateMessageResultSchema", "CreateMessageResultWithToolsSchema", "CreateTaskResultSchema", "CursorSchema", "DiscoverRequestSchema", "DiscoverResultSchema", "ElicitationCompleteNotificationSchema", "ElicitationCompleteNotificationParamsSchema", "ElicitRequestSchema", "ElicitRequestFormParamsSchema", "ElicitRequestParamsSchema", "ElicitRequestURLParamsSchema", "ElicitResultSchema", "EmbeddedResourceSchema", "EmptyResultSchema", "EnumSchemaSchema", "GetPromptRequestSchema", "GetPromptRequestParamsSchema", "GetPromptResultSchema", "GetTaskPayloadRequestSchema", "GetTaskPayloadResultSchema", "GetTaskRequestSchema", "GetTaskResultSchema", "IconSchema", "IconsSchema", "ImageContentSchema", "ImplementationSchema", "InitializedNotificationSchema", "InitializeRequestSchema", "InitializeRequestParamsSchema", "InitializeResultSchema", "JSONArraySchema", "JSONObjectSchema", "JSONRPCErrorResponseSchema", "JSONRPCMessageSchema", "JSONRPCNotificationSchema", "JSONRPCRequestSchema", "JSONRPCResponseSchema", "JSONRPCResultResponseSchema", "JSONValueSchema", "LegacyTitledEnumSchemaSchema", "ListPromptsRequestSchema", "ListPromptsResultSchema", "ListResourcesRequestSchema", "ListResourcesResultSchema", "ListResourceTemplatesRequestSchema", "ListResourceTemplatesResultSchema", "ListRootsRequestSchema", "ListRootsResultSchema", "ListTasksRequestSchema", "ListTasksResultSchema", "ListToolsRequestSchema", "ListToolsResultSchema", "LoggingLevelSchema", "LoggingMessageNotificationSchema", "LoggingMessageNotificationParamsSchema", "ModelHintSchema", "ModelPreferencesSchema", "MultiSelectEnumSchemaSchema", "NotificationSchema", "NumberSchemaSchema", "PaginatedRequestSchema", "PaginatedRequestParamsSchema", "PaginatedResultSchema", "PingRequestSchema", "PrimitiveSchemaDefinitionSchema", "ProgressSchema", "ProgressNotificationSchema", "ProgressNotificationParamsSchema", "ProgressTokenSchema", "PromptSchema", "PromptArgumentSchema", "PromptListChangedNotificationSchema", "PromptMessageSchema", "PromptReferenceSchema", "ReadResourceRequestSchema", "ReadResourceRequestParamsSchema", "ReadResourceResultSchema", "RelatedTaskMetadataSchema", "RequestSchema", "RequestIdSchema", "RequestMetaEnvelopeSchema", "RequestMetaSchema", "ResourceSchema", "ResourceContentsSchema", "ResourceLinkSchema", "ResourceListChangedNotificationSchema", "ResourceRequestParamsSchema", "ResourceTemplateSchema", "ResourceTemplateReferenceSchema", "ResourceUpdatedNotificationSchema", "ResourceUpdatedNotificationParamsSchema", "ResultSchema", "RoleSchema", "RootSchema", "RootsListChangedNotificationSchema", "SamplingContentSchema", "SamplingMessageSchema", "SamplingMessageContentBlockSchema", "ServerCapabilitiesSchema", "ServerNotificationSchema", "ServerRequestSchema", "ServerResultSchema", "SetLevelRequestSchema", "SetLevelRequestParamsSchema", "SingleSelectEnumSchemaSchema", "StringSchemaSchema", "SubscribeRequestSchema", "SubscribeRequestParamsSchema", "TaskSchema", "TaskAugmentedRequestParamsSchema", "TaskCreationParamsSchema", "TaskMetadataSchema", "TaskStatusSchema", "TaskStatusNotificationSchema", "TaskStatusNotificationParamsSchema", "TextContentSchema", "TextResourceContentsSchema", "TitledMultiSelectEnumSchemaSchema", "TitledSingleSelectEnumSchemaSchema", "ToolSchema", "ToolAnnotationsSchema", "ToolChoiceSchema", "ToolExecutionSchema", "ToolListChangedNotificationSchema", "ToolResultContentSchema", "ToolUseContentSchema", "UnsubscribeRequestSchema", "UnsubscribeRequestParamsSchema", "UntitledMultiSelectEnumSchemaSchema", "UntitledSingleSelectEnumSchemaSchema"];
+
+// @public (undocumented)
+export const STDIO_DEFAULT_MAX_BUFFER_SIZE: number;
+
+// @public (undocumented)
+export const SUPPORTED_PROTOCOL_VERSIONS: string[];
 
 // @public (undocumented)
 export type SamplingContent = Infer<typeof SamplingContentSchema>;
@@ -6658,11 +6401,6 @@ type SchemaKey = ProtocolSchemaKey | AuthSchemaKey;
 // @public (undocumented)
 type SchemaRecord = { readonly [K in SpecTypeName]: StandardSchemaV1Sync<SpecTypeInputs[K], SpecTypes[K]> };
 
-// @public (undocumented)
-namespace schemas_d_exports {
-    export { AnnotationsSchema, AudioContentSchema, BaseMetadataSchema, BaseRequestParamsSchema, BlobResourceContentsSchema, BooleanSchemaSchema, CallToolRequestParamsSchema, CallToolRequestSchema, CallToolResultSchema, CancelTaskRequestSchema, CancelTaskResultSchema, CancelledNotificationParamsSchema, CancelledNotificationSchema, ClientCapabilitiesSchema, ClientNotificationSchema, ClientRequestSchema, ClientResultSchema, ClientTasksCapabilitySchema, CompatibilityCallToolResultSchema, CompleteRequestParamsSchema, CompleteRequestSchema, CompleteResultSchema, ContentBlockSchema, CreateMessageRequestParamsSchema, CreateMessageRequestSchema, CreateMessageResultSchema, CreateMessageResultWithToolsSchema, CreateTaskResultSchema, CursorSchema, DiscoverRequestSchema, DiscoverResultSchema, ElicitRequestFormParamsSchema, ElicitRequestParamsSchema, ElicitRequestSchema, ElicitRequestURLParamsSchema, ElicitResultSchema, ElicitationCompleteNotificationParamsSchema, ElicitationCompleteNotificationSchema, EmbeddedResourceSchema, EmptyResultSchema, EnumSchemaSchema, GetPromptRequestParamsSchema, GetPromptRequestSchema, GetPromptResultSchema, GetTaskPayloadRequestSchema, GetTaskPayloadResultSchema, GetTaskRequestSchema, GetTaskResultSchema, IconSchema, IconsSchema, ImageContentSchema, ImplementationSchema, InitializeRequestParamsSchema, InitializeRequestSchema, InitializeResultSchema, InitializedNotificationSchema, JSONArraySchema, JSONObjectSchema, JSONRPCErrorResponseSchema, JSONRPCMessageSchema, JSONRPCNotificationSchema, JSONRPCRequestSchema, JSONRPCResponseSchema, JSONRPCResultResponseSchema, JSONValueSchema, LegacyTitledEnumSchemaSchema, ListChangedOptionsBaseSchema, ListPromptsRequestSchema, ListPromptsResultSchema, ListResourceTemplatesRequestSchema, ListResourceTemplatesResultSchema, ListResourcesRequestSchema, ListResourcesResultSchema, ListRootsRequestSchema, ListRootsResultSchema, ListTasksRequestSchema, ListTasksResultSchema, ListToolsRequestSchema, ListToolsResultSchema, LoggingLevelSchema, LoggingMessageNotificationParamsSchema, LoggingMessageNotificationSchema, ModelHintSchema, ModelPreferencesSchema, MultiSelectEnumSchemaSchema, NotificationSchema, NotificationsParamsSchema, NumberSchemaSchema, PaginatedRequestParamsSchema, PaginatedRequestSchema, PaginatedResultSchema, PingRequestSchema, PrimitiveSchemaDefinitionSchema, ProgressNotificationParamsSchema, ProgressNotificationSchema, ProgressSchema, ProgressTokenSchema, PromptArgumentSchema, PromptListChangedNotificationSchema, PromptMessageSchema, PromptReferenceSchema, PromptSchema, ReadResourceRequestParamsSchema, ReadResourceRequestSchema, ReadResourceResultSchema, RelatedTaskMetadataSchema, RequestIdSchema, RequestMetaEnvelopeSchema, RequestMetaSchema, RequestSchema, ResourceContentsSchema, ResourceLinkSchema, ResourceListChangedNotificationSchema, ResourceRequestParamsSchema, ResourceSchema, ResourceTemplateReferenceSchema, ResourceTemplateSchema, ResourceUpdatedNotificationParamsSchema, ResourceUpdatedNotificationSchema, ResultSchema, RoleSchema, RootSchema, RootsListChangedNotificationSchema, SamplingContentSchema, SamplingMessageContentBlockSchema, SamplingMessageSchema, ServerCapabilitiesSchema, ServerNotificationSchema, ServerRequestSchema, ServerResultSchema, ServerTasksCapabilitySchema, SetLevelRequestParamsSchema, SetLevelRequestSchema, SingleSelectEnumSchemaSchema, StringSchemaSchema, SubscribeRequestParamsSchema, SubscribeRequestSchema, TaskAugmentedRequestParamsSchema, TaskCreationParamsSchema, TaskMetadataSchema, TaskSchema, TaskStatusNotificationParamsSchema, TaskStatusNotificationSchema, TaskStatusSchema, TextContentSchema, TextResourceContentsSchema, TitledMultiSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema, ToolAnnotationsSchema, ToolChoiceSchema, ToolExecutionSchema, ToolListChangedNotificationSchema, ToolResultContentSchema, ToolSchema, ToolUseContentSchema, UnsubscribeRequestParamsSchema, UnsubscribeRequestSchema, UntitledMultiSelectEnumSchemaSchema, UntitledSingleSelectEnumSchemaSchema, getNotificationSchema, getRequestSchema, getResultSchema };
-}
-
 // @public
 export class SdkError extends Error {
     constructor(code: SdkErrorCode, message: string, data?: unknown | undefined);
@@ -6716,9 +6454,6 @@ export interface SdkHttpErrorData {
     // (undocumented)
     statusText?: string;
 }
-
-// @public (undocumented)
-export function serializeMessage(message: JSONRPCMessage): string;
 
 // @public @deprecated
 export class Server extends Protocol<ServerContext> {
@@ -8080,9 +7815,6 @@ const SingleSelectEnumSchemaSchema: z.ZodUnion<readonly [z.ZodObject<{
 }, z.core.$strip>]>;
 
 // @public
-const SPEC_SCHEMA_KEYS: readonly ["AnnotationsSchema", "AudioContentSchema", "BaseMetadataSchema", "BlobResourceContentsSchema", "BooleanSchemaSchema", "CallToolRequestSchema", "CallToolRequestParamsSchema", "CallToolResultSchema", "CancelledNotificationSchema", "CancelledNotificationParamsSchema", "CancelTaskRequestSchema", "CancelTaskResultSchema", "ClientCapabilitiesSchema", "ClientNotificationSchema", "ClientRequestSchema", "ClientResultSchema", "CompatibilityCallToolResultSchema", "CompleteRequestSchema", "CompleteRequestParamsSchema", "CompleteResultSchema", "ContentBlockSchema", "CreateMessageRequestSchema", "CreateMessageRequestParamsSchema", "CreateMessageResultSchema", "CreateMessageResultWithToolsSchema", "CreateTaskResultSchema", "CursorSchema", "DiscoverRequestSchema", "DiscoverResultSchema", "ElicitationCompleteNotificationSchema", "ElicitationCompleteNotificationParamsSchema", "ElicitRequestSchema", "ElicitRequestFormParamsSchema", "ElicitRequestParamsSchema", "ElicitRequestURLParamsSchema", "ElicitResultSchema", "EmbeddedResourceSchema", "EmptyResultSchema", "EnumSchemaSchema", "GetPromptRequestSchema", "GetPromptRequestParamsSchema", "GetPromptResultSchema", "GetTaskPayloadRequestSchema", "GetTaskPayloadResultSchema", "GetTaskRequestSchema", "GetTaskResultSchema", "IconSchema", "IconsSchema", "ImageContentSchema", "ImplementationSchema", "InitializedNotificationSchema", "InitializeRequestSchema", "InitializeRequestParamsSchema", "InitializeResultSchema", "JSONArraySchema", "JSONObjectSchema", "JSONRPCErrorResponseSchema", "JSONRPCMessageSchema", "JSONRPCNotificationSchema", "JSONRPCRequestSchema", "JSONRPCResponseSchema", "JSONRPCResultResponseSchema", "JSONValueSchema", "LegacyTitledEnumSchemaSchema", "ListPromptsRequestSchema", "ListPromptsResultSchema", "ListResourcesRequestSchema", "ListResourcesResultSchema", "ListResourceTemplatesRequestSchema", "ListResourceTemplatesResultSchema", "ListRootsRequestSchema", "ListRootsResultSchema", "ListTasksRequestSchema", "ListTasksResultSchema", "ListToolsRequestSchema", "ListToolsResultSchema", "LoggingLevelSchema", "LoggingMessageNotificationSchema", "LoggingMessageNotificationParamsSchema", "ModelHintSchema", "ModelPreferencesSchema", "MultiSelectEnumSchemaSchema", "NotificationSchema", "NumberSchemaSchema", "PaginatedRequestSchema", "PaginatedRequestParamsSchema", "PaginatedResultSchema", "PingRequestSchema", "PrimitiveSchemaDefinitionSchema", "ProgressSchema", "ProgressNotificationSchema", "ProgressNotificationParamsSchema", "ProgressTokenSchema", "PromptSchema", "PromptArgumentSchema", "PromptListChangedNotificationSchema", "PromptMessageSchema", "PromptReferenceSchema", "ReadResourceRequestSchema", "ReadResourceRequestParamsSchema", "ReadResourceResultSchema", "RelatedTaskMetadataSchema", "RequestSchema", "RequestIdSchema", "RequestMetaEnvelopeSchema", "RequestMetaSchema", "ResourceSchema", "ResourceContentsSchema", "ResourceLinkSchema", "ResourceListChangedNotificationSchema", "ResourceRequestParamsSchema", "ResourceTemplateSchema", "ResourceTemplateReferenceSchema", "ResourceUpdatedNotificationSchema", "ResourceUpdatedNotificationParamsSchema", "ResultSchema", "RoleSchema", "RootSchema", "RootsListChangedNotificationSchema", "SamplingContentSchema", "SamplingMessageSchema", "SamplingMessageContentBlockSchema", "ServerCapabilitiesSchema", "ServerNotificationSchema", "ServerRequestSchema", "ServerResultSchema", "SetLevelRequestSchema", "SetLevelRequestParamsSchema", "SingleSelectEnumSchemaSchema", "StringSchemaSchema", "SubscribeRequestSchema", "SubscribeRequestParamsSchema", "TaskSchema", "TaskAugmentedRequestParamsSchema", "TaskCreationParamsSchema", "TaskMetadataSchema", "TaskStatusSchema", "TaskStatusNotificationSchema", "TaskStatusNotificationParamsSchema", "TextContentSchema", "TextResourceContentsSchema", "TitledMultiSelectEnumSchemaSchema", "TitledSingleSelectEnumSchemaSchema", "ToolSchema", "ToolAnnotationsSchema", "ToolChoiceSchema", "ToolExecutionSchema", "ToolListChangedNotificationSchema", "ToolResultContentSchema", "ToolUseContentSchema", "UnsubscribeRequestSchema", "UnsubscribeRequestParamsSchema", "UntitledMultiSelectEnumSchemaSchema", "UntitledSingleSelectEnumSchemaSchema"];
-
-// @public
 type SpecTypeInputs = { [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.input<SchemaFor<K>> : never };
 
 // @public
@@ -8090,9 +7822,6 @@ export type SpecTypeName = StripSchemaSuffix<SchemaKey>;
 
 // @public
 export type SpecTypes = { [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.output<SchemaFor<K>> : never };
-
-// @public
-export const specTypeSchemas: SchemaRecord;
 
 // @public (undocumented)
 interface StandardJSONSchemaV1<Input = unknown, Output = Input> {
@@ -8243,9 +7972,6 @@ namespace StandardTypedV1 {
 }
 
 // @public (undocumented)
-export const STDIO_DEFAULT_MAX_BUFFER_SIZE: number;
-
-// @public (undocumented)
 export type StreamId = string;
 
 // @public (undocumented)
@@ -8300,9 +8026,6 @@ const SubscribeRequestSchema: z.ZodObject<{
         uri: z.ZodString;
     }, z.core.$strip>;
 }, z.core.$strip>;
-
-// @public (undocumented)
-export const SUPPORTED_PROTOCOL_VERSIONS: string[];
 
 // @public (undocumented)
 export type Task = Infer<typeof TaskSchema>;
@@ -8814,9 +8537,6 @@ export class UrlElicitationRequiredError extends ProtocolError {
     get elicitations(): ElicitRequestURLParams[];
 }
 
-// @public
-export function validateHostHeader(hostHeader: string | null | undefined, allowedHostnames: string[]): HostHeaderValidationResult;
-
 // @public (undocumented)
 export type Variables = Record<string, string | string[]>;
 
@@ -8864,6 +8584,285 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
 // @public
 type ZodRawShape = Record<string, z.ZodType>;
 
-// (No @packageDocumentation comment for this package)
+// @public (undocumented)
+export function assertCompleteRequestPrompt(request: CompleteRequest): asserts request is CompleteRequestPrompt;
 
+// @public (undocumented)
+export function assertCompleteRequestResourceTemplate(request: CompleteRequest): asserts request is CompleteRequestResourceTemplate;
+
+// @public (undocumented)
+const authSchemas: {
+    readonly OAuthClientInformationFullSchema: z.ZodObject<{
+        redirect_uris: z.ZodArray<z.ZodURL>;
+        token_endpoint_auth_method: z.ZodOptional<z.ZodString>;
+        grant_types: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        response_types: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        client_name: z.ZodOptional<z.ZodString>;
+        client_uri: z.ZodOptional<z.ZodURL>;
+        logo_uri: z.ZodUnion<[z.ZodOptional<z.ZodURL>, z.ZodPipe<z.ZodLiteral<"">, z.ZodTransform<undefined, "">>]>;
+        scope: z.ZodOptional<z.ZodString>;
+        contacts: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        tos_uri: z.ZodUnion<[z.ZodOptional<z.ZodURL>, z.ZodPipe<z.ZodLiteral<"">, z.ZodTransform<undefined, "">>]>;
+        policy_uri: z.ZodOptional<z.ZodString>;
+        jwks_uri: z.ZodOptional<z.ZodURL>;
+        jwks: z.ZodOptional<z.ZodAny>;
+        software_id: z.ZodOptional<z.ZodString>;
+        software_version: z.ZodOptional<z.ZodString>;
+        software_statement: z.ZodOptional<z.ZodString>;
+        client_id: z.ZodString;
+        client_secret: z.ZodOptional<z.ZodString>;
+        client_id_issued_at: z.ZodOptional<z.ZodNumber>;
+        client_secret_expires_at: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>;
+    readonly OAuthClientInformationSchema: z.ZodObject<{
+        client_id: z.ZodString;
+        client_secret: z.ZodOptional<z.ZodString>;
+        client_id_issued_at: z.ZodOptional<z.ZodNumber>;
+        client_secret_expires_at: z.ZodOptional<z.ZodNumber>;
+    }, z.core.$strip>;
+    readonly OAuthClientMetadataSchema: z.ZodObject<{
+        redirect_uris: z.ZodArray<z.ZodURL>;
+        token_endpoint_auth_method: z.ZodOptional<z.ZodString>;
+        grant_types: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        response_types: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        client_name: z.ZodOptional<z.ZodString>;
+        client_uri: z.ZodOptional<z.ZodURL>;
+        logo_uri: z.ZodUnion<[z.ZodOptional<z.ZodURL>, z.ZodPipe<z.ZodLiteral<"">, z.ZodTransform<undefined, "">>]>;
+        scope: z.ZodOptional<z.ZodString>;
+        contacts: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        tos_uri: z.ZodUnion<[z.ZodOptional<z.ZodURL>, z.ZodPipe<z.ZodLiteral<"">, z.ZodTransform<undefined, "">>]>;
+        policy_uri: z.ZodOptional<z.ZodString>;
+        jwks_uri: z.ZodOptional<z.ZodURL>;
+        jwks: z.ZodOptional<z.ZodAny>;
+        software_id: z.ZodOptional<z.ZodString>;
+        software_version: z.ZodOptional<z.ZodString>;
+        software_statement: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>;
+    readonly OAuthClientRegistrationErrorSchema: z.ZodObject<{
+        error: z.ZodString;
+        error_description: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>;
+    readonly OAuthErrorResponseSchema: z.ZodObject<{
+        error: z.ZodString;
+        error_description: z.ZodOptional<z.ZodString>;
+        error_uri: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>;
+    readonly OAuthMetadataSchema: z.ZodObject<{
+        issuer: z.ZodString;
+        authorization_endpoint: z.ZodURL;
+        token_endpoint: z.ZodURL;
+        registration_endpoint: z.ZodOptional<z.ZodURL>;
+        scopes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        response_types_supported: z.ZodArray<z.ZodString>;
+        response_modes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        grant_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        token_endpoint_auth_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        token_endpoint_auth_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        service_documentation: z.ZodOptional<z.ZodURL>;
+        revocation_endpoint: z.ZodOptional<z.ZodURL>;
+        revocation_endpoint_auth_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        revocation_endpoint_auth_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        introspection_endpoint: z.ZodOptional<z.ZodString>;
+        introspection_endpoint_auth_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        introspection_endpoint_auth_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        code_challenge_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$loose>;
+    readonly OAuthProtectedResourceMetadataSchema: z.ZodObject<{
+        resource: z.ZodString;
+        authorization_servers: z.ZodOptional<z.ZodArray<z.ZodURL>>;
+        jwks_uri: z.ZodOptional<z.ZodString>;
+        scopes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        bearer_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        resource_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        resource_name: z.ZodOptional<z.ZodString>;
+        resource_documentation: z.ZodOptional<z.ZodString>;
+        resource_policy_uri: z.ZodOptional<z.ZodString>;
+        resource_tos_uri: z.ZodOptional<z.ZodString>;
+        tls_client_certificate_bound_access_tokens: z.ZodOptional<z.ZodBoolean>;
+        authorization_details_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        dpop_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        dpop_bound_access_tokens_required: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$loose>;
+    readonly OAuthTokenRevocationRequestSchema: z.ZodObject<{
+        token: z.ZodString;
+        token_type_hint: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>;
+    readonly OAuthTokensSchema: z.ZodObject<{
+        access_token: z.ZodString;
+        id_token: z.ZodOptional<z.ZodString>;
+        token_type: z.ZodString;
+        expires_in: z.ZodOptional<z.ZodCoercedNumber<unknown>>;
+        scope: z.ZodOptional<z.ZodString>;
+        refresh_token: z.ZodOptional<z.ZodString>;
+    }, z.core.$strip>;
+    readonly OpenIdProviderDiscoveryMetadataSchema: z.ZodObject<{
+        code_challenge_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        issuer: z.ZodString;
+        authorization_endpoint: z.ZodURL;
+        token_endpoint: z.ZodURL;
+        userinfo_endpoint: z.ZodOptional<z.ZodURL>;
+        jwks_uri: z.ZodURL;
+        registration_endpoint: z.ZodOptional<z.ZodURL>;
+        scopes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        response_types_supported: z.ZodArray<z.ZodString>;
+        response_modes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        grant_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        acr_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        subject_types_supported: z.ZodArray<z.ZodString>;
+        id_token_signing_alg_values_supported: z.ZodArray<z.ZodString>;
+        id_token_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        id_token_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        userinfo_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        userinfo_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        userinfo_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        request_object_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        request_object_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        request_object_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        token_endpoint_auth_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        token_endpoint_auth_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        display_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        claim_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        claims_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        service_documentation: z.ZodOptional<z.ZodString>;
+        claims_locales_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        ui_locales_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        claims_parameter_supported: z.ZodOptional<z.ZodBoolean>;
+        request_parameter_supported: z.ZodOptional<z.ZodBoolean>;
+        request_uri_parameter_supported: z.ZodOptional<z.ZodBoolean>;
+        require_request_uri_registration: z.ZodOptional<z.ZodBoolean>;
+        op_policy_uri: z.ZodOptional<z.ZodURL>;
+        op_tos_uri: z.ZodOptional<z.ZodURL>;
+        client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$strip>;
+    readonly OpenIdProviderMetadataSchema: z.ZodObject<{
+        issuer: z.ZodString;
+        authorization_endpoint: z.ZodURL;
+        token_endpoint: z.ZodURL;
+        userinfo_endpoint: z.ZodOptional<z.ZodURL>;
+        jwks_uri: z.ZodURL;
+        registration_endpoint: z.ZodOptional<z.ZodURL>;
+        scopes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        response_types_supported: z.ZodArray<z.ZodString>;
+        response_modes_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        grant_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        acr_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        subject_types_supported: z.ZodArray<z.ZodString>;
+        id_token_signing_alg_values_supported: z.ZodArray<z.ZodString>;
+        id_token_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        id_token_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        userinfo_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        userinfo_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        userinfo_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        request_object_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        request_object_encryption_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        request_object_encryption_enc_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        token_endpoint_auth_methods_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        token_endpoint_auth_signing_alg_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        display_values_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        claim_types_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        claims_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        service_documentation: z.ZodOptional<z.ZodString>;
+        claims_locales_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        ui_locales_supported: z.ZodOptional<z.ZodArray<z.ZodString>>;
+        claims_parameter_supported: z.ZodOptional<z.ZodBoolean>;
+        request_parameter_supported: z.ZodOptional<z.ZodBoolean>;
+        request_uri_parameter_supported: z.ZodOptional<z.ZodBoolean>;
+        require_request_uri_registration: z.ZodOptional<z.ZodBoolean>;
+        op_policy_uri: z.ZodOptional<z.ZodURL>;
+        op_tos_uri: z.ZodOptional<z.ZodURL>;
+        client_id_metadata_document_supported: z.ZodOptional<z.ZodBoolean>;
+    }, z.core.$loose>;
+};
+
+// @public
+export function checkResourceAllowed(input: {
+    requestedResource: URL | string;
+    configuredResource: URL | string;
+}): boolean;
+
+// @public
+export function completable<T extends StandardSchemaV1>(schema: T, complete: CompleteCallback<T>): CompletableSchema<T>;
+
+// @public
+export function createFetchWithInit(baseFetch?: FetchLike, baseInit?: RequestInit): FetchLike;
+
+// @public (undocumented)
+export function deserializeMessage(line: string): JSONRPCMessage;
+
+// @public (undocumented)
+export function fromJsonSchema<T = unknown>(schema: JsonSchemaType, validator?: jsonSchemaValidator): StandardSchemaWithJSON<T, T>;
+
+// @public
+export function getDisplayName(metadata: BaseMetadata | (BaseMetadata & {
+    annotations?: {
+        title?: string;
+    };
+})): string;
+
+// @public
+export function hostHeaderValidationResponse(req: Request, allowedHostnames: string[]): Response | undefined;
+
+// @public
+export const isCallToolResult: (value: unknown) => value is CallToolResult;
+
+// @public
+export function isCompletable(schema: unknown): schema is CompletableSchema<StandardSchemaV1>;
+
+// @public (undocumented)
+export const isInitializeRequest: (value: unknown) => value is InitializeRequest;
+
+// @public (undocumented)
+export const isInitializedNotification: (value: unknown) => value is InitializedNotification;
+
+// @public
+export const isJSONRPCErrorResponse: (value: unknown) => value is JSONRPCErrorResponse;
+
+// @public (undocumented)
+export const isJSONRPCNotification: (value: unknown) => value is JSONRPCNotification;
+
+// @public (undocumented)
+export const isJSONRPCRequest: (value: unknown) => value is JSONRPCRequest;
+
+// @public
+export const isJSONRPCResponse: (value: unknown) => value is JSONRPCResponse;
+
+// @public
+export const isJSONRPCResultResponse: (value: unknown) => value is JSONRPCResultResponse;
+
+// @public
+export const isSpecType: GuardRecord;
+
+// @public
+export const isTaskAugmentedRequestParams: (value: unknown) => value is TaskAugmentedRequestParams;
+
+// @public
+export interface jsonSchemaValidator {
+    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
+}
+
+// @public
+export function localhostAllowedHostnames(): string[];
+
+// @public
+export function parseJSONRPCMessage(value: unknown): JSONRPCMessage;
+
+// @public
+export function resourceUrlFromServerUrl(url: URL | string): URL;
+
+// @public (undocumented)
+namespace schemas_d_exports {
+    export { AnnotationsSchema, AudioContentSchema, BaseMetadataSchema, BaseRequestParamsSchema, BlobResourceContentsSchema, BooleanSchemaSchema, CallToolRequestParamsSchema, CallToolRequestSchema, CallToolResultSchema, CancelTaskRequestSchema, CancelTaskResultSchema, CancelledNotificationParamsSchema, CancelledNotificationSchema, ClientCapabilitiesSchema, ClientNotificationSchema, ClientRequestSchema, ClientResultSchema, ClientTasksCapabilitySchema, CompatibilityCallToolResultSchema, CompleteRequestParamsSchema, CompleteRequestSchema, CompleteResultSchema, ContentBlockSchema, CreateMessageRequestParamsSchema, CreateMessageRequestSchema, CreateMessageResultSchema, CreateMessageResultWithToolsSchema, CreateTaskResultSchema, CursorSchema, DiscoverRequestSchema, DiscoverResultSchema, ElicitRequestFormParamsSchema, ElicitRequestParamsSchema, ElicitRequestSchema, ElicitRequestURLParamsSchema, ElicitResultSchema, ElicitationCompleteNotificationParamsSchema, ElicitationCompleteNotificationSchema, EmbeddedResourceSchema, EmptyResultSchema, EnumSchemaSchema, GetPromptRequestParamsSchema, GetPromptRequestSchema, GetPromptResultSchema, GetTaskPayloadRequestSchema, GetTaskPayloadResultSchema, GetTaskRequestSchema, GetTaskResultSchema, IconSchema, IconsSchema, ImageContentSchema, ImplementationSchema, InitializeRequestParamsSchema, InitializeRequestSchema, InitializeResultSchema, InitializedNotificationSchema, JSONArraySchema, JSONObjectSchema, JSONRPCErrorResponseSchema, JSONRPCMessageSchema, JSONRPCNotificationSchema, JSONRPCRequestSchema, JSONRPCResponseSchema, JSONRPCResultResponseSchema, JSONValueSchema, LegacyTitledEnumSchemaSchema, ListChangedOptionsBaseSchema, ListPromptsRequestSchema, ListPromptsResultSchema, ListResourceTemplatesRequestSchema, ListResourceTemplatesResultSchema, ListResourcesRequestSchema, ListResourcesResultSchema, ListRootsRequestSchema, ListRootsResultSchema, ListTasksRequestSchema, ListTasksResultSchema, ListToolsRequestSchema, ListToolsResultSchema, LoggingLevelSchema, LoggingMessageNotificationParamsSchema, LoggingMessageNotificationSchema, ModelHintSchema, ModelPreferencesSchema, MultiSelectEnumSchemaSchema, NotificationSchema, NotificationsParamsSchema, NumberSchemaSchema, PaginatedRequestParamsSchema, PaginatedRequestSchema, PaginatedResultSchema, PingRequestSchema, PrimitiveSchemaDefinitionSchema, ProgressNotificationParamsSchema, ProgressNotificationSchema, ProgressSchema, ProgressTokenSchema, PromptArgumentSchema, PromptListChangedNotificationSchema, PromptMessageSchema, PromptReferenceSchema, PromptSchema, ReadResourceRequestParamsSchema, ReadResourceRequestSchema, ReadResourceResultSchema, RelatedTaskMetadataSchema, RequestIdSchema, RequestMetaEnvelopeSchema, RequestMetaSchema, RequestSchema, ResourceContentsSchema, ResourceLinkSchema, ResourceListChangedNotificationSchema, ResourceRequestParamsSchema, ResourceSchema, ResourceTemplateReferenceSchema, ResourceTemplateSchema, ResourceUpdatedNotificationParamsSchema, ResourceUpdatedNotificationSchema, ResultSchema, RoleSchema, RootSchema, RootsListChangedNotificationSchema, SamplingContentSchema, SamplingMessageContentBlockSchema, SamplingMessageSchema, ServerCapabilitiesSchema, ServerNotificationSchema, ServerRequestSchema, ServerResultSchema, ServerTasksCapabilitySchema, SetLevelRequestParamsSchema, SetLevelRequestSchema, SingleSelectEnumSchemaSchema, StringSchemaSchema, SubscribeRequestParamsSchema, SubscribeRequestSchema, TaskAugmentedRequestParamsSchema, TaskCreationParamsSchema, TaskMetadataSchema, TaskSchema, TaskStatusNotificationParamsSchema, TaskStatusNotificationSchema, TaskStatusSchema, TextContentSchema, TextResourceContentsSchema, TitledMultiSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema, ToolAnnotationsSchema, ToolChoiceSchema, ToolExecutionSchema, ToolListChangedNotificationSchema, ToolResultContentSchema, ToolSchema, ToolUseContentSchema, UnsubscribeRequestParamsSchema, UnsubscribeRequestSchema, UntitledMultiSelectEnumSchemaSchema, UntitledSingleSelectEnumSchemaSchema, getNotificationSchema, getRequestSchema, getResultSchema };
+}
+
+// @public (undocumented)
+export function serializeMessage(message: JSONRPCMessage): string;
+
+// @public
+export const specTypeSchemas: SchemaRecord;
+
+// @public
+export function validateHostHeader(hostHeader: string | null | undefined, allowedHostnames: string[]): HostHeaderValidationResult;
+
+// (No @packageDocumentation comment for this package)
 ```

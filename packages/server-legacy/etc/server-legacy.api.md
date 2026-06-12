@@ -19,12 +19,6 @@ export class AccessDeniedError extends OAuthError {
 }
 
 // @public
-export function allowedMethods(allowedMethods: string[]): RequestHandler;
-
-// @public (undocumented)
-export function authenticateClient(input: ClientAuthenticationMiddlewareOptions): RequestHandler;
-
-// @public
 export interface AuthInfo {
     clientId: string;
     expiresAt?: number;
@@ -44,7 +38,19 @@ export type AuthMetadataOptions = {
 };
 
 // @public (undocumented)
-export function authorizationHandler(input: AuthorizationHandlerOptions): RequestHandler;
+export type AuthRouterOptions = {
+    provider: OAuthServerProvider;
+    issuerUrl: URL;
+    baseUrl?: URL;
+    serviceDocumentationUrl?: URL;
+    scopesSupported?: string[];
+    resourceName?: string;
+    resourceServerUrl?: URL;
+    authorizationOptions?: Omit<AuthorizationHandlerOptions, 'provider'>;
+    clientRegistrationOptions?: Omit<ClientRegistrationHandlerOptions, 'clientsStore'>;
+    revocationOptions?: Omit<RevocationHandlerOptions, 'provider'>;
+    tokenOptions?: Omit<TokenHandlerOptions, 'provider'>;
+};
 
 // @public (undocumented)
 export type AuthorizationHandlerOptions = {
@@ -62,21 +68,6 @@ export type AuthorizationParams = {
 };
 
 // @public (undocumented)
-export type AuthRouterOptions = {
-    provider: OAuthServerProvider;
-    issuerUrl: URL;
-    baseUrl?: URL;
-    serviceDocumentationUrl?: URL;
-    scopesSupported?: string[];
-    resourceName?: string;
-    resourceServerUrl?: URL;
-    authorizationOptions?: Omit<AuthorizationHandlerOptions, 'provider'>;
-    clientRegistrationOptions?: Omit<ClientRegistrationHandlerOptions, 'clientsStore'>;
-    revocationOptions?: Omit<RevocationHandlerOptions, 'provider'>;
-    tokenOptions?: Omit<TokenHandlerOptions, 'provider'>;
-};
-
-// @public (undocumented)
 export type BearerAuthMiddlewareOptions = {
     verifier: OAuthTokenVerifier;
     requiredScopes?: string[];
@@ -89,24 +80,12 @@ export type ClientAuthenticationMiddlewareOptions = {
 };
 
 // @public (undocumented)
-export function clientRegistrationHandler(input: ClientRegistrationHandlerOptions): RequestHandler;
-
-// @public (undocumented)
 export type ClientRegistrationHandlerOptions = {
     clientsStore: OAuthRegisteredClientsStore;
     clientSecretExpirySeconds?: number;
     rateLimit?: Partial<Options> | false;
     clientIdGeneration?: boolean;
 };
-
-// @public (undocumented)
-export const createOAuthMetadata: (options: {
-    provider: OAuthServerProvider;
-    issuerUrl: URL;
-    baseUrl?: URL;
-    serviceDocumentationUrl?: URL;
-    scopesSupported?: string[];
-}) => OAuthMetadata;
 
 // @public
 export class CustomOAuthError extends OAuthError {
@@ -120,9 +99,6 @@ type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
 
 // @public (undocumented)
 type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Flatten<U>> : T extends Set<infer U> ? Set<Flatten<U>> : T extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T extends object ? { [K in keyof T]: Flatten<T[K]> } : T;
-
-// @public
-export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string;
 
 // @public (undocumented)
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
@@ -224,12 +200,6 @@ const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strict>]>;
 
-// @public (undocumented)
-export function mcpAuthMetadataRouter(options: AuthMetadataOptions): express.Router;
-
-// @public
-export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler;
-
 // @public
 interface MessageExtraInfo {
     authInfo?: AuthInfo;
@@ -237,9 +207,6 @@ interface MessageExtraInfo {
     closeStandaloneSSEStream?: () => void;
     request?: globalThis.Request;
 }
-
-// @public (undocumented)
-export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResourceMetadata): RequestHandler;
 
 // @public
 export class MethodNotAllowedError extends OAuthError {
@@ -391,6 +358,11 @@ const OAuthTokenRevocationRequestSchema: z.ZodObject<{
     token_type_hint: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
+// @public
+export interface OAuthTokenVerifier {
+    verifyAccessToken(token: string): Promise<AuthInfo>;
+}
+
 // @public (undocumented)
 type OAuthTokens = z.infer<typeof OAuthTokensSchema>;
 
@@ -403,11 +375,6 @@ const OAuthTokensSchema: z.ZodObject<{
     scope: z.ZodOptional<z.ZodString>;
     refresh_token: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
-
-// @public
-export interface OAuthTokenVerifier {
-    verifyAccessToken(token: string): Promise<AuthInfo>;
-}
 
 // @public (undocumented)
 type Primitive = string | number | boolean | bigint | null | undefined;
@@ -457,32 +424,17 @@ export type ProxyOptions = {
     fetch?: FetchLike;
 };
 
-// @public
-export function redirectUriMatches(requested: string, registered: string): boolean;
-
 // @public (undocumented)
 type RequestId = Infer<typeof RequestIdSchema>;
 
 // @public
 const RequestIdSchema: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
 
-// @public
-export function requireBearerAuth(input: BearerAuthMiddlewareOptions): RequestHandler;
-
-// @public (undocumented)
-export function revocationHandler(input: RevocationHandlerOptions): RequestHandler;
-
 // @public (undocumented)
 export type RevocationHandlerOptions = {
     provider: OAuthServerProvider;
     rateLimit?: Partial<Options> | false;
 };
-
-// @public
-export class ServerError extends OAuthError {
-    // (undocumented)
-    static errorCode: string;
-}
 
 // @public @deprecated
 export class SSEServerTransport implements Transport {
@@ -520,13 +472,16 @@ export interface SSEServerTransportOptions {
 }
 
 // @public
-export class TemporarilyUnavailableError extends OAuthError {
+export class ServerError extends OAuthError {
     // (undocumented)
     static errorCode: string;
 }
 
-// @public (undocumented)
-export function tokenHandler(input: TokenHandlerOptions): RequestHandler;
+// @public
+export class TemporarilyUnavailableError extends OAuthError {
+    // (undocumented)
+    static errorCode: string;
+}
 
 // @public (undocumented)
 export type TokenHandlerOptions = {
@@ -584,6 +539,50 @@ export class UnsupportedTokenTypeError extends OAuthError {
     static errorCode: string;
 }
 
-// (No @packageDocumentation comment for this package)
+// @public
+export function allowedMethods(allowedMethods: string[]): RequestHandler;
 
+// @public (undocumented)
+export function authenticateClient(input: ClientAuthenticationMiddlewareOptions): RequestHandler;
+
+// @public (undocumented)
+export function authorizationHandler(input: AuthorizationHandlerOptions): RequestHandler;
+
+// @public (undocumented)
+export function clientRegistrationHandler(input: ClientRegistrationHandlerOptions): RequestHandler;
+
+// @public (undocumented)
+export const createOAuthMetadata: (options: {
+    provider: OAuthServerProvider;
+    issuerUrl: URL;
+    baseUrl?: URL;
+    serviceDocumentationUrl?: URL;
+    scopesSupported?: string[];
+}) => OAuthMetadata;
+
+// @public
+export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string;
+
+// @public (undocumented)
+export function mcpAuthMetadataRouter(options: AuthMetadataOptions): express.Router;
+
+// @public
+export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler;
+
+// @public (undocumented)
+export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResourceMetadata): RequestHandler;
+
+// @public
+export function redirectUriMatches(requested: string, registered: string): boolean;
+
+// @public
+export function requireBearerAuth(input: BearerAuthMiddlewareOptions): RequestHandler;
+
+// @public (undocumented)
+export function revocationHandler(input: RevocationHandlerOptions): RequestHandler;
+
+// @public (undocumented)
+export function tokenHandler(input: TokenHandlerOptions): RequestHandler;
+
+// (No @packageDocumentation comment for this package)
 ```

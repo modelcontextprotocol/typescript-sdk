@@ -1,0 +1,4 @@
+# Generated API report baselines: regenerate with `pnpm api-report`, review
+# diffs like source, never hand-edit. LF is pinned because the api-report CI
+# gate compares them byte-exactly against freshly generated (LF) output.
+packages/**/etc/*.api.md linguist-generated=true text eol=lf

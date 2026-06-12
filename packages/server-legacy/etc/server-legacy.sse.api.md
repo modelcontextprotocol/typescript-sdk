@@ -146,5 +146,4 @@ type TransportSendOptions = {
 };
 
 // (No @packageDocumentation comment for this package)
-
 ```

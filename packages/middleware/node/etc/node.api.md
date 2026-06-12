@@ -35,65 +35,10 @@ interface EventStore {
 type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Flatten<U>> : T extends Set<infer U> ? Set<Flatten<U>> : T extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T extends object ? { [K in keyof T]: Flatten<T[K]> } : T;
 
 // @public (undocumented)
-type Flatten<T> = T extends Primitive ? T : T extends Array<infer U> ? Array<Flatten<U>> : T extends Set<infer U> ? Set<Flatten<U>> : T extends Map<infer K, infer V> ? Map<Flatten<K>, Flatten<V>> : T extends object ? { [K in keyof T]: Flatten<T[K]> } : T;
-
-// @public (undocumented)
-type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
-
-// @public (undocumented)
 type Infer<Schema extends z.ZodTypeAny> = Flatten<z.infer<Schema>>;
 
 // @public (undocumented)
 type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
-
-// @public (undocumented)
-type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
-
-// @public (undocumented)
-const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
-    method: z.ZodString;
-    params: z.ZodOptional<z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-    }, z.core.$loose>>;
-    jsonrpc: z.ZodLiteral<"2.0">;
-    id: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
-}, z.core.$strict>, z.ZodObject<{
-    method: z.ZodString;
-    params: z.ZodOptional<z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-    }, z.core.$loose>>;
-    jsonrpc: z.ZodLiteral<"2.0">;
-}, z.core.$strict>, z.ZodObject<{
-    jsonrpc: z.ZodLiteral<"2.0">;
-    id: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
-    result: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        resultType: z.ZodOptional<z.ZodString>;
-    }, z.core.$loose>;
-}, z.core.$strict>, z.ZodObject<{
-    jsonrpc: z.ZodLiteral<"2.0">;
-    id: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-    error: z.ZodObject<{
-        code: z.ZodNumber;
-        message: z.ZodString;
-        data: z.ZodOptional<z.ZodUnknown>;
-    }, z.core.$strip>;
-}, z.core.$strict>]>;
 
 // @public (undocumented)
 const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
@@ -178,19 +123,16 @@ export class NodeStreamableHTTPServerTransport implements Transport {
 type Primitive = string | number | boolean | bigint | null | undefined;
 
 // @public (undocumented)
-type Primitive = string | number | boolean | bigint | null | undefined;
-
-// @public (undocumented)
 type RequestId = Infer<typeof RequestIdSchema>;
 
 // @public
 const RequestIdSchema: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
 
-// @public
-export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServerTransportOptions;
-
 // @public (undocumented)
 type StreamId = string;
+
+// @public
+export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServerTransportOptions;
 
 // @public
 interface Transport {
@@ -230,5 +172,4 @@ interface WebStandardStreamableHTTPServerTransportOptions {
 }
 
 // (No @packageDocumentation comment for this package)
-
 ```

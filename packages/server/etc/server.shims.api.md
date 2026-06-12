@@ -7,6 +7,8 @@
 import { JSONSchema } from 'json-schema-typed';
 import { default as process_2 } from 'node:process';
 
+export { process_2 as process }
+
 // @public
 interface AjvLike {
     // (undocumented)
@@ -39,11 +41,6 @@ type JsonSchemaType = JSONSchema.Interface;
 type JsonSchemaValidator<T> = (input: unknown) => JsonSchemaValidatorResult<T>;
 
 // @public
-interface jsonSchemaValidator {
-    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
-}
-
-// @public
 type JsonSchemaValidatorResult<T> = {
     valid: true;
     data: T;
@@ -54,8 +51,10 @@ type JsonSchemaValidatorResult<T> = {
     errorMessage: string;
 };
 
-export { process_2 as process }
+// @public
+interface jsonSchemaValidator {
+    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
+}
 
 // (No @packageDocumentation comment for this package)
-
 ```

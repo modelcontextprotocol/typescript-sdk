@@ -36,26 +36,11 @@ export interface BearerAuthMiddlewareOptions {
 }
 
 // @public
-export function createMcpExpressApp(options?: CreateMcpExpressAppOptions): Express_2;
-
-// @public
 export interface CreateMcpExpressAppOptions {
     allowedHosts?: string[];
     host?: string;
     jsonLimit?: string;
 }
-
-// @public
-export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string;
-
-// @public
-export function hostHeaderValidation(allowedHostnames: string[]): RequestHandler;
-
-// @public
-export function localhostHostValidation(): RequestHandler;
-
-// @public
-export function mcpAuthMetadataRouter(options: AuthMetadataOptions): Router;
 
 // @public
 type OAuthMetadata = z.infer<typeof OAuthMetadataSchema>;
@@ -89,8 +74,22 @@ export interface OAuthTokenVerifier {
 }
 
 // @public
+export function createMcpExpressApp(options?: CreateMcpExpressAppOptions): Express_2;
+
+// @public
+export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string;
+
+// @public
+export function hostHeaderValidation(allowedHostnames: string[]): RequestHandler;
+
+// @public
+export function localhostHostValidation(): RequestHandler;
+
+// @public
+export function mcpAuthMetadataRouter(options: AuthMetadataOptions): Router;
+
+// @public
 export function requireBearerAuth(input: BearerAuthMiddlewareOptions): RequestHandler;
 
 // (No @packageDocumentation comment for this package)
-
 ```

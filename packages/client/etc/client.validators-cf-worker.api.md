@@ -25,11 +25,6 @@ type JsonSchemaType = JSONSchema.Interface;
 type JsonSchemaValidator<T> = (input: unknown) => JsonSchemaValidatorResult<T>;
 
 // @public
-interface jsonSchemaValidator {
-    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
-}
-
-// @public
 type JsonSchemaValidatorResult<T> = {
     valid: true;
     data: T;
@@ -40,6 +35,10 @@ type JsonSchemaValidatorResult<T> = {
     errorMessage: string;
 };
 
-// (No @packageDocumentation comment for this package)
+// @public
+interface jsonSchemaValidator {
+    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
+}
 
+// (No @packageDocumentation comment for this package)
 ```

@@ -7,30 +7,17 @@
 import { JSONSchema } from 'json-schema-typed';
 
 // @public
-interface AjvLike {
-    // (undocumented)
-    compile: (schema: unknown) => AjvValidateFunction;
-    // (undocumented)
-    errorsText: (errors?: any) => string;
-    // (undocumented)
-    getSchema: (keyRef: string) => AjvValidateFunction | undefined;
-}
-
-// @public (undocumented)
-interface AjvValidateFunction {
-    // (undocumented)
-    (input: unknown): boolean;
-    // (undocumented)
-    errors?: any;
-}
-
-// @public
 export const CORS_IS_POSSIBLE = false;
 
 // @public
+type CfWorkerSchemaDraft = '4' | '7' | '2019-09' | '2020-12';
+
+// @public
 export class DefaultJsonSchemaValidator implements jsonSchemaValidator {
-    constructor(ajv?: AjvLike);
-    // (undocumented)
+    constructor(options?: {
+        shortcircuit?: boolean;
+        draft?: CfWorkerSchemaDraft;
+    });
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
 }
 

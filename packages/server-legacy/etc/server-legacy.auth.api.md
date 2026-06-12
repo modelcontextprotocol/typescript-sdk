@@ -17,12 +17,6 @@ export class AccessDeniedError extends OAuthError {
 }
 
 // @public
-export function allowedMethods(allowedMethods: string[]): RequestHandler;
-
-// @public (undocumented)
-export function authenticateClient(input: ClientAuthenticationMiddlewareOptions): RequestHandler;
-
-// @public
 export interface AuthInfo {
     clientId: string;
     expiresAt?: number;
@@ -42,7 +36,19 @@ export type AuthMetadataOptions = {
 };
 
 // @public (undocumented)
-export function authorizationHandler(input: AuthorizationHandlerOptions): RequestHandler;
+export type AuthRouterOptions = {
+    provider: OAuthServerProvider;
+    issuerUrl: URL;
+    baseUrl?: URL;
+    serviceDocumentationUrl?: URL;
+    scopesSupported?: string[];
+    resourceName?: string;
+    resourceServerUrl?: URL;
+    authorizationOptions?: Omit<AuthorizationHandlerOptions, 'provider'>;
+    clientRegistrationOptions?: Omit<ClientRegistrationHandlerOptions, 'clientsStore'>;
+    revocationOptions?: Omit<RevocationHandlerOptions, 'provider'>;
+    tokenOptions?: Omit<TokenHandlerOptions, 'provider'>;
+};
 
 // @public (undocumented)
 export type AuthorizationHandlerOptions = {
@@ -60,21 +66,6 @@ export type AuthorizationParams = {
 };
 
 // @public (undocumented)
-export type AuthRouterOptions = {
-    provider: OAuthServerProvider;
-    issuerUrl: URL;
-    baseUrl?: URL;
-    serviceDocumentationUrl?: URL;
-    scopesSupported?: string[];
-    resourceName?: string;
-    resourceServerUrl?: URL;
-    authorizationOptions?: Omit<AuthorizationHandlerOptions, 'provider'>;
-    clientRegistrationOptions?: Omit<ClientRegistrationHandlerOptions, 'clientsStore'>;
-    revocationOptions?: Omit<RevocationHandlerOptions, 'provider'>;
-    tokenOptions?: Omit<TokenHandlerOptions, 'provider'>;
-};
-
-// @public (undocumented)
 export type BearerAuthMiddlewareOptions = {
     verifier: OAuthTokenVerifier;
     requiredScopes?: string[];
@@ -87,24 +78,12 @@ export type ClientAuthenticationMiddlewareOptions = {
 };
 
 // @public (undocumented)
-export function clientRegistrationHandler(input: ClientRegistrationHandlerOptions): RequestHandler;
-
-// @public (undocumented)
 export type ClientRegistrationHandlerOptions = {
     clientsStore: OAuthRegisteredClientsStore;
     clientSecretExpirySeconds?: number;
     rateLimit?: Partial<Options> | false;
     clientIdGeneration?: boolean;
 };
-
-// @public (undocumented)
-export const createOAuthMetadata: (options: {
-    provider: OAuthServerProvider;
-    issuerUrl: URL;
-    baseUrl?: URL;
-    serviceDocumentationUrl?: URL;
-    scopesSupported?: string[];
-}) => OAuthMetadata;
 
 // @public
 export class CustomOAuthError extends OAuthError {
@@ -115,9 +94,6 @@ export class CustomOAuthError extends OAuthError {
 
 // @public (undocumented)
 type FetchLike = (url: string | URL, init?: RequestInit) => Promise<Response>;
-
-// @public
-export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string;
 
 // @public
 export class InsufficientScopeError extends OAuthError {
@@ -166,15 +142,6 @@ export class InvalidTokenError extends OAuthError {
     // (undocumented)
     static errorCode: string;
 }
-
-// @public (undocumented)
-export function mcpAuthMetadataRouter(options: AuthMetadataOptions): express.Router;
-
-// @public
-export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler;
-
-// @public (undocumented)
-export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResourceMetadata): RequestHandler;
 
 // @public
 export class MethodNotAllowedError extends OAuthError {
@@ -326,6 +293,11 @@ const OAuthTokenRevocationRequestSchema: z.ZodObject<{
     token_type_hint: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
+// @public
+export interface OAuthTokenVerifier {
+    verifyAccessToken(token: string): Promise<AuthInfo>;
+}
+
 // @public (undocumented)
 type OAuthTokens = z.infer<typeof OAuthTokensSchema>;
 
@@ -338,11 +310,6 @@ const OAuthTokensSchema: z.ZodObject<{
     scope: z.ZodOptional<z.ZodString>;
     refresh_token: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
-
-// @public
-export interface OAuthTokenVerifier {
-    verifyAccessToken(token: string): Promise<AuthInfo>;
-}
 
 // @public (undocumented)
 export type ProxyEndpoints = {
@@ -389,15 +356,6 @@ export type ProxyOptions = {
     fetch?: FetchLike;
 };
 
-// @public
-export function redirectUriMatches(requested: string, registered: string): boolean;
-
-// @public
-export function requireBearerAuth(input: BearerAuthMiddlewareOptions): RequestHandler;
-
-// @public (undocumented)
-export function revocationHandler(input: RevocationHandlerOptions): RequestHandler;
-
 // @public (undocumented)
 export type RevocationHandlerOptions = {
     provider: OAuthServerProvider;
@@ -415,9 +373,6 @@ export class TemporarilyUnavailableError extends OAuthError {
     // (undocumented)
     static errorCode: string;
 }
-
-// @public (undocumented)
-export function tokenHandler(input: TokenHandlerOptions): RequestHandler;
 
 // @public (undocumented)
 export type TokenHandlerOptions = {
@@ -455,6 +410,50 @@ export class UnsupportedTokenTypeError extends OAuthError {
     static errorCode: string;
 }
 
-// (No @packageDocumentation comment for this package)
+// @public
+export function allowedMethods(allowedMethods: string[]): RequestHandler;
 
+// @public (undocumented)
+export function authenticateClient(input: ClientAuthenticationMiddlewareOptions): RequestHandler;
+
+// @public (undocumented)
+export function authorizationHandler(input: AuthorizationHandlerOptions): RequestHandler;
+
+// @public (undocumented)
+export function clientRegistrationHandler(input: ClientRegistrationHandlerOptions): RequestHandler;
+
+// @public (undocumented)
+export const createOAuthMetadata: (options: {
+    provider: OAuthServerProvider;
+    issuerUrl: URL;
+    baseUrl?: URL;
+    serviceDocumentationUrl?: URL;
+    scopesSupported?: string[];
+}) => OAuthMetadata;
+
+// @public
+export function getOAuthProtectedResourceMetadataUrl(serverUrl: URL): string;
+
+// @public (undocumented)
+export function mcpAuthMetadataRouter(options: AuthMetadataOptions): express.Router;
+
+// @public
+export function mcpAuthRouter(options: AuthRouterOptions): RequestHandler;
+
+// @public (undocumented)
+export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResourceMetadata): RequestHandler;
+
+// @public
+export function redirectUriMatches(requested: string, registered: string): boolean;
+
+// @public
+export function requireBearerAuth(input: BearerAuthMiddlewareOptions): RequestHandler;
+
+// @public (undocumented)
+export function revocationHandler(input: RevocationHandlerOptions): RequestHandler;
+
+// @public (undocumented)
+export function tokenHandler(input: TokenHandlerOptions): RequestHandler;
+
+// (No @packageDocumentation comment for this package)
 ```

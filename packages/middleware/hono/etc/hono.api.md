@@ -8,13 +8,13 @@ import { Hono } from 'hono';
 import { MiddlewareHandler } from 'hono';
 
 // @public
-export function createMcpHonoApp(options?: CreateMcpHonoAppOptions): Hono;
-
-// @public
 export interface CreateMcpHonoAppOptions {
     allowedHosts?: string[];
     host?: string;
 }
+
+// @public
+export function createMcpHonoApp(options?: CreateMcpHonoAppOptions): Hono;
 
 // @public
 export function hostHeaderValidation(allowedHostnames: string[]): MiddlewareHandler;
@@ -23,5 +23,4 @@ export function hostHeaderValidation(allowedHostnames: string[]): MiddlewareHand
 export function localhostHostValidation(): MiddlewareHandler;
 
 // (No @packageDocumentation comment for this package)
-
 ```

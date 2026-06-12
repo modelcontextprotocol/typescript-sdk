@@ -15,24 +15,31 @@ type AddedKeywordDefinition = KeywordDefinition & {
     schemaType: JSONType[];
 };
 
-// @public
-export const addFormats: typeof formatsPlugin.default;
+// @public (undocumented)
+export class Ajv extends Ajv$2 {
+    // (undocumented)
+    _addDefaultMetaSchema(): void;
+    // (undocumented)
+    _addVocabularies(): void;
+    // (undocumented)
+    defaultMeta(): string | AnySchemaObject | undefined;
+}
 
 // @public (undocumented)
-class Ajv {
+class Ajv$2 {
     // (undocumented)
     $dataMetaSchema(metaSchema: AnySchemaObject, keywordsJsonPointers: string[]): AnySchemaObject;
     constructor(opts?: Options);
     // (undocumented)
     _addDefaultMetaSchema(): void;
     // (undocumented)
-    addFormat(name: string, format: Format): Ajv;
+    addFormat(name: string, format: Format): Ajv$2;
     // (undocumented)
-    addKeyword(kwdOrDef: string | KeywordDefinition, def?: KeywordDefinition): Ajv;
+    addKeyword(kwdOrDef: string | KeywordDefinition, def?: KeywordDefinition): Ajv$2;
     // (undocumented)
     addMetaSchema(schema: AnySchemaObject, key?: string,
     // schema key
-    _validateSchema?: boolean | "log"): Ajv;
+    _validateSchema?: boolean | "log"): Ajv$2;
     // (undocumented)
     addSchema(schema: AnySchema | AnySchema[],
     // If array is passed, `key` will be ignored
@@ -40,13 +47,13 @@ class Ajv {
     // Optional schema key. Can be passed to `validate` method instead of schema object or id/ref. One schema per instance can have empty `id` and `key`.
     _meta?: boolean,
     // true if schema is a meta-schema. Used internally, addMetaSchema should be used instead.
-    _validateSchema?: boolean | "log"): Ajv;
+    _validateSchema?: boolean | "log"): Ajv$2;
     // (undocumented)
     _addSchema(schema: AnySchema, meta?: boolean, baseId?: string, validateSchema?: boolean | "log", addSchema?: boolean): SchemaEnv;
     // (undocumented)
     _addVocabularies(): void;
     // (undocumented)
-    addVocabulary(definitions: Vocabulary): Ajv;
+    addVocabulary(definitions: Vocabulary): Ajv$2;
     // (undocumented)
     readonly _compilations: Set<SchemaEnv>;
     // (undocumented)
@@ -90,9 +97,9 @@ class Ajv {
     // (undocumented)
     readonly refs: { [Ref in string]?: SchemaEnv | string };
     // (undocumented)
-    removeKeyword(keyword: string): Ajv;
+    removeKeyword(keyword: string): Ajv$2;
     // (undocumented)
-    removeSchema(schemaKeyRef?: AnySchema | string | RegExp): Ajv;
+    removeSchema(schemaKeyRef?: AnySchema | string | RegExp): Ajv$2;
     // (undocumented)
     readonly RULES: ValidationRules;
     // (undocumented)
@@ -117,16 +124,6 @@ class Ajv {
     validateSchema(schema: AnySchema, throwOrLogError?: boolean): boolean | Promise<unknown>;
     // (undocumented)
     static ValidationError: typeof ValidationError;
-}
-
-// @public (undocumented)
-export class Ajv extends Ajv {
-    // (undocumented)
-    _addDefaultMetaSchema(): void;
-    // (undocumented)
-    _addVocabularies(): void;
-    // (undocumented)
-    defaultMeta(): string | AnySchemaObject | undefined;
 }
 
 // @public
@@ -197,21 +194,6 @@ type Block = Code | (() => void);
 
 // @public (undocumented)
 type Code = _Code | Name;
-
-// @public (undocumented)
-class _Code extends _CodeOrName {
-    constructor(code: string | readonly CodeItem[]);
-    // (undocumented)
-    emptyStr(): boolean;
-    // (undocumented)
-    readonly _items: readonly CodeItem[];
-    // (undocumented)
-    get names(): UsedNames;
-    // (undocumented)
-    get str(): string;
-    // (undocumented)
-    toString(): string;
-}
 
 // @public (undocumented)
 class CodeGen {
@@ -329,18 +311,6 @@ interface CodeOptions {
     regExp?: RegExpEngine;
     // (undocumented)
     source?: boolean;
-}
-
-// @public (undocumented)
-abstract class _CodeOrName {
-    // (undocumented)
-    abstract emptyStr(): boolean;
-    // (undocumented)
-    abstract readonly names: UsedNames;
-    // (undocumented)
-    abstract readonly str: string;
-    // (undocumented)
-    abstract toString(): string;
 }
 
 // @public (undocumented)
@@ -570,19 +540,16 @@ interface FormatOptions {
 }
 
 // @public (undocumented)
+type FormatValidator<T extends string | number> = (data: T) => boolean;
+
+// @public (undocumented)
 interface FormatsPlugin extends Plugin_2<FormatsPluginOptions> {
     // (undocumented)
     get: (format: FormatName, mode?: FormatMode) => Format;
 }
 
 // @public (undocumented)
-const formatsPlugin: FormatsPlugin;
-
-// @public (undocumented)
 type FormatsPluginOptions = FormatName[] | FormatOptions;
-
-// @public (undocumented)
-type FormatValidator<T extends string | number> = (data: T) => boolean;
 
 // @public (undocumented)
 interface FuncKeywordDefinition extends _KeywordDef {
@@ -637,36 +604,11 @@ type IsValues<T> = false extends IsUnion<T> ? TypeEquality<keyof T, string> : fa
 // @public (undocumented)
 type JSONSchemaType<T> = StrictNullChecksWrapper<"JSONSchemaType", UncheckedJSONSchemaType<T, false>>;
 
-// @public
-type JsonSchemaType = JSONSchema.Interface;
-
-// @public
-type JsonSchemaValidator<T> = (input: unknown) => JsonSchemaValidatorResult<T>;
-
-// @public
-interface jsonSchemaValidator {
-    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
-}
-
-// @public
-type JsonSchemaValidatorResult<T> = {
-    valid: true;
-    data: T;
-    errorMessage: undefined;
-} | {
-    valid: false;
-    data: undefined;
-    errorMessage: string;
-};
-
 // @public (undocumented)
 type JSONType = (typeof _jsonTypes)[number];
 
 // @public (undocumented)
-type JSONType<T extends string, IsPartial extends boolean> = IsPartial extends true ? T | undefined : T;
-
-// @public (undocumented)
-const _jsonTypes: readonly ["string", "number", "integer", "boolean", "null", "object", "array"];
+type JSONType$2<T extends string, IsPartial extends boolean> = IsPartial extends true ? T | undefined : T;
 
 // @public (undocumented)
 type JTDDataDef<S, D extends Record<string, unknown>> =
@@ -761,6 +703,23 @@ type JTDSchemaType<T, D extends Record<string, unknown> = Record<string, never>>
     definitions?: { [K in keyof D]: JTDSchemaType<D[K], D> };
 };
 
+// @public
+type JsonSchemaType = JSONSchema.Interface;
+
+// @public
+type JsonSchemaValidator<T> = (input: unknown) => JsonSchemaValidatorResult<T>;
+
+// @public
+type JsonSchemaValidatorResult<T> = {
+    valid: true;
+    data: T;
+    errorMessage: undefined;
+} | {
+    valid: false;
+    data: undefined;
+    errorMessage: string;
+};
+
 // @public (undocumented)
 class KeywordCxt implements KeywordErrorCxt {
     // (undocumented)
@@ -828,36 +787,6 @@ class KeywordCxt implements KeywordErrorCxt {
 
 // @public (undocumented)
 type KeywordCxtParams = { [P in string]?: Code | string | number };
-
-// @public (undocumented)
-interface _KeywordDef {
-    // (undocumented)
-    $data?: boolean;
-    // (undocumented)
-    $dataError?: KeywordErrorDefinition;
-    // (undocumented)
-    allowUndefined?: boolean;
-    // (undocumented)
-    before?: string;
-    // (undocumented)
-    dependencies?: string[];
-    // (undocumented)
-    error?: KeywordErrorDefinition;
-    // (undocumented)
-    implements?: string[];
-    // (undocumented)
-    keyword: string | string[];
-    // (undocumented)
-    metaSchema?: AnySchemaObject;
-    // (undocumented)
-    post?: boolean;
-    // (undocumented)
-    schemaType?: JSONType | JSONType[];
-    // (undocumented)
-    type?: JSONType | JSONType[];
-    // (undocumented)
-    validateSchema?: AnyValidateFunction;
-}
 
 // @public (undocumented)
 type KeywordDefinition = CodeKeywordDefinition | FuncKeywordDefinition | MacroKeywordDefinition;
@@ -965,6 +894,9 @@ interface NameValue {
     ref: ValueReference;
 }
 
+// @public
+type NullTypeEquality<T, E> = TypeEquality<T | null, E | null>;
+
 // @public (undocumented)
 type Nullable<T> = undefined extends T ? {
     nullable: true;
@@ -977,9 +909,6 @@ type Nullable<T> = undefined extends T ? {
     enum?: readonly T[];
     default?: T;
 };
-
-// @public
-type NullTypeEquality<T, E> = TypeEquality<T | null, E | null>;
 
 // @public (undocumented)
 interface NumberKeywords {
@@ -1009,7 +938,7 @@ type Options = CurrentOptions & DeprecatedOptions;
 // @public (undocumented)
 interface Plugin_2<Opts> {
     // (undocumented)
-    (ajv: Ajv, options?: Opts): Ajv;
+    (ajv: Ajv$2, options?: Opts): Ajv$2;
     // (undocumented)
     [prop: string]: any;
 }
@@ -1113,7 +1042,7 @@ interface SchemaCxt {
     // (undocumented)
     readonly schemaPath: Code;
     // (undocumented)
-    readonly self: Ajv;
+    readonly self: Ajv$2;
     // (undocumented)
     readonly topSchemaRef: Code;
     // (undocumented)
@@ -1198,18 +1127,6 @@ interface SchemaObject extends _SchemaObject {
 }
 
 // @public (undocumented)
-interface _SchemaObject {
-    // (undocumented)
-    $id?: string;
-    // (undocumented)
-    $schema?: string;
-    // (undocumented)
-    [x: string]: any;
-    // (undocumented)
-    id?: string;
-}
-
-// @public (undocumented)
 type SchemaRefs = { [Ref in string]?: SchemaEnv | AnySchema };
 
 // @public (undocumented)
@@ -1257,10 +1174,10 @@ interface ScopePath {
 type ScopeStore = Record<string, ValueReference[] | undefined>;
 
 // @public (undocumented)
-type ScopeValues = { [Prefix in string]?: Map<unknown, ValueScopeName> };
+type ScopeValueSets = { [Prefix in string]?: Set<ValueScopeName> };
 
 // @public (undocumented)
-type ScopeValueSets = { [Prefix in string]?: Set<ValueScopeName> };
+type ScopeValues = { [Prefix in string]?: Map<unknown, ValueScopeName> };
 
 // @public
 type SomeJTDSchemaType = (
@@ -1362,15 +1279,15 @@ type UncheckedJSONSchemaType<T, IsPartial extends boolean> = (
 } | {
     oneOf: readonly UncheckedJSONSchemaType<T, IsPartial>[];
 } | ({
-    type: readonly (T extends number ? JSONType<"number" | "integer", IsPartial> : T extends string ? JSONType<"string", IsPartial> : T extends boolean ? JSONType<"boolean", IsPartial> : never)[];
+    type: readonly (T extends number ? JSONType$2<"number" | "integer", IsPartial> : T extends string ? JSONType$2<"string", IsPartial> : T extends boolean ? JSONType$2<"boolean", IsPartial> : never)[];
 } & UnionToIntersection<T extends number ? NumberKeywords : T extends string ? StringKeywords : T extends boolean ? {} : never>) | ((T extends number ? {
-    type: JSONType<"number" | "integer", IsPartial>;
+    type: JSONType$2<"number" | "integer", IsPartial>;
 } & NumberKeywords : T extends string ? {
-    type: JSONType<"string", IsPartial>;
+    type: JSONType$2<"string", IsPartial>;
 } & StringKeywords : T extends boolean ? {
-    type: JSONType<"boolean", IsPartial>;
+    type: JSONType$2<"boolean", IsPartial>;
 } : T extends readonly [any, ...any[]] ? {
-    type: JSONType<"array", IsPartial>;
+    type: JSONType$2<"array", IsPartial>;
     items: { readonly [K in keyof T]-?: UncheckedJSONSchemaType<T[K], false> & Nullable<T[K]> } & {
         length: T["length"];
     };
@@ -1380,7 +1297,7 @@ type UncheckedJSONSchemaType<T, IsPartial extends boolean> = (
 } | {
     additionalItems: false;
 }) : T extends readonly any[] ? {
-    type: JSONType<"array", IsPartial>;
+    type: JSONType$2<"array", IsPartial>;
     items: UncheckedJSONSchemaType<T[0], false>;
     contains?: UncheckedPartialSchema<T[0]>;
     minItems?: number;
@@ -1390,7 +1307,7 @@ type UncheckedJSONSchemaType<T, IsPartial extends boolean> = (
     uniqueItems?: true;
     additionalItems?: never;
 } : T extends Record<string, any> ? {
-    type: JSONType<"object", IsPartial>;
+    type: JSONType$2<"object", IsPartial>;
     additionalProperties?: boolean | UncheckedJSONSchemaType<T[string], false>;
     unevaluatedProperties?: boolean | UncheckedJSONSchemaType<T[string], false>;
     properties?: IsPartial extends true ? Partial<UncheckedPropertiesSchema<T>> : UncheckedPropertiesSchema<T>;
@@ -1410,7 +1327,7 @@ type UncheckedJSONSchemaType<T, IsPartial extends boolean> = (
 } : {
     required: readonly UncheckedRequiredMembers<T>[];
 }) : T extends null ? {
-    type: JSONType<"null", IsPartial>;
+    type: JSONType$2<"null", IsPartial>;
     nullable: true;
 } : never) & {
     allOf?: readonly UncheckedPartialSchema<T>[];
@@ -1467,9 +1384,15 @@ enum UsedValueState {
 }
 
 // @public (undocumented)
+interface VSOptions extends ValueScopeOptions {
+    // (undocumented)
+    _n: Code;
+}
+
+// @public (undocumented)
 interface ValidateFunction<T = unknown> {
     // (undocumented)
-    (this: Ajv | any, data: any, dataCxt?: DataValidationCxt): data is T;
+    (this: Ajv$2 | any, data: any, dataCxt?: DataValidationCxt): data is T;
     // (undocumented)
     errors?: null | ErrorObject[];
     // (undocumented)
@@ -1563,11 +1486,87 @@ interface ValueScopeOptions extends ScopeOptions {
 type Vocabulary = (KeywordDefinition | string)[];
 
 // @public (undocumented)
-interface VSOptions extends ValueScopeOptions {
+class _Code extends _CodeOrName {
+    constructor(code: string | readonly CodeItem[]);
     // (undocumented)
-    _n: Code;
+    emptyStr(): boolean;
+    // (undocumented)
+    readonly _items: readonly CodeItem[];
+    // (undocumented)
+    get names(): UsedNames;
+    // (undocumented)
+    get str(): string;
+    // (undocumented)
+    toString(): string;
+}
+
+// @public (undocumented)
+abstract class _CodeOrName {
+    // (undocumented)
+    abstract emptyStr(): boolean;
+    // (undocumented)
+    abstract readonly names: UsedNames;
+    // (undocumented)
+    abstract readonly str: string;
+    // (undocumented)
+    abstract toString(): string;
+}
+
+// @public (undocumented)
+interface _KeywordDef {
+    // (undocumented)
+    $data?: boolean;
+    // (undocumented)
+    $dataError?: KeywordErrorDefinition;
+    // (undocumented)
+    allowUndefined?: boolean;
+    // (undocumented)
+    before?: string;
+    // (undocumented)
+    dependencies?: string[];
+    // (undocumented)
+    error?: KeywordErrorDefinition;
+    // (undocumented)
+    implements?: string[];
+    // (undocumented)
+    keyword: string | string[];
+    // (undocumented)
+    metaSchema?: AnySchemaObject;
+    // (undocumented)
+    post?: boolean;
+    // (undocumented)
+    schemaType?: JSONType | JSONType[];
+    // (undocumented)
+    type?: JSONType | JSONType[];
+    // (undocumented)
+    validateSchema?: AnyValidateFunction;
+}
+
+// @public (undocumented)
+interface _SchemaObject {
+    // (undocumented)
+    $id?: string;
+    // (undocumented)
+    $schema?: string;
+    // (undocumented)
+    [x: string]: any;
+    // (undocumented)
+    id?: string;
+}
+
+// @public (undocumented)
+const _jsonTypes: readonly ["string", "number", "integer", "boolean", "null", "object", "array"];
+
+// @public
+export const addFormats: typeof formatsPlugin.default;
+
+// @public (undocumented)
+const formatsPlugin: FormatsPlugin;
+
+// @public
+interface jsonSchemaValidator {
+    getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T>;
 }
 
 // (No @packageDocumentation comment for this package)
-
 ```
