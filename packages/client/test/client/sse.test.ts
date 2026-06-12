@@ -257,16 +257,56 @@ describe('SSEClientTransport', () => {
                 return fetch(url.toString(), { ...init, headers });
             };
 
+            // NOTE: eventSourceInit.fetch is no longer called inside the SDK's internal SSE
+            // wrapper; use the top-level `fetch` option to customize network behavior instead.
             transport = new SSEClientTransport(resourceBaseUrl, {
-                eventSourceInit: {
-                    fetch: fetchWithAuth
-                }
+                fetch: fetchWithAuth
             });
 
             await transport.start();
 
             // Verify the auth header was received by the server
             expect(lastServerRequest.headers.authorization).toBe(authToken);
+        });
+
+        it('does not duplicate Authorization header when requestInit.headers and eventSourceInit.fetch both set it', async () => {
+            // Regression test for https://github.com/modelcontextprotocol/typescript-sdk/issues/1872
+            //
+            // Before the fix, eventSourceInit.fetch was used as `fetchImpl` inside the SDK's
+            // internal SSE wrapper. The wrapper passed a `Headers` instance (which lowercases
+            // keys) to fetchImpl. If the user's fetch iterated those headers into a plain object
+            // and then merged its own closure headers (with original casing), the result had both
+            // `authorization` and `Authorization` as separate keys. new Headers({ authorization:
+            // X, Authorization: X }) joins them as "X, X" per the HTTP multi-value spec.
+            const token = 'Bearer my-token';
+            const closureHeaders = { Authorization: token };
+
+            // Simulates the common user pattern that caused the bug:
+            // spread SDK's `Headers` (lowercase keys) then overlay plain-object closure headers.
+            const wrappingFetch = (url: string | URL, init?: RequestInit) => {
+                const sdkHeaders: Record<string, string> = {};
+                if (init?.headers instanceof Headers) {
+                    init.headers.forEach((value, key) => {
+                        sdkHeaders[key] = value;
+                    });
+                } else if (init?.headers) {
+                    Object.assign(sdkHeaders, init.headers);
+                }
+                return fetch(url.toString(), {
+                    ...init,
+                    headers: { ...sdkHeaders, ...closureHeaders }
+                });
+            };
+
+            transport = new SSEClientTransport(resourceBaseUrl, {
+                requestInit: { headers: { Authorization: token } },
+                eventSourceInit: { fetch: wrappingFetch }
+            });
+
+            await transport.start();
+
+            // Must be a single value, not "Bearer my-token, Bearer my-token"
+            expect(lastServerRequest.headers.authorization).toBe(token);
         });
 
         it('uses custom fetch implementation from options', async () => {
