@@ -23,7 +23,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -96,12 +96,21 @@ function writeCorpus(files: ExampleFile[], sha: string): void {
 
     const dirs: Record<string, string[]> = {};
     for (const file of files.sort((a, b) => a.relPath.localeCompare(b.relPath))) {
-        const [typeDir, fileName] = file.relPath.split('/');
-        if (!typeDir || !fileName) throw new Error(`Unexpected example path: ${file.relPath}`);
+        // The path components come from outside this repo (a spec checkout or the
+        // GitHub trees API); reject anything that could escape the output directory.
+        const parts = file.relPath.split('/');
+        if (parts.length !== 2 || parts.some(p => !p || p === '.' || p === '..' || p.includes('\\'))) {
+            throw new Error(`Unsafe or unexpected example path: ${file.relPath}`);
+        }
+        const [typeDir, fileName] = parts as [string, string];
+        const destFile = resolve(OUTPUT_DIR, typeDir, fileName);
+        if (!destFile.startsWith(resolve(OUTPUT_DIR) + sep)) {
+            throw new Error(`Example path escapes the output directory: ${file.relPath}`);
+        }
         mkdirSync(join(OUTPUT_DIR, typeDir), { recursive: true });
         // Validate now so a malformed upstream example fails the vendoring, not the harness.
         JSON.parse(file.content);
-        writeFileSync(join(OUTPUT_DIR, typeDir, fileName), file.content);
+        writeFileSync(destFile, file.content);
         (dirs[typeDir] ??= []).push(fileName);
     }
 

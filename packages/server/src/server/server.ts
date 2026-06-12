@@ -9,6 +9,7 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    EmptyResult,
     Implementation,
     InitializeRequest,
     InitializeResult,
@@ -16,6 +17,7 @@ import type {
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
+    ListRootsResult,
     LoggingLevel,
     LoggingMessageNotification,
     MessageExtraInfo,
@@ -403,7 +405,7 @@ export class Server extends Protocol<ServerContext> {
         return this._capabilities;
     }
 
-    async ping() {
+    async ping(): Promise<EmptyResult> {
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema);
     }
 
@@ -576,7 +578,7 @@ export class Server extends Protocol<ServerContext> {
             );
     }
 
-    async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
+    async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions): Promise<ListRootsResult> {
         return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
 

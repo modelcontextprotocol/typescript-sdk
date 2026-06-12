@@ -223,7 +223,11 @@ export type SpecTypeName = StripSchemaSuffix<SchemaKey>;
 /**
  * Maps each {@linkcode SpecTypeName} to its TypeScript type.
  *
- * `SpecTypes['CallToolResult']` is equivalent to importing the `CallToolResult` type directly.
+ * `SpecTypes['Tool']` is equivalent to importing the `Tool` type directly.
+ * These are WIRE validator outputs: result entries additionally carry the
+ * wire-only `resultType` member, which the public result types do not declare
+ * (the SDK consumes it at the protocol layer and strips it before results
+ * reach consumers).
  */
 export type SpecTypes = {
     [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.output<SchemaFor<K>> : never;
