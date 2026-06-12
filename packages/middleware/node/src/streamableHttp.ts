@@ -7,6 +7,7 @@
  * For web-standard environments (Cloudflare Workers, Deno, Bun), use {@linkcode WebStandardStreamableHTTPServerTransport} directly.
  */
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
@@ -67,20 +68,23 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
 export class NodeStreamableHTTPServerTransport implements Transport {
     private _webStandardTransport: WebStandardStreamableHTTPServerTransport;
     private _requestListener: ReturnType<typeof getRequestListener>;
-    // Store auth and parsedBody per request for passing through to handleRequest
-    private _requestContext: WeakMap<Request, { authInfo?: AuthInfo; parsedBody?: unknown }> = new WeakMap();
+    // Pass per-request context (auth, parsed body) through to the shared request listener.
+    // AsyncLocalStorage is used because getRequestListener creates the Web Standard Request
+    // internally — we have no reference to it before the callback fires, so a WeakMap keyed
+    // by Request cannot work. AsyncLocalStorage is concurrent-safe and appropriate here since
+    // this module is Node.js-specific.
+    private _requestContext = new AsyncLocalStorage<{ authInfo?: AuthInfo; parsedBody?: unknown }>();
 
     constructor(options: StreamableHTTPServerTransportOptions = {}) {
         this._webStandardTransport = new WebStandardStreamableHTTPServerTransport(options);
 
-        // Create a request listener that wraps the web standard transport
-        // getRequestListener converts Node.js HTTP to Web Standard and properly handles SSE streaming
+        // Create a single request listener at construction time, reused for every request.
+        // getRequestListener converts Node.js HTTP to Web Standard and properly handles SSE streaming.
         // overrideGlobalObjects: false prevents Hono from overwriting global Response, which would
-        // break frameworks like Next.js whose response classes extend the native Response
+        // break frameworks like Next.js whose response classes extend the native Response.
         this._requestListener = getRequestListener(
             async (webRequest: Request) => {
-                // Get context if available (set during handleRequest)
-                const context = this._requestContext.get(webRequest);
+                const context = this._requestContext.getStore();
                 return this._webStandardTransport.handleRequest(webRequest, {
                     authInfo: context?.authInfo,
                     parsedBody: context?.parsedBody
@@ -163,26 +167,12 @@ export class NodeStreamableHTTPServerTransport implements Transport {
      * @param parsedBody - Optional pre-parsed body from body-parser middleware
      */
     async handleRequest(req: IncomingMessage & { auth?: AuthInfo }, res: ServerResponse, parsedBody?: unknown): Promise<void> {
-        // Store context for this request to pass through auth and parsedBody
-        // We need to intercept the request creation to attach this context
-        const authInfo = req.auth;
-
-        // Create a custom handler that includes our context
-        // overrideGlobalObjects: false prevents Hono from overwriting global Response, which would
-        // break frameworks like Next.js whose response classes extend the native Response
-        const handler = getRequestListener(
-            async (webRequest: Request) => {
-                return this._webStandardTransport.handleRequest(webRequest, {
-                    authInfo,
-                    parsedBody
-                });
-            },
-            { overrideGlobalObjects: false }
-        );
-
-        // Delegate to the request listener which handles all the Node.js <-> Web Standard conversion
-        // including proper SSE streaming support
-        await handler(req, res);
+        // Run the shared request listener within an AsyncLocalStorage context so the
+        // callback can retrieve authInfo and parsedBody without creating a new
+        // getRequestListener per request.
+        await this._requestContext.run({ authInfo: req.auth, parsedBody }, () => {
+            return this._requestListener(req, res);
+        });
     }
 
     /**
