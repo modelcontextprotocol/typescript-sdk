@@ -2,6 +2,8 @@ on:
     push:
         branches:
             - main
+            - v2-2026-07-28
+            - v2-2026-07-28
     pull_request:
     workflow_dispatch:
 
