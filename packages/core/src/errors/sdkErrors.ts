@@ -22,6 +22,8 @@ export enum SdkErrorCode {
     // Transport errors
     /** Request timed out waiting for response */
     RequestTimeout = 'REQUEST_TIMEOUT',
+    /** Request was aborted via AbortSignal */
+    RequestAborted = 'REQUEST_ABORTED',
     /** Connection was closed */
     ConnectionClosed = 'CONNECTION_CLOSED',
     /** Failed to send message */
