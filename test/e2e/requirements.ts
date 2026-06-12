@@ -154,6 +154,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'The receiver silently ignores a cancellation notification referencing an unknown or already-completed request id; no error response is sent and no exception is raised.'
     },
+    'typescript:client:raw-result-type-first': {
+        source: 'sdk',
+        behavior:
+            'A raw input_required result body through the full client path surfaces the discriminated kind as a typed local error (UNSUPPORTED_RESULT_TYPE with data.resultType) — never an empty-content success, on any spec-version axis.',
+        transports: ['inMemory', 'streamableHttp'],
+        note: 'The client funnel inspects the raw resultType before schema validation, closing the masking hazard where the tools/call result schema would default content to [] and report a hollow success. Raw relay servers stand in for a 2026-era peer; the streamableHttp leg uses a hand handler (custom fetch), so the cells exercise both an in-process and an HTTP response path.'
+    },
     'typescript:protocol:error:connection-closed': {
         source: 'sdk',
         behavior: 'Closing the transport invokes onclose and rejects all in-flight requests with ErrorCode.ConnectionClosed.',

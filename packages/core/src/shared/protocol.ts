@@ -24,6 +24,7 @@ import type {
     Request,
     RequestId,
     RequestMeta,
+    RequestMetaEnvelope,
     RequestMethod,
     RequestTypeMap,
     Result,
@@ -31,6 +32,8 @@ import type {
     ServerCapabilities
 } from '../types/index.js';
 import {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     getNotificationSchema,
     getRequestSchema,
     getResultSchema,
@@ -38,6 +41,8 @@ import {
     isJSONRPCNotification,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
+    LOG_LEVEL_META_KEY,
+    PROTOCOL_VERSION_META_KEY,
     ProtocolError,
     ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
@@ -132,6 +137,88 @@ export type NotificationOptions = {
 };
 
 /**
+ * The reserved per-request `_meta` envelope keys (protocol revision
+ * 2026-07-28). The protocol layer lifts these out of inbound `_meta` before
+ * handlers run and surfaces them at `ctx.mcpReq.envelope` — they are
+ * wire-level bookkeeping, not handler material.
+ */
+const RESERVED_ENVELOPE_META_KEYS: readonly string[] = [
+    PROTOCOL_VERSION_META_KEY,
+    CLIENT_INFO_META_KEY,
+    CLIENT_CAPABILITIES_META_KEY,
+    LOG_LEVEL_META_KEY
+];
+
+/**
+ * Top-level params members carrying multi-round-trip driver material
+ * (protocol revision 2026-07-28). The spec reserves these names on
+ * client-initiated REQUESTS only — notification params keep them untouched
+ * (a vendor notification may legitimately use the same names).
+ */
+const RETRY_PARAMS_KEYS = ['inputResponses', 'requestState'] as const;
+
+interface LiftedWireMaterial {
+    // Partial: the lift surfaces whichever reserved keys the request actually
+    // carried — a peer on an adjacent revision may legally send a subset, and
+    // envelope requiredness is enforced per request at dispatch time, not here.
+    envelope?: Partial<RequestMetaEnvelope>;
+    inputResponses?: Record<string, unknown>;
+    requestState?: string;
+}
+
+/**
+ * Lift wire-only material out of an inbound message so handlers see exactly
+ * the 2025-era shape, and surface it for the protocol layer (requests: via
+ * `ctx.mcpReq`). What counts as wire-only depends on the message kind: the
+ * reserved envelope `_meta` keys are reserved on every message, while the
+ * multi-round-trip retry fields (`inputResponses`/`requestState`) are
+ * reserved on client-initiated requests only — so notifications get only the
+ * envelope lift, and their top-level params stay untouched. Messages without
+ * wire-only material are returned unchanged (same reference).
+ */
+function liftWireOnlyMaterial<T extends JSONRPCRequest | JSONRPCNotification>(
+    message: T,
+    kind: 'request' | 'notification'
+): { message: T; lifted: LiftedWireMaterial } {
+    const params = (message as { params?: unknown }).params;
+    if (!isPlainObject(params)) return { message, lifted: {} };
+
+    const meta = params._meta;
+    const envelopeKeys = isPlainObject(meta) ? RESERVED_ENVELOPE_META_KEYS.filter(key => key in meta) : [];
+    const retryKeys = kind === 'request' ? RETRY_PARAMS_KEYS.filter(key => key in params) : [];
+    if (envelopeKeys.length === 0 && retryKeys.length === 0) return { message, lifted: {} };
+
+    const lifted: LiftedWireMaterial = {};
+    const nextParams: Record<string, unknown> = { ...params };
+
+    if (envelopeKeys.length > 0 && isPlainObject(meta)) {
+        const envelope: Record<string, unknown> = {};
+        const nextMeta: Record<string, unknown> = { ...meta };
+        for (const key of envelopeKeys) {
+            envelope[key] = meta[key];
+            delete nextMeta[key];
+        }
+        // Surfaced as received; validation/enforcement is the dispatch-time
+        // classifier's job, not the lift's.
+        lifted.envelope = envelope as Partial<RequestMetaEnvelope>;
+        if (Object.keys(nextMeta).length > 0) {
+            nextParams._meta = nextMeta;
+        } else {
+            delete nextParams._meta;
+        }
+    }
+
+    for (const key of retryKeys) {
+        // Driver material reaches the protocol layer un-deleted, verbatim.
+        if (key === 'inputResponses') lifted.inputResponses = nextParams[key] as Record<string, unknown>;
+        if (key === 'requestState') lifted.requestState = nextParams[key] as string;
+        delete nextParams[key];
+    }
+
+    return { message: { ...message, params: nextParams } as T, lifted };
+}
+
+/**
  * Base context provided to all request handlers.
  */
 export type BaseContext = {
@@ -155,9 +242,36 @@ export type BaseContext = {
         method: string;
 
         /**
-         * Metadata from the original request.
+         * Metadata from the original request, with the reserved
+         * `io.modelcontextprotocol/*` envelope keys already lifted out
+         * (readable via `ctx.mcpReq.envelope`).
          */
         _meta?: RequestMeta;
+
+        /**
+         * The per-request `_meta` envelope (protocol revision 2026-07-28):
+         * the reserved `io.modelcontextprotocol/*` keys carried by the
+         * request, lifted out of the `_meta` the handler sees. Surfaced as
+         * received — `Partial` because only the keys the request actually
+         * carried are present (envelope requiredness is enforced per request
+         * at dispatch time, not by the lift); only present at all when the
+         * request carried envelope keys.
+         */
+        envelope?: Partial<RequestMetaEnvelope>;
+
+        /**
+         * Multi-round-trip input responses carried by a retried request
+         * (protocol revision 2026-07-28), lifted out of the params the
+         * handler sees. Driver material — present verbatim when sent.
+         */
+        inputResponses?: Record<string, unknown>;
+
+        /**
+         * Multi-round-trip request state echoed by a retried request
+         * (protocol revision 2026-07-28), lifted out of the params the
+         * handler sees. Driver material — present verbatim when sent.
+         */
+        requestState?: string;
 
         /**
          * An abort signal used to communicate if the request was cancelled from the sender's side.
@@ -470,7 +584,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this.onerror?.(error);
     }
 
-    private _onnotification(notification: JSONRPCNotification): void {
+    private _onnotification(rawNotification: JSONRPCNotification): void {
+        // Hide wire-only material from notification handlers too — but ONLY
+        // the reserved envelope `_meta` keys (the retry params names are
+        // reserved on requests, not notifications). There is no
+        // per-notification context, so the lifted envelope keys are dropped,
+        // not surfaced; the protocol layer owns them.
+        const { message: notification } = liftWireOnlyMaterial(rawNotification, 'notification');
         const handler = this._notificationHandlers.get(notification.method) ?? this.fallbackNotificationHandler;
 
         // Ignore notifications not being subscribed to.
@@ -484,7 +604,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
             .catch(error => this._onerror(new Error(`Uncaught error in notification handler: ${error}`)));
     }
 
-    private _onrequest(request: JSONRPCRequest, extra?: MessageExtraInfo): void {
+    private _onrequest(rawRequest: JSONRPCRequest, extra?: MessageExtraInfo): void {
+        // Lift wire-only material before dispatch: handlers (including the
+        // fallback handler and the per-method schema parse) see exactly the
+        // 2025-era shape; the envelope and retry fields surface via ctx.
+        const { message: request, lifted } = liftWireOnlyMaterial(rawRequest, 'request');
         const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
 
         // Capture the current transport at request time to ensure responses go to the correct client
@@ -517,6 +641,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 id: request.id,
                 method: request.method,
                 _meta: request.params?._meta,
+                ...(lifted.envelope !== undefined && { envelope: lifted.envelope }),
+                ...(lifted.inputResponses !== undefined && { inputResponses: lifted.inputResponses }),
+                ...(lifted.requestState !== undefined && { requestState: lifted.requestState }),
                 signal: abortController.signal,
                 // BaseContext.mcpReq.send is declared with two overloads (spec-method-keyed and explicit-schema). Arrow
                 // literals can't carry overload signatures, so the inferred single-signature type isn't assignable to
@@ -789,7 +916,50 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     return reject(response);
                 }
 
-                validateStandardSchema(resultSchema, response.result).then(parseResult => {
+                // Raw-first result discrimination (protocol revision
+                // 2026-07-28): inspect `resultType` BEFORE any schema
+                // validation, so a non-complete result can never be masked
+                // into a hollow success by a tolerant result schema (e.g.
+                // defaults filling in absent members).
+                let result = response.result;
+                if (isPlainObject(result) && result['resultType'] !== undefined) {
+                    const rawResultType = result['resultType'];
+                    if (typeof rawResultType !== 'string') {
+                        // Defense in depth, not a reachable rejection today:
+                        // the wire schema types `resultType` as a string, so
+                        // message classification rejects a non-string carrier
+                        // before it can reach this funnel (the request then
+                        // hangs until timeout — the pre-existing failure mode
+                        // for malformed responses). The arm stays so the
+                        // raw-first check is self-contained if classification
+                        // ever loosens.
+                        return reject(
+                            new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: non-string resultType`, {
+                                resultType: rawResultType
+                            })
+                        );
+                    }
+                    if (rawResultType !== 'complete') {
+                        // Surface the discriminated kind; no retry. This arm
+                        // is replaced by full multi-round-trip handling when
+                        // the client driver lands.
+                        return reject(
+                            new SdkError(
+                                SdkErrorCode.UnsupportedResultType,
+                                `Unsupported result type '${rawResultType}' for ${request.method}`,
+                                { resultType: rawResultType, method: request.method }
+                            )
+                        );
+                    }
+                    // 'complete': the SDK consumes the wire discriminator;
+                    // strip it before validation so consumers receive the
+                    // public result shape.
+                    const rest = { ...result };
+                    delete rest['resultType'];
+                    result = rest as Result;
+                }
+
+                validateStandardSchema(resultSchema, result).then(parseResult => {
                     if (parseResult.success) {
                         resolve(parseResult.data);
                     } else {
@@ -978,7 +1148,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * spec schema. For custom (non-spec) methods, pass `(method, schemas, handler)`;
      * `params` are validated against `schemas.params` and the handler receives the
      * parsed params object directly. The raw notification is passed as the second
-     * argument; `_meta` is recoverable via `notification.params?._meta`.
+     * argument; `_meta` is recoverable via `notification.params?._meta` (minus the
+     * reserved `io.modelcontextprotocol/*` envelope keys, which the protocol layer
+     * lifts out before dispatch).
      */
     setNotificationHandler<M extends NotificationMethod>(
         method: M,

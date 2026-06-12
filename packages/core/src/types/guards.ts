@@ -86,6 +86,9 @@ export const isCallToolResult = (value: unknown): value is CallToolResult => {
  * @param value - The value to check.
  *
  * @returns True if the value is a valid {@linkcode TaskAugmentedRequestParams}, false otherwise.
+ *
+ * @deprecated Recognizes 2025-11-25 task wire vocabulary, which has no SDK
+ * runtime; kept importable for interoperability only.
  */
 export const isTaskAugmentedRequestParams = (value: unknown): value is TaskAugmentedRequestParams =>
     TaskAugmentedRequestParamsSchema.safeParse(value).success;

@@ -9,6 +9,7 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    EmptyResult,
     Implementation,
     InitializeRequest,
     InitializeResult,
@@ -16,6 +17,7 @@ import type {
     JsonSchemaType,
     jsonSchemaValidator,
     ListRootsRequest,
+    ListRootsResult,
     LoggingLevel,
     LoggingMessageNotification,
     MessageExtraInfo,
@@ -420,7 +422,7 @@ export class Server extends Protocol<ServerContext> {
         return this._capabilities;
     }
 
-    async ping() {
+    async ping(): Promise<EmptyResult> {
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema);
     }
 
@@ -612,7 +614,7 @@ export class Server extends Protocol<ServerContext> {
      * Remains functional during the deprecation window (at least twelve months).
      * Migrate to passing paths via tool parameters, resource URIs, or configuration.
      */
-    async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
+    async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions): Promise<ListRootsResult> {
         return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
 

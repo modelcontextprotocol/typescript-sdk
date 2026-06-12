@@ -902,9 +902,41 @@ The 2025-11 experimental tasks side-channel woven through `Protocol` has been re
 
 **Also removed:** the storage layer (`TaskStore`, `InMemoryTaskStore`, `CreateTaskOptions`, `isTerminal`). It will return as part of the SEP-2663 server-directed plugin in a follow-up.
 
-**Wire types remain.** The task wire surface defined by the 2025-11-25 protocol revision is still exported, for interoperability with peers on that revision: the task Zod schemas and their inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `GetTaskPayload*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), the task members of the request/result/notification unions, the `tasks` capability key, the `isTaskAugmentedRequestParams` guard, and `RELATED_TASK_META_KEY`. Only the behavior is gone: servers built on this SDK do not advertise the `tasks` capability, and inbound `tasks/*` requests receive a standard `-32601` (method not found) error.
+**Wire types remain, as deprecated vocabulary.** The task wire surface defined by the 2025-11-25 protocol revision is still exported, for interoperability with peers on that revision: the task Zod schemas and their inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `GetTaskPayload*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), the task members of the request/result/notification union types, the `tasks` capability key, the `isTaskAugmentedRequestParams` guard, and `RELATED_TASK_META_KEY`. These exports are now marked `@deprecated` (importable wire vocabulary only; removable at the major version that drops 2025-era support), and the typed method surface no longer offers task methods: `RequestMethod`/`RequestTypeMap`/`ResultTypeMap`/`NotificationTypeMap` exclude `tasks/*` and `notifications/tasks/status`, so the method-keyed overloads of `request()`, `ctx.mcpReq.send()`, `setRequestHandler()`, and `setNotificationHandler()` do not accept them (the explicit-schema overloads still work for custom interop). The method-keyed result types are narrowed to match: `ResultTypeMap['tools/call']` is plain `CallToolResult` (no `| CreateTaskResult`), and likewise `sampling/createMessage` and `elicitation/create` lose their task-result union members — the runtime result validation uses the same plain schemas, so a task-shaped response body to one of these methods fails as a local `INVALID_RESULT` error where the result schema rejects it rather than parsing into a mis-typed success. Only the behavior is gone: servers built on this SDK do not advertise the `tasks` capability, and inbound `tasks/*` requests receive a standard `-32601` (method not found) error.
 
 There is no migration path for the removed surface; it was always `@experimental`. Task support is planned to return as an opt-in extension plugin per SEP-2663.
+
+### Wire-only protocol members hidden from the public types
+
+The protocol revision 2026-07-28 introduces wire-level bookkeeping that the SDK handles internally and that never needs to reach application code: the `resultType` result discrimination field, the reserved per-request `_meta` envelope keys (`io.modelcontextprotocol/protocolVersion`, `io.modelcontextprotocol/clientInfo`, `io.modelcontextprotocol/clientCapabilities`, `io.modelcontextprotocol/logLevel`), and the multi-round-trip retry fields (`inputResponses`, `requestState`). The public TypeScript surface no longer declares these members:
+
+- **`resultType` is gone from every public result type** (`Result`, `CallToolResult`, `GetPromptResult`, …, and the `result` member of `JSONRPCResultResponse`). The wire schemas keep parsing it, and the protocol layer consumes it before results reach your code. If you previously read `result.resultType` (it was always `undefined` from conforming 2025-era peers), drop the read — the SDK now owns that field.
+- **High-level methods return the named public types.** `client.callTool()` returns `Promise<CallToolResult>`, `client.listTools()` returns `Promise<ListToolsResult>`, and so on (previously these returned structurally inferred schema types that exposed `resultType?`). Handler return positions are unaffected: results you build keep type-checking, and unknown members still pass through the loose index signature.
+- **The reserved envelope keys and retry fields never appear in a public params/result type.** The `RequestMetaEnvelope` type and the four `*_META_KEY` constants stay exported — they document the wire names and type the context surfacing channel (see below).
+
+The protocol layer enforces the same boundary at runtime:
+
+- **Envelope lift.** On inbound requests and notifications, the reserved `io.modelcontextprotocol/*` envelope keys are lifted out of `params._meta` before handlers run, so handler params are byte-equal to the 2025-era shape under 2026-era traffic. For requests the envelope is readable at `ctx.mcpReq.envelope` (typed `Partial<RequestMetaEnvelope>` — only the keys the request actually carried are present); for notifications there is no per-message context, so lifted envelope keys are dropped, not surfaced. On requests only, the multi-round-trip retry fields are likewise lifted out of top-level params and surfaced verbatim at `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState`; notification params are never touched.
+- **What this means for 2025-era peers.** The `_meta` side of the lift is invisible to conforming 2025-era traffic: the `io.modelcontextprotocol/` prefix is reserved in 2025-11-25 too, so a conforming 2025 peer never puts application data under those keys. The retry-field lift is the one collision to know about: 2025-11-25 does not reserve the bare names `inputResponses`/`requestState`, so a 2025 peer's **custom-method request** that happens to use them as ordinary top-level params will have them lifted out of the handler's view (still readable at `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState`, just no longer in `request.params`). Spec-method requests are unaffected (no 2025 spec method defines params with those names), as are all notifications.
+- **Raw-first result discrimination.** The client funnel inspects a response's raw `resultType` before schema validation: `'complete'` is consumed (stripped) and the result parses as the public shape; any other kind (e.g. `input_required`) rejects with a typed local error — `SdkError` with the new code `SdkErrorCode.UnsupportedResultType` and the kind in `error.data.resultType` — instead of being masked into a hollow success by tolerant result schemas. Full multi-round-trip support will replace that error arm.
+
+**Before (v2 alpha):**
+
+```typescript
+const result = await client.callTool({ name: 'echo', arguments: {} });
+// result.resultType was declared as `string | undefined` and always undefined
+if (result.resultType === undefined || result.resultType === 'complete') {
+    console.log(result.content);
+}
+```
+
+**After:**
+
+```typescript
+const result = await client.callTool({ name: 'echo', arguments: {} });
+// resultType is wire-level bookkeeping the SDK consumes; just use the result
+console.log(result.content);
+```
 
 ## Enhancements
 

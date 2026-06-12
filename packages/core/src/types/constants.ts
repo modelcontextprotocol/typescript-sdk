@@ -2,6 +2,11 @@ export const LATEST_PROTOCOL_VERSION = '2025-11-25';
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
 export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
 
+/**
+ * `_meta` key associating a message with a 2025-11-25 task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
 /* Reserved `_meta` keys for the per-request envelope (protocol revision 2026-07-28) */

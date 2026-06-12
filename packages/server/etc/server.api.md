@@ -90,6 +90,9 @@ export type BaseContext = {
         id: RequestId;
         method: string;
         _meta?: RequestMeta;
+        envelope?: Partial<RequestMetaEnvelope>;
+        inputResponses?: Record<string, unknown>;
+        requestState?: string;
         signal: AbortSignal;
         send: {
             <M extends RequestMethod>(request: {
@@ -198,7 +201,7 @@ const CallToolRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type CallToolResult = Infer<typeof CallToolResultSchema>;
+export type CallToolResult = StripWireOnly<Infer<typeof CallToolResultSchema>>;
 
 // @public
 const CallToolResultSchema: z.ZodObject<{
@@ -300,10 +303,10 @@ const CallToolResultSchema: z.ZodObject<{
     isError: z.ZodOptional<z.ZodBoolean>;
 }, z.core.$loose>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type CancelTaskRequest = Infer<typeof CancelTaskRequestSchema>;
 
-// @public
+// @public @deprecated
 const CancelTaskRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"tasks/cancel">;
     params: z.ZodObject<{
@@ -317,10 +320,10 @@ const CancelTaskRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// @public (undocumented)
-export type CancelTaskResult = Infer<typeof CancelTaskResultSchema>;
+// @public @deprecated (undocumented)
+export type CancelTaskResult = StripWireOnly<Infer<typeof CancelTaskResultSchema>>;
 
-// @public
+// @public @deprecated
 const CancelTaskResultSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -766,7 +769,7 @@ const ClientRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
 }, z.core.$strip>]>;
 
 // @public (undocumented)
-export type ClientResult = Infer<typeof ClientResultSchema>;
+export type ClientResult = StripWireOnly<Infer<typeof ClientResultSchema>>;
 
 // @public (undocumented)
 const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
@@ -1226,7 +1229,7 @@ const ClientResultSchema: z.ZodUnion<readonly [z.ZodObject<{
 }, z.core.$loose>]>;
 
 // @public (undocumented)
-export type CompatibilityCallToolResult = Infer<typeof CompatibilityCallToolResultSchema>;
+export type CompatibilityCallToolResult = StripWireOnly<Infer<typeof CompatibilityCallToolResultSchema>>;
 
 // @public
 const CompatibilityCallToolResultSchema: z.ZodUnion<[z.ZodObject<{
@@ -1429,7 +1432,7 @@ export type CompleteResourceTemplateCallback = (value: string, context?: {
 }) => string[] | Promise<string[]>;
 
 // @public (undocumented)
-export type CompleteResult = Infer<typeof CompleteResultSchema>;
+export type CompleteResult = StripWireOnly<Infer<typeof CompleteResultSchema>>;
 
 // @public
 const CompleteResultSchema: z.ZodObject<{
@@ -2276,7 +2279,7 @@ const CreateMessageRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type CreateMessageResult = Infer<typeof CreateMessageResultSchema>;
+export type CreateMessageResult = StripWireOnly<Infer<typeof CreateMessageResultSchema>>;
 
 // @public
 const CreateMessageResultSchema: z.ZodObject<{
@@ -2339,7 +2342,7 @@ const CreateMessageResultSchema: z.ZodObject<{
 }, z.core.$loose>;
 
 // @public (undocumented)
-export type CreateMessageResultWithTools = Infer<typeof CreateMessageResultWithToolsSchema>;
+export type CreateMessageResultWithTools = StripWireOnly<Infer<typeof CreateMessageResultWithToolsSchema>>;
 
 // @public
 const CreateMessageResultWithToolsSchema: z.ZodObject<{
@@ -2638,10 +2641,10 @@ const CreateMessageResultWithToolsSchema: z.ZodObject<{
     }, z.core.$strip>], "type">>]>;
 }, z.core.$loose>;
 
-// @public (undocumented)
-export type CreateTaskResult = Infer<typeof CreateTaskResultSchema>;
+// @public @deprecated (undocumented)
+export type CreateTaskResult = StripWireOnly<Infer<typeof CreateTaskResultSchema>>;
 
-// @public
+// @public @deprecated
 const CreateTaskResultSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -2696,7 +2699,7 @@ const DiscoverRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type DiscoverResult = Infer<typeof DiscoverResultSchema>;
+export type DiscoverResult = StripWireOnly<Infer<typeof DiscoverResultSchema>>;
 
 // @public
 const DiscoverResultSchema: z.ZodObject<{
@@ -3095,7 +3098,7 @@ const ElicitRequestURLParamsSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type ElicitResult = Infer<typeof ElicitResultSchema>;
+export type ElicitResult = StripWireOnly<Infer<typeof ElicitResultSchema>>;
 
 // @public
 const ElicitResultSchema: z.ZodObject<{
@@ -3174,7 +3177,7 @@ const EmbeddedResourceSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type EmptyResult = Infer<typeof EmptyResultSchema>;
+export type EmptyResult = StripWireOnly<Infer<typeof EmptyResultSchema>>;
 
 // @public
 const EmptyResultSchema: z.ZodObject<{
@@ -3295,7 +3298,7 @@ const GetPromptRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type GetPromptResult = Infer<typeof GetPromptResultSchema>;
+export type GetPromptResult = StripWireOnly<Infer<typeof GetPromptResultSchema>>;
 
 // @public
 const GetPromptResultSchema: z.ZodObject<{
@@ -3402,10 +3405,10 @@ const GetPromptResultSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$loose>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type GetTaskPayloadRequest = Infer<typeof GetTaskPayloadRequestSchema>;
 
-// @public
+// @public @deprecated
 const GetTaskPayloadRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"tasks/result">;
     params: z.ZodObject<{
@@ -3419,10 +3422,10 @@ const GetTaskPayloadRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// @public (undocumented)
-export type GetTaskPayloadResult = Infer<typeof GetTaskPayloadResultSchema>;
+// @public @deprecated (undocumented)
+export type GetTaskPayloadResult = StripWireOnly<Infer<typeof GetTaskPayloadResultSchema>>;
 
-// @public
+// @public @deprecated
 const GetTaskPayloadResultSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -3433,10 +3436,10 @@ const GetTaskPayloadResultSchema: z.ZodObject<{
     resultType: z.ZodOptional<z.ZodString>;
 }, z.core.$loose>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type GetTaskRequest = Infer<typeof GetTaskRequestSchema>;
 
-// @public
+// @public @deprecated
 const GetTaskRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"tasks/get">;
     params: z.ZodObject<{
@@ -3450,10 +3453,10 @@ const GetTaskRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// @public (undocumented)
-export type GetTaskResult = Infer<typeof GetTaskResultSchema>;
+// @public @deprecated (undocumented)
+export type GetTaskResult = StripWireOnly<Infer<typeof GetTaskResultSchema>>;
 
-// @public
+// @public @deprecated
 const GetTaskResultSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -3731,7 +3734,7 @@ const InitializeRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type InitializeResult = Infer<typeof InitializeResultSchema>;
+export type InitializeResult = StripWireOnly<Infer<typeof InitializeResultSchema>>;
 
 // @public
 const InitializeResultSchema: z.ZodObject<{
@@ -3851,53 +3854,7 @@ const JSONRPCErrorResponseSchema: z.ZodObject<{
 }, z.core.$strict>;
 
 // @public (undocumented)
-export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
-
-// @public (undocumented)
-const JSONRPCMessageSchema: z.ZodUnion<readonly [z.ZodObject<{
-    method: z.ZodString;
-    params: z.ZodOptional<z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-    }, z.core.$loose>>;
-    jsonrpc: z.ZodLiteral<"2.0">;
-    id: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
-}, z.core.$strict>, z.ZodObject<{
-    method: z.ZodString;
-    params: z.ZodOptional<z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-    }, z.core.$loose>>;
-    jsonrpc: z.ZodLiteral<"2.0">;
-}, z.core.$strict>, z.ZodObject<{
-    jsonrpc: z.ZodLiteral<"2.0">;
-    id: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
-    result: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        resultType: z.ZodOptional<z.ZodString>;
-    }, z.core.$loose>;
-}, z.core.$strict>, z.ZodObject<{
-    jsonrpc: z.ZodLiteral<"2.0">;
-    id: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-    error: z.ZodObject<{
-        code: z.ZodNumber;
-        message: z.ZodString;
-        data: z.ZodOptional<z.ZodUnknown>;
-    }, z.core.$strip>;
-}, z.core.$strict>]>;
+export type JSONRPCMessage = JSONRPCRequest | JSONRPCNotification | JSONRPCResultResponse | JSONRPCErrorResponse;
 
 // @public (undocumented)
 export type JSONRPCNotification = Infer<typeof JSONRPCNotificationSchema>;
@@ -3935,33 +3892,12 @@ const JSONRPCRequestSchema: z.ZodObject<{
 }, z.core.$strict>;
 
 // @public (undocumented)
-export type JSONRPCResponse = Infer<typeof JSONRPCResponseSchema>;
+export type JSONRPCResponse = JSONRPCResultResponse | JSONRPCErrorResponse;
 
 // @public (undocumented)
-const JSONRPCResponseSchema: z.ZodUnion<readonly [z.ZodObject<{
-    jsonrpc: z.ZodLiteral<"2.0">;
-    id: z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>;
-    result: z.ZodObject<{
-        _meta: z.ZodOptional<z.ZodObject<{
-            progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-            "io.modelcontextprotocol/related-task": z.ZodOptional<z.ZodObject<{
-                taskId: z.ZodString;
-            }, z.core.$strip>>;
-        }, z.core.$loose>>;
-        resultType: z.ZodOptional<z.ZodString>;
-    }, z.core.$loose>;
-}, z.core.$strict>, z.ZodObject<{
-    jsonrpc: z.ZodLiteral<"2.0">;
-    id: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
-    error: z.ZodObject<{
-        code: z.ZodNumber;
-        message: z.ZodString;
-        data: z.ZodOptional<z.ZodUnknown>;
-    }, z.core.$strip>;
-}, z.core.$strict>]>;
-
-// @public (undocumented)
-export type JSONRPCResultResponse = Infer<typeof JSONRPCResultResponseSchema>;
+export type JSONRPCResultResponse = Omit<Infer<typeof JSONRPCResultResponseSchema>, 'result'> & {
+    result: Result;
+};
 
 // @public
 const JSONRPCResultResponseSchema: z.ZodObject<{
@@ -4061,7 +3997,7 @@ const ListPromptsRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type ListPromptsResult = Infer<typeof ListPromptsResultSchema>;
+export type ListPromptsResult = StripWireOnly<Infer<typeof ListPromptsResultSchema>>;
 
 // @public
 const ListPromptsResultSchema: z.ZodObject<{
@@ -4113,7 +4049,7 @@ const ListResourceTemplatesRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type ListResourceTemplatesResult = Infer<typeof ListResourceTemplatesResultSchema>;
+export type ListResourceTemplatesResult = StripWireOnly<Infer<typeof ListResourceTemplatesResultSchema>>;
 
 // @public
 const ListResourceTemplatesResultSchema: z.ZodObject<{
@@ -4173,7 +4109,7 @@ const ListResourcesRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type ListResourcesResult = Infer<typeof ListResourcesResultSchema>;
+export type ListResourcesResult = StripWireOnly<Infer<typeof ListResourcesResultSchema>>;
 
 // @public
 const ListResourcesResultSchema: z.ZodObject<{
@@ -4230,7 +4166,7 @@ const ListRootsRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type ListRootsResult = Infer<typeof ListRootsResultSchema>;
+export type ListRootsResult = StripWireOnly<Infer<typeof ListRootsResultSchema>>;
 
 // @public
 const ListRootsResultSchema: z.ZodObject<{
@@ -4248,10 +4184,10 @@ const ListRootsResultSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$loose>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type ListTasksRequest = Infer<typeof ListTasksRequestSchema>;
 
-// @public
+// @public @deprecated
 const ListTasksRequestSchema: z.ZodObject<{
     params: z.ZodOptional<z.ZodObject<{
         _meta: z.ZodOptional<z.ZodObject<{
@@ -4265,10 +4201,10 @@ const ListTasksRequestSchema: z.ZodObject<{
     method: z.ZodLiteral<"tasks/list">;
 }, z.core.$strip>;
 
-// @public (undocumented)
-export type ListTasksResult = Infer<typeof ListTasksResultSchema>;
+// @public @deprecated (undocumented)
+export type ListTasksResult = StripWireOnly<Infer<typeof ListTasksResultSchema>>;
 
-// @public
+// @public @deprecated
 const ListTasksResultSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -4313,7 +4249,7 @@ const ListToolsRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type ListToolsResult = Infer<typeof ListToolsResultSchema>;
+export type ListToolsResult = StripWireOnly<Infer<typeof ListToolsResultSchema>>;
 
 // @public
 const ListToolsResultSchema: z.ZodObject<{
@@ -4557,7 +4493,7 @@ const MultiSelectEnumSchemaSchema: z.ZodUnion<readonly [z.ZodObject<{
 }, z.core.$strip>]>;
 
 // @public (undocumented)
-export type NotificationMethod = ClientNotification['method'] | ServerNotification['method'];
+export type NotificationMethod = Exclude<ClientNotification['method'] | ServerNotification['method'], TaskNotificationMethod>;
 
 // @public
 type NotificationOptions_2 = {
@@ -4582,7 +4518,9 @@ const NotificationSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type NotificationTypeMap = MethodToTypeMap<ClientNotification | ServerNotification>;
+export type NotificationTypeMap = MethodToTypeMap<Exclude<ClientNotification | ServerNotification, {
+    method: TaskNotificationMethod;
+}>>;
 
 // @public (undocumented)
 type Notification_2 = Infer<typeof NotificationSchema>;
@@ -4923,7 +4861,7 @@ const PaginatedRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type PaginatedResult = Infer<typeof PaginatedResultSchema>;
+export type PaginatedResult = StripWireOnly<Infer<typeof PaginatedResultSchema>>;
 
 // @public (undocumented)
 const PaginatedResultSchema: z.ZodObject<{
@@ -5344,7 +5282,7 @@ export type ProtocolOptions = {
 // @public (undocumented)
 type ProtocolSchemaKey = (typeof SPEC_SCHEMA_KEYS)[number];
 
-// @public (undocumented)
+// @public @deprecated
 export const RELATED_TASK_META_KEY = "io.modelcontextprotocol/related-task";
 
 // @public
@@ -5395,7 +5333,7 @@ const ReadResourceRequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type ReadResourceResult = Infer<typeof ReadResourceResultSchema>;
+export type ReadResourceResult = StripWireOnly<Infer<typeof ReadResourceResultSchema>>;
 
 // @public
 const ReadResourceResultSchema: z.ZodObject<{
@@ -5512,10 +5450,10 @@ export type RegisteredTool = {
     remove(): void;
 };
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type RelatedTaskMetadata = Infer<typeof RelatedTaskMetadataSchema>;
 
-// @public
+// @public @deprecated
 const RelatedTaskMetadataSchema: z.ZodObject<{
     taskId: z.ZodString;
 }, z.core.$strip>;
@@ -5613,7 +5551,7 @@ const RequestMetaSchema: z.ZodObject<{
 }, z.core.$loose>;
 
 // @public (undocumented)
-export type RequestMethod = ClientRequest['method'] | ServerRequest['method'];
+export type RequestMethod = Exclude<ClientRequest['method'] | ServerRequest['method'], TaskRequestMethod>;
 
 // @public
 export type RequestOptions = {
@@ -5641,7 +5579,9 @@ const RequestSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type RequestTypeMap = MethodToTypeMap<ClientRequest | ServerRequest>;
+export type RequestTypeMap = MethodToTypeMap<Exclude<ClientRequest | ServerRequest, {
+    method: TaskRequestMethod;
+}>>;
 
 // @public (undocumented)
 type Request_2 = Infer<typeof RequestSchema>;
@@ -5837,7 +5777,7 @@ const ResourceUpdatedNotificationSchema: z.ZodObject<{
 }, z.core.$strip>;
 
 // @public (undocumented)
-export type Result = Infer<typeof ResultSchema>;
+export type Result = StripWireOnly<Infer<typeof ResultSchema>>;
 
 // @public (undocumented)
 const ResultSchema: z.ZodObject<{
@@ -5863,15 +5803,11 @@ export type ResultTypeMap = {
     'resources/read': ReadResourceResult;
     'resources/subscribe': EmptyResult;
     'resources/unsubscribe': EmptyResult;
-    'tools/call': CallToolResult | CreateTaskResult;
+    'tools/call': CallToolResult;
     'tools/list': ListToolsResult;
-    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools | CreateTaskResult;
-    'elicitation/create': ElicitResult | CreateTaskResult;
+    'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;
+    'elicitation/create': ElicitResult;
     'roots/list': ListRootsResult;
-    'tasks/get': GetTaskResult;
-    'tasks/result': Result;
-    'tasks/list': ListTasksResult;
-    'tasks/cancel': CancelTaskResult;
 };
 
 // @public (undocumented)
@@ -6432,6 +6368,7 @@ export enum SdkErrorCode {
     NotInitialized = "NOT_INITIALIZED",
     RequestTimeout = "REQUEST_TIMEOUT",
     SendFailed = "SEND_FAILED",
+    UnsupportedResultType = "UNSUPPORTED_RESULT_TYPE",
 }
 
 // @public
@@ -6476,34 +6413,10 @@ export class Server extends Protocol<ServerContext> {
     getClientVersion(): Implementation | undefined;
     getNegotiatedProtocolVersion(): string | undefined;
     // (undocumented)
-    listRoots(params?: ListRootsRequest['params'], options?: RequestOptions): Promise<{
-        [x: string]: unknown;
-        roots: {
-            uri: string;
-            name?: string | undefined;
-            _meta?: Record<string, unknown> | undefined;
-        }[];
-        _meta?: {
-            [x: string]: unknown;
-            progressToken?: string | number | undefined;
-            "io.modelcontextprotocol/related-task"?: {
-                taskId: string;
-            } | undefined;
-        } | undefined;
-        resultType?: string | undefined;
-    }>;
+    listRoots(params?: ListRootsRequest['params'], options?: RequestOptions): Promise<ListRootsResult>;
     oninitialized?: () => void;
     // (undocumented)
-    ping(): Promise<{
-        _meta?: {
-            [x: string]: unknown;
-            progressToken?: string | number | undefined;
-            "io.modelcontextprotocol/related-task"?: {
-                taskId: string;
-            } | undefined;
-        } | undefined;
-        resultType?: string | undefined;
-    }>;
+    ping(): Promise<EmptyResult>;
     registerCapabilities(capabilities: ServerCapabilities): void;
     sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string): Promise<void>;
     // (undocumented)
@@ -7235,7 +7148,7 @@ const ServerRequestSchema: z.ZodUnion<readonly [z.ZodObject<{
 }, z.core.$strip>]>;
 
 // @public (undocumented)
-export type ServerResult = Infer<typeof ServerResultSchema>;
+export type ServerResult = StripWireOnly<Infer<typeof ServerResultSchema>>;
 
 // @public (undocumented)
 const ServerResultSchema: z.ZodUnion<readonly [z.ZodObject<{
@@ -7996,6 +7909,9 @@ const StringSchemaSchema: z.ZodObject<{
 // @public (undocumented)
 type StripSchemaSuffix<K> = K extends `${infer N}Schema` ? N : never;
 
+// @public
+type StripWireOnly<T> = T extends unknown ? { [K in keyof T as K extends WireOnlyResultKey ? never : K]: T[K] } : never;
+
 // @public (undocumented)
 export type SubscribeRequest = Infer<typeof SubscribeRequestSchema>;
 
@@ -8027,13 +7943,13 @@ const SubscribeRequestSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type Task = Infer<typeof TaskSchema>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type TaskAugmentedRequestParams = Infer<typeof TaskAugmentedRequestParamsSchema>;
 
-// @public
+// @public @deprecated
 const TaskAugmentedRequestParamsSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -8046,24 +7962,30 @@ const TaskAugmentedRequestParamsSchema: z.ZodObject<{
     }, z.core.$strip>>;
 }, z.core.$strip>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type TaskCreationParams = Infer<typeof TaskCreationParamsSchema>;
 
-// @public
+// @public @deprecated
 const TaskCreationParamsSchema: z.ZodObject<{
     ttl: z.ZodOptional<z.ZodNumber>;
     pollInterval: z.ZodOptional<z.ZodNumber>;
 }, z.core.$loose>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type TaskMetadata = Infer<typeof TaskMetadataSchema>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 const TaskMetadataSchema: z.ZodObject<{
     ttl: z.ZodOptional<z.ZodNumber>;
 }, z.core.$strip>;
 
+// @public (undocumented)
+type TaskNotificationMethod = 'notifications/tasks/status';
+
 // @public
+type TaskRequestMethod = 'tasks/get' | 'tasks/result' | 'tasks/list' | 'tasks/cancel';
+
+// @public @deprecated
 const TaskSchema: z.ZodObject<{
     taskId: z.ZodString;
     status: z.ZodEnum<{
@@ -8080,16 +8002,16 @@ const TaskSchema: z.ZodObject<{
     statusMessage: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type TaskStatus = Infer<typeof TaskStatusSchema>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type TaskStatusNotification = Infer<typeof TaskStatusNotificationSchema>;
 
-// @public (undocumented)
+// @public @deprecated (undocumented)
 export type TaskStatusNotificationParams = Infer<typeof TaskStatusNotificationParamsSchema>;
 
-// @public
+// @public @deprecated
 const TaskStatusNotificationParamsSchema: z.ZodObject<{
     _meta: z.ZodOptional<z.ZodObject<{
         progressToken: z.ZodOptional<z.ZodUnion<readonly [z.ZodString, z.ZodNumber]>>;
@@ -8112,7 +8034,7 @@ const TaskStatusNotificationParamsSchema: z.ZodObject<{
     statusMessage: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 
-// @public
+// @public @deprecated
 const TaskStatusNotificationSchema: z.ZodObject<{
     method: z.ZodLiteral<"notifications/tasks/status">;
     params: z.ZodObject<{
@@ -8138,7 +8060,7 @@ const TaskStatusNotificationSchema: z.ZodObject<{
     }, z.core.$strip>;
 }, z.core.$strip>;
 
-// @public
+// @public @deprecated
 const TaskStatusSchema: z.ZodEnum<{
     working: "working";
     input_required: "input_required";
@@ -8582,6 +8504,9 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
 }
 
 // @public
+type WireOnlyResultKey = 'resultType';
+
+// @public
 type ZodRawShape = Record<string, z.ZodType>;
 
 // @public (undocumented)
@@ -8833,7 +8758,7 @@ export const isJSONRPCResultResponse: (value: unknown) => value is JSONRPCResult
 // @public
 export const isSpecType: GuardRecord;
 
-// @public
+// @public @deprecated
 export const isTaskAugmentedRequestParams: (value: unknown) => value is TaskAugmentedRequestParams;
 
 // @public
