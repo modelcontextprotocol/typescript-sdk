@@ -47,7 +47,7 @@ import {
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
 import { bootstrapOutboundCodec } from '../wire/bootstrap.js';
-import type { NarrowResultKey, WireCodec } from '../wire/codec.js';
+import type { LiftedWireMaterial, NarrowResultKey, WireCodec } from '../wire/codec.js';
 import {
     bindRequestCodec,
     codecForContext,
@@ -163,15 +163,6 @@ const RESERVED_ENVELOPE_META_KEYS: readonly string[] = [
  * (a vendor notification may legitimately use the same names).
  */
 const RETRY_PARAMS_KEYS = ['inputResponses', 'requestState'] as const;
-
-interface LiftedWireMaterial {
-    // Partial: the lift surfaces whichever reserved keys the request actually
-    // carried — a peer on an adjacent revision may legally send a subset, and
-    // envelope requiredness is enforced per request at dispatch time, not here.
-    envelope?: Partial<RequestMetaEnvelope>;
-    inputResponses?: Record<string, unknown>;
-    requestState?: string;
-}
 
 /**
  * Lift wire-only material out of an inbound message so handlers see exactly
