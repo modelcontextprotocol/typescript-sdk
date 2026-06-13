@@ -2109,12 +2109,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'standardschema:tool:invalid-args-rejected': {
         source: 'sdk',
         behavior:
-            'tools/call arguments that fail the registered Standard Schema validation are rejected with JSON-RPC -32602 (Input validation error) and the tool handler is not invoked.',
-        knownFailures: [
-            {
-                note: "McpServer's tools/call handler catches the input-validation ProtocolError (-32602) and returns it as an isError result, so callTool() resolves instead of rejecting; the handler is still not invoked."
-            }
-        ]
+            'tools/call arguments that fail the registered Standard Schema validation are rejected with JSON-RPC -32602 (Input validation error) and the tool handler is not invoked.'
     },
     'validators:from-json-schema:tool-roundtrip': {
         source: 'sdk',
@@ -2124,12 +2119,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'validators:from-json-schema:invalid-args-rejected': {
         source: 'sdk',
         behavior:
-            'tools/call arguments violating the JSON Schema wrapped by fromJsonSchema() are rejected with JSON-RPC -32602 and the handler is not invoked.',
-        knownFailures: [
-            {
-                note: "McpServer's tools/call handler catches the input-validation ProtocolError (-32602) and returns it as an isError result, so callTool() resolves instead of rejecting; the handler is still not invoked."
-            }
-        ]
+            'tools/call arguments violating the JSON Schema wrapped by fromJsonSchema() are rejected with JSON-RPC -32602 and the handler is not invoked.'
     },
     'validators:custom-validator:override': {
         source: 'sdk',

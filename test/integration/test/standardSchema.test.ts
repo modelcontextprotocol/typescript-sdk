@@ -5,7 +5,7 @@
 
 import { Client } from '@modelcontextprotocol/client';
 import type { TextContent } from '@modelcontextprotocol/core';
-import { InMemoryTransport } from '@modelcontextprotocol/core';
+import { InMemoryTransport, ProtocolErrorCode } from '@modelcontextprotocol/core';
 import { completable, fromJsonSchema as serverFromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';
 import { type } from 'arktype';
@@ -31,6 +31,18 @@ describe('Standard Schema Support', () => {
     async function connectClientAndServer() {
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+    }
+
+    async function expectToolInputValidationError(params: { name: string; arguments: Record<string, unknown> }) {
+        try {
+            await client.request({ method: 'tools/call', params });
+        } catch (error) {
+            expect(error).toMatchObject({ code: ProtocolErrorCode.InvalidParams });
+            const message = error instanceof Error ? error.message : String(error);
+            expect(message).toContain('Input validation error');
+            return message;
+        }
+        throw new Error('Expected tool input validation to reject with InvalidParams');
     }
 
     describe('ArkType schemas', () => {
@@ -130,14 +142,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
-                    method: 'tools/call',
-                    params: { name: 'double', arguments: { value: 'not a number' } }
-                });
-
-                expect(result.isError).toBe(true);
-                const errorText = (result.content[0] as TextContent).text;
-                expect(errorText).toContain('Input validation error');
+                const errorText = await expectToolInputValidationError({ name: 'double', arguments: { value: 'not a number' } });
                 expect(errorText).toContain('value');
                 expect(errorText).toContain('number');
             });
@@ -153,14 +158,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
-                    method: 'tools/call',
-                    params: { name: 'calculate', arguments: { operation: 'divide' } }
-                });
-
-                expect(result.isError).toBe(true);
-                const errorText = (result.content[0] as TextContent).text;
-                expect(errorText).toContain('Input validation error');
+                const errorText = await expectToolInputValidationError({ name: 'calculate', arguments: { operation: 'divide' } });
                 expect(errorText).toMatch(/add|subtract|multiply/);
             });
 
@@ -173,14 +171,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
-                    method: 'tools/call',
-                    params: { name: 'greet', arguments: { name: 'Alice' } }
-                });
-
-                expect(result.isError).toBe(true);
-                const errorText = (result.content[0] as TextContent).text;
-                expect(errorText).toContain('Input validation error');
+                const errorText = await expectToolInputValidationError({ name: 'greet', arguments: { name: 'Alice' } });
                 expect(errorText).toContain('age');
             });
         });
@@ -273,14 +264,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
-                    method: 'tools/call',
-                    params: { name: 'double', arguments: { value: 'not a number' } }
-                });
-
-                expect(result.isError).toBe(true);
-                const errorText = (result.content[0] as TextContent).text;
-                expect(errorText).toContain('Input validation error');
+                const errorText = await expectToolInputValidationError({ name: 'double', arguments: { value: 'not a number' } });
                 expect(errorText).toContain('number');
             });
 
@@ -297,14 +281,7 @@ describe('Standard Schema Support', () => {
 
                 await connectClientAndServer();
 
-                const result = await client.request({
-                    method: 'tools/call',
-                    params: { name: 'calculate', arguments: { operation: 'divide' } }
-                });
-
-                expect(result.isError).toBe(true);
-                const errorText = (result.content[0] as TextContent).text;
-                expect(errorText).toContain('Input validation error');
+                await expectToolInputValidationError({ name: 'calculate', arguments: { operation: 'divide' } });
             });
 
             test('should validate min/max constraints', async () => {
@@ -328,13 +305,7 @@ describe('Standard Schema Support', () => {
                 expect(validResult.isError).toBeFalsy();
 
                 // Invalid value (too high)
-                const invalidResult = await client.request({
-                    method: 'tools/call',
-                    params: { name: 'setPercentage', arguments: { percentage: 150 } }
-                });
-                expect(invalidResult.isError).toBe(true);
-                const errorText = (invalidResult.content[0] as TextContent).text;
-                expect(errorText).toContain('Input validation error');
+                await expectToolInputValidationError({ name: 'setPercentage', arguments: { percentage: 150 } });
             });
         });
     });
@@ -420,11 +391,7 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({ method: 'tools/call', params: { name: 'double', arguments: { count: 'not a number' } } });
-
-            expect(result.isError).toBe(true);
-            const errorText = (result.content[0] as TextContent).text;
-            expect(errorText).toContain('Input validation error');
+            await expectToolInputValidationError({ name: 'double', arguments: { count: 'not a number' } });
         });
     });
 
@@ -557,20 +524,14 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
-                method: 'tools/call',
-                params: {
-                    name: 'test',
-                    arguments: {
-                        email: 123,
-                        age: 'not a number',
-                        status: 'unknown'
-                    }
+            const errorText = await expectToolInputValidationError({
+                name: 'test',
+                arguments: {
+                    email: 123,
+                    age: 'not a number',
+                    status: 'unknown'
                 }
             });
-
-            expect(result.isError).toBe(true);
-            const errorText = (result.content[0] as TextContent).text;
 
             // Check that error mentions the specific issues
             expect(errorText).toContain('Input validation error');
@@ -593,20 +554,14 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
-                method: 'tools/call',
-                params: {
-                    name: 'test',
-                    arguments: {
-                        email: 123,
-                        age: 'not a number',
-                        status: 'unknown'
-                    }
+            const errorText = await expectToolInputValidationError({
+                name: 'test',
+                arguments: {
+                    email: 123,
+                    age: 'not a number',
+                    status: 'unknown'
                 }
             });
-
-            expect(result.isError).toBe(true);
-            const errorText = (result.content[0] as TextContent).text;
 
             // Check that error mentions the specific issues
             expect(errorText).toContain('Input validation error');
@@ -627,20 +582,14 @@ describe('Standard Schema Support', () => {
 
             await connectClientAndServer();
 
-            const result = await client.request({
-                method: 'tools/call',
-                params: {
-                    name: 'test',
-                    arguments: {
-                        email: 123,
-                        age: 'not a number',
-                        status: 'unknown'
-                    }
+            const errorText = await expectToolInputValidationError({
+                name: 'test',
+                arguments: {
+                    email: 123,
+                    age: 'not a number',
+                    status: 'unknown'
                 }
             });
-
-            expect(result.isError).toBe(true);
-            const errorText = (result.content[0] as TextContent).text;
 
             // Check that error mentions the specific issues
             expect(errorText).toContain('Input validation error');
