@@ -98,6 +98,12 @@ describe('UriTemplate', () => {
             expect(match).toEqual({ username: 'fred', postId: '123' });
         });
 
+        it('should match multiple variables in a simple expression', () => {
+            const template = new UriTemplate('/users/{userId,format}');
+            const match = template.match('/users/42,json');
+            expect(match).toEqual({ userId: '42', format: 'json' });
+        });
+
         it('should return null for non-matching URIs', () => {
             const template = new UriTemplate('/users/{username}');
             const match = template.match('/posts/123');
