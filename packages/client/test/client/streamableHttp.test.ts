@@ -2188,7 +2188,7 @@ describe('StreamableHTTPClientTransport', () => {
         it('parses Retry-After in static helper across formats', () => {
             const parse = (StreamableHTTPClientTransport as unknown as Record<string, (h: string | null | undefined) => number | undefined>)[
                 '_parseRetryAfter'
-            ];
+            ]!;
 
             expect(parse(null)).toBeUndefined();
             expect(parse(undefined)).toBeUndefined();
