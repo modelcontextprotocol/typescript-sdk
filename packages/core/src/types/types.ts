@@ -34,6 +34,8 @@ import type {
     CreateMessageResultWithToolsSchema,
     CreateTaskResultSchema,
     CursorSchema,
+    DiscoverRequestSchema,
+    DiscoverResultSchema,
     ElicitationCompleteNotificationParamsSchema,
     ElicitationCompleteNotificationSchema,
     ElicitRequestFormParamsSchema,
@@ -106,6 +108,7 @@ import type {
     ReadResourceResultSchema,
     RelatedTaskMetadataSchema,
     RequestIdSchema,
+    RequestMetaEnvelopeSchema,
     RequestMetaSchema,
     RequestSchema,
     ResourceContentsSchema,
@@ -200,6 +203,11 @@ export type JSONRPCResultResponse = Infer<typeof JSONRPCResultResponseSchema>;
 export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
 export type RequestParams = Infer<typeof BaseRequestParamsSchema>;
 export type NotificationParams = Infer<typeof NotificationsParamsSchema>;
+/**
+ * The per-request `_meta` envelope carried by every request under protocol revision
+ * 2026-07-28 (protocol version, client info, client capabilities, optional log level).
+ */
+export type RequestMetaEnvelope = Infer<typeof RequestMetaEnvelopeSchema>;
 
 /* Empty result */
 export type EmptyResult = Infer<typeof EmptyResultSchema>;
@@ -223,6 +231,10 @@ export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
 export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
 export type InitializeResult = Infer<typeof InitializeResultSchema>;
 export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
+
+/* Discovery */
+export type DiscoverRequest = Infer<typeof DiscoverRequestSchema>;
+export type DiscoverResult = Infer<typeof DiscoverResultSchema>;
 
 /* Ping */
 export type PingRequest = Infer<typeof PingRequestSchema>;
@@ -456,6 +468,22 @@ export interface InvalidParamsError extends JSONRPCErrorObject {
 }
 export interface InternalError extends JSONRPCErrorObject {
     code: typeof INTERNAL_ERROR;
+}
+
+/**
+ * Data carried by a `-32004` UnsupportedProtocolVersion protocol error
+ * (protocol revision 2026-07-28).
+ */
+export interface UnsupportedProtocolVersionErrorData {
+    /**
+     * Protocol versions the receiver supports. The sender should choose a
+     * mutually supported version from this list and retry.
+     */
+    supported: string[];
+    /**
+     * The protocol version that was requested.
+     */
+    requested: string;
 }
 
 /**

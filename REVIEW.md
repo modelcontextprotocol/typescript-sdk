@@ -75,7 +75,7 @@ When verifying spec compliance, consult the spec directly rather than relying on
 
 ### Schema Compliance
 
-- When editing Zod protocol schemas in `schemas.ts`, verify unknown-key handling matches the spec `schema.ts`: if the spec type has no `additionalProperties: false`, the SDK schema must use `z.looseObject()` / `.catchall(z.unknown())` rather than implicit strict — over-strict Zod (incl. `z.literal('object')` on `type`) rejects spec-valid payloads from other SDKs. Also confirm `spec.types.test.ts` still passes bidirectionally. (#1768, #1849, #1169)
+- When editing Zod protocol schemas in `schemas.ts`, verify unknown-key handling matches the spec `schema.ts`: if the spec type has no `additionalProperties: false`, the SDK schema must use `z.looseObject()` / `.catchall(z.unknown())` rather than implicit strict — over-strict Zod (incl. `z.literal('object')` on `type`) rejects spec-valid payloads from other SDKs. Also confirm the `spec.types.*.test.ts` comparisons still pass bidirectionally. (#1768, #1849, #1169)
 
 ### Async / Lifecycle
 
