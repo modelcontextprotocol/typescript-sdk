@@ -43,14 +43,12 @@ import {
     LoggingLevelSchema,
     mergeCapabilities,
     modernProtocolVersions,
-    negotiatedProtocolVersionOf,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode,
-    setNegotiatedProtocolVersion
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
@@ -218,7 +216,7 @@ export class Server extends Protocol<ServerContext> {
             // Era-exact validation: the request and result schemas come from
             // the instance era, resolved at dispatch time (the era gate
             // guarantees tools/call exists on the serving era).
-            const codec = codecForVersion(negotiatedProtocolVersionOf(this));
+            const codec = codecForVersion(this._negotiatedProtocolVersion);
             const callToolRequestSchema = codec.requestSchema('tools/call');
             // The era registry entry IS the plain CallToolResult schema (the
             // result map is aligned to the typed map — no widened unions),
@@ -414,7 +412,7 @@ export class Server extends Protocol<ServerContext> {
         // The negotiated version is the instance's connection state — it IS
         // the wire-era selection for everything this instance sends and
         // receives from here on (legacy handshake ⇒ a legacy-era version).
-        setNegotiatedProtocolVersion(this, protocolVersion);
+        this._negotiatedProtocolVersion = protocolVersion;
         this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
@@ -464,7 +462,7 @@ export class Server extends Protocol<ServerContext> {
      * `undefined` before initialization.
      */
     getNegotiatedProtocolVersion(): string | undefined {
-        return negotiatedProtocolVersionOf(this);
+        return this._negotiatedProtocolVersion;
     }
 
     /**

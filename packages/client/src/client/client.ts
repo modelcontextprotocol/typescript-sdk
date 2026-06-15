@@ -53,14 +53,12 @@ import {
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
-    negotiatedProtocolVersionOf,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode,
-    setNegotiatedProtocolVersion
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 
 import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation.js';
@@ -335,7 +333,7 @@ export class Client extends Protocol<ClientContext> {
                 // Era-exact validation: the schemas are resolved from the
                 // instance era at dispatch time (the era gate guarantees the
                 // method exists on the serving era before we get here).
-                const codec = codecForVersion(negotiatedProtocolVersionOf(this));
+                const codec = codecForVersion(this._negotiatedProtocolVersion);
                 const elicitRequestSchema = codec.requestSchema('elicitation/create');
                 // The era registry entry IS the plain ElicitResult schema
                 // (the result map is aligned to the typed map — no widened
@@ -398,7 +396,7 @@ export class Client extends Protocol<ClientContext> {
         if (method === 'sampling/createMessage') {
             return async (request, ctx) => {
                 // Era-exact validation via the instance era (see above).
-                const codec = codecForVersion(negotiatedProtocolVersionOf(this));
+                const codec = codecForVersion(this._negotiatedProtocolVersion);
                 const samplingRequestSchema = codec.requestSchema('sampling/createMessage');
                 if (!samplingRequestSchema) {
                     throw new ProtocolError(
@@ -484,7 +482,7 @@ export class Client extends Protocol<ClientContext> {
         // Restore the protocol version negotiated during the original initialize handshake
         // so HTTP transports include the required mcp-protocol-version header, but skip re-init.
         if (transport.sessionId !== undefined) {
-            const negotiatedProtocolVersion = negotiatedProtocolVersionOf(this);
+            const negotiatedProtocolVersion = this._negotiatedProtocolVersion;
             if (negotiatedProtocolVersion !== undefined) {
                 // Resuming keeps the original negotiation: the instance still
                 // holds the negotiated version (and with it the wire era) —
@@ -501,7 +499,7 @@ export class Client extends Protocol<ClientContext> {
         // Without this, an instance that once negotiated a modern era could
         // never re-run a fresh handshake: `initialize` is physically absent
         // from the modern registry. (The resume branch above keeps it instead.)
-        setNegotiatedProtocolVersion(this, undefined);
+        this._negotiatedProtocolVersion = undefined;
         await this._legacyHandshake(transport, options);
     }
 
@@ -556,7 +554,7 @@ export class Client extends Protocol<ClientContext> {
             // Q1-SD1). Set AFTER the initialized notification: the initialize
             // EXCHANGE is the legacy handshake by definition and completes on
             // that era.
-            setNegotiatedProtocolVersion(this, result.protocolVersion);
+            this._negotiatedProtocolVersion = result.protocolVersion;
 
             // Set up list changed handlers now that we know server capabilities
             if (this._pendingListChangedConfig) {
@@ -585,7 +583,7 @@ export class Client extends Protocol<ClientContext> {
         // never re-probe mid-session.
         if (transport.sessionId !== undefined) {
             await super.connect(transport);
-            const negotiatedProtocolVersion = negotiatedProtocolVersionOf(this);
+            const negotiatedProtocolVersion = this._negotiatedProtocolVersion;
             if (negotiatedProtocolVersion !== undefined && transport.setProtocolVersion) {
                 transport.setProtocolVersion(negotiatedProtocolVersion);
             }
@@ -596,7 +594,7 @@ export class Client extends Protocol<ClientContext> {
         // negotiated protocol version is connection state, and a value left
         // over from a previous connection must not survive into a new
         // negotiation. Every fresh negotiated connect re-runs the probe.
-        setNegotiatedProtocolVersion(this, undefined);
+        this._negotiatedProtocolVersion = undefined;
 
         let result: Awaited<ReturnType<typeof negotiateEra>>;
         try {
@@ -634,7 +632,7 @@ export class Client extends Protocol<ClientContext> {
         // connection state (the same channel the legacy handshake completion
         // uses), and with it the wire era for everything this connection
         // sends/receives from here on.
-        setNegotiatedProtocolVersion(this, result.version);
+        this._negotiatedProtocolVersion = result.version;
         // After the era resolves modern, source per-request headers exactly the
         // way the legacy path does after initialize — the single
         // setProtocolVersion call site on this path.
@@ -672,7 +670,7 @@ export class Client extends Protocol<ClientContext> {
      * value to the new transport so it continues sending the required `mcp-protocol-version` header.
      */
     getNegotiatedProtocolVersion(): string | undefined {
-        return negotiatedProtocolVersionOf(this);
+        return this._negotiatedProtocolVersion;
     }
 
     /**
@@ -684,7 +682,7 @@ export class Client extends Protocol<ClientContext> {
      * {@linkcode getNegotiatedProtocolVersion} exposes) — never persisted.
      */
     getProtocolEra(): 'legacy' | 'modern' | undefined {
-        const version = negotiatedProtocolVersionOf(this);
+        const version = this._negotiatedProtocolVersion;
         if (version === undefined) {
             return undefined;
         }

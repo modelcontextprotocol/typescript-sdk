@@ -379,36 +379,23 @@ type TimeoutInfo = {
 };
 
 /*
- * Package-internal access to Protocol's negotiated-protocol-version state.
+ * Package-internal write access to Protocol's negotiated-protocol-version state.
  *
- * The negotiated version is a TS-private field on Protocol (it is connection
- * state, not public surface — it never appears in the published declaration
- * reports). The role classes (Client/Server), tests, and the modern-era
- * server entry still need to read and write it at their lifecycle points, so
- * Protocol's static initializer hands these module-scoped closures privileged
- * access and the two functions below re-export them on the core INTERNAL
- * barrel only. This is the F-2-style package-internal hook — deliberately not
- * public API.
+ * The negotiated version is a protected field on Protocol that the role classes
+ * (Client/Server) assign directly. Tests and the modern-era server entry still
+ * need to set it from outside the class hierarchy, so Protocol's static
+ * initializer hands this module-scoped closure privileged access and
+ * `setNegotiatedProtocolVersion` re-exports it on the core INTERNAL barrel
+ * only — deliberately not public API.
  */
-let readNegotiatedProtocolVersion: <ContextT extends BaseContext>(instance: Protocol<ContextT>) => string | undefined;
 let writeNegotiatedProtocolVersion: <ContextT extends BaseContext>(instance: Protocol<ContextT>, version: string | undefined) => void;
 
 /**
- * Package-internal read channel for the protocol version a {@linkcode Protocol}
- * instance has negotiated (`undefined` before negotiation). Exported on the
- * core internal barrel only — never public API.
- */
-export function negotiatedProtocolVersionOf<ContextT extends BaseContext>(instance: Protocol<ContextT>): string | undefined {
-    return readNegotiatedProtocolVersion(instance);
-}
-
-/**
  * Package-internal write channel for a {@linkcode Protocol} instance's
- * negotiated protocol version — the single era set/clear point outside the
- * class itself. Called by `Client.connect` (fresh-connect clear + handshake
- * completion), `Server._oninitialize`, tests, and the (future) modern-era
- * server entry when it marks a factory instance modern at binding time.
- * Exported on the core internal barrel only — never public API.
+ * negotiated protocol version, for callers outside the class hierarchy:
+ * tests and the (future) modern-era server entry that marks a factory
+ * instance modern at binding time. Exported on the core internal barrel
+ * only — never public API.
  */
 export function setNegotiatedProtocolVersion<ContextT extends BaseContext>(
     instance: Protocol<ContextT>,
@@ -436,25 +423,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _pendingDebouncedNotifications = new Set<string>();
 
     /**
-     * The protocol version negotiated for the current connection — the single
-     * source of truth for the wire era this instance speaks (Q1-SD1: the
-     * negotiated version cashes out as the negotiated wire ERA).
-     *
-     * Ordinary connection state, no side tables:
-     * - `Client.connect` clears it at the start of a fresh connect (the
-     *   handshake itself runs pre-negotiation) and sets it once the handshake
-     *   completes; the resume path keeps the original negotiation.
-     * - `Server._oninitialize` sets it when answering the legacy handshake;
-     *   modern-era server instances get it set at instance binding through
-     *   the package-internal hook ({@linkcode setNegotiatedProtocolVersion}).
-     *
-     * `undefined` = not negotiated yet: outbound lifecycle messages ride the
-     * bootstrap method pins and everything else defaults to the legacy era.
+     * The protocol version negotiated for the current connection (`undefined`
+     * before negotiation completes), which determines the wire era this
+     * instance speaks. Set by the SDK's negotiation and initialize paths
+     * (`Client.connect`, `Server._oninitialize`).
      */
-    private _negotiatedProtocolVersion?: string;
+    protected _negotiatedProtocolVersion?: string;
 
     static {
-        readNegotiatedProtocolVersion = instance => instance._negotiatedProtocolVersion;
         writeNegotiatedProtocolVersion = (instance, version) => {
             instance._negotiatedProtocolVersion = version;
         };
