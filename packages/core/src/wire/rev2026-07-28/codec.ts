@@ -26,6 +26,8 @@
  * The ttlMs/cacheScope stamping content (M3.2) lands in `encodeResult` —
  * this seam is its final home.
  */
+import type * as z from 'zod/v4';
+
 import { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
 import type { Result } from '../../types/types.js';
 import type { DecodedResult, LiftedWireMaterial, WireCodec } from '../codec.js';
@@ -36,7 +38,6 @@ import {
     hasNotificationMethod2026,
     hasRequestMethod2026
 } from './registry.js';
-import type { ResultSchema } from './schemas.js';
 import {
     CallToolResultSchema,
     CompleteResultSchema,
@@ -94,9 +95,9 @@ export const rev2026Codec: WireCodec = {
     hasRequestMethod: hasRequestMethod2026,
     hasNotificationMethod: hasNotificationMethod2026,
 
-    requestSchema: method => getRequestSchema2026(method),
-    resultSchema: method => getResultSchema2026(method),
-    notificationSchema: method => getNotificationSchema2026(method),
+    requestSchema: getRequestSchema2026,
+    resultSchema: getResultSchema2026,
+    notificationSchema: getNotificationSchema2026,
 
     decodeResult(method: string, raw: unknown): DecodedResult {
         if (!isPlainObject(raw)) {
@@ -193,14 +194,14 @@ export const rev2026Codec: WireCodec = {
 };
 
 /** Wire-true result wrappers consulted by decode step 2, keyed by method. */
-const WIRE_RESULT_SCHEMAS: Record<string, typeof ResultSchema> = {
-    'tools/call': CallToolResultSchema as unknown as typeof ResultSchema,
-    'tools/list': ListToolsResultSchema as unknown as typeof ResultSchema,
-    'prompts/get': GetPromptResultSchema as unknown as typeof ResultSchema,
-    'prompts/list': ListPromptsResultSchema as unknown as typeof ResultSchema,
-    'resources/list': ListResourcesResultSchema as unknown as typeof ResultSchema,
-    'resources/templates/list': ListResourceTemplatesResultSchema as unknown as typeof ResultSchema,
-    'resources/read': ReadResourceResultSchema as unknown as typeof ResultSchema,
-    'completion/complete': CompleteResultSchema as unknown as typeof ResultSchema,
-    'server/discover': DiscoverResultSchema as unknown as typeof ResultSchema
+const WIRE_RESULT_SCHEMAS: Record<string, z.ZodType> = {
+    'tools/call': CallToolResultSchema,
+    'tools/list': ListToolsResultSchema,
+    'prompts/get': GetPromptResultSchema,
+    'prompts/list': ListPromptsResultSchema,
+    'resources/list': ListResourcesResultSchema,
+    'resources/templates/list': ListResourceTemplatesResultSchema,
+    'resources/read': ReadResourceResultSchema,
+    'completion/complete': CompleteResultSchema,
+    'server/discover': DiscoverResultSchema
 };

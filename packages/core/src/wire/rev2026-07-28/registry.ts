@@ -25,26 +25,58 @@
  */
 import type * as z from 'zod/v4';
 
+import type { NotificationMethod, NotificationTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types.js';
+import type { Rev2026NotificationMethod, Rev2026RequestMethod } from './schemas.js';
 import { dispatchRequestSchemas, dispatchResultSchemas, notificationSchemas2026 } from './schemas.js';
 
-export function hasRequestMethod2026(method: string): boolean {
+/** The 2026-era request-method set (registry membership = the deletion story). */
+export function hasRequestMethod2026(method: string): method is Rev2026RequestMethod {
     return Object.prototype.hasOwnProperty.call(dispatchRequestSchemas, method);
 }
 
-export function hasNotificationMethod2026(method: string): boolean {
+/** The 2026-era notification-method set. */
+export function hasNotificationMethod2026(method: string): method is Rev2026NotificationMethod {
     return Object.prototype.hasOwnProperty.call(notificationSchemas2026, method);
 }
 
+/** Result-map membership (same key set as the request map on this era). */
+function hasResultMethod2026(method: string): method is Rev2026RequestMethod {
+    return Object.prototype.hasOwnProperty.call(dispatchResultSchemas, method);
+}
+
+/**
+ * Gets the dispatch (post-lift) Zod schema for a given request method.
+ * Returns `undefined` for methods this era's registry does not define.
+ * The typed overload mirrors `WireCodec.requestSchema` so call sites with a
+ * statically known method need no type assertion.
+ */
+export function getRequestSchema2026<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]> | undefined;
+export function getRequestSchema2026(method: string): z.ZodType | undefined;
 export function getRequestSchema2026(method: string): z.ZodType | undefined {
-    return dispatchRequestSchemas[method];
+    return hasRequestMethod2026(method) ? dispatchRequestSchemas[method] : undefined;
 }
 
+/**
+ * Gets the dispatch (post-lift) Zod schema for validating results of a given
+ * request method. Returns `undefined` for methods this era's registry does
+ * not define.
+ * @see getRequestSchema2026 for the typed-overload contract.
+ */
+export function getResultSchema2026<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]> | undefined;
+export function getResultSchema2026(method: string): z.ZodType | undefined;
 export function getResultSchema2026(method: string): z.ZodType | undefined {
-    return dispatchResultSchemas[method];
+    return hasResultMethod2026(method) ? dispatchResultSchemas[method] : undefined;
 }
 
+/**
+ * Gets the Zod schema for a given notification method.
+ * Returns `undefined` for methods this era's registry does not define.
+ * @see getRequestSchema2026 for the typed-overload contract.
+ */
+export function getNotificationSchema2026<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]> | undefined;
+export function getNotificationSchema2026(method: string): z.ZodType | undefined;
 export function getNotificationSchema2026(method: string): z.ZodType | undefined {
-    return notificationSchemas2026[method];
+    return hasNotificationMethod2026(method) ? notificationSchemas2026[method] : undefined;
 }
 
 /** Registry method lists (for the spec-method universe and the CI registry-diff oracle). */

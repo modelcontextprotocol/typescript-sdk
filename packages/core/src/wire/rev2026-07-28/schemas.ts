@@ -333,20 +333,38 @@ const completeParamsShape = {
 export const CompleteRequestSchema = wireRequest('completion/complete', completeParamsShape);
 export const DiscoverRequestSchema = wireRequest('server/discover', {});
 
+/**
+ * The 2026-era request-method set — the hand-registry seed (see registry.ts
+ * for the seed decisions). The dispatch maps below are mapped types over this
+ * union, so a missing entry, an extra entry, or an entry pointing at another
+ * method's schema is a compile error; the CI registry-diff oracle pins the
+ * same set against the anchor at runtime.
+ */
+export type Rev2026RequestMethod =
+    | 'tools/call'
+    | 'tools/list'
+    | 'prompts/get'
+    | 'prompts/list'
+    | 'resources/list'
+    | 'resources/templates/list'
+    | 'resources/read'
+    | 'completion/complete'
+    | 'server/discover';
+
 /** Dispatch (post-lift) request schemas, keyed by method — registry-internal. */
-export const dispatchRequestSchemas: Record<string, z.ZodType> = {
-    'tools/call': dispatchRequest('tools/call', callToolParamsShape) as unknown as z.ZodType,
-    'tools/list': dispatchRequest('tools/list', paginatedParamsShape) as unknown as z.ZodType,
+export const dispatchRequestSchemas: { readonly [M in Rev2026RequestMethod]: z.ZodType<{ method: M }> } = {
+    'tools/call': dispatchRequest('tools/call', callToolParamsShape),
+    'tools/list': dispatchRequest('tools/list', paginatedParamsShape),
     'prompts/get': dispatchRequest('prompts/get', {
         name: z.string(),
         arguments: z.record(z.string(), z.string()).optional()
-    }) as unknown as z.ZodType,
-    'prompts/list': dispatchRequest('prompts/list', paginatedParamsShape) as unknown as z.ZodType,
-    'resources/list': dispatchRequest('resources/list', paginatedParamsShape) as unknown as z.ZodType,
-    'resources/templates/list': dispatchRequest('resources/templates/list', paginatedParamsShape) as unknown as z.ZodType,
-    'resources/read': dispatchRequest('resources/read', { uri: z.string() }) as unknown as z.ZodType,
-    'completion/complete': dispatchRequest('completion/complete', completeParamsShape) as unknown as z.ZodType,
-    'server/discover': dispatchRequest('server/discover', {}) as unknown as z.ZodType
+    }),
+    'prompts/list': dispatchRequest('prompts/list', paginatedParamsShape),
+    'resources/list': dispatchRequest('resources/list', paginatedParamsShape),
+    'resources/templates/list': dispatchRequest('resources/templates/list', paginatedParamsShape),
+    'resources/read': dispatchRequest('resources/read', { uri: z.string() }),
+    'completion/complete': dispatchRequest('completion/complete', completeParamsShape),
+    'server/discover': dispatchRequest('server/discover', {})
 };
 
 /** Dispatch (post-lift) result schemas, keyed by method — what the funnel
@@ -355,45 +373,45 @@ function liftedResult<T extends z.core.$ZodLooseShape>(shape: T) {
     return z.looseObject({ _meta: wireMeta, ...shape });
 }
 
-export const dispatchResultSchemas: Record<string, z.ZodType> = {
+export const dispatchResultSchemas: { readonly [M in Rev2026RequestMethod]: z.ZodType } = {
     'tools/call': liftedResult({
         content: z.array(ContentBlockSchema),
         structuredContent: z.unknown().optional(),
         isError: z.boolean().optional()
-    }) as unknown as z.ZodType,
+    }),
     'tools/list': liftedResult({
         ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         tools: z.array(ToolSchema),
         nextCursor: CursorSchema.optional()
-    }) as unknown as z.ZodType,
+    }),
     'prompts/get': liftedResult({
         description: z.string().optional(),
         messages: z.array(PromptMessageSchema)
-    }) as unknown as z.ZodType,
+    }),
     'prompts/list': liftedResult({
         ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         prompts: z.array(PromptSchema),
         nextCursor: CursorSchema.optional()
-    }) as unknown as z.ZodType,
+    }),
     'resources/list': liftedResult({
         ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         resources: z.array(ResourceSchema),
         nextCursor: CursorSchema.optional()
-    }) as unknown as z.ZodType,
+    }),
     'resources/templates/list': liftedResult({
         ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         resourceTemplates: z.array(ResourceTemplateSchema),
         nextCursor: CursorSchema.optional()
-    }) as unknown as z.ZodType,
+    }),
     'resources/read': liftedResult({
         ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
         contents: z.array(z.union([TextResourceContentsSchema, BlobResourceContentsSchema]))
-    }) as unknown as z.ZodType,
+    }),
     'completion/complete': liftedResult({
         completion: z
             .object({
@@ -402,7 +420,7 @@ export const dispatchResultSchemas: Record<string, z.ZodType> = {
                 hasMore: z.boolean().optional()
             })
             .loose()
-    }) as unknown as z.ZodType,
+    }),
     'server/discover': liftedResult({
         ttlMs: z.number().int().min(0),
         cacheScope: z.enum(['public', 'private']),
@@ -410,7 +428,7 @@ export const dispatchResultSchemas: Record<string, z.ZodType> = {
         capabilities: ServerCapabilities2026Schema,
         serverInfo: ImplementationSchema,
         instructions: z.string().optional()
-    }) as unknown as z.ZodType
+    })
 };
 
 /* ------------------------------------------------------------------------ *
@@ -421,15 +439,26 @@ export const dispatchResultSchemas: Record<string, z.ZodType> = {
  * shared schemas, which are composed by reference. (The 2026-only
  * subscriptions/acknowledged notification is #14 scope — see registry.ts.)
  * ------------------------------------------------------------------------ */
-export const notificationSchemas2026: Record<string, z.ZodType> = {
-    'notifications/cancelled': CancelledNotificationSchema as unknown as z.ZodType,
-    'notifications/progress': ProgressNotificationSchema as unknown as z.ZodType,
-    'notifications/message': LoggingMessageNotificationSchema as unknown as z.ZodType,
-    'notifications/resources/updated': ResourceUpdatedNotificationSchema as unknown as z.ZodType,
-    'notifications/resources/list_changed': ResourceListChangedNotificationSchema as unknown as z.ZodType,
-    'notifications/tools/list_changed': ToolListChangedNotificationSchema as unknown as z.ZodType,
-    'notifications/prompts/list_changed': PromptListChangedNotificationSchema as unknown as z.ZodType,
-    'notifications/elicitation/complete': ElicitationCompleteNotificationSchema as unknown as z.ZodType
+/** The 2026-era notification-method set (the hand-registry seed; see the deletion list above). */
+export type Rev2026NotificationMethod =
+    | 'notifications/cancelled'
+    | 'notifications/progress'
+    | 'notifications/message'
+    | 'notifications/resources/updated'
+    | 'notifications/resources/list_changed'
+    | 'notifications/tools/list_changed'
+    | 'notifications/prompts/list_changed'
+    | 'notifications/elicitation/complete';
+
+export const notificationSchemas2026: { readonly [M in Rev2026NotificationMethod]: z.ZodType<{ method: M }> } = {
+    'notifications/cancelled': CancelledNotificationSchema,
+    'notifications/progress': ProgressNotificationSchema,
+    'notifications/message': LoggingMessageNotificationSchema,
+    'notifications/resources/updated': ResourceUpdatedNotificationSchema,
+    'notifications/resources/list_changed': ResourceListChangedNotificationSchema,
+    'notifications/tools/list_changed': ToolListChangedNotificationSchema,
+    'notifications/prompts/list_changed': PromptListChangedNotificationSchema,
+    'notifications/elicitation/complete': ElicitationCompleteNotificationSchema
 };
 
 /* ------------------------------------------------------------------------ *
