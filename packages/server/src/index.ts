@@ -9,6 +9,17 @@
 export type { CompletableSchema, CompleteCallback } from './server/completable.js';
 export { completable, isCompletable } from './server/completable.js';
 export type {
+    CreateMcpHandlerOptions,
+    LegacyHttpHandler,
+    McpHandlerRequestOptions,
+    McpHttpHandler,
+    McpRequestContext,
+    McpServerFactory,
+    NodeIncomingMessageLike,
+    NodeServerResponseLike
+} from './server/createMcpHandler.js';
+export { createMcpHandler, legacyStatelessFallback } from './server/createMcpHandler.js';
+export type {
     AnyToolHandler,
     BaseToolCallback,
     CompleteResourceTemplateCallback,
@@ -26,6 +37,8 @@ export type {
 export { McpServer, ResourceTemplate } from './server/mcp.js';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation.js';
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation.js';
+export type { PerRequestHTTPServerTransportOptions, PerRequestMessageExtra, PerRequestResponseMode } from './server/perRequestTransport.js';
+export { PerRequestHTTPServerTransport } from './server/perRequestTransport.js';
 export type { ServerOptions } from './server/server.js';
 export { Server } from './server/server.js';
 // StdioServerTransport is exported from the './stdio' subpath — server stdio has only type-level Node
@@ -42,6 +55,19 @@ export { WebStandardStreamableHTTPServerTransport } from './server/streamableHtt
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema.js';
+
+// Inbound HTTP request classification (dual-era serving): the body-primary era
+// predicate used by createMcpHandler, exported for hand-wired compositions.
+export type {
+    InboundClassificationOutcome,
+    InboundHttpRequest,
+    InboundLadderRejection,
+    InboundLegacyRoute,
+    InboundLegacyRouteReason,
+    InboundModernRoute,
+    InboundValidationRung
+} from '@modelcontextprotocol/core';
+export { classifyInboundRequest } from '@modelcontextprotocol/core';
 
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core/public';
