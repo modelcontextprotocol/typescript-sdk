@@ -504,13 +504,10 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * The 2025 `initialize` handshake — the body of the plain legacy connect.
-     * Also the `'auto'`-mode fallback path, on the same connection: fallback is
-     * structurally this client's own plain legacy connect under identical
-     * options (same `initialize` body including the protocol version, zero
-     * 2026 headers). Callers clear the negotiated protocol version before the
-     * handshake (the fresh-connect clear), so the exchange rides the bootstrap
-     * pins; its completion sets the negotiated (legacy) version.
+     * The 2025 `initialize` handshake — the body of the plain legacy connect and
+     * the `'auto'`-mode fallback path (same connection, same `initialize` body,
+     * zero 2026 headers). Callers clear the negotiated protocol version before
+     * the handshake; its completion sets the negotiated (legacy) version.
      */
     private async _legacyHandshake(transport: Transport, options?: RequestOptions): Promise<void> {
         try {
@@ -569,10 +566,9 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Negotiated connect (`versionNegotiation` mode `'auto'` or `{ pin }`): run
-     * the `server/discover` probe in the wiring layer before the Protocol
-     * machinery attaches, then either establish the modern era or perform the
-     * plain legacy handshake on the same connection.
+     * Negotiated connect (mode `'auto'` or `{ pin }`): probe with `server/discover`
+     * before the Protocol machinery attaches, then either establish the modern era
+     * or perform the plain legacy handshake on the same connection.
      */
     private async _connectNegotiated(
         transport: Transport,
@@ -590,10 +586,8 @@ export class Client extends Protocol<ClientContext> {
             return;
         }
 
-        // Fresh connect: same property as the plain legacy path — the
-        // negotiated protocol version is connection state, and a value left
-        // over from a previous connection must not survive into a new
-        // negotiation. Every fresh negotiated connect re-runs the probe.
+        // Fresh connect: stale connection state must not survive into a new
+        // negotiation — every fresh negotiated connect re-runs the probe.
         this._negotiatedProtocolVersion = undefined;
 
         let result: Awaited<ReturnType<typeof negotiateEra>>;
@@ -616,11 +610,7 @@ export class Client extends Protocol<ClientContext> {
 
         if (result.era === 'legacy') {
             // Conservative fallback: the plain legacy handshake on the SAME
-            // connection — structurally the same code path as a plain legacy
-            // connect (the transport version slot was never touched during the
-            // probe, so there is nothing to clear: zero 2026 headers by
-            // construction). The handshake's completion sets the negotiated
-            // (legacy) protocol version exactly like a plain connect.
+            // connection (the probe never touched the transport version slot).
             await this._legacyHandshake(transport, options);
             return;
         }
@@ -628,22 +618,14 @@ export class Client extends Protocol<ClientContext> {
         this._serverCapabilities = result.discover.capabilities;
         this._serverVersion = result.discover.serverInfo;
         this._instructions = result.discover.instructions;
-        // Modern selection: the negotiated protocol version is the instance's
-        // connection state (the same channel the legacy handshake completion
-        // uses), and with it the wire era for everything this connection
-        // sends/receives from here on.
+        // Modern selection: the same connection state the legacy handshake completion sets.
         this._negotiatedProtocolVersion = result.version;
-        // After the era resolves modern, source per-request headers exactly the
-        // way the legacy path does after initialize — the single
-        // setProtocolVersion call site on this path.
+        // The single setProtocolVersion call site on this path, mirroring the legacy path after initialize.
         if (transport.setProtocolVersion) {
             transport.setProtocolVersion(result.version);
         }
-        // The modern era has no notifications/initialized. List-changed handlers
-        // are still configured from the advertised capabilities (the discover
-        // advertisement excludes listChanged-class capabilities until the
-        // subscriptions/listen milestone lands, so this is a structural no-op
-        // today).
+        // The modern era has no notifications/initialized; list-changed handlers
+        // are configured straight from the advertised capabilities.
         if (this._pendingListChangedConfig) {
             this._setupListChangedHandlers(this._pendingListChangedConfig);
             this._pendingListChangedConfig = undefined;

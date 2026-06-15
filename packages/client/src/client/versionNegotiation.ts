@@ -1,31 +1,15 @@
 /**
  * Connect-time protocol version negotiation (opt-in via
- * `ClientOptions.versionNegotiation`).
+ * `ClientOptions.versionNegotiation`): the option surface, the probe window (a
+ * raw transport exchange run before the Protocol machinery attaches), and the
+ * negotiation engine driving the pure {@linkcode classifyProbeOutcome} classifier.
  *
- * This module owns the negotiation wiring that runs in the connect layer BEFORE
- * the Protocol machinery engages: the option surface, the probe window (raw
- * transport exchange with a string probe id), and the negotiation engine that
- * drives the pure {@linkcode classifyProbeOutcome} classifier.
- *
- * Design invariants:
- *
- * - The probe never runs through the Protocol request machinery: it uses a string
- *   probe id (never colliding with Protocol's numeric ids) and consumes no message
- *   ids, so a legacy fallback's `initialize` is byte-equivalent to a plain legacy
- *   connect (same `id: 0`, same body, zero 2026 headers).
- * - The probe is never the first real request — it is a dedicated
- *   `server/discover` exchange at connect time.
- * - The transport's protocol-version slot is NEVER mutated during negotiation;
- *   probe headers derive from the probe message body itself (see the streamable
- *   HTTP transport's body-derived header stamping). `setProtocolVersion` is called
- *   exactly once, after the era resolves modern, the same way the legacy path
- *   calls it after `initialize`.
- * - Probe-window guard: while the window is open, inbound messages that are not
- *   the probe response (e.g. a 2025-legal pre-initialization server→client request
- *   arriving mid-probe on a shared stdio pipe) are dropped with ZERO bytes written
- *   back. Such requests have no delivery guarantee mid-handshake; after the window
- *   closes, pre-init server→client traffic reaches Protocol dispatch exactly as it
- *   does today.
+ * Invariants: the probe uses string ids and consumes no Protocol message ids, so
+ * a legacy fallback's `initialize` is byte-equivalent to a plain legacy connect;
+ * the transport's protocol-version slot is never mutated during negotiation
+ * (probe headers derive from the probe message body) and is set exactly once
+ * after a modern resolution; while the probe window is open, inbound messages
+ * that are not the probe response are dropped with zero bytes written back.
  */
 import type { ClientCapabilities, DiscoverResult, Implementation, JSONRPCRequest, Transport } from '@modelcontextprotocol/core';
 import {
@@ -115,12 +99,8 @@ export interface VersionNegotiationOptions {
 }
 
 /**
- * The default negotiation mode when `versionNegotiation` (or its `mode`) is
- * absent.
- *
- * The classifier and probe machine are default-agnostic: changing the v2
- * default (deferred sub-decision, ruled at the auto-negotiation milestone) is
- * a flip of this single line.
+ * The default mode when `versionNegotiation` (or its `mode`) is absent;
+ * changing the default later is a flip of this single line.
  */
 const DEFAULT_VERSION_NEGOTIATION_MODE: VersionNegotiationMode = 'legacy';
 
@@ -138,13 +118,9 @@ export type ResolvedVersionNegotiation =
     | { kind: 'pin'; version: string; probe: VersionNegotiationProbeOptions };
 
 /**
- * Resolve the negotiation options into a per-connect plan.
- *
- * @param options - the `ClientOptions.versionNegotiation` value
- * @param supportedProtocolVersionsOption - the raw `supportedProtocolVersions`
- * option as passed by the consumer (NOT the defaulted list): when it carries
- * modern versions they become the offer list, and a list without any legacy
- * version makes this a modern-only client (no fallback).
+ * Resolve the negotiation options into a per-connect plan. The raw (not
+ * defaulted) `supportedProtocolVersions` option supplies the modern offer list;
+ * a list without any legacy version makes this a modern-only client (no fallback).
  */
 export function resolveVersionNegotiation(
     options: VersionNegotiationOptions | undefined,
@@ -170,24 +146,17 @@ export function resolveVersionNegotiation(
     return { kind: 'auto', modernVersions, fallbackAvailable, probe };
 }
 
-/**
- * Detect the probe environment for the F-7 browser row. Browser means a real
- * window/document context (where fetch failures may be opaque CORS rejections);
- * everything else — Node, workers — keeps typed-connect-error semantics for
- * network failures.
- */
+/** Detect the probe environment for the network-failure row — see {@linkcode ProbeEnvironment}. */
 export function detectProbeEnvironment(): ProbeEnvironment {
     const g = globalThis as { window?: unknown; document?: unknown };
     return g.window !== undefined && g.document !== undefined ? 'browser' : 'node';
 }
 
 /**
- * Detect the transport class for the timeout row's transport-aware verdict
- * (see {@linkcode ProbeTransportKind}). The stdio child-process transport is
- * recognized structurally (its `stderr`/`pid` accessors), so consumer
- * subclasses and re-bundled copies are recognized without `instanceof`;
- * everything else — HTTP, SSE, in-memory, custom transports — keeps the
- * conservative typed-error posture for timeouts.
+ * Detect the transport class for the transport-aware timeout verdict (see
+ * {@linkcode ProbeTransportKind}). The stdio child-process transport is
+ * recognized structurally (`stderr`/`pid` accessors, no `instanceof` — safe
+ * across bundles); everything else is treated like HTTP.
  */
 export function detectProbeTransportKind(transport: Transport): ProbeTransportKind {
     return 'stderr' in transport && 'pid' in transport ? 'stdio' : 'http';
@@ -201,13 +170,11 @@ type RawProbeReply =
     | { kind: 'timeout' };
 
 /**
- * The probe window: temporary ownership of a raw transport for the negotiation
- * exchange, before the Protocol machinery attaches.
- *
- * `open()` installs the window's handlers and starts the transport; `release()`
- * detaches them and arms a one-shot `start()` pass-through so the subsequent
- * Protocol connect (which always starts its transport) takes over the
- * already-started channel without a double-start error.
+ * Temporary ownership of a raw transport for the negotiation exchange, before
+ * the Protocol machinery attaches. `open()` installs the window's handlers and
+ * starts the transport; `release()` detaches them and arms a one-shot `start()`
+ * pass-through so the subsequent Protocol connect (which always starts its
+ * transport) takes over the already-started channel without a double-start error.
  */
 class ProbeWindow {
     /** Inbound messages dropped (with zero bytes written back) while the window was open. */
@@ -254,9 +221,8 @@ class ProbeWindow {
     }
 
     /**
-     * Send one probe request and await its reply. Each call uses a fresh string
-     * probe id (T9: string ids never collide with Protocol's numeric ids, e.g.
-     * on shared stdio pipes).
+     * Send one probe request and await its reply. Probe ids are strings, so they
+     * never collide with Protocol's numeric ids (e.g. on a shared stdio pipe).
      */
     async exchange(buildRequest: (id: string) => JSONRPCRequest, timeoutMs: number): Promise<RawProbeReply> {
         const id = `server-discover-probe-${++this._probeCounter}`;
@@ -277,11 +243,7 @@ class ProbeWindow {
         });
     }
 
-    /**
-     * Close the window: detach the handlers and hand the started transport over
-     * to the next `Protocol.connect()` (whose unconditional `start()` call is
-     * absorbed exactly once).
-     */
+    /** Detach the handlers and arm the one-shot `start()` pass-through for the `Protocol.connect()` handover. */
     release(): void {
         this._pending = undefined;
         this._transport.onmessage = undefined;
@@ -364,9 +326,8 @@ export type NegotiationResult = { era: 'modern'; version: string; discover: Disc
 
 /**
  * Run the negotiation probe state machine on a raw (not yet Protocol-connected)
- * transport. Resolves with the negotiated era; throws typed connect errors.
- *
- * On return (or throw) the probe window has been released: the transport is
+ * transport. Resolves with the negotiated era; throws typed connect errors. On
+ * return (or throw) the probe window has been released: the transport is
  * started, handler-free, and ready for `Protocol.connect()` handover.
  */
 export async function negotiateEra(
@@ -381,12 +342,12 @@ export async function negotiateEra(
     const window = await ProbeWindow.open(deps.transport);
     try {
         let requestedVersion = clientModernVersions[0]!;
-        // T2/A6: the -32004 corrective continuation runs exactly once — even when
-        // the mutual version equals the just-rejected one — and the loop guard
-        // arms on the second rejection.
+        // The -32004 corrective continuation runs exactly once (even when the
+        // mutual version equals the just-rejected one); the loop guard arms on
+        // the second rejection.
         let correctiveUsed = false;
         for (;;) {
-            // Q12: `maxRetries` governs timeout re-sends only.
+            // `maxRetries` governs timeout re-sends only.
             let attempts = 0;
             let reply: RawProbeReply;
             do {
@@ -418,7 +379,6 @@ export async function negotiateEra(
                 }
                 case 'legacy': {
                     if (negotiation.kind === 'pin') {
-                        // Pin mode: no fallback, loud failure.
                         throw new SdkError(
                             SdkErrorCode.EraNegotiationFailed,
                             `Version negotiation failed: the server did not offer pinned protocol version ${negotiation.version} ` +

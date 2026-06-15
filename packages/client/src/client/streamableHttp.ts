@@ -233,15 +233,12 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     /**
-     * Body-derived per-request headers (protocol revision 2026-07-28): when a
-     * single outgoing request carries the protocol-version claim in its `_meta`
-     * envelope, the `MCP-Protocol-Version` and `Mcp-Method` headers derive from
-     * the message itself — the version negotiation probe is the first such
-     * sender. The connection-level version slot (`setProtocolVersion`, stamped
-     * after era resolution) is neither consulted nor mutated here; a body-derived
-     * claim takes precedence over the slot for its own request only. Messages
-     * without an envelope claim (all 2025-era traffic) are untouched, so no 2026
-     * header can ever appear on a legacy exchange.
+     * Body-derived per-request headers: when an outgoing request carries a
+     * protocol-version claim in its `_meta` envelope (the version negotiation
+     * probe is the first such sender), `MCP-Protocol-Version` and `Mcp-Method`
+     * derive from the message itself. The connection-level version slot is
+     * neither consulted nor mutated; messages without an envelope claim are
+     * untouched, so no 2026 header can appear on a legacy exchange.
      */
     private _applyBodyDerivedHeaders(headers: Headers, message: JSONRPCMessage | JSONRPCMessage[]): void {
         if (Array.isArray(message) || !isJSONRPCRequest(message)) {

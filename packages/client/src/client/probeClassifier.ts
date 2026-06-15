@@ -1,36 +1,14 @@
 /**
- * Probe outcome classifier — the merged fallback table (pure module).
+ * Probe outcome classifier (pure module): maps the outcome of the connect-time
+ * `server/discover` probe onto one of four verdicts — modern era, the
+ * spec-mandated `-32004` corrective continuation, legacy fallback (the plain
+ * 2025 `initialize` handshake on the same connection), or a typed connect error.
  *
- * Classifies the outcome of the version-negotiation probe (`server/discover` sent
- * at connect time) into one of four verdicts: modern era (select a version), a
- * spec-mandated corrective continuation (`-32004` with a mutual modern version),
- * legacy fallback (perform the plain 2025 `initialize` handshake on the same
- * connection), or a typed connect error.
- *
- * The classifier is deliberately **conservative**: anything it does not positively
- * recognize as modern resolves to the legacy fallback. Network outage rejects with
- * a typed connect error (never an era verdict). Timeouts are transport-aware: on
- * stdio, a probe that nobody answers within the timeout indicates a legacy server
- * — the stdio transport's backward-compatibility rule ("any other error, or does
- * not respond within a reasonable timeout: the server is legacy"; some legacy
- * servers do not respond to unknown pre-`initialize` requests at all) — and falls
- * back to `initialize` on the same stream. On HTTP a deployed server answers, so
- * silence is an outage, not a legacy signal: the timeout stays a typed connect
- * error (the versioning compatibility matrix keys the HTTP legacy signal to a 4xx
- * without a recognized modern error body, never to silence).
- *
- * **Scope: negotiation phase only.** These verdicts apply exclusively to the
- * connect-time probe exchange. Once a connection's era is established as modern, a
- * later unrecognized failure surfaces to the caller and is never re-classified
- * into a silent demotion to `initialize`; the next fresh `connect()` re-runs
- * negotiation from scratch.
- *
- * `-32001` and `-32003` are deliberately NOT probe-recognized in either direction:
- * deployed servers still overload `-32001` for session-404 bodies and the draft
- * error-code ladder for these cells is still being derived upstream (conformance
- * #336), so both fall into the conservative "unrecognized → legacy" default. A
- * conformant modern server never answers a well-formed discover with either code,
- * so nothing is lost.
+ * The classifier is deliberately conservative: anything it does not positively
+ * recognize as modern resolves to the legacy fallback, and a network outage is a
+ * typed connect error, never an era verdict. The verdicts apply to the
+ * negotiation phase only — an established modern connection is never silently
+ * demoted to `initialize` by a later failure.
  */
 import type { DiscoverResult } from '@modelcontextprotocol/core';
 import {
@@ -43,66 +21,42 @@ import {
 
 /**
  * The runtime environment the probe executed in. Only consulted for the
- * network-failure row (F-7): in a browser, a CORS-preflight rejection against a
- * deployed 2025 server surfaces as an opaque `TypeError` indistinguishable from an
- * outage — but the legacy fallback carries no custom headers (no preflight), so it
- * is treated as a definitive-enough legacy signal. In Node there is no CORS layer,
- * so a network failure stays a typed connect error.
+ * network-failure row: a browser CORS-preflight rejection is treated as a
+ * legacy signal, while in Node a network failure stays a typed connect error.
  */
 export type ProbeEnvironment = 'node' | 'browser';
 
 /**
- * The transport class the probe ran on. Only consulted for the timeout row:
- * the specification's backward-compatibility rule for stdio treats a probe
- * that gets no response within a reasonable timeout as a legacy-server signal
- * (local pipes; some legacy servers do not respond to unknown
- * pre-`initialize` requests at all), while on HTTP a deployed server answers,
- * so silence is an outage — the HTTP legacy signal is a 4xx without a
- * recognized modern error body. Anything that is not the stdio child-process
- * transport is treated like HTTP (the conservative, typed-error posture).
+ * The transport class the probe ran on. Only consulted for the timeout row: a
+ * stdio probe that times out signals a legacy server, while an HTTP timeout
+ * stays a typed error. Anything that is not the stdio child-process transport
+ * is treated like HTTP.
  */
 export type ProbeTransportKind = 'stdio' | 'http';
 
 /**
  * A normalized probe outcome, produced by the connect-time wiring from the raw
- * transport exchange. Wire-real inputs only — the wiring maps transport-thrown
- * HTTP errors, network errors, in-band JSON-RPC responses, and timeouts onto
- * these shapes.
+ * transport exchange.
  */
 export type ProbeOutcome =
-    /** The probe request was answered with a JSON-RPC result. */
     | { kind: 'result'; result: unknown }
-    /** The probe request was answered with a JSON-RPC error (any HTTP status, including 200-bodied errors and stdio in-band errors). */
+    /** Answered with a JSON-RPC error (any HTTP status, including 200-bodied errors and stdio in-band errors). */
     | { kind: 'rpc-error'; code: number; message: string; data?: unknown }
     /** The HTTP layer rejected the probe POST (non-2xx); `body` is the raw response text, when available. */
     | { kind: 'http-error'; status: number; body?: string }
-    /** The probe send failed below HTTP (connection refused, DNS, reset, opaque fetch failure). */
     | { kind: 'network-error'; error: unknown }
     /** No response arrived within the probe timeout, after all timeout re-sends. */
     | { kind: 'timeout'; timeoutMs: number; attempts: number };
 
 export interface ProbeClassifierContext {
-    /**
-     * Modern-era protocol versions this client can negotiate, in preference order.
-     * Never empty.
-     */
+    /** Modern-era versions this client can negotiate, in preference order (never empty). */
     clientModernVersions: readonly string[];
-    /**
-     * The version the probe carried in its `_meta` envelope (used to synthesize
-     * `data.requested` on typed errors when the server omitted it).
-     */
+    /** The version the probe carried in its `_meta` envelope (used to synthesize `data.requested` on typed errors). */
     requestedVersion: string;
     /**
-     * Whether a legacy `initialize` fallback is possible. `false` for a
-     * modern-only client and for `pin` mode (no fallback, loud failure): rows
-     * whose action would be "initialize on the same connection" yield a typed
-     * `UnsupportedProtocolVersionError` (with synthesized data when needed)
-     * instead.
-     *
-     * Note this only affects the two *modern-evidence* rows (DiscoverResult with
-     * no overlap; `-32004` with a legacy-only list). The plain conservative rows
-     * (`-32601`, legacy 400 shapes, unrecognized) always return `legacy`; the
-     * caller maps that verdict per its negotiation mode.
+     * Whether a legacy `initialize` fallback is possible — `false` for a
+     * modern-only client and for `pin` mode, where rows that would otherwise
+     * fall back yield a typed `UnsupportedProtocolVersionError` instead.
      */
     fallbackAvailable: boolean;
     /** See {@linkcode ProbeEnvironment}. */
@@ -115,10 +69,9 @@ export type ProbeVerdict =
     /** Definitive modern evidence: select `version` and continue without `initialize`. */
     | { kind: 'modern'; version: string; discover: DiscoverResult }
     /**
-     * `-32004` with a mutual modern version: select-and-continue (re-send the
-     * probe at `version`). Spec-mandated corrective continuation — the caller
-     * runs it exactly once (even when `version` equals the just-rejected one)
-     * and arms a loop guard on the second rejection, throwing `error`.
+     * `-32004` with a mutual modern version: re-send the probe at `version`.
+     * Spec-mandated select-and-continue — the caller runs it exactly once and
+     * arms a loop guard on the second rejection, throwing `error`.
      */
     | { kind: 'corrective'; version: string; error: UnsupportedProtocolVersionError }
     /** Definitive legacy signal or unrecognized shape: perform the plain legacy `initialize` handshake on the same connection. */
@@ -128,7 +81,11 @@ export type ProbeVerdict =
 
 /** The `-32004` UnsupportedProtocolVersion protocol error code (negotiation-phase recognition). */
 const UNSUPPORTED_PROTOCOL_VERSION = -32_004;
-/** Codes deliberately not probe-recognized (overloaded on deployed servers / ladder underived pending conformance #336). */
+/**
+ * Deliberately not probe-recognized in either direction: deployed servers
+ * overload `-32001` and the error-code ladder for these cells is still being
+ * derived upstream, so both fall into the conservative legacy default.
+ */
 const NOT_PROBE_RECOGNIZED = new Set([-32_001, -32_003]);
 
 /**
@@ -151,22 +108,14 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
         }
         case 'timeout': {
             if (context.transportKind === 'stdio') {
-                // stdio: a probe nobody answers within the timeout (after all
-                // `maxRetries` re-sends) indicates a legacy server — the stdio
-                // transport's backward-compatibility rule says "any other
-                // error, or does not respond within a reasonable timeout: the
-                // server is legacy. Fall back to the `initialize` handshake."
-                // Some legacy stdio servers do not respond to unknown
-                // pre-initialize requests at all; the fallback runs on the
-                // same stream.
+                // Per the stdio transport's backward-compatibility rule, a probe
+                // nobody answers within the timeout indicates a legacy server —
+                // fall back to `initialize` on the same stream.
                 return { kind: 'legacy' };
             }
-            // HTTP (and anything that is not a local pipe): a deployed server
-            // answers, so silence is an outage, not a legacy signal — the
-            // timeout (standard request timeout, after all `maxRetries`
-            // re-sends) stays a typed connect error. Per the versioning
-            // compatibility matrix, the HTTP legacy signal is a 4xx response
-            // without a recognized modern error body.
+            // On HTTP a deployed server answers, so silence is an outage, not a
+            // legacy signal: keep the typed timeout error (the compatibility
+            // matrix keys the HTTP legacy signal to a 4xx, never to silence).
             return {
                 kind: 'error',
                 error: new SdkError(
@@ -182,8 +131,7 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
 function classifyResult(result: unknown, context: ProbeClassifierContext): ProbeVerdict {
     const parsed = DiscoverResultSchema.safeParse(result);
     if (!parsed.success) {
-        // 200-processed era-ambiguous first requests / any unrecognized result
-        // shape: not modern evidence — conservative legacy fallback.
+        // Unrecognized result shape: not modern evidence — conservative legacy fallback.
         return { kind: 'legacy' };
     }
     const supportedVersions = parsed.data.supportedVersions;
@@ -191,9 +139,8 @@ function classifyResult(result: unknown, context: ProbeClassifierContext): Probe
     if (overlap !== undefined) {
         return { kind: 'modern', version: overlap, discover: parsed.data };
     }
-    // DiscoverResult with NO overlap is still modern evidence — but on a dual-era
-    // server it drives era SELECTION: initialize on the SAME connection when
-    // fallback is possible; otherwise a typed error with synthesized data.
+    // A DiscoverResult with no overlap still drives era selection: initialize on
+    // the same connection when fallback is possible, otherwise a typed error.
     if (context.fallbackAvailable) {
         return { kind: 'legacy' };
     }
@@ -209,8 +156,7 @@ function classifyRpcError(outcome: { code: number; message: string; data?: unkno
     if (code === UNSUPPORTED_PROTOCOL_VERSION) {
         const supported = parseSupportedList(data);
         if (supported === undefined) {
-            // -32004 without a valid `data.supported` list is not actionable
-            // modern evidence — conservative legacy fallback.
+            // -32004 without a valid data.supported list is not actionable modern evidence.
             return { kind: 'legacy' };
         }
         const requested = parseRequested(data) ?? context.requestedVersion;
@@ -218,52 +164,42 @@ function classifyRpcError(outcome: { code: number; message: string; data?: unkno
         const supportedModern = modernProtocolVersions(supported);
         const mutual = context.clientModernVersions.find(version => supportedModern.includes(version));
         if (mutual !== undefined) {
-            // Mutual modern version: select-and-continue. MUST NOT fall back —
-            // a server that speaks -32004 with a version list is modern by
-            // definition (spec: "Do not fall back").
+            // Mutual modern version: spec-mandated select-and-continue — never
+            // fall back to initialize here.
             return { kind: 'corrective', version: mutual, error };
         }
         if (supportedModern.length > 0) {
             // Disjoint-but-modern list: typed error, never initialize.
             return { kind: 'error', error };
         }
-        // Legacy-only list: definitive legacy signal → initialize; a modern-only
-        // client gets the typed error carrying `data.supported` instead.
+        // Legacy-only list: definitive legacy signal (typed error for a modern-only client).
         return context.fallbackAvailable ? { kind: 'legacy' } : { kind: 'error', error };
     }
 
     if (NOT_PROBE_RECOGNIZED.has(code)) {
-        // -32001 / -32003: deliberately not probe-recognized in either direction
-        // (see module doc) — falls into the conservative default.
         return { kind: 'legacy' };
     }
 
-    // Everything else is a definitive legacy signal or the conservative default:
-    // -32601 (method not found — never modern evidence on the probe, including
-    // 200-bodied errors), -32000 with the deployed "Unsupported protocol
-    // version" literal, -32000 free-text ("Server not initialized",
-    // session-required), `code: 0`, and any unrecognized code.
+    // Everything else — -32601, the deployed -32000 literals/free-text, code 0,
+    // any unrecognized code — is a legacy signal or the conservative default.
     return { kind: 'legacy' };
 }
 
 function classifyHttpError(outcome: { status: number; body?: string }, context: ProbeClassifierContext): ProbeVerdict {
-    // HTTP-rejected probes (400/-32000, 400/-32004, …) carry their JSON-RPC error
-    // in the response body — classify the body exactly like an in-band error.
+    // HTTP-rejected probes carry their JSON-RPC error in the response body — classify it like an in-band error.
     const rpcError = parseJsonRpcErrorBody(outcome.body);
     if (rpcError !== undefined) {
         return classifyRpcError(rpcError, context);
     }
-    // Plain-text/unparseable 400, empty body, 406, or any other unrecognized
-    // status: conservative legacy fallback.
+    // Unparseable or unrecognized HTTP rejection: conservative legacy fallback.
     return { kind: 'legacy' };
 }
 
 function classifyNetworkError(error: unknown, context: ProbeClassifierContext): ProbeVerdict {
     if (context.environment === 'browser' && isOpaqueFetchTypeError(error)) {
-        // F-7 (ruled Q12 exception, PROBE PHASE ONLY): a browser CORS-preflight
-        // rejection against a deployed 2025 server is an opaque `TypeError`; the
-        // legacy fallback carries no custom headers, so it proceeds where the
-        // probe could not. Node outage below stays a typed connect error.
+        // A browser CORS-preflight rejection against a deployed 2025 server is an
+        // opaque TypeError; the legacy fallback carries no custom headers (no
+        // preflight), so it can proceed where the probe could not.
         return { kind: 'legacy' };
     }
     return {
@@ -275,8 +211,7 @@ function classifyNetworkError(error: unknown, context: ProbeClassifierContext): 
 }
 
 function isOpaqueFetchTypeError(error: unknown): boolean {
-    // Cross-realm safe: bundled or sandboxed fetch implementations may not share
-    // this realm's TypeError identity.
+    // Cross-realm safe: a bundled or sandboxed fetch may not share this realm's TypeError identity.
     return error instanceof TypeError || (error instanceof Error && error.name === 'TypeError');
 }
 
