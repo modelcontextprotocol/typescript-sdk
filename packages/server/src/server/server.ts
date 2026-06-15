@@ -34,22 +34,20 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
-    CallToolRequestSchema,
-    CallToolResultSchema,
+    codecForVersion,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    ElicitResultSchema,
-    EmptyResultSchema,
     LATEST_PROTOCOL_VERSION,
-    ListRootsResultSchema,
     LoggingLevelSchema,
     mergeCapabilities,
+    negotiatedProtocolVersionOf,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    setNegotiatedProtocolVersion
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
@@ -92,7 +90,6 @@ export type ServerOptions = ProtocolOptions & {
 export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
-    private _negotiatedProtocolVersion?: string;
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
@@ -207,7 +204,19 @@ export class Server extends Protocol<ServerContext> {
             return handler;
         }
         return async (request, ctx) => {
-            const validatedRequest = parseSchema(CallToolRequestSchema, request);
+            // Era-exact validation: the request and result schemas come from
+            // the instance era, resolved at dispatch time (the era gate
+            // guarantees tools/call exists on the serving era).
+            const codec = codecForVersion(negotiatedProtocolVersionOf(this));
+            const callToolRequestSchema = codec.requestSchema('tools/call');
+            // The era registry entry IS the plain CallToolResult schema (the
+            // result map is aligned to the typed map — no widened unions),
+            // so no narrower surface is needed.
+            const callToolResultSchema = codec.resultSchema('tools/call');
+            if (!callToolRequestSchema || !callToolResultSchema) {
+                throw new ProtocolError(ProtocolErrorCode.InternalError, 'No wire schema for tools/call in the resolved era');
+            }
+            const validatedRequest = parseSchema(callToolRequestSchema, request);
             if (!validatedRequest.success) {
                 const errorMessage =
                     validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
@@ -216,7 +225,7 @@ export class Server extends Protocol<ServerContext> {
 
             const result = await handler(request, ctx);
 
-            const validationResult = parseSchema(CallToolResultSchema, result);
+            const validationResult = parseSchema(callToolResultSchema, result);
             if (!validationResult.success) {
                 const errorMessage =
                     validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
@@ -381,7 +390,10 @@ export class Server extends Protocol<ServerContext> {
             ? requestedVersion
             : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
-        this._negotiatedProtocolVersion = protocolVersion;
+        // The negotiated version is the instance's connection state — it IS
+        // the wire-era selection for everything this instance sends and
+        // receives from here on (legacy handshake ⇒ a legacy-era version).
+        setNegotiatedProtocolVersion(this, protocolVersion);
         this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
@@ -412,7 +424,7 @@ export class Server extends Protocol<ServerContext> {
      * `undefined` before initialization.
      */
     getNegotiatedProtocolVersion(): string | undefined {
-        return this._negotiatedProtocolVersion;
+        return negotiatedProtocolVersionOf(this);
     }
 
     /**
@@ -423,7 +435,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async ping(): Promise<EmptyResult> {
-        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema);
+        return this.request({ method: 'ping' });
     }
 
     /**
@@ -513,11 +525,16 @@ export class Server extends Protocol<ServerContext> {
             }
         }
 
-        // Use different schemas based on whether tools are provided
+        // Use different schemas based on whether tools are provided. The
+        // result schema depends on the REQUEST params, which a method-keyed
+        // registry entry cannot express, so it goes through the explicit-
+        // schema path (still era-gated: sampling/createMessage is not a wire
+        // request on the 2026 era, so a modern-era instance fails with the
+        // typed era error before anything reaches the transport).
         if (params.tools) {
-            return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
+            return await this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
         }
-        return this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
+        return await this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
     /**
@@ -537,7 +554,9 @@ export class Server extends Protocol<ServerContext> {
                 }
 
                 const urlParams = params as ElicitRequestURLParams;
-                return this._requestWithSchema({ method: 'elicitation/create', params: urlParams }, ElicitResultSchema, options);
+                // Method-keyed request(): the era registry's plain
+                // ElicitResult schema is exactly the narrow surface.
+                return this.request({ method: 'elicitation/create', params: urlParams }, options);
             }
             case 'form': {
                 if (!this._clientCapabilities?.elicitation?.form) {
@@ -547,11 +566,7 @@ export class Server extends Protocol<ServerContext> {
                 const formParams: ElicitRequestFormParams =
                     params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
 
-                const result = await this._requestWithSchema(
-                    { method: 'elicitation/create', params: formParams },
-                    ElicitResultSchema,
-                    options
-                );
+                const result = await this.request({ method: 'elicitation/create', params: formParams }, options);
 
                 if (result.action === 'accept' && result.content && formParams.requestedSchema) {
                     try {
@@ -615,7 +630,7 @@ export class Server extends Protocol<ServerContext> {
      * Migrate to passing paths via tool parameters, resource URIs, or configuration.
      */
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions): Promise<ListRootsResult> {
-        return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
+        return this.request({ method: 'roots/list', params }, options);
     }
 
     /**

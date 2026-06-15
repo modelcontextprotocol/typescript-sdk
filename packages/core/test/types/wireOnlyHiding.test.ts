@@ -79,9 +79,14 @@ describe('wire-only members are hidden from the public result types', () => {
         expect(handlerBuilt).toBeDefined();
     });
 
-    test('the wire schemas keep modeling resultType internally', () => {
-        expectTypeOf<DeclaresResultType<z.output<typeof ResultSchema>>>().toEqualTypeOf<true>();
-        expectTypeOf<DeclaresResultType<z.output<typeof CallToolResultSchema>>>().toEqualTypeOf<true>();
+    test('no neutral schema models resultType any more (the masking surface is dead)', () => {
+        // Q1 increment 2 (ledgered): the shared schema set carried an
+        // optional resultType on every result parse — the masking surface.
+        // Post-split, NO neutral schema declares it; the member exists only
+        // inside the 2026-era wire codec module. Changeset:
+        // codec-split-wire-break.
+        expectTypeOf<DeclaresResultType<z.output<typeof ResultSchema>>>().toEqualTypeOf<false>();
+        expectTypeOf<DeclaresResultType<z.output<typeof CallToolResultSchema>>>().toEqualTypeOf<false>();
     });
 });
 
@@ -125,15 +130,25 @@ describe('task vocabulary is importable but in no API signature', () => {
 
     test('the task Zod schemas and the related-task meta key carry @deprecated too', () => {
         // The migration docs claim the FULL task wire surface is deprecated —
-        // schemas and constants included, not just the inferred types.
-        const schemas = readFileSync(join(__dirname, '..', '..', 'src', 'types', 'schemas.ts'), 'utf8');
-        const schemaExports = [...schemas.matchAll(/export const (\w*Tasks?\w*Schema) /g)].map(match => match[1]);
-        expect(schemaExports.length).toBeGreaterThanOrEqual(19);
-        for (const name of schemaExports) {
-            const declaration = schemas.indexOf(`export const ${name} `);
-            const preceding = schemas.slice(Math.max(0, declaration - 400), declaration);
-            expect(preceding, `'${name}' must carry an @deprecated tag`).toContain('@deprecated');
+        // schemas and constants included, not just the inferred types. The
+        // task MESSAGE schemas live in the 2025-era wire module since the
+        // codec split (Q1 increment 2); the param-side carriers stay in the
+        // neutral file. Both homes are scanned — the combined surface is the
+        // same ≥19 schemas the docs claim covers.
+        const neutral = readFileSync(join(__dirname, '..', '..', 'src', 'types', 'schemas.ts'), 'utf8');
+        const wire2025 = readFileSync(join(__dirname, '..', '..', 'src', 'wire', 'rev2025-11-25', 'schemas.ts'), 'utf8');
+        let total = 0;
+        for (const schemas of [neutral, wire2025]) {
+            const schemaExports = [...schemas.matchAll(/export const (\w*Tasks?\w*Schema) /g)].map(match => match[1]);
+            total += schemaExports.length;
+            for (const name of schemaExports) {
+                const declaration = schemas.indexOf(`export const ${name} `);
+                const preceding = schemas.slice(Math.max(0, declaration - 400), declaration);
+                expect(preceding, `'${name}' must carry an @deprecated tag`).toContain('@deprecated');
+            }
         }
+        expect(total).toBeGreaterThanOrEqual(19);
+        const schemas = neutral;
 
         // The `tasks` capability keys on both capability objects.
         for (const member of ['tasks: ClientTasksCapabilitySchema.optional()', 'tasks: ServerTasksCapabilitySchema.optional()']) {

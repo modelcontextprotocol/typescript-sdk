@@ -34,9 +34,6 @@ import type {
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
-    getNotificationSchema,
-    getRequestSchema,
-    getResultSchema,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
@@ -49,6 +46,9 @@ import {
 } from '../types/index.js';
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
+import { bootstrapOutboundCodec } from '../wire/bootstrap.js';
+import type { LiftedWireMaterial, WireCodec } from '../wire/codec.js';
+import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod } from '../wire/codec.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -156,15 +156,6 @@ const RESERVED_ENVELOPE_META_KEYS: readonly string[] = [
  * (a vendor notification may legitimately use the same names).
  */
 const RETRY_PARAMS_KEYS = ['inputResponses', 'requestState'] as const;
-
-interface LiftedWireMaterial {
-    // Partial: the lift surfaces whichever reserved keys the request actually
-    // carried — a peer on an adjacent revision may legally send a subset, and
-    // envelope requiredness is enforced per request at dispatch time, not here.
-    envelope?: Partial<RequestMetaEnvelope>;
-    inputResponses?: Record<string, unknown>;
-    requestState?: string;
-}
 
 /**
  * Lift wire-only material out of an inbound message so handlers see exactly
@@ -387,6 +378,45 @@ type TimeoutInfo = {
     onTimeout: () => void;
 };
 
+/*
+ * Package-internal access to Protocol's negotiated-protocol-version state.
+ *
+ * The negotiated version is a TS-private field on Protocol (it is connection
+ * state, not public surface — it never appears in the published declaration
+ * reports). The role classes (Client/Server), tests, and the modern-era
+ * server entry still need to read and write it at their lifecycle points, so
+ * Protocol's static initializer hands these module-scoped closures privileged
+ * access and the two functions below re-export them on the core INTERNAL
+ * barrel only. This is the F-2-style package-internal hook — deliberately not
+ * public API.
+ */
+let readNegotiatedProtocolVersion: <ContextT extends BaseContext>(instance: Protocol<ContextT>) => string | undefined;
+let writeNegotiatedProtocolVersion: <ContextT extends BaseContext>(instance: Protocol<ContextT>, version: string | undefined) => void;
+
+/**
+ * Package-internal read channel for the protocol version a {@linkcode Protocol}
+ * instance has negotiated (`undefined` before negotiation). Exported on the
+ * core internal barrel only — never public API.
+ */
+export function negotiatedProtocolVersionOf<ContextT extends BaseContext>(instance: Protocol<ContextT>): string | undefined {
+    return readNegotiatedProtocolVersion(instance);
+}
+
+/**
+ * Package-internal write channel for a {@linkcode Protocol} instance's
+ * negotiated protocol version — the single era set/clear point outside the
+ * class itself. Called by `Client.connect` (fresh-connect clear + handshake
+ * completion), `Server._oninitialize`, tests, and the (future) modern-era
+ * server entry when it marks a factory instance modern at binding time.
+ * Exported on the core internal barrel only — never public API.
+ */
+export function setNegotiatedProtocolVersion<ContextT extends BaseContext>(
+    instance: Protocol<ContextT>,
+    version: string | undefined
+): void {
+    writeNegotiatedProtocolVersion(instance, version);
+}
+
 /**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
@@ -399,11 +429,36 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _requestMessageId = 0;
     private _requestHandlers: Map<string, (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>> = new Map();
     private _requestHandlerAbortControllers: Map<RequestId, AbortController> = new Map();
-    private _notificationHandlers: Map<string, (notification: JSONRPCNotification) => Promise<void>> = new Map();
+    private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
+
+    /**
+     * The protocol version negotiated for the current connection — the single
+     * source of truth for the wire era this instance speaks (Q1-SD1: the
+     * negotiated version cashes out as the negotiated wire ERA).
+     *
+     * Ordinary connection state, no side tables:
+     * - `Client.connect` clears it at the start of a fresh connect (the
+     *   handshake itself runs pre-negotiation) and sets it once the handshake
+     *   completes; the resume path keeps the original negotiation.
+     * - `Server._oninitialize` sets it when answering the legacy handshake;
+     *   modern-era server instances get it set at instance binding through
+     *   the package-internal hook ({@linkcode setNegotiatedProtocolVersion}).
+     *
+     * `undefined` = not negotiated yet: outbound lifecycle messages ride the
+     * bootstrap method pins and everything else defaults to the legacy era.
+     */
+    private _negotiatedProtocolVersion?: string;
+
+    static {
+        readNegotiatedProtocolVersion = instance => instance._negotiatedProtocolVersion;
+        writeNegotiatedProtocolVersion = (instance, version) => {
+            instance._negotiatedProtocolVersion = version;
+        };
+    }
 
     protected _supportedProtocolVersions: string[];
 
@@ -537,7 +592,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             } else if (isJSONRPCRequest(message)) {
                 this._onrequest(message, extra);
             } else if (isJSONRPCNotification(message)) {
-                this._onnotification(message);
+                this._onnotification(message, extra);
             } else {
                 this._onerror(new Error(`Unknown message type: ${JSON.stringify(message)}`));
             }
@@ -584,23 +639,57 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this.onerror?.(error);
     }
 
-    private _onnotification(rawNotification: JSONRPCNotification): void {
+    private _onnotification(rawNotification: JSONRPCNotification, extra?: MessageExtraInfo): void {
         // Hide wire-only material from notification handlers too — but ONLY
         // the reserved envelope `_meta` keys (the retry params names are
         // reserved on requests, not notifications). There is no
         // per-notification context, so the lifted envelope keys are dropped,
         // not surfaced; the protocol layer owns them.
         const { message: notification } = liftWireOnlyMaterial(rawNotification, 'notification');
-        const handler = this._notificationHandlers.get(notification.method) ?? this.fallbackNotificationHandler;
+
+        // Era is instance state: the negotiated protocol version selects the
+        // codec for everything this connection receives (legacy until
+        // negotiated). Classification is no longer a per-message era switch —
+        // it is validated against the instance era below.
+        const codec = this._negotiatedWireCodec();
+
+        // Edge→instance handoff check: a classification that disagrees with
+        // the instance era means the entry routed another era's traffic onto
+        // this instance. That is a routing error — drop the notification and
+        // surface it out of band; never serve it on a guessed era.
+        if (extra?.classification !== undefined) {
+            const classified = classifiedWireEra(extra.classification);
+            if (classified !== codec.era) {
+                this._onerror(
+                    new Error(
+                        `Era mismatch on inbound notification '${notification.method}': classified as ${classified} but this instance serves ${codec.era}`
+                    )
+                );
+                return;
+            }
+        }
+
+        // Era gate — deletions are physical: a spec notification that is not
+        // in this era's registry is dropped even when a handler is
+        // registered (notifications get no error response; silent drop is
+        // the protocol-correct outcome, matching today's unknown-method
+        // posture). Methods outside the spec universe are consumer-owned
+        // extension notifications and stay era-blind.
+        if (isSpecNotificationMethod(notification.method) && !codec.hasNotificationMethod(notification.method)) {
+            return;
+        }
+
+        const handler = this._notificationHandlers.get(notification.method);
+        const fallback = this.fallbackNotificationHandler;
 
         // Ignore notifications not being subscribed to.
-        if (handler === undefined) {
+        if (handler === undefined && fallback === undefined) {
             return;
         }
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
-            .then(() => handler(notification))
+            .then(() => (handler === undefined ? fallback!(notification) : handler(notification, codec)))
             .catch(error => this._onerror(new Error(`Uncaught error in notification handler: ${error}`)));
     }
 
@@ -609,28 +698,98 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // fallback handler and the per-method schema parse) see exactly the
         // 2025-era shape; the envelope and retry fields surface via ctx.
         const { message: request, lifted } = liftWireOnlyMaterial(rawRequest, 'request');
-        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+
+        // Era is instance state: the negotiated protocol version selects the
+        // codec for everything this connection receives (legacy until
+        // negotiated). Classification (Q2; this layer only CONSUMES
+        // MessageExtraInfo.classification) is no longer a per-message era
+        // switch — it is validated against the instance era below. Hand-wired
+        // legacy transports never classify, so their behavior is untouched.
+        const codec = this._negotiatedWireCodec();
 
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
 
-        const sendNotification = (notification: Notification, options?: NotificationOptions) =>
-            this.notification(notification, { ...options, relatedRequestId: request.id });
-        const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
-            this._requestWithSchema(r, resultSchema, { ...options, relatedRequestId: request.id });
-
-        if (handler === undefined) {
+        const sendErrorResponse = (code: number, message: string, data?: unknown) => {
             const errorResponse: JSONRPCErrorResponse = {
                 jsonrpc: '2.0',
                 id: request.id,
-                error: {
-                    code: ProtocolErrorCode.MethodNotFound,
-                    message: 'Method not found'
-                }
+                error: { code, message, ...(data !== undefined && { data }) }
             };
             capturedTransport?.send(errorResponse).catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
+        };
+
+        // Edge→instance handoff check: a classification that disagrees with
+        // the instance era means the entry routed another era's traffic onto
+        // this instance. That is a routing error: answer with the typed era
+        // error (−32004 Unsupported protocol version) and surface it out of
+        // band — never serve the request on a guessed era.
+        if (extra?.classification !== undefined) {
+            const classified = classifiedWireEra(extra.classification);
+            if (classified !== codec.era) {
+                this._onerror(
+                    new Error(
+                        `Era mismatch on inbound request '${request.method}': classified as ${classified} but this instance serves ${codec.era}`
+                    )
+                );
+                sendErrorResponse(ProtocolErrorCode.UnsupportedProtocolVersion, `Unsupported protocol version: ${classified}`, {
+                    // Per spec, `supported` is the full list of protocol
+                    // versions the receiver supports — not just the version
+                    // this connection is on — so the peer can pick a mutually
+                    // supported version from the error alone.
+                    supported: this._supportedProtocolVersions,
+                    requested: classified
+                });
+                return;
+            }
+        }
+
+        // Era gate — deletions are physical: a spec method that is not in
+        // this era's registry is −32601 BY ABSENCE, before any handler
+        // lookup, even when a handler is registered (a custom handler cannot
+        // shadow a deleted spec method across eras). Methods outside the
+        // spec universe are consumer-owned extension methods and stay
+        // era-blind.
+        if (isSpecRequestMethod(request.method) && !codec.hasRequestMethod(request.method)) {
+            sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
             return;
         }
+
+        const handler = this._requestHandlers.get(request.method) ?? this.fallbackRequestHandler;
+
+        if (handler === undefined) {
+            sendErrorResponse(ProtocolErrorCode.MethodNotFound, 'Method not found');
+            return;
+        }
+
+        // Envelope enforcement: the 2026 era requires the per-request `_meta`
+        // envelope on every request (spec.types.2026-07-28 RequestParams).
+        // The lift extracted it above; the era codec validates requiredness.
+        // Deliberately AFTER the era gate and the handler-existence check:
+        // an unknown method answers −32601 even when the envelope is also
+        // missing — method existence outranks parameter validity. (The
+        // canonical precedence table for the full inbound validation ladder
+        // arrives with the validation-ladder milestone; this site encodes
+        // only the −32601-over-−32602 rule.)
+        const envelopeError = codec.checkInboundEnvelope(lifted);
+        if (envelopeError !== undefined) {
+            sendErrorResponse(ProtocolErrorCode.InvalidParams, envelopeError);
+            return;
+        }
+
+        // Related sends resolve through the SAME instance era as every other
+        // sender (the per-request/instance asymmetry is deliberately gone):
+        // the codec is resolved at send time from the connection state.
+        const sendNotification = (notification: Notification, options?: NotificationOptions) =>
+            this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, {
+                ...options,
+                relatedRequestId: request.id
+            });
+        const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
+            this._requestWithSchemaViaCodec(this._resolveOutboundCodec(r.method), r, resultSchema, {
+                ...options,
+                relatedRequestId: request.id
+            });
 
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
@@ -650,10 +809,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // that overloaded property type. The cast is sound: this impl dispatches both overload paths via the
                 // isStandardSchema guard, and sendRequest validates the result against the resolved schema either way.
                 send: ((r: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions) => {
+                    // Related requests resolve through the instance era at
+                    // send time, exactly like direct sends: era-gate first,
+                    // then method-keyed schema resolution.
+                    const sendCodec = this._resolveOutboundCodec(r.method);
+                    this._assertOutboundRequestInEra(sendCodec, r.method);
                     if (isStandardSchema(schemaOrOptions)) {
                         return sendRequest(r, schemaOrOptions, maybeOptions);
                     }
-                    const resultSchema = getResultSchema(r.method);
+                    const resultSchema = sendCodec.resultSchema(r.method);
                     if (!resultSchema) {
                         throw new TypeError(
                             `'${r.method}' is not a spec method; pass a result schema as the second argument to ctx.mcpReq.send().`
@@ -677,8 +841,25 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         return;
                     }
 
+                    // The outbound stamp seam: the era codec maps the neutral
+                    // handler result to its wire shape. The 2025-era codec is
+                    // the identity (never-stamp); the 2026-era codec stamps
+                    // `resultType` and enforces the deleted-field set. A throw
+                    // here is a NEW failure mode between handler success and
+                    // the transport send (and the seam grows ttlMs/cacheScope
+                    // stamping content in M3.2) — it must answer the peer with
+                    // −32603 rather than stranding the request until timeout.
+                    let encoded: Result;
+                    try {
+                        encoded = codec.encodeResult(request.method, result);
+                    } catch (error) {
+                        this._onerror(new Error(`Failed to encode result for ${request.method}: ${error}`));
+                        sendErrorResponse(ProtocolErrorCode.InternalError, 'Internal error');
+                        return;
+                    }
+
                     const response: JSONRPCResponse = {
-                        result,
+                        result: encoded,
                         jsonrpc: '2.0',
                         id: request.id
                     };
@@ -812,23 +993,88 @@ export abstract class Protocol<ContextT extends BaseContext> {
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>>;
     request(request: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions): Promise<unknown> {
+        const codec = this._resolveOutboundCodec(request.method);
+        this._assertOutboundRequestInEra(codec, request.method);
         if (isStandardSchema(schemaOrOptions)) {
-            return this._requestWithSchema(request, schemaOrOptions, maybeOptions);
+            return this._requestWithSchemaViaCodec(codec, request, schemaOrOptions, maybeOptions);
         }
-        const resultSchema = getResultSchema(request.method);
+        const resultSchema = codec.resultSchema(request.method);
         if (!resultSchema) {
             throw new TypeError(`'${request.method}' is not a spec method; pass a result schema as the second argument to request().`);
         }
-        return this._requestWithSchema(request, resultSchema, schemaOrOptions);
+        return this._requestWithSchemaViaCodec(codec, request, resultSchema, schemaOrOptions);
     }
 
     /**
-     * Sends a request and waits for a response, using the provided schema for validation.
+     * The wire codec for this instance's negotiated era — the phase-2 truth:
+     * everything an established connection sends and receives resolves
+     * through it. Legacy until a version has been negotiated.
+     */
+    private _negotiatedWireCodec(): WireCodec {
+        return codecForVersion(this._negotiatedProtocolVersion);
+    }
+
+    /**
+     * Outbound codec resolution: while the negotiated version is still unset
+     * (the negotiation window), lifecycle messages are bootstrap-pinned BY
+     * METHOD — they self-identify their era (`initialize` IS the legacy
+     * handshake, `server/discover` IS the modern probe). Once a version has
+     * been negotiated, the instance era is authoritative for everything — a
+     * negotiated session never re-routes a method onto the other era.
+     */
+    private _resolveOutboundCodec(method: string): WireCodec {
+        if (this._negotiatedProtocolVersion === undefined) {
+            const pinned = bootstrapOutboundCodec(method);
+            if (pinned) return pinned;
+        }
+        return this._negotiatedWireCodec();
+    }
+
+    /**
+     * Era gate for outbound requests — deletions are physical in BOTH
+     * directions: sending a spec method that the resolved era does not define
+     * dies locally with a typed error before anything reaches the transport.
+     * Methods outside the spec universe are consumer-owned extension methods
+     * and stay era-blind.
+     */
+    private _assertOutboundRequestInEra(codec: WireCodec, method: string): void {
+        if (isSpecRequestMethod(method) && !codec.hasRequestMethod(method)) {
+            throw new SdkError(
+                SdkErrorCode.MethodNotSupportedByProtocolVersion,
+                `Method '${method}' is not supported by the negotiated protocol version (wire era ${codec.era})`,
+                { method, era: codec.era }
+            );
+        }
+    }
+
+    /**
+     * Sends a request and waits for a response, using the provided schema for
+     * validation instead of the era registry's method-keyed entry.
      *
-     * This is the internal implementation used by SDK methods that need to specify
-     * a particular result schema (e.g., for compatibility schemas).
+     * This is the internal implementation used by SDK methods whose result
+     * schema cannot be expressed as a method-keyed registry entry — the one
+     * surviving case is `server.createMessage`, whose result schema depends
+     * on the REQUEST params (tools vs no tools) — and by callers passing
+     * explicit compatibility schemas. Spec methods are still era-gated here:
+     * an explicit schema never smuggles a deleted method onto the wire.
      */
     protected _requestWithSchema<T extends StandardSchemaV1>(
+        request: Request,
+        resultSchema: T,
+        options?: RequestOptions
+    ): Promise<StandardSchemaV1.InferOutput<T>> {
+        const codec = this._resolveOutboundCodec(request.method);
+        this._assertOutboundRequestInEra(codec, request.method);
+        return this._requestWithSchemaViaCodec(codec, request, resultSchema, options);
+    }
+
+    /**
+     * The request funnel proper, keyed by the resolved era codec: the codec
+     * owns result decoding (raw-first `resultType` discrimination — V-1 —
+     * and the era's lift posture) before the schema validation step.
+     */
+    private _requestWithSchemaViaCodec<T extends StandardSchemaV1>(
+        codec: WireCodec,
         request: Request,
         resultSchema: T,
         options?: RequestOptions
@@ -959,6 +1205,28 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     result = rest as Result;
                 }
 
+                // Codec decode hop (the structural V-1 home): the era codec
+                // applies its raw-first posture before schema validation.
+                // NOTE (staging): the funnel block above predates the codec
+                // split and still runs first; it is removed when the
+                // 2026-era codec lands and the codecs own the postures.
+                const decoded = codec.decodeResult(request.method, result);
+                if (decoded.kind === 'invalid') {
+                    return reject(decoded.error);
+                }
+                if (decoded.kind === 'input_required') {
+                    // Driver seam: the multi-round-trip driver (M4.1)
+                    // consumes this payload; until it lands, surface the
+                    // discriminated kind as a typed local error, no retry.
+                    return reject(
+                        new SdkError(SdkErrorCode.UnsupportedResultType, `Unsupported result type 'input_required' for ${request.method}`, {
+                            resultType: 'input_required',
+                            method: request.method
+                        })
+                    );
+                }
+                result = decoded.result;
+
                 validateStandardSchema(resultSchema, result).then(parseResult => {
                     if (parseResult.success) {
                         resolve(parseResult.data);
@@ -999,8 +1267,27 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Emits a notification, which is a one-way message that does not expect a response.
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
+        return this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, options);
+    }
+
+    /**
+     * The notification funnel proper, keyed by the resolved era codec —
+     * direct sends and related notifications (`ctx.mcpReq.notify`) alike
+     * resolve through the instance's negotiated era at send time.
+     */
+    private async _notificationViaCodec(codec: WireCodec, notification: Notification, options?: NotificationOptions): Promise<void> {
         if (!this._transport) {
             throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+        }
+
+        // Era gate — outbound deletions are physical for notifications too: a
+        // spec notification the resolved era does not define dies locally.
+        if (isSpecNotificationMethod(notification.method) && !codec.hasNotificationMethod(notification.method)) {
+            throw new SdkError(
+                SdkErrorCode.MethodNotSupportedByProtocolVersion,
+                `Notification '${notification.method}' is not supported by the negotiated protocol version (wire era ${codec.era})`,
+                { method: notification.method, era: codec.era }
+            );
         }
 
         this.assertNotificationCapability(notification.method);
@@ -1084,18 +1371,32 @@ export abstract class Protocol<ContextT extends BaseContext> {
         let stored: (request: JSONRPCRequest, ctx: ContextT) => Promise<Result>;
 
         if (typeof schemasOrHandler === 'function') {
-            const schema = getRequestSchema(method);
-            if (!schema) {
+            if (!isSpecRequestMethod(method)) {
                 throw new TypeError(
                     `'${method}' is not a spec request method; pass schemas as the second argument to setRequestHandler().`
                 );
             }
-            stored = (request, ctx) => Promise.resolve(schemasOrHandler(schema.parse(request), ctx));
+            // Dispatch-time schema resolution: the request is parsed with the
+            // schema of the era serving this connection (the instance era at
+            // dispatch time), never with a schema captured at registration
+            // time.
+            stored = (request, ctx) => {
+                const schema = this._negotiatedWireCodec().requestSchema(method);
+                if (!schema) {
+                    // Unreachable: the dispatch era gate rejects era-mismatched
+                    // spec methods with −32601 before any handler runs.
+                    throw new ProtocolError(ProtocolErrorCode.InternalError, `No wire schema for ${method} in the resolved era`);
+                }
+                return Promise.resolve(schemasOrHandler(schema.parse(request), ctx));
+            };
         } else if (maybeHandler) {
             stored = async (request, ctx) => {
-                const userParams = { ...request.params };
-                delete userParams._meta;
-                const parsed = await validateStandardSchema(schemasOrHandler.params, userParams);
+                // Custom handlers receive `_meta` present-minus-reserved: the
+                // wire-only lift already removed the reserved envelope keys,
+                // and the remaining metadata (progressToken, extension keys)
+                // is handler material — consistent with the spec-method path.
+                // (Behavior migration: `_meta` used to be deleted here.)
+                const parsed = await validateStandardSchema(schemasOrHandler.params, { ...request.params });
                 if (!parsed.success) {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for ${method}: ${parsed.error}`);
                 }
@@ -1167,13 +1468,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
         maybeHandler?: (params: unknown, notification: Notification) => void | Promise<void>
     ): void {
         if (typeof schemasOrHandler === 'function') {
-            const schema = getNotificationSchema(method);
-            if (!schema) {
+            if (!isSpecNotificationMethod(method)) {
                 throw new TypeError(
                     `'${method}' is not a spec notification method; pass schemas as the second argument to setNotificationHandler().`
                 );
             }
-            this._notificationHandlers.set(method, notification => Promise.resolve(schemasOrHandler(schema.parse(notification))));
+            // Dispatch-time schema resolution, same as setRequestHandler: the
+            // era serving the message picks the schema.
+            this._notificationHandlers.set(method, (notification, codec) => {
+                const schema = codec.notificationSchema(method);
+                if (!schema) {
+                    // Unreachable: the dispatch era gate drops era-mismatched
+                    // spec notifications before any handler runs.
+                    throw new ProtocolError(ProtocolErrorCode.InternalError, `No wire schema for ${method} in the resolved era`);
+                }
+                return Promise.resolve(schemasOrHandler(schema.parse(notification)));
+            });
             return;
         }
 
@@ -1181,9 +1491,9 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new TypeError('setNotificationHandler: handler is required');
         }
         this._notificationHandlers.set(method, async notification => {
-            const userParams = { ...notification.params };
-            delete userParams._meta;
-            const parsed = await validateStandardSchema(schemasOrHandler.params, userParams);
+            // `_meta` present-minus-reserved, matching the custom request
+            // path (the lift already removed the reserved envelope keys).
+            const parsed = await validateStandardSchema(schemasOrHandler.params, { ...notification.params });
             if (!parsed.success) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid params for notification ${method}: ${parsed.error}`);
             }

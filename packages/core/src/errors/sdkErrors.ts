@@ -34,6 +34,14 @@ export enum SdkErrorCode {
      * `input_required`. The kind is carried in `data.resultType`.
      */
     UnsupportedResultType = 'UNSUPPORTED_RESULT_TYPE',
+    /**
+     * The spec method being sent does not exist on the negotiated protocol
+     * version's wire era (e.g. `tasks/get` toward a 2026-07-28 peer, or
+     * `server/discover` toward a 2025-era peer). Raised locally, before
+     * anything reaches the transport. The method and era are carried in
+     * `data.method` / `data.era`.
+     */
+    MethodNotSupportedByProtocolVersion = 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION',
 
     // Transport errors
     ClientHttpNotImplemented = 'CLIENT_HTTP_NOT_IMPLEMENTED',

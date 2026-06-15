@@ -919,6 +919,7 @@ The protocol layer enforces the same boundary at runtime:
 - **Envelope lift.** On inbound requests and notifications, the reserved `io.modelcontextprotocol/*` envelope keys are lifted out of `params._meta` before handlers run, so handler params are byte-equal to the 2025-era shape under 2026-era traffic. For requests the envelope is readable at `ctx.mcpReq.envelope` (typed `Partial<RequestMetaEnvelope>` — only the keys the request actually carried are present); for notifications there is no per-message context, so lifted envelope keys are dropped, not surfaced. On requests only, the multi-round-trip retry fields are likewise lifted out of top-level params and surfaced verbatim at `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState`; notification params are never touched.
 - **What this means for 2025-era peers.** The `_meta` side of the lift is invisible to conforming 2025-era traffic: the `io.modelcontextprotocol/` prefix is reserved in 2025-11-25 too, so a conforming 2025 peer never puts application data under those keys. The retry-field lift is the one collision to know about: 2025-11-25 does not reserve the bare names `inputResponses`/`requestState`, so a 2025 peer's **custom-method request** that happens to use them as ordinary top-level params will have them lifted out of the handler's view (still readable at `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState`, just no longer in `request.params`). Spec-method requests are unaffected (no 2025 spec method defines params with those names), as are all notifications.
 - **Raw-first result discrimination.** The client funnel inspects a response's raw `resultType` before schema validation: `'complete'` is consumed (stripped) and the result parses as the public shape; any other kind (e.g. `input_required`) rejects with a typed local error — `SdkError` with the new code `SdkErrorCode.UnsupportedResultType` and the kind in `error.data.resultType` — instead of being masked into a hollow success by tolerant result schemas. Full multi-round-trip support will replace that error arm.
+- **`MessageExtraInfo.classification`** is an optional carrier (`{ era, revision?, envelope? }`) for transports that classify inbound messages at the edge. The wire era itself is connection state (the negotiated protocol version held by the `Client`/`Server` instance); dispatch validates a classified message against that era and treats a mismatch as an entry/routing error (see the next section).
 
 **Before (v2 alpha):**
 
@@ -936,6 +937,49 @@ if (result.resultType === undefined || result.resultType === 'complete') {
 const result = await client.callTool({ name: 'echo', arguments: {} });
 // resultType is wire-level bookkeeping the SDK consumes; just use the result
 console.log(result.content);
+```
+
+### Per-era wire codecs: physical deletions and stricter wire schemas
+
+The wire layer is now split into per-revision codecs inside the (private, bundled) core: one codec serves every 2025-era protocol version (2024-10-07 … 2025-11-25) and one serves 2026-07-28. The codec is selected by the negotiated protocol version, which is connection state on the `Client`/`Server` instance: the client stores it when its initialize handshake completes, the server stores it when it answers `initialize`, and instances with no negotiated version default to the 2025 era (with the pre-negotiation lifecycle messages routed by method: `initialize`/`notifications/initialized` are 2025-era vocabulary, `server/discover` is 2026-era vocabulary). An edge classification (`MessageExtraInfo.classification`) no longer switches the era per message — it is validated against the instance era, and a mismatch is rejected as an entry/routing error (`-32004 Unsupported protocol version` for requests, a drop plus `onerror` for notifications). Methods deleted by a protocol revision are now PHYSICALLY absent from that era's registry: an inbound `tasks/get` on a 2026-era connection gets `-32601` even if a handler is registered, and sending an era-mismatched spec method (for example `server/discover` toward a 2025-era peer, or any `tasks/*` method toward a 2026-era peer) throws a typed local error — `SdkError` with the new code `SdkErrorCode.MethodNotSupportedByProtocolVersion` — before anything reaches the transport.
+
+Alongside the split, the following deliberate wire-behavior changes ship (each is invisible to conforming peers but observable to direct schema consumers and misbehaving peers):
+
+- **`resultType` is no longer modeled by any neutral wire schema.** The base `ResultSchema` (and every result schema derived from it) no longer declares the optional `resultType` member. Consequences:
+    - `EmptyResultSchema` (strict) now REJECTS `{resultType: ...}` bodies where it previously accepted them. On the protocol path nothing changes for conforming peers: the 2026-era codec consumes the field, and the 2025-era codec strips a foreign `resultType` before validation (tolerate-and-drop — a 2025-era peer that sends it is misbehaving).
+    - On a 2025-era connection, a response carrying a non-`'complete'` `resultType` is no longer rejected with `UnsupportedResultType`: the field is foreign vocabulary on that era and is stripped before validation (the result then passes or fails validation on its actual content, loudly). On a 2026-era exchange the discrimination is stricter than before: `resultType` is REQUIRED, an absent value is a spec violation surfaced as a typed error, and `input_required` / unknown kinds reject with `UnsupportedResultType` / `InvalidResult`.
+- **`CallToolResult.content` and `ToolResultContent.content` are required at the wire boundary.** The `content.default([])` affordance was removed (it could silently convert unrecognized result shapes into hollow `{content: []}` successes). Tool handlers MUST include `content` in their results (the TypeScript surface always required it — `content: []` is fine); a handler result without it is now rejected with `-32602 Invalid tools/call result` instead of being silently defaulted, and a content-less wire result fails the client-side parse loudly.
+- **Custom (3-arg) handlers receive `_meta`.** `setRequestHandler(method, {params}, handler)` / `setNotificationHandler(method, {params}, handler)` used to DELETE `params._meta` before validating with your schema. They now pass it through minus the reserved `io.modelcontextprotocol/*` envelope keys (which the protocol layer lifts out), making custom methods consistent with spec methods. If your params schema is strict (rejects unknown keys), add an optional `_meta` member or strip it yourself.
+- **`specTypeSchemas` validate the neutral model.** Result entries no longer accept/declare `resultType`; the validators for the 2025-only task message types (`Task`, `TaskStatus`, `GetTask*`, `ListTasks*`, `CancelTask*`, `CreateTaskResult`, `TaskStatusNotification*`, `TaskCreationParams`) and for `RequestMetaEnvelope` left the public set (`SpecTypeName` narrowed accordingly). Per-revision wire validators are planned to return as versioned `zod-schemas/<revision>` exports.
+- **Role aggregate types no longer carry task vocabulary.** `ClientRequest`, `ClientResult`, `ClientNotification`, `ServerRequest`, `ServerResult`, and `ServerNotification` (and their union schemas) are now the neutral message sets; the task members moved into the internal 2025-era wire module. The individual `Task*` types remain importable (deprecated) exactly as before.
+- **Value guards are consumer-side checks, not wire validators.** `isCallToolResult` and friends now validate the neutral shapes; a raw wire object carrying `resultType` still passes them through the loose index signature. Validate raw wire traffic with a transport-level parse, not the guards.
+
+**Before:**
+
+```typescript
+// A handler omitting content was silently defaulted on the wire:
+server.setRequestHandler('tools/call', async () => {
+    return { structuredContent: { ok: true } } as CallToolResult; // wire: content []
+});
+
+// Custom handlers never saw _meta:
+protocol.setRequestHandler('acme/op', { params: z.strictObject({ x: z.number() }) }, async params => ({}));
+```
+
+**After:**
+
+```typescript
+// content is required (as the spec always said):
+server.setRequestHandler('tools/call', async () => {
+    return { content: [], structuredContent: { ok: true } };
+});
+
+// Custom handlers receive _meta minus the reserved envelope keys:
+protocol.setRequestHandler(
+    'acme/op',
+    { params: z.strictObject({ x: z.number(), _meta: z.record(z.string(), z.unknown()).optional() }) },
+    async params => ({})
+);
 ```
 
 ## Enhancements

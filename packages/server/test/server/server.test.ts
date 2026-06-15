@@ -1,4 +1,4 @@
-import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
+import type { CallToolResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
 import {
     InitializeResultSchema,
     InMemoryTransport,
@@ -152,6 +152,69 @@ describe('Server', () => {
             expect(server.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
 
             await server.close();
+        });
+    });
+
+    describe('tools/call handler-result validation (required content)', () => {
+        // Server-side pin for the documented wire break (docs/migration.md,
+        // "CallToolResult.content … required at the wire boundary"): with the
+        // content.default([]) affordance removed, a handler result without
+        // `content` is rejected with -32602 `Invalid tools/call result` —
+        // never silently defaulted onto the wire — while an authored-content
+        // result passes through the wrapped handler untouched.
+        async function callToolOnServer(result: CallToolResult): Promise<JSONRPCMessage> {
+            const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: { tools: {} } });
+            server.setRequestHandler('tools/call', () => result);
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            const received: JSONRPCMessage[] = [];
+            clientTransport.onmessage = message => void received.push(message);
+            await server.connect(serverTransport);
+            await clientTransport.start();
+
+            await clientTransport.send({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'initialize',
+                params: {
+                    protocolVersion: LATEST_PROTOCOL_VERSION,
+                    capabilities: {},
+                    clientInfo: { name: 'test-client', version: '1.0.0' }
+                }
+            });
+            await clientTransport.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
+            await clientTransport.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'echo', arguments: {} } });
+            await new Promise(resolve => setTimeout(resolve, 10));
+            await server.close();
+
+            const response = received.find(message => (message as { id?: unknown }).id === 2);
+            if (!response) {
+                throw new Error('no tools/call response received');
+            }
+            return response;
+        }
+
+        it('rejects a structured-only handler result (no content) with -32602 Invalid tools/call result', async () => {
+            const response = await callToolOnServer({ structuredContent: { ok: true } } as unknown as CallToolResult);
+
+            const error = (response as { error?: { code: number; message: string } }).error;
+            expect(error).toBeDefined();
+            expect(error!.code).toBe(-32602);
+            expect(error!.message).toContain('Invalid tools/call result');
+        });
+
+        it('passes an authored-content result through to the wire', async () => {
+            const response = await callToolOnServer({
+                content: [{ type: 'text', text: 'hi' }],
+                structuredContent: { ok: true }
+            });
+
+            if (!isJSONRPCResultResponse(response)) {
+                throw new Error(`Expected a result response, got: ${JSON.stringify(response)}`);
+            }
+            const result = response.result as { content: unknown; structuredContent: unknown };
+            expect(result.content).toEqual([{ type: 'text', text: 'hi' }]);
+            expect(result.structuredContent).toEqual({ ok: true });
         });
     });
 });
