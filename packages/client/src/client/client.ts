@@ -49,7 +49,7 @@ import {
     CreateMessageResultWithToolsSchema,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
-    LATEST_PROTOCOL_VERSION,
+    legacyProtocolVersions,
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
     parseSchema,
@@ -507,12 +507,23 @@ export class Client extends Protocol<ClientContext> {
      * the handshake; its completion sets the negotiated (legacy) version.
      */
     private async _legacyHandshake(transport: Transport, options?: RequestOptions): Promise<void> {
+        // initialize is a legacy-era handshake: only the legacy subset of the
+        // supported versions is ever offered or accepted here — a 2026-era
+        // revision is negotiated exclusively via server/discover.
+        const legacyVersions = legacyProtocolVersions(this._supportedProtocolVersions);
         try {
+            const offeredVersion = legacyVersions[0];
+            if (offeredVersion === undefined) {
+                throw new SdkError(
+                    SdkErrorCode.EraNegotiationFailed,
+                    'Cannot run the initialize handshake: supportedProtocolVersions contains no pre-2026-07-28 protocol version'
+                );
+            }
             const result = await this.request(
                 {
                     method: 'initialize',
                     params: {
-                        protocolVersion: this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION,
+                        protocolVersion: offeredVersion,
                         capabilities: this._capabilities,
                         clientInfo: this._clientInfo
                     }
@@ -524,7 +535,7 @@ export class Client extends Protocol<ClientContext> {
                 throw new Error(`Server sent invalid initialize result: ${result}`);
             }
 
-            if (!this._supportedProtocolVersions.includes(result.protocolVersion)) {
+            if (!legacyVersions.includes(result.protocolVersion)) {
                 throw new Error(`Server's protocol version is not supported: ${result.protocolVersion}`);
             }
 

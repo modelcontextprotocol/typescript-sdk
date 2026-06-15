@@ -263,6 +263,61 @@ describe('auto mode against a legacy server (fallback)', () => {
         await plainClient.close();
     });
 
+    test('a dual-era supportedProtocolVersions list never leaks a 2026 version into the fallback initialize', async () => {
+        const transport = new ScriptedTransport(legacyServerScript);
+        const client = new Client(
+            { name: 'c', version: '0' },
+            { versionNegotiation: { mode: 'auto' }, supportedProtocolVersions: [MODERN, '2025-11-25'] }
+        );
+        await client.connect(transport);
+
+        // The fallback initialize offers the first LEGACY version of the list,
+        // never the 2026-era entry.
+        const init = requests(transport.sent).find(r => r.method === 'initialize')!;
+        expect((init.params as { protocolVersion?: string }).protocolVersion).toBe('2025-11-25');
+        expect(JSON.stringify(transport.sent.slice(1))).not.toContain(MODERN);
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+
+        await client.close();
+    });
+
+    test('a non-conforming server that echoes a 2026 revision from initialize is rejected by the accept check', async () => {
+        const script: Script = (message, t) => {
+            if (!isJSONRPCRequest(message)) return;
+            if (message.method === 'initialize') {
+                t.reply({
+                    jsonrpc: '2.0',
+                    id: message.id,
+                    result: { protocolVersion: MODERN, capabilities: {}, serverInfo: { name: 's', version: '1' } }
+                });
+            } else {
+                t.reply({ jsonrpc: '2.0', id: message.id, error: { code: -32_601, message: 'Method not found' } });
+            }
+        };
+
+        const transport = new ScriptedTransport(script);
+        const client = new Client(
+            { name: 'c', version: '0' },
+            { versionNegotiation: { mode: 'auto' }, supportedProtocolVersions: [MODERN, '2025-11-25'] }
+        );
+
+        await expect(client.connect(transport)).rejects.toThrow(/protocol version is not supported/);
+    });
+
+    test('a modern-only client in auto mode gets a typed error instead of a fallback when the server gives no modern evidence', async () => {
+        const transport = new ScriptedTransport(legacyServerScript);
+        const client = new Client(
+            { name: 'c', version: '0' },
+            { versionNegotiation: { mode: 'auto' }, supportedProtocolVersions: [MODERN] }
+        );
+
+        await expect(client.connect(transport)).rejects.toSatisfy(
+            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+        );
+        // The fallback never ran: no initialize carrying any version was sent.
+        expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
+    });
+
     // Fallback against REAL servers (in-memory pair, stateful HTTP, stateless
     // HTTP — both first-contact wire shapes) is covered in
     // test/integration/test/client/versionNegotiation.test.ts.

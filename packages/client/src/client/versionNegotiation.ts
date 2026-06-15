@@ -370,6 +370,15 @@ export async function negotiateEra(
                                 `via server/discover (no fallback in pin mode)`
                         );
                     }
+                    if (!negotiation.fallbackAvailable) {
+                        // Modern-only client: the legacy initialize fallback is
+                        // unavailable and must never carry a 2026-era version string.
+                        throw new SdkError(
+                            SdkErrorCode.EraNegotiationFailed,
+                            'Version negotiation failed: the server gave no modern evidence and this client supports no ' +
+                                'pre-2026-07-28 protocol version to fall back to'
+                        );
+                    }
                     return { era: 'legacy' };
                 }
                 case 'error': {
