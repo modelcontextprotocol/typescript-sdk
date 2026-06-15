@@ -2,6 +2,7 @@ import type { Express } from 'express';
 import express from 'express';
 
 import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
+import { localhostOriginValidation, originValidation } from './middleware/originValidation.js';
 
 /**
  * Options for creating an MCP Express application.
@@ -22,6 +23,18 @@ export interface CreateMcpExpressAppOptions {
      * to restrict which hostnames are allowed.
      */
     allowedHosts?: string[];
+
+    /**
+     * List of allowed origin hostnames for Origin header validation.
+     * If provided, Origin validation will be applied using this list (port-agnostic,
+     * hostnames only — the same convention as `allowedHosts`).
+     *
+     * When omitted, Origin validation is automatically enabled for localhost-class
+     * binds (the same condition as host validation): requests without an `Origin`
+     * header pass, while a present `Origin` whose hostname is not localhost-class
+     * is rejected with `403`.
+     */
+    allowedOrigins?: string[];
 
     /**
      * Controls the maximum request body size for the JSON body parser.
@@ -60,7 +73,7 @@ export interface CreateMcpExpressAppOptions {
  * ```
  */
 export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): Express {
-    const { host = '127.0.0.1', allowedHosts, jsonLimit } = options;
+    const { host = '127.0.0.1', allowedHosts, allowedOrigins, jsonLimit } = options;
 
     const app = express();
     app.use(express.json(jsonLimit ? { limit: jsonLimit } : undefined));
@@ -82,6 +95,15 @@ export function createMcpExpressApp(options: CreateMcpExpressAppOptions = {}): E
                     'or use authentication to protect your server.'
             );
         }
+    }
+
+    // Origin validation follows the same arming ladder as host validation:
+    // an explicit allowlist wins; otherwise localhost-class binds are protected
+    // by default. Requests without an Origin header always pass.
+    if (allowedOrigins) {
+        app.use(originValidation(allowedOrigins));
+    } else if (['127.0.0.1', 'localhost', '::1'].includes(host)) {
+        app.use(localhostOriginValidation());
     }
 
     return app;

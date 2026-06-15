@@ -37,6 +37,8 @@ export type {
 export { McpServer, ResourceTemplate } from './server/mcp.js';
 export type { HostHeaderValidationResult } from './server/middleware/hostHeaderValidation.js';
 export { hostHeaderValidationResponse, localhostAllowedHostnames, validateHostHeader } from './server/middleware/hostHeaderValidation.js';
+export type { OriginValidationResult } from './server/middleware/originValidation.js';
+export { localhostAllowedOrigins, originValidationResponse, validateOriginHeader } from './server/middleware/originValidation.js';
 export type { PerRequestHTTPServerTransportOptions, PerRequestMessageExtra, PerRequestResponseMode } from './server/perRequestTransport.js';
 export { PerRequestHTTPServerTransport } from './server/perRequestTransport.js';
 export type { ServerOptions } from './server/server.js';
