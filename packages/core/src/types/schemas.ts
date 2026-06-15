@@ -1,23 +1,7 @@
 import * as z from 'zod/v4';
 
-import {
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
-    JSONRPC_VERSION,
-    LOG_LEVEL_META_KEY,
-    PROTOCOL_VERSION_META_KEY,
-    RELATED_TASK_META_KEY
-} from './constants.js';
-import type {
-    JSONArray,
-    JSONObject,
-    JSONValue,
-    NotificationMethod,
-    NotificationTypeMap,
-    RequestMethod,
-    RequestTypeMap,
-    ResultTypeMap
-} from './types.js';
+import { JSONRPC_VERSION, RELATED_TASK_META_KEY } from './constants.js';
+import type { JSONArray, JSONObject, JSONValue } from './types.js';
 
 export const JSONValueSchema: z.ZodType<JSONValue, JSONValue> = z.lazy(() =>
     z.union([z.string(), z.number(), z.boolean(), z.null(), z.record(z.string(), JSONValueSchema), z.array(JSONValueSchema)])
@@ -33,23 +17,6 @@ export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
  * An opaque token used to represent a cursor for pagination.
  */
 export const CursorSchema = z.string();
-
-/**
- * Task creation parameters, used to ask that the server create a task to represent a request.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const TaskCreationParamsSchema = z.looseObject({
-    /**
-     * Requested duration in milliseconds to retain task from creation.
-     */
-    ttl: z.number().optional(),
-
-    /**
-     * Time in milliseconds to wait between task status requests.
-     */
-    pollInterval: z.number().optional()
-});
 
 /** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
 export const TaskMetadataSchema = z.object({
@@ -127,14 +94,13 @@ export const ResultSchema = z.looseObject({
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on `_meta` usage.
      */
-    _meta: RequestMetaSchema.optional(),
-    /**
-     * Indicates the type of the result, allowing the receiver to determine how to
-     * parse the result object. Servers implementing protocol revision 2026-07-28 or
-     * later always include this field; results from earlier revisions omit it, and
-     * an absent value must be treated as `"complete"`.
-     */
-    resultType: z.string().optional()
+    _meta: RequestMetaSchema.optional()
+    // `resultType` is wire-only vocabulary (protocol revision 2026-07-28) and
+    // is deliberately NOT modeled here: the neutral result schemas carry no
+    // slot for it. It exists only inside the 2026-era wire codec, which
+    // consumes it on decode and stamps it on encode. (Q1 increment 2 - the
+    // former optional member here was the masking surface that let modern
+    // vocabulary leak through every legacy-leg parse.)
 });
 
 /**
@@ -693,145 +659,6 @@ export const PaginatedResultSchema = ResultSchema.extend({
      */
     nextCursor: CursorSchema.optional()
 });
-
-/**
- * The status of a task.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- * */
-export const TaskStatusSchema = z.enum(['working', 'input_required', 'completed', 'failed', 'cancelled']);
-
-/* Tasks */
-/**
- * A pollable state object associated with a request.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const TaskSchema = z.object({
-    taskId: z.string(),
-    status: TaskStatusSchema,
-    /**
-     * Time in milliseconds to keep task results available after completion.
-     * If `null`, the task has unlimited lifetime until manually cleaned up.
-     */
-    ttl: z.union([z.number(), z.null()]),
-    /**
-     * ISO 8601 timestamp when the task was created.
-     */
-    createdAt: z.string(),
-    /**
-     * ISO 8601 timestamp when the task was last updated.
-     */
-    lastUpdatedAt: z.string(),
-    pollInterval: z.optional(z.number()),
-    /**
-     * Optional diagnostic message for failed tasks or other status information.
-     */
-    statusMessage: z.optional(z.string())
-});
-
-/**
- * Result returned when a task is created, containing the task data wrapped in a `task` field.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const CreateTaskResultSchema = ResultSchema.extend({
-    task: TaskSchema
-});
-
-/**
- * Parameters for task status notification.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
-
-/**
- * A notification sent when a task's status changes.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const TaskStatusNotificationSchema = NotificationSchema.extend({
-    method: z.literal('notifications/tasks/status'),
-    params: TaskStatusNotificationParamsSchema
-});
-
-/**
- * A request to get the state of a specific task.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const GetTaskRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/get'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
-
-/**
- * The response to a {@linkcode GetTaskRequest | tasks/get} request.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const GetTaskResultSchema = ResultSchema.merge(TaskSchema);
-
-/**
- * A request to get the result of a specific task.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const GetTaskPayloadRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/result'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
-
-/**
- * The response to a `tasks/result` request.
- * The structure matches the result type of the original request.
- * For example, a {@linkcode CallToolRequest | tools/call} task would return the `CallToolResult` structure.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const GetTaskPayloadResultSchema = ResultSchema.loose();
-
-/**
- * A request to list tasks.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
-    method: z.literal('tasks/list')
-});
-
-/**
- * The response to a {@linkcode ListTasksRequest | tasks/list} request.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const ListTasksResultSchema = PaginatedResultSchema.extend({
-    tasks: z.array(TaskSchema)
-});
-
-/**
- * A request to cancel a specific task.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const CancelTaskRequestSchema = RequestSchema.extend({
-    method: z.literal('tasks/cancel'),
-    params: BaseRequestParamsSchema.extend({
-        taskId: z.string()
-    })
-});
-
-/**
- * The response to a {@linkcode CancelTaskRequest | tasks/cancel} request.
- *
- * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
- */
-export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
 
 /* Resources */
 /**
@@ -1472,9 +1299,9 @@ export const CallToolResultSchema = ResultSchema.extend({
      * A list of content objects that represent the result of the tool call.
      *
      * If the `Tool` does not define an outputSchema, this field MUST be present in the result.
-     * For backwards compatibility, this field is always present, but it may be empty.
+     * Required on the wire per the specification (it may be an empty array).
      */
-    content: z.array(ContentBlockSchema).default([]),
+    content: z.array(ContentBlockSchema),
 
     /**
      * An object containing structured tool output.
@@ -1612,48 +1439,6 @@ export const LoggingMessageNotificationSchema = NotificationSchema.extend({
     params: LoggingMessageNotificationParamsSchema
 });
 
-/* Per-request `_meta` envelope */
-/**
- * The per-request `_meta` envelope carried by every request under protocol revision
- * 2026-07-28: the protocol version governing the request, the client implementation
- * info, and the client's capabilities — declared per request rather than once at
- * initialization — plus the optional log-level opt-in.
- *
- * This schema models the complete envelope on its own. The base request schemas
- * ({@linkcode RequestMetaSchema}) deliberately stay lenient so the same wire schemas
- * parse requests from earlier protocol revisions (no envelope) as well; envelope
- * requiredness is enforced per request at dispatch time, not here.
- */
-export const RequestMetaEnvelopeSchema = z.looseObject({
-    /**
-     * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
-     */
-    progressToken: ProgressTokenSchema.optional(),
-    /**
-     * The MCP protocol version being used for this request. For the HTTP transport,
-     * the value must match the `MCP-Protocol-Version` header.
-     */
-    [PROTOCOL_VERSION_META_KEY]: z.string(),
-    /**
-     * Identifies the client software making the request.
-     */
-    [CLIENT_INFO_META_KEY]: ImplementationSchema,
-    /**
-     * The client's capabilities for this specific request. An empty object means the
-     * client supports no optional capabilities. Servers must not infer capabilities
-     * from prior requests.
-     */
-    [CLIENT_CAPABILITIES_META_KEY]: ClientCapabilitiesSchema,
-    /**
-     * The desired log level for this request. When absent, the server must not send
-     * `notifications/message` notifications for the request.
-     *
-     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
-     * in the specification for at least twelve months.
-     */
-    [LOG_LEVEL_META_KEY]: LoggingLevelSchema.optional()
-});
-
 /* Sampling */
 /**
  * Hints to use for model selection.
@@ -1707,7 +1492,7 @@ export const ToolChoiceSchema = z.object({
 export const ToolResultContentSchema = z.object({
     type: z.literal('tool_result'),
     toolUseId: z.string().describe('The unique identifier for the corresponding tool call.'),
-    content: z.array(ContentBlockSchema).default([]),
+    content: z.array(ContentBlockSchema),
     structuredContent: z.object({}).loose().optional(),
     isError: z.boolean().optional(),
 
@@ -2221,6 +2006,12 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
 });
 
 /* Client messages */
+// NOTE (Q1 increment 2): the role unions below are the NEUTRAL message sets.
+// The 2025-era task vocabulary (tasks/* methods, task results, the task
+// status notification) is 2025-only WIRE vocabulary and now lives in
+// `wire/rev2025-11-25/schemas.ts`, which also exports the era's full wire
+// role unions. The deprecated Task* types remain importable from the types
+// barrel (Q1-SD2); they appear in no role aggregate and no API signature.
 export const ClientRequestSchema = z.union([
     PingRequestSchema,
     InitializeRequestSchema,
@@ -2234,19 +2025,14 @@ export const ClientRequestSchema = z.union([
     SubscribeRequestSchema,
     UnsubscribeRequestSchema,
     CallToolRequestSchema,
-    ListToolsRequestSchema,
-    GetTaskRequestSchema,
-    GetTaskPayloadRequestSchema,
-    ListTasksRequestSchema,
-    CancelTaskRequestSchema
+    ListToolsRequestSchema
 ]);
 
 export const ClientNotificationSchema = z.union([
     CancelledNotificationSchema,
     ProgressNotificationSchema,
     InitializedNotificationSchema,
-    RootsListChangedNotificationSchema,
-    TaskStatusNotificationSchema
+    RootsListChangedNotificationSchema
 ]);
 
 export const ClientResultSchema = z.union([
@@ -2254,23 +2040,11 @@ export const ClientResultSchema = z.union([
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
-    ListRootsResultSchema,
-    GetTaskResultSchema,
-    ListTasksResultSchema,
-    CreateTaskResultSchema
+    ListRootsResultSchema
 ]);
 
 /* Server messages */
-export const ServerRequestSchema = z.union([
-    PingRequestSchema,
-    CreateMessageRequestSchema,
-    ElicitRequestSchema,
-    ListRootsRequestSchema,
-    GetTaskRequestSchema,
-    GetTaskPayloadRequestSchema,
-    ListTasksRequestSchema,
-    CancelTaskRequestSchema
-]);
+export const ServerRequestSchema = z.union([PingRequestSchema, CreateMessageRequestSchema, ElicitRequestSchema, ListRootsRequestSchema]);
 
 export const ServerNotificationSchema = z.union([
     CancelledNotificationSchema,
@@ -2280,7 +2054,6 @@ export const ServerNotificationSchema = z.union([
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
-    TaskStatusNotificationSchema,
     ElicitationCompleteNotificationSchema
 ]);
 
@@ -2294,95 +2067,5 @@ export const ServerResultSchema = z.union([
     ListResourceTemplatesResultSchema,
     ReadResourceResultSchema,
     CallToolResultSchema,
-    ListToolsResultSchema,
-    GetTaskResultSchema,
-    ListTasksResultSchema,
-    CreateTaskResultSchema
+    ListToolsResultSchema
 ]);
-
-/* Runtime schema lookup — result schemas by method */
-// Keyed by `RequestMethod` so the runtime map and the typed `ResultTypeMap`
-// cannot drift: `getResultSchema`'s typed overload asserts each entry parses
-// to `ResultTypeMap[M]`, so no entry may be looser than the typed map
-// (no task-result union members) and no key may fall outside it (no `tasks/*`
-// entries — the task methods are 2025-11-25 wire vocabulary with no SDK
-// runtime; callers needing task interop pass an explicit schema).
-const resultSchemas: Record<RequestMethod, z.core.$ZodType> = {
-    ping: EmptyResultSchema,
-    initialize: InitializeResultSchema,
-    'completion/complete': CompleteResultSchema,
-    'logging/setLevel': EmptyResultSchema,
-    'prompts/get': GetPromptResultSchema,
-    'prompts/list': ListPromptsResultSchema,
-    'resources/list': ListResourcesResultSchema,
-    'resources/templates/list': ListResourceTemplatesResultSchema,
-    'resources/read': ReadResourceResultSchema,
-    'resources/subscribe': EmptyResultSchema,
-    'resources/unsubscribe': EmptyResultSchema,
-    'tools/call': CallToolResultSchema,
-    'tools/list': ListToolsResultSchema,
-    'sampling/createMessage': CreateMessageResultWithToolsSchema,
-    'elicitation/create': ElicitResultSchema,
-    'roots/list': ListRootsResultSchema
-};
-
-/**
- * Gets the Zod schema for validating results of a given request method.
- * Returns `undefined` for non-spec methods.
- * @see getRequestSchema for explanation of the internal type assertion.
- */
-export function getResultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]>;
-export function getResultSchema(method: string): z.ZodType | undefined;
-export function getResultSchema(method: string): z.ZodType | undefined {
-    return resultSchemas[method as RequestMethod] as unknown as z.ZodType | undefined;
-}
-
-/* Runtime schema lookup — request schemas by method */
-type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
-type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];
-
-function buildSchemaMap<T extends { shape: { method: { value: string } } }>(schemas: readonly T[]): Record<string, T> {
-    const map: Record<string, T> = {};
-    for (const schema of schemas) {
-        const method = schema.shape.method.value;
-        map[method] = schema;
-    }
-    return map;
-}
-
-const requestSchemas = buildSchemaMap([...ClientRequestSchema.options, ...ServerRequestSchema.options] as const) as Record<
-    RequestMethod,
-    RequestSchemaType
->;
-const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options, ...ServerNotificationSchema.options] as const) as Record<
-    NotificationMethod,
-    NotificationSchemaType
->;
-
-/**
- * Gets the Zod schema for a given request method.
- * Returns `undefined` for non-spec methods.
- * The return type is a ZodType that parses to RequestTypeMap[M], allowing callers
- * to use schema.parse() without needing additional type assertions.
- *
- * Note: The internal cast is necessary because TypeScript can't correlate the
- * Record-based schema lookup with the MethodToTypeMap-based RequestTypeMap
- * when M is a generic type parameter. Both compute to the same type at
- * instantiation, but TypeScript can't prove this statically.
- */
-export function getRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]>;
-export function getRequestSchema(method: string): z.ZodType | undefined;
-export function getRequestSchema(method: string): z.ZodType | undefined {
-    return requestSchemas[method as RequestMethod] as unknown as z.ZodType | undefined;
-}
-
-/**
- * Gets the Zod schema for a given notification method.
- * Returns `undefined` for non-spec methods.
- * @see getRequestSchema for explanation of the internal type assertion.
- */
-export function getNotificationSchema<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]>;
-export function getNotificationSchema(method: string): z.ZodType | undefined;
-export function getNotificationSchema(method: string): z.ZodType | undefined {
-    return notificationSchemas[method as NotificationMethod] as unknown as z.ZodType | undefined;
-}

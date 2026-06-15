@@ -38,6 +38,12 @@ import {
     JSONRPCResultResponseSchema
 } from '../../src/types/schemas.js';
 import * as schemas from '../../src/types/schemas.js';
+// Era routing (Q1 increment 2): each corpus revision resolves through its own
+// wire-era module first — 2025 fixtures may use 2025-only vocabulary (tasks),
+// 2026 fixtures use 2026-only vocabulary (envelope, discover) — then falls
+// back to the shared neutral payload schemas.
+import * as wire2025 from '../../src/wire/rev2025-11-25/schemas.js';
+import * as wire2026 from '../../src/wire/rev2026-07-28/schemas.js';
 
 const FIXTURES_ROOT = join(__dirname, 'fixtures');
 
@@ -78,7 +84,12 @@ const PENDING_2026_FILES: Record<string, string> = {
 
 type AnyZod = z.ZodType;
 
-function schemaFor(dir: string, fixture: unknown): AnyZod | undefined {
+const ERA_SCHEMAS: Record<string, Record<string, unknown>> = {
+    '2025-11-25': wire2025 as Record<string, unknown>,
+    '2026-07-28': wire2026 as Record<string, unknown>
+};
+
+function schemaFor(revision: string, dir: string, fixture: unknown): AnyZod | undefined {
     if (ERROR_OBJECT_DIRS.has(dir)) {
         // The upstream error examples mix bare `{code, message, data?}` objects
         // with full JSON-RPC error responses — pick by shape.
@@ -91,6 +102,8 @@ function schemaFor(dir: string, fixture: unknown): AnyZod | undefined {
         // tool-use array content); an example instance may be either.
         return z.union([CreateMessageResultSchema, CreateMessageResultWithToolsSchema]) as AnyZod;
     }
+    const eraSchema = ERA_SCHEMAS[revision]?.[`${dir}Schema`];
+    if (eraSchema !== undefined) return eraSchema as AnyZod;
     return (schemas as Record<string, unknown>)[`${dir}Schema`] as AnyZod | undefined;
 }
 
@@ -118,12 +131,12 @@ describe.each(['2025-11-25', '2026-07-28'] as const)('spec example corpus %s', r
     const pendingFiles = revision === '2026-07-28' ? PENDING_2026_FILES : {};
 
     test('every example directory is mapped to a schema or explicitly pending', () => {
-        const unmapped = typeDirs.filter(dir => !(dir in pending) && schemaFor(dir, {}) === undefined);
+        const unmapped = typeDirs.filter(dir => !(dir in pending) && schemaFor(revision, dir, {}) === undefined);
         expect(unmapped, 'unmapped example directories — map them or add a documented pending entry').toEqual([]);
     });
 
     test('pending entries are not stale (their vocabulary is still unmodeled)', () => {
-        const stale = Object.keys(pending).filter(dir => schemaFor(dir, {}) !== undefined);
+        const stale = Object.keys(pending).filter(dir => schemaFor(revision, dir, {}) !== undefined);
         expect(stale, 'pending entries whose schema now exists — wire the fixtures and remove the entry').toEqual([]);
         // Pending entries must refer to directories that actually exist.
         const missing = Object.keys(pending).filter(dir => !typeDirs.includes(dir));
@@ -141,7 +154,7 @@ describe.each(['2025-11-25', '2026-07-28'] as const)('spec example corpus %s', r
     describe.each(mappedDirs)('%s', dir => {
         test.each(listFixtures(revision, dir))('%s parses', file => {
             const fixture = loadFixture(revision, dir, file);
-            const schema = schemaFor(dir, fixture);
+            const schema = schemaFor(revision, dir, fixture);
             expect(schema).toBeDefined();
             const parsed = schema!.safeParse(fixture);
             const pendingReason = pendingFiles[`${dir}/${file}`];

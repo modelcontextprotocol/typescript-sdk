@@ -43,30 +43,20 @@ import type {
     UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
-    CallToolResultSchema,
-    CompleteResultSchema,
-    CreateMessageRequestSchema,
+    codecForVersion,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    ElicitRequestSchema,
-    ElicitResultSchema,
-    EmptyResultSchema,
-    GetPromptResultSchema,
-    InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
-    ListPromptsResultSchema,
-    ListResourcesResultSchema,
-    ListResourceTemplatesResultSchema,
-    ListToolsResultSchema,
     mergeCapabilities,
+    negotiatedProtocolVersionOf,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
-    ReadResourceResultSchema,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    setNegotiatedProtocolVersion
 } from '@modelcontextprotocol/core';
 
 /**
@@ -225,7 +215,6 @@ export type ClientOptions = ProtocolOptions & {
 export class Client extends Protocol<ClientContext> {
     private _serverCapabilities?: ServerCapabilities;
     private _serverVersion?: Implementation;
-    private _negotiatedProtocolVersion?: string;
     private _capabilities: ClientCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
@@ -308,7 +297,19 @@ export class Client extends Protocol<ClientContext> {
     ): (request: JSONRPCRequest, ctx: ClientContext) => Promise<Result> {
         if (method === 'elicitation/create') {
             return async (request, ctx) => {
-                const validatedRequest = parseSchema(ElicitRequestSchema, request);
+                // Era-exact validation: the schemas are resolved from the
+                // instance era at dispatch time (the era gate guarantees the
+                // method exists on the serving era before we get here).
+                const codec = codecForVersion(negotiatedProtocolVersionOf(this));
+                const elicitRequestSchema = codec.requestSchema('elicitation/create');
+                // The era registry entry IS the plain ElicitResult schema
+                // (the result map is aligned to the typed map — no widened
+                // unions), so no narrower surface is needed.
+                const elicitResultSchema = codec.resultSchema('elicitation/create');
+                if (!elicitRequestSchema || !elicitResultSchema) {
+                    throw new ProtocolError(ProtocolErrorCode.InternalError, 'No wire schema for elicitation/create in the resolved era');
+                }
+                const validatedRequest = parseSchema(elicitRequestSchema, request);
                 if (!validatedRequest.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -330,7 +331,7 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
-                const validationResult = parseSchema(ElicitResultSchema, result);
+                const validationResult = parseSchema(elicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
                     const errorMessage =
@@ -361,7 +362,16 @@ export class Client extends Protocol<ClientContext> {
 
         if (method === 'sampling/createMessage') {
             return async (request, ctx) => {
-                const validatedRequest = parseSchema(CreateMessageRequestSchema, request);
+                // Era-exact validation via the instance era (see above).
+                const codec = codecForVersion(negotiatedProtocolVersionOf(this));
+                const samplingRequestSchema = codec.requestSchema('sampling/createMessage');
+                if (!samplingRequestSchema) {
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InternalError,
+                        'No wire schema for sampling/createMessage in the resolved era'
+                    );
+                }
+                const validatedRequest = parseSchema(samplingRequestSchema, request);
                 if (!validatedRequest.success) {
                     const errorMessage =
                         validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
@@ -372,6 +382,11 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
+                // The result schema depends on the REQUEST params (tools vs
+                // no tools) — something a method-keyed registry entry cannot
+                // express, so the pair is picked here. The era gate keeps
+                // this era-correct: sampling/createMessage is only ever
+                // dispatched on an era whose registry defines it.
                 const hasTools = params.tools || params.toolChoice;
                 const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
                 const validationResult = parseSchema(resultSchema, result);
@@ -429,13 +444,26 @@ export class Client extends Protocol<ClientContext> {
         // Restore the protocol version negotiated during the original initialize handshake
         // so HTTP transports include the required mcp-protocol-version header, but skip re-init.
         if (transport.sessionId !== undefined) {
-            if (this._negotiatedProtocolVersion !== undefined && transport.setProtocolVersion) {
-                transport.setProtocolVersion(this._negotiatedProtocolVersion);
+            const negotiatedProtocolVersion = negotiatedProtocolVersionOf(this);
+            if (negotiatedProtocolVersion !== undefined) {
+                // Resuming keeps the original negotiation: the instance still
+                // holds the negotiated version (and with it the wire era) —
+                // only the new transport needs the header pushed again.
+                transport.setProtocolVersion?.(negotiatedProtocolVersion);
             }
             return;
         }
+        // Fresh connect: the negotiated protocol version is connection state —
+        // a value left over from a previous connection must not survive into a
+        // new handshake. Clearing it puts the instance back in the
+        // pre-negotiation phase, so the initialize exchange below rides the
+        // bootstrap method pins (legacy era) instead of a dead session's era.
+        // Without this, an instance that once negotiated a modern era could
+        // never re-run a fresh handshake: `initialize` is physically absent
+        // from the modern registry. (The resume branch above keeps it instead.)
+        setNegotiatedProtocolVersion(this, undefined);
         try {
-            const result = await this._requestWithSchema(
+            const result = await this.request(
                 {
                     method: 'initialize',
                     params: {
@@ -444,7 +472,6 @@ export class Client extends Protocol<ClientContext> {
                         clientInfo: this._clientInfo
                     }
                 },
-                InitializeResultSchema,
                 options
             );
 
@@ -458,7 +485,6 @@ export class Client extends Protocol<ClientContext> {
 
             this._serverCapabilities = result.capabilities;
             this._serverVersion = result.serverInfo;
-            this._negotiatedProtocolVersion = result.protocolVersion;
             // HTTP transports must set the protocol version in each header after initialization.
             if (transport.setProtocolVersion) {
                 transport.setProtocolVersion(result.protocolVersion);
@@ -469,6 +495,15 @@ export class Client extends Protocol<ClientContext> {
             await this.notification({
                 method: 'notifications/initialized'
             });
+
+            // Handshake completion: the negotiated version becomes the
+            // instance's connection state, and with it the wire era for
+            // everything this connection sends/receives from here on (the
+            // negotiated version cashes out as the negotiated wire ERA —
+            // Q1-SD1). Set AFTER the initialized notification: the initialize
+            // EXCHANGE is the legacy handshake by definition and completes on
+            // that era.
+            setNegotiatedProtocolVersion(this, result.protocolVersion);
 
             // Set up list changed handlers now that we know server capabilities
             if (this._pendingListChangedConfig) {
@@ -502,7 +537,7 @@ export class Client extends Protocol<ClientContext> {
      * value to the new transport so it continues sending the required `mcp-protocol-version` header.
      */
     getNegotiatedProtocolVersion(): string | undefined {
-        return this._negotiatedProtocolVersion;
+        return negotiatedProtocolVersionOf(this);
     }
 
     /**
@@ -652,12 +687,12 @@ export class Client extends Protocol<ClientContext> {
     }
 
     async ping(options?: RequestOptions): Promise<EmptyResult> {
-        return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
+        return this.request({ method: 'ping' }, options);
     }
 
     /** Requests argument autocompletion suggestions from the server for a prompt or resource. */
     async complete(params: CompleteRequest['params'], options?: RequestOptions): Promise<CompleteResult> {
-        return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
+        return this.request({ method: 'completion/complete', params }, options);
     }
 
     /**
@@ -668,12 +703,12 @@ export class Client extends Protocol<ClientContext> {
      * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
      */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions): Promise<EmptyResult> {
-        return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
+        return this.request({ method: 'logging/setLevel', params: { level } }, options);
     }
 
     /** Retrieves a prompt by name from the server, passing the given arguments for template substitution. */
     async getPrompt(params: GetPromptRequest['params'], options?: RequestOptions): Promise<GetPromptResult> {
-        return this._requestWithSchema({ method: 'prompts/get', params }, GetPromptResultSchema, options);
+        return this.request({ method: 'prompts/get', params }, options);
     }
 
     /**
@@ -704,7 +739,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
-        return this._requestWithSchema({ method: 'prompts/list', params }, ListPromptsResultSchema, options);
+        return this.request({ method: 'prompts/list', params }, options);
     }
 
     /**
@@ -735,7 +770,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
-        return this._requestWithSchema({ method: 'resources/list', params }, ListResourcesResultSchema, options);
+        return this.request({ method: 'resources/list', params }, options);
     }
 
     /**
@@ -755,22 +790,22 @@ export class Client extends Protocol<ClientContext> {
             );
             return { resourceTemplates: [] };
         }
-        return this._requestWithSchema({ method: 'resources/templates/list', params }, ListResourceTemplatesResultSchema, options);
+        return this.request({ method: 'resources/templates/list', params }, options);
     }
 
     /** Reads the contents of a resource by URI. */
     async readResource(params: ReadResourceRequest['params'], options?: RequestOptions): Promise<ReadResourceResult> {
-        return this._requestWithSchema({ method: 'resources/read', params }, ReadResourceResultSchema, options);
+        return this.request({ method: 'resources/read', params }, options);
     }
 
     /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
     async subscribeResource(params: SubscribeRequest['params'], options?: RequestOptions): Promise<EmptyResult> {
-        return this._requestWithSchema({ method: 'resources/subscribe', params }, EmptyResultSchema, options);
+        return this.request({ method: 'resources/subscribe', params }, options);
     }
 
     /** Unsubscribes from change notifications for a resource. */
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions): Promise<EmptyResult> {
-        return this._requestWithSchema({ method: 'resources/unsubscribe', params }, EmptyResultSchema, options);
+        return this.request({ method: 'resources/unsubscribe', params }, options);
     }
 
     /**
@@ -811,7 +846,11 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: RequestOptions): Promise<CallToolResult> {
-        const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
+        // The method-keyed request() path validates the era registry's plain
+        // CallToolResult schema — with the result map aligned to the typed
+        // map there is no wider union to narrow away (Q1-SD2 holds by
+        // construction).
+        const result = await this.request({ method: 'tools/call', params }, options);
 
         // Check if the tool has an outputSchema
         const validator = this.getToolOutputValidator(params.name);
@@ -902,7 +941,7 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
-        const result = await this._requestWithSchema({ method: 'tools/list', params }, ListToolsResultSchema, options);
+        const result = await this.request({ method: 'tools/list', params }, options);
 
         // Cache the tools and their output schemas for future validation
         this.cacheToolMetadata(result.tools);

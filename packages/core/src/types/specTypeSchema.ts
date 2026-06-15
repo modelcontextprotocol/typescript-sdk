@@ -41,8 +41,6 @@ const SPEC_SCHEMA_KEYS = [
     'CallToolResultSchema',
     'CancelledNotificationSchema',
     'CancelledNotificationParamsSchema',
-    'CancelTaskRequestSchema',
-    'CancelTaskResultSchema',
     'ClientCapabilitiesSchema',
     'ClientNotificationSchema',
     'ClientRequestSchema',
@@ -56,7 +54,6 @@ const SPEC_SCHEMA_KEYS = [
     'CreateMessageRequestParamsSchema',
     'CreateMessageResultSchema',
     'CreateMessageResultWithToolsSchema',
-    'CreateTaskResultSchema',
     'CursorSchema',
     'DiscoverRequestSchema',
     'DiscoverResultSchema',
@@ -73,10 +70,6 @@ const SPEC_SCHEMA_KEYS = [
     'GetPromptRequestSchema',
     'GetPromptRequestParamsSchema',
     'GetPromptResultSchema',
-    'GetTaskPayloadRequestSchema',
-    'GetTaskPayloadResultSchema',
-    'GetTaskRequestSchema',
-    'GetTaskResultSchema',
     'IconSchema',
     'IconsSchema',
     'ImageContentSchema',
@@ -103,8 +96,6 @@ const SPEC_SCHEMA_KEYS = [
     'ListResourceTemplatesResultSchema',
     'ListRootsRequestSchema',
     'ListRootsResultSchema',
-    'ListTasksRequestSchema',
-    'ListTasksResultSchema',
     'ListToolsRequestSchema',
     'ListToolsResultSchema',
     'LoggingLevelSchema',
@@ -135,7 +126,6 @@ const SPEC_SCHEMA_KEYS = [
     'RelatedTaskMetadataSchema',
     'RequestSchema',
     'RequestIdSchema',
-    'RequestMetaEnvelopeSchema',
     'RequestMetaSchema',
     'ResourceSchema',
     'ResourceContentsSchema',
@@ -163,13 +153,8 @@ const SPEC_SCHEMA_KEYS = [
     'StringSchemaSchema',
     'SubscribeRequestSchema',
     'SubscribeRequestParamsSchema',
-    'TaskSchema',
     'TaskAugmentedRequestParamsSchema',
-    'TaskCreationParamsSchema',
     'TaskMetadataSchema',
-    'TaskStatusSchema',
-    'TaskStatusNotificationSchema',
-    'TaskStatusNotificationParamsSchema',
     'TextContentSchema',
     'TextResourceContentsSchema',
     'TitledMultiSelectEnumSchemaSchema',
@@ -224,10 +209,11 @@ export type SpecTypeName = StripSchemaSuffix<SchemaKey>;
  * Maps each {@linkcode SpecTypeName} to its TypeScript type.
  *
  * `SpecTypes['Tool']` is equivalent to importing the `Tool` type directly.
- * These are WIRE validator outputs: result entries additionally carry the
- * wire-only `resultType` member, which the public result types do not declare
- * (the SDK consumes it at the protocol layer and strips it before results
- * reach consumers).
+ * These validators cover the NEUTRAL model — the consumer-facing shapes with
+ * no wire-only members (`resultType`, the reserved `_meta` envelope keys).
+ * Per-revision WIRE validators are deliberately not public surface; they are
+ * planned to return as versioned `zod-schemas/<revision>` exports for
+ * consumers who validate raw wire traffic themselves.
  */
 export type SpecTypes = {
     [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.output<SchemaFor<K>> : never;

@@ -84,35 +84,25 @@ describe('raw-first resultType discrimination in the request funnel', () => {
         await protocol.close();
     });
 
-    test('a non-string resultType can never surface as a success (rejected at message classification)', async () => {
-        // A response whose resultType is not a string fails the JSON-RPC
-        // envelope classification (the wire schema types the member), so it
-        // is reported out-of-band and never reaches the result funnel — and
-        // can therefore never be masked into a success. The funnel keeps a
-        // defensive raw-type check for the day classification loosens.
+    test('a non-string resultType can never surface as a success (rejected in the funnel)', async () => {
+        // Pre-codec-split, a non-string resultType died at JSON-RPC envelope
+        // classification because the SHARED wire schema typed the member as
+        // an optional string. With resultType cut from the neutral schemas
+        // (Q1 increment 2 — the masking surface is gone), the loose envelope
+        // passes the foreign key through and the funnel's defensive raw-type
+        // arm rejects it IN-BAND with a typed error. Either way it can never
+        // be masked into a success — which is the V-1 invariant this test
+        // exists to pin.
         const protocol = await wireWithRawResult({ resultType: 42, content: [] });
-        const outOfBand: Error[] = [];
-        protocol.onerror = error => void outOfBand.push(error);
 
-        let settled: unknown;
-        const pending = protocol.request({ method: 'tools/call', params: { name: 'echo', arguments: {} } }).then(
-            result => {
-                settled = { resolved: result };
-            },
-            error => {
-                settled = { rejected: error };
-            }
-        );
+        const rejection = await protocol
+            .request({ method: 'tools/call', params: { name: 'echo', arguments: {} } })
+            .catch((error: unknown) => error);
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.InvalidResult);
+        expect((rejection as SdkError).data).toMatchObject({ resultType: 42 });
 
-        await new Promise(resolve => setTimeout(resolve, 50));
-        expect(settled, 'must not resolve as a success').toBeUndefined();
-        expect(outOfBand.length).toBeGreaterThan(0);
-        expect(String(outOfBand[0]?.message)).toContain('Unknown message type');
-
-        // Teardown settles the in-flight request (connection closed).
         await protocol.close();
-        await pending;
-        expect(settled).toHaveProperty('rejected');
     });
 
     test("resultType 'complete' is consumed: the result resolves without the wire member", async () => {
