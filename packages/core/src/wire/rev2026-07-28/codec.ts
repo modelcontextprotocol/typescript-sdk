@@ -28,14 +28,13 @@
  */
 import { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
 import type { Result } from '../../types/types.js';
-import type { DecodedResult, LiftedWireMaterial, NarrowResultKey, WireCodec } from '../codec.js';
+import type { DecodedResult, LiftedWireMaterial, WireCodec } from '../codec.js';
 import {
     getNotificationSchema2026,
     getRequestSchema2026,
     getResultSchema2026,
     hasNotificationMethod2026,
-    hasRequestMethod2026,
-    narrowResultSchemas2026
+    hasRequestMethod2026
 } from './registry.js';
 import type { ResultSchema } from './schemas.js';
 import {
@@ -98,8 +97,6 @@ export const rev2026Codec: WireCodec = {
     requestSchema: method => getRequestSchema2026(method),
     resultSchema: method => getResultSchema2026(method),
     notificationSchema: method => getNotificationSchema2026(method),
-
-    narrowResultSchema: (key: NarrowResultKey) => narrowResultSchemas2026[key],
 
     decodeResult(method: string, raw: unknown): DecodedResult {
         if (!isPlainObject(raw)) {

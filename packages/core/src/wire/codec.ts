@@ -182,7 +182,7 @@ export function codecForVersion(version: string | undefined): WireCodec {
  */
 export function classifiedWireEra(classification: MessageClassification): WireEra {
     if (classification.revision !== undefined) return codecForVersion(classification.revision).era;
-    return classification.era === 'modern' ? MODERN_WIRE_REVISION : rev2025Codec.era;
+    return classification.era === 'modern' ? rev2026Codec.era : rev2025Codec.era;
 }
 
 /**

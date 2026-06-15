@@ -50,12 +50,3 @@ export function getNotificationSchema2026(method: string): z.ZodType | undefined
 /** Registry method lists (for the spec-method universe and the CI registry-diff oracle). */
 export const rev2026RequestMethods: readonly string[] = Object.keys(dispatchRequestSchemas);
 export const rev2026NotificationMethods: readonly string[] = Object.keys(notificationSchemas2026);
-
-/** Narrow high-level result schemas for this era (see `codec.ts`
- * `NarrowResultKey`). Deliberately EMPTY: the only narrow surface is the
- * sampling pair, and sampling is not a wire request on this era (demoted to
- * in-band `InputRequest` payloads), so `server.createMessage` fails with the
- * typed era error before schema resolution. `tools/call` validates its
- * registry entry directly — with the result maps aligned to the typed maps
- * there is no narrower tools/call surface on any era. */
-export const narrowResultSchemas2026: Record<string, z.ZodType> = {};
