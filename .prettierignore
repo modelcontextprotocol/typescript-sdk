@@ -24,7 +24,3 @@ packages/codemod/batch-test/results
 # Quickstart examples uses 2-space indent to match ecosystem conventions
 examples/client-quickstart/
 examples/server-quickstart/
-
-# Generated API reports (machine-formatted by API Extractor)
-packages/**/etc/*.api.md
-.api-extractor-tmp
