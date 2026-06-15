@@ -34,17 +34,18 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
-    bindWireVersion,
-    codecForContext,
+    codecForVersion,
     LATEST_PROTOCOL_VERSION,
     LoggingLevelSchema,
     mergeCapabilities,
+    negotiatedProtocolVersionOf,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    setNegotiatedProtocolVersion
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
@@ -80,7 +81,6 @@ export type ServerOptions = ProtocolOptions & {
 export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
-    private _negotiatedProtocolVersion?: string;
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
@@ -186,9 +186,9 @@ export class Server extends Protocol<ServerContext> {
         }
         return async (request, ctx) => {
             // Era-exact validation: the request and result schemas come from
-            // the request's codec, resolved at dispatch time (the era gate
+            // the instance era, resolved at dispatch time (the era gate
             // guarantees tools/call exists on the serving era).
-            const codec = codecForContext(ctx);
+            const codec = codecForVersion(negotiatedProtocolVersionOf(this));
             const callToolRequestSchema = codec.requestSchema('tools/call');
             // The era registry entry IS the plain CallToolResult schema (the
             // result map is aligned to the typed map — no widened unions),
@@ -371,11 +371,10 @@ export class Server extends Protocol<ServerContext> {
             ? requestedVersion
             : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
-        this._negotiatedProtocolVersion = protocolVersion;
-        // Session-level wire-era binding: the fallback codec source for
-        // hand-wired sessionful transports (per-request classification wins
-        // when present).
-        bindWireVersion(this, protocolVersion);
+        // The negotiated version is the instance's connection state — it IS
+        // the wire-era selection for everything this instance sends and
+        // receives from here on (legacy handshake ⇒ a legacy-era version).
+        setNegotiatedProtocolVersion(this, protocolVersion);
         this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
@@ -406,7 +405,7 @@ export class Server extends Protocol<ServerContext> {
      * `undefined` before initialization.
      */
     getNegotiatedProtocolVersion(): string | undefined {
-        return this._negotiatedProtocolVersion;
+        return negotiatedProtocolVersionOf(this);
     }
 
     /**

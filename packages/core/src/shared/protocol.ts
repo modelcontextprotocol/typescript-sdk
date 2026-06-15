@@ -48,14 +48,7 @@ import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
 import { bootstrapOutboundCodec } from '../wire/bootstrap.js';
 import type { LiftedWireMaterial, NarrowResultKey, WireCodec } from '../wire/codec.js';
-import {
-    bindRequestCodec,
-    codecForContext,
-    inboundCodecFor,
-    isSpecNotificationMethod,
-    isSpecRequestMethod,
-    outboundCodecFor
-} from '../wire/codec.js';
+import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod } from '../wire/codec.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -377,6 +370,45 @@ type TimeoutInfo = {
     onTimeout: () => void;
 };
 
+/*
+ * Package-internal access to Protocol's negotiated-protocol-version state.
+ *
+ * The negotiated version is a TS-private field on Protocol (it is connection
+ * state, not public surface — it never appears in the published declaration
+ * reports). The role classes (Client/Server), tests, and the modern-era
+ * server entry still need to read and write it at their lifecycle points, so
+ * Protocol's static initializer hands these module-scoped closures privileged
+ * access and the two functions below re-export them on the core INTERNAL
+ * barrel only. This is the F-2-style package-internal hook — deliberately not
+ * public API.
+ */
+let readNegotiatedProtocolVersion: <ContextT extends BaseContext>(instance: Protocol<ContextT>) => string | undefined;
+let writeNegotiatedProtocolVersion: <ContextT extends BaseContext>(instance: Protocol<ContextT>, version: string | undefined) => void;
+
+/**
+ * Package-internal read channel for the protocol version a {@linkcode Protocol}
+ * instance has negotiated (`undefined` before negotiation). Exported on the
+ * core internal barrel only — never public API.
+ */
+export function negotiatedProtocolVersionOf<ContextT extends BaseContext>(instance: Protocol<ContextT>): string | undefined {
+    return readNegotiatedProtocolVersion(instance);
+}
+
+/**
+ * Package-internal write channel for a {@linkcode Protocol} instance's
+ * negotiated protocol version — the single era set/clear point outside the
+ * class itself. Called by `Client.connect` (fresh-connect clear + handshake
+ * completion), `Server._oninitialize`, tests, and the (future) modern-era
+ * server entry when it marks a factory instance modern at binding time.
+ * Exported on the core internal barrel only — never public API.
+ */
+export function setNegotiatedProtocolVersion<ContextT extends BaseContext>(
+    instance: Protocol<ContextT>,
+    version: string | undefined
+): void {
+    writeNegotiatedProtocolVersion(instance, version);
+}
+
 /**
  * Implements MCP protocol framing on top of a pluggable transport, including
  * features like request/response linking, notifications, and progress.
@@ -394,6 +426,31 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
+
+    /**
+     * The protocol version negotiated for the current connection — the single
+     * source of truth for the wire era this instance speaks (Q1-SD1: the
+     * negotiated version cashes out as the negotiated wire ERA).
+     *
+     * Ordinary connection state, no side tables:
+     * - `Client.connect` clears it at the start of a fresh connect (the
+     *   handshake itself runs pre-negotiation) and sets it once the handshake
+     *   completes; the resume path keeps the original negotiation.
+     * - `Server._oninitialize` sets it when answering the legacy handshake;
+     *   modern-era server instances get it set at instance binding through
+     *   the package-internal hook ({@linkcode setNegotiatedProtocolVersion}).
+     *
+     * `undefined` = not negotiated yet: outbound lifecycle messages ride the
+     * bootstrap method pins and everything else defaults to the legacy era.
+     */
+    private _negotiatedProtocolVersion?: string;
+
+    static {
+        readNegotiatedProtocolVersion = instance => instance._negotiatedProtocolVersion;
+        writeNegotiatedProtocolVersion = (instance, version) => {
+            instance._negotiatedProtocolVersion = version;
+        };
+    }
 
     protected _supportedProtocolVersions: string[];
 
@@ -582,9 +639,27 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // not surfaced; the protocol layer owns them.
         const { message: notification } = liftWireOnlyMaterial(rawNotification, 'notification');
 
-        // Per-message codec resolution: classification wins, session state is
-        // the fallback, unclassified traffic is legacy-era.
-        const codec = inboundCodecFor(this, extra?.classification);
+        // Era is instance state: the negotiated protocol version selects the
+        // codec for everything this connection receives (legacy until
+        // negotiated). Classification is no longer a per-message era switch —
+        // it is validated against the instance era below.
+        const codec = this._negotiatedWireCodec();
+
+        // Edge→instance handoff check: a classification that disagrees with
+        // the instance era means the entry routed another era's traffic onto
+        // this instance. That is a routing error — drop the notification and
+        // surface it out of band; never serve it on a guessed era.
+        if (extra?.classification !== undefined) {
+            const classified = classifiedWireEra(extra.classification);
+            if (classified !== codec.era) {
+                this._onerror(
+                    new Error(
+                        `Era mismatch on inbound notification '${notification.method}': classified as ${classified} but this instance serves ${codec.era}`
+                    )
+                );
+                return;
+            }
+        }
 
         // Era gate — deletions are physical: a spec notification that is not
         // in this era's registry is dropped even when a handler is
@@ -616,23 +691,46 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // 2025-era shape; the envelope and retry fields surface via ctx.
         const { message: request, lifted } = liftWireOnlyMaterial(rawRequest, 'request');
 
-        // Per-request codec resolution: classification wins (Q2; this layer
-        // only CONSUMES MessageExtraInfo.classification), the session
-        // negotiated version is the fallback for hand-wired sessionful
-        // transports, and unclassified-unbound traffic is legacy-era.
-        const codec = inboundCodecFor(this, extra?.classification);
+        // Era is instance state: the negotiated protocol version selects the
+        // codec for everything this connection receives (legacy until
+        // negotiated). Classification (Q2; this layer only CONSUMES
+        // MessageExtraInfo.classification) is no longer a per-message era
+        // switch — it is validated against the instance era below. Hand-wired
+        // legacy transports never classify, so their behavior is untouched.
+        const codec = this._negotiatedWireCodec();
 
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
 
-        const sendErrorResponse = (code: number, message: string) => {
+        const sendErrorResponse = (code: number, message: string, data?: unknown) => {
             const errorResponse: JSONRPCErrorResponse = {
                 jsonrpc: '2.0',
                 id: request.id,
-                error: { code, message }
+                error: { code, message, ...(data !== undefined && { data }) }
             };
             capturedTransport?.send(errorResponse).catch(error => this._onerror(new Error(`Failed to send an error response: ${error}`)));
         };
+
+        // Edge→instance handoff check: a classification that disagrees with
+        // the instance era means the entry routed another era's traffic onto
+        // this instance. That is a routing error: answer with the typed era
+        // error (−32004 Unsupported protocol version) and surface it out of
+        // band — never serve the request on a guessed era.
+        if (extra?.classification !== undefined) {
+            const classified = classifiedWireEra(extra.classification);
+            if (classified !== codec.era) {
+                this._onerror(
+                    new Error(
+                        `Era mismatch on inbound request '${request.method}': classified as ${classified} but this instance serves ${codec.era}`
+                    )
+                );
+                sendErrorResponse(ProtocolErrorCode.UnsupportedProtocolVersion, `Unsupported protocol version: ${classified}`, {
+                    supported: [codec.era],
+                    requested: classified
+                });
+                return;
+            }
+        }
 
         // Era gate — deletions are physical: a spec method that is not in
         // this era's registry is −32601 BY ABSENCE, before any handler
@@ -667,10 +765,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
+        // Related sends resolve through the SAME instance era as every other
+        // sender (the per-request/instance asymmetry is deliberately gone):
+        // the codec is resolved at send time from the connection state.
         const sendNotification = (notification: Notification, options?: NotificationOptions) =>
-            this._notificationViaCodec(codec, notification, { ...options, relatedRequestId: request.id });
+            this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, {
+                ...options,
+                relatedRequestId: request.id
+            });
         const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
-            this._requestWithSchemaViaCodec(codec, r, resultSchema, { ...options, relatedRequestId: request.id });
+            this._requestWithSchemaViaCodec(this._resolveOutboundCodec(r.method), r, resultSchema, {
+                ...options,
+                relatedRequestId: request.id
+            });
 
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
@@ -690,14 +797,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // that overloaded property type. The cast is sound: this impl dispatches both overload paths via the
                 // isStandardSchema guard, and sendRequest validates the result against the resolved schema either way.
                 send: ((r: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions) => {
-                    // Related requests ride the SAME era as the request being
-                    // handled: the per-request codec era-gates and resolves
-                    // schemas at dispatch time.
-                    this._assertOutboundRequestInEra(codec, r.method);
+                    // Related requests resolve through the instance era at
+                    // send time, exactly like direct sends: era-gate first,
+                    // then method-keyed schema resolution.
+                    const sendCodec = this._resolveOutboundCodec(r.method);
+                    this._assertOutboundRequestInEra(sendCodec, r.method);
                     if (isStandardSchema(schemaOrOptions)) {
                         return sendRequest(r, schemaOrOptions, maybeOptions);
                     }
-                    const resultSchema = codec.resultSchema(r.method);
+                    const resultSchema = sendCodec.resultSchema(r.method);
                     if (!resultSchema) {
                         throw new TypeError(
                             `'${r.method}' is not a spec method; pass a result schema as the second argument to ctx.mcpReq.send().`
@@ -710,10 +818,6 @@ export abstract class Protocol<ContextT extends BaseContext> {
             http: extra?.authInfo ? { authInfo: extra.authInfo } : undefined
         };
         const ctx = this.buildContext(baseCtx, extra);
-        // Make the per-request codec resolvable from the context (stored
-        // handler closures and _wrapHandler wrappers resolve era-exact
-        // schemas through it at dispatch time).
-        bindRequestCodec(ctx, codec);
 
         // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
         Promise.resolve()
@@ -877,10 +981,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>>;
     request(request: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions): Promise<unknown> {
-        // Outbound codec resolution: lifecycle messages are bootstrap-pinned
-        // (they precede negotiation and self-identify their era); everything
-        // else rides the instance's negotiated era (legacy when unbound).
-        const codec = bootstrapOutboundCodec(request.method) ?? outboundCodecFor(this);
+        const codec = this._resolveOutboundCodec(request.method);
         this._assertOutboundRequestInEra(codec, request.method);
         if (isStandardSchema(schemaOrOptions)) {
             return this._requestWithSchemaViaCodec(codec, request, schemaOrOptions, maybeOptions);
@@ -890,6 +991,31 @@ export abstract class Protocol<ContextT extends BaseContext> {
             throw new TypeError(`'${request.method}' is not a spec method; pass a result schema as the second argument to request().`);
         }
         return this._requestWithSchemaViaCodec(codec, request, resultSchema, schemaOrOptions);
+    }
+
+    /**
+     * The wire codec for this instance's negotiated era — the phase-2 truth:
+     * everything an established connection sends and receives resolves
+     * through it. Legacy until a version has been negotiated.
+     */
+    private _negotiatedWireCodec(): WireCodec {
+        return codecForVersion(this._negotiatedProtocolVersion);
+    }
+
+    /**
+     * Outbound codec resolution: while the negotiated version is still unset
+     * (the negotiation window), lifecycle messages are bootstrap-pinned BY
+     * METHOD — they self-identify their era (`initialize` IS the legacy
+     * handshake, `server/discover` IS the modern probe). Once a version has
+     * been negotiated, the instance era is authoritative for everything — a
+     * negotiated session never re-routes a method onto the other era.
+     */
+    private _resolveOutboundCodec(method: string): WireCodec {
+        if (this._negotiatedProtocolVersion === undefined) {
+            const pinned = bootstrapOutboundCodec(method);
+            if (pinned) return pinned;
+        }
+        return this._negotiatedWireCodec();
     }
 
     /**
@@ -919,7 +1045,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * dispatch time, like every other method-keyed binding.
      */
     protected _requestWithNarrowSchema<R extends Result>(request: Request, narrow: NarrowResultKey, options?: RequestOptions): Promise<R> {
-        const codec = bootstrapOutboundCodec(request.method) ?? outboundCodecFor(this);
+        const codec = this._resolveOutboundCodec(request.method);
         this._assertOutboundRequestInEra(codec, request.method);
         const schema = codec.narrowResultSchema(narrow);
         if (!schema) {
@@ -943,12 +1069,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         resultSchema: T,
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>> {
-        return this._requestWithSchemaViaCodec(
-            bootstrapOutboundCodec(request.method) ?? outboundCodecFor(this),
-            request,
-            resultSchema,
-            options
-        );
+        return this._requestWithSchemaViaCodec(this._resolveOutboundCodec(request.method), request, resultSchema, options);
     }
 
     /**
@@ -1150,13 +1271,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * Emits a notification, which is a one-way message that does not expect a response.
      */
     async notification(notification: Notification, options?: NotificationOptions): Promise<void> {
-        return this._notificationViaCodec(bootstrapOutboundCodec(notification.method) ?? outboundCodecFor(this), notification, options);
+        return this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, options);
     }
 
     /**
-     * The notification funnel proper, keyed by the resolved era codec
-     * (related notifications sent via `ctx.mcpReq.notify` ride the inbound
-     * request's codec; direct sends ride the instance's negotiated era).
+     * The notification funnel proper, keyed by the resolved era codec —
+     * direct sends and related notifications (`ctx.mcpReq.notify`) alike
+     * resolve through the instance's negotiated era at send time.
      */
     private async _notificationViaCodec(codec: WireCodec, notification: Notification, options?: NotificationOptions): Promise<void> {
         if (!this._transport) {
@@ -1260,10 +1381,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 );
             }
             // Dispatch-time schema resolution: the request is parsed with the
-            // schema of the era SERVING THIS REQUEST (per-request codec bound
-            // to ctx), never with a schema captured at registration time.
+            // schema of the era serving this connection (the instance era at
+            // dispatch time), never with a schema captured at registration
+            // time.
             stored = (request, ctx) => {
-                const schema = codecForContext(ctx).requestSchema(method);
+                const schema = this._negotiatedWireCodec().requestSchema(method);
                 if (!schema) {
                     // Unreachable: the dispatch era gate rejects era-mismatched
                     // spec methods with −32601 before any handler runs.

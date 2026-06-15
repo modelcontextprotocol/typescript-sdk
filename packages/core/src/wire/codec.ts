@@ -5,10 +5,13 @@
  * `resultType`, no `_meta` envelope keys, no retry fields) from per-revision
  * WIRE CODECS that own revision-exact schemas, method registries, and the
  * decode (wire → neutral lift) / encode (neutral → wire stamp) transforms.
- * The codec is selected at the only places version truth exists: the client's
- * stored negotiated version (bound at `Client.connect`) and the server's
- * per-request classification (`MessageExtraInfo.classification`, with the
- * session-negotiated version as fallback and legacy as the default).
+ * The codec is a pure function of the negotiated protocol version, which is
+ * ordinary connection state on the `Protocol` instance: the client stores it
+ * when its handshake completes, the server stores it at `_oninitialize` (and
+ * modern-era server instances get it set at instance binding by the entry).
+ * There is no side table — era resolution is `codecForVersion(<instance
+ * state>)`, with the pre-negotiation window covered by the outbound method
+ * pins in `bootstrap.ts`.
  *
  * REQUIRED DISCLOSURE (Q1-SD1, era granularity): "the negotiated version
  * determines which types are serialized/deserialized over the wire" cashes
@@ -169,15 +172,16 @@ export function codecForVersion(version: string | undefined): WireCodec {
 }
 
 /**
- * Resolve the codec for an inbound message from its per-request
- * classification (Q2 — produced at the transport/entry edge; this layer only
- * CONSUMES it), falling back to the session-negotiated version, then legacy.
+ * The wire era an edge classification names (Q2 — produced at the
+ * transport/entry edge; this layer only CONSUMES it). The dispatch funnel no
+ * longer resolves a codec FROM the classification: era is instance state, and
+ * a classified inbound message is VALIDATED against the instance era — a
+ * mismatch is an entry/routing error, never a per-message era switch. The
+ * exact `revision` wins over the coarse era flag when both are present.
  */
-export function codecForClassification(classification: MessageClassification | undefined, sessionVersion: string | undefined): WireCodec {
-    if (classification?.revision !== undefined) return codecForVersion(classification.revision);
-    if (classification?.era === 'modern') return codecForVersion(MODERN_WIRE_REVISION);
-    if (classification?.era === 'legacy') return codecForVersion(undefined);
-    return codecForVersion(sessionVersion);
+export function classifiedWireEra(classification: MessageClassification): WireEra {
+    if (classification.revision !== undefined) return codecForVersion(classification.revision).era;
+    return classification.era === 'modern' ? MODERN_WIRE_REVISION : rev2025Codec.era;
 }
 
 /**
@@ -196,67 +200,3 @@ export function isSpecNotificationMethod(method: string): boolean {
 }
 
 const ALL_CODECS: readonly WireCodec[] = [rev2025Codec];
-
-/* ------------------------------------------------------------------------ *
- * Internal binding channels.
- *
- * These deliberately avoid new members on the Protocol class hierarchy: the
- * negotiated wire version is connection state owned by Client/Server, and the
- * per-request codec is dispatch state owned by the protocol layer. WeakMaps
- * keep both invisible to consumers and concurrency-safe (one entry per
- * protocol instance / per request context).
- * ------------------------------------------------------------------------ */
-
-const outboundWireVersion = new WeakMap<object, string | undefined>();
-
-/**
- * Bind the negotiated wire version for a protocol instance's OUTBOUND
- * traffic. Called by `Client.connect` (initialize handshake + reconnect) and
- * `Server._oninitialize`. Unbound instances are legacy-era.
- */
-export function bindWireVersion(owner: object, version: string | undefined): void {
-    outboundWireVersion.set(owner, version);
-}
-
-/**
- * Clear a protocol instance's outbound wire-version binding. Called at the
- * start of a FRESH connect (no session to resume): the binding is connection
- * state, and a binding left over from a previous connection must not route
- * the new connection's lifecycle messages — an unbound instance is
- * legacy-era and its `initialize` rides the bootstrap pin. The resume path
- * (transport with a sessionId) deliberately does NOT clear: it re-binds the
- * originally negotiated version instead.
- */
-export function unbindWireVersion(owner: object): void {
-    outboundWireVersion.delete(owner);
-}
-
-/** The codec serving a protocol instance's outbound traffic (legacy when unbound). */
-export function outboundCodecFor(owner: object): WireCodec {
-    return codecForVersion(outboundWireVersion.get(owner));
-}
-
-/**
- * Resolve the codec for an INBOUND message: per-request classification wins
- * (Q2), the instance's bound session version is the fallback for hand-wired
- * sessionful transports, and unclassified-unbound traffic is legacy-era.
- */
-export function inboundCodecFor(owner: object, classification: MessageClassification | undefined): WireCodec {
-    return codecForClassification(classification, outboundWireVersion.get(owner));
-}
-
-const requestCodec = new WeakMap<object, WireCodec>();
-
-/**
- * Bind the resolved per-request codec to a request context, so stored
- * handler closures and `_wrapHandler` wrappers resolve era-exact schemas at
- * dispatch time without widening any public signature.
- */
-export function bindRequestCodec(ctx: object, codec: WireCodec): void {
-    requestCodec.set(ctx, codec);
-}
-
-/** The codec bound to a request context (legacy when none was bound). */
-export function codecForContext(ctx: object): WireCodec {
-    return requestCodec.get(ctx) ?? codecForVersion(undefined);
-}

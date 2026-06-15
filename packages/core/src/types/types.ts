@@ -598,10 +598,12 @@ export type ListChangedHandlers = {
  * Protocol-era classification of an inbound message.
  *
  * Populated by transports that classify messages at the edge (e.g. an HTTP
- * entry distinguishing 2025-era from 2026-era traffic). The protocol layer
- * consults it during dispatch to resolve the wire codec serving the exchange
- * (classification wins over the session-negotiated version; unclassified
- * traffic falls back to the session version, then legacy).
+ * entry distinguishing 2025-era from 2026-era traffic). The wire era itself
+ * is connection state (the negotiated protocol version held by the
+ * `Client`/`Server` instance); the protocol layer validates a classified
+ * message against that instance era at dispatch — a mismatch is treated as
+ * an entry/routing error, never a per-message era switch. Unclassified
+ * traffic is dispatched on the instance era unchanged.
  */
 export interface MessageClassification {
     /**
@@ -635,8 +637,9 @@ export interface MessageExtraInfo {
 
     /**
      * Protocol-era classification of the message, when the transport
-     * classified it at the edge. Consulted by the protocol layer's
-     * per-exchange codec resolution.
+     * classified it at the edge. Validated by the protocol layer against the
+     * instance's negotiated era at dispatch (the edge→instance handoff
+     * check); it does not select the era itself.
      */
     classification?: MessageClassification;
 
