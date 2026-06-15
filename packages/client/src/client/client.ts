@@ -9,9 +9,6 @@ import type {
     ClientRequest,
     CompleteRequest,
     CompleteResult,
-    CreateMessageRequest,
-    ElicitRequest,
-    ElicitResult,
     EmptyResult,
     GetPromptRequest,
     GetPromptResult,
@@ -314,7 +311,7 @@ export class Client extends Protocol<ClientContext> {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
                 }
 
-                const { params } = validatedRequest.data as ElicitRequest;
+                const { params } = validatedRequest.data;
                 params.mode = params.mode ?? 'form';
                 const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
 
@@ -336,7 +333,7 @@ export class Client extends Protocol<ClientContext> {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
                 }
 
-                const validatedResult = validationResult.data as ElicitResult;
+                const validatedResult = validationResult.data;
                 const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
 
                 if (
@@ -375,7 +372,7 @@ export class Client extends Protocol<ClientContext> {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
                 }
 
-                const { params } = validatedRequest.data as CreateMessageRequest;
+                const { params } = validatedRequest.data;
 
                 const result = await handler(request, ctx);
 
@@ -393,7 +390,7 @@ export class Client extends Protocol<ClientContext> {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
                 }
 
-                return validationResult.data as Result;
+                return validationResult.data;
             };
         }
 

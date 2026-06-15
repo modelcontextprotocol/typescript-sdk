@@ -44,7 +44,16 @@
 import type * as z from 'zod/v4';
 
 import type { SdkError } from '../errors/sdkErrors.js';
-import type { MessageClassification, RequestMetaEnvelope, Result } from '../types/types.js';
+import type {
+    MessageClassification,
+    NotificationMethod,
+    NotificationTypeMap,
+    RequestMetaEnvelope,
+    RequestMethod,
+    RequestTypeMap,
+    Result,
+    ResultTypeMap
+} from '../types/types.js';
 import { rev2025Codec } from './rev2025-11-25/codec.js';
 
 /** Wire eras with distinct vocabulary. */
@@ -107,9 +116,18 @@ export interface WireCodec {
     hasRequestMethod(method: string): boolean;
     hasNotificationMethod(method: string): boolean;
 
-    /** Era-exact dispatch schemas, resolved at dispatch time (never at registration time). */
+    /**
+     * Era-exact dispatch schemas, resolved at dispatch time (never at
+     * registration time). The method-literal overloads carry the typed parse
+     * result for statically known spec methods, so call sites need no type
+     * assertion; `undefined` means the method has no entry on this era's
+     * registry.
+     */
+    requestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]> | undefined;
     requestSchema(method: string): z.ZodType | undefined;
+    resultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]> | undefined;
     resultSchema(method: string): z.ZodType | undefined;
+    notificationSchema<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]> | undefined;
     notificationSchema(method: string): z.ZodType | undefined;
 
     /**

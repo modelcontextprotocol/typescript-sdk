@@ -215,7 +215,7 @@ export class Server extends Protocol<ServerContext> {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
             }
 
-            return validationResult.data as Result;
+            return validationResult.data;
         };
     }
 
@@ -503,17 +503,9 @@ export class Server extends Protocol<ServerContext> {
         // request on the 2026 era, so a modern-era instance fails with the
         // typed era error before anything reaches the transport).
         if (params.tools) {
-            return (await this._requestWithSchema(
-                { method: 'sampling/createMessage', params },
-                CreateMessageResultWithToolsSchema,
-                options
-            )) as CreateMessageResultWithTools;
+            return await this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
         }
-        return (await this._requestWithSchema(
-            { method: 'sampling/createMessage', params },
-            CreateMessageResultSchema,
-            options
-        )) as CreateMessageResult;
+        return await this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
     }
 
     /**

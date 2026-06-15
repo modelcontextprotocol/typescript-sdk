@@ -23,31 +23,79 @@
 import type * as z from 'zod/v4';
 
 import {
+    CallToolRequestSchema,
     CallToolResultSchema,
+    CancelledNotificationSchema,
+    CompleteRequestSchema,
     CompleteResultSchema,
+    CreateMessageRequestSchema,
     CreateMessageResultWithToolsSchema,
+    ElicitationCompleteNotificationSchema,
+    ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
+    GetPromptRequestSchema,
     GetPromptResultSchema,
+    InitializedNotificationSchema,
+    InitializeRequestSchema,
     InitializeResultSchema,
+    ListPromptsRequestSchema,
     ListPromptsResultSchema,
+    ListResourcesRequestSchema,
     ListResourcesResultSchema,
+    ListResourceTemplatesRequestSchema,
     ListResourceTemplatesResultSchema,
+    ListRootsRequestSchema,
     ListRootsResultSchema,
+    ListToolsRequestSchema,
     ListToolsResultSchema,
-    ReadResourceResultSchema
+    LoggingMessageNotificationSchema,
+    PingRequestSchema,
+    ProgressNotificationSchema,
+    PromptListChangedNotificationSchema,
+    ReadResourceRequestSchema,
+    ReadResourceResultSchema,
+    ResourceListChangedNotificationSchema,
+    ResourceUpdatedNotificationSchema,
+    RootsListChangedNotificationSchema,
+    SetLevelRequestSchema,
+    SubscribeRequestSchema,
+    ToolListChangedNotificationSchema,
+    UnsubscribeRequestSchema
 } from '../../types/schemas.js';
 import type { NotificationMethod, NotificationTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types.js';
-import { ClientNotificationSchema, ClientRequestSchema, ServerNotificationSchema, ServerRequestSchema } from './schemas.js';
+import type { ClientNotificationSchema, ClientRequestSchema, ServerNotificationSchema, ServerRequestSchema } from './schemas.js';
+import {
+    CancelTaskRequestSchema,
+    GetTaskPayloadRequestSchema,
+    GetTaskRequestSchema,
+    ListTasksRequestSchema,
+    TaskStatusNotificationSchema
+} from './schemas.js';
+
+/* The era's wire vocabulary, derived from the wire role unions in
+ * `./schemas.ts` (the same unions the registries used to be built from at
+ * runtime). Keying the maps by these derived unions makes drift a compile
+ * error in BOTH directions: a union member without a map entry, a map entry
+ * the unions do not know, and an entry pointing at a different method's
+ * schema all fail to typecheck. */
+type WireRequest = z.output<typeof ClientRequestSchema> | z.output<typeof ServerRequestSchema>;
+type WireNotification = z.output<typeof ClientNotificationSchema> | z.output<typeof ServerNotificationSchema>;
+
+/** Every request method in the 2025-era wire vocabulary (the typed `RequestMethod` surface plus the task family). */
+export type Rev2025RequestMethod = WireRequest['method'];
+/** Every notification method in the 2025-era wire vocabulary. */
+export type Rev2025NotificationMethod = WireNotification['method'];
 
 /* Runtime schema lookup — result schemas by method */
-// Keyed by `RequestMethod` so the runtime map and the typed `ResultTypeMap`
-// cannot drift: `getResultSchema`'s typed overload asserts each entry parses
-// to `ResultTypeMap[M]`, so no entry may be looser than the typed map
-// (no task-result union members) and no key may fall outside it (no `tasks/*`
+// Keyed by `RequestMethod` and valued by `z.ZodType<ResultTypeMap[M]>` so the
+// runtime map and the typed `ResultTypeMap` cannot drift: a missing entry, an
+// extra key, or an entry that does not parse to the typed map's result type
+// is a compile error. No entry may be looser than the typed map (no
+// task-result union members) and no key may fall outside it (no `tasks/*`
 // entries — the task methods are 2025-11-25 wire vocabulary with no SDK
 // runtime; callers needing task interop pass an explicit schema).
-const resultSchemas: Record<RequestMethod, z.core.$ZodType> = {
+const resultSchemas: { readonly [M in RequestMethod]: z.ZodType<ResultTypeMap[M]> } = {
     ping: EmptyResultSchema,
     initialize: InitializeResultSchema,
     'completion/complete': CompleteResultSchema,
@@ -66,75 +114,98 @@ const resultSchemas: Record<RequestMethod, z.core.$ZodType> = {
     'roots/list': ListRootsResultSchema
 };
 
+/* Runtime schema lookup — request and notification schemas by method.
+ *
+ * The entries are the SAME schema objects the wire role unions are built
+ * from (reference identity is pinned by `test/types/registryPins.test.ts`),
+ * and the key order preserves the pre-split union iteration order so the
+ * exported method lists are byte-identical to the builder they replace. */
+const requestSchemas: { readonly [M in Rev2025RequestMethod]: z.ZodType<Extract<WireRequest, { method: M }>> } = {
+    ping: PingRequestSchema,
+    initialize: InitializeRequestSchema,
+    'completion/complete': CompleteRequestSchema,
+    'logging/setLevel': SetLevelRequestSchema,
+    'prompts/get': GetPromptRequestSchema,
+    'prompts/list': ListPromptsRequestSchema,
+    'resources/list': ListResourcesRequestSchema,
+    'resources/templates/list': ListResourceTemplatesRequestSchema,
+    'resources/read': ReadResourceRequestSchema,
+    'resources/subscribe': SubscribeRequestSchema,
+    'resources/unsubscribe': UnsubscribeRequestSchema,
+    'tools/call': CallToolRequestSchema,
+    'tools/list': ListToolsRequestSchema,
+    'tasks/get': GetTaskRequestSchema,
+    'tasks/result': GetTaskPayloadRequestSchema,
+    'tasks/list': ListTasksRequestSchema,
+    'tasks/cancel': CancelTaskRequestSchema,
+    'sampling/createMessage': CreateMessageRequestSchema,
+    'elicitation/create': ElicitRequestSchema,
+    'roots/list': ListRootsRequestSchema
+};
+
+const notificationSchemas: { readonly [M in Rev2025NotificationMethod]: z.ZodType<Extract<WireNotification, { method: M }>> } = {
+    'notifications/cancelled': CancelledNotificationSchema,
+    'notifications/progress': ProgressNotificationSchema,
+    'notifications/initialized': InitializedNotificationSchema,
+    'notifications/roots/list_changed': RootsListChangedNotificationSchema,
+    'notifications/tasks/status': TaskStatusNotificationSchema,
+    'notifications/message': LoggingMessageNotificationSchema,
+    'notifications/resources/updated': ResourceUpdatedNotificationSchema,
+    'notifications/resources/list_changed': ResourceListChangedNotificationSchema,
+    'notifications/tools/list_changed': ToolListChangedNotificationSchema,
+    'notifications/prompts/list_changed': PromptListChangedNotificationSchema,
+    'notifications/elicitation/complete': ElicitationCompleteNotificationSchema
+};
+
+/** The 2025-era request-method set (registry membership = the deletion story). */
+export function hasRequestMethod2025(method: string): method is Rev2025RequestMethod {
+    return Object.prototype.hasOwnProperty.call(requestSchemas, method);
+}
+
+/** The 2025-era notification-method set. */
+export function hasNotificationMethod2025(method: string): method is Rev2025NotificationMethod {
+    return Object.prototype.hasOwnProperty.call(notificationSchemas, method);
+}
+
+/** Result-map membership: exactly the typed `RequestMethod` set (no task entries). */
+function hasResultMethod(method: string): method is RequestMethod {
+    return Object.prototype.hasOwnProperty.call(resultSchemas, method);
+}
+
 /**
  * Gets the Zod schema for validating results of a given request method.
  * Returns `undefined` for non-spec methods.
- * @see getRequestSchema for explanation of the internal type assertion.
+ * The typed overload is backed by the map's own typing (`z.ZodType<ResultTypeMap[M]>`
+ * per entry), so callers with a statically known method can use the parsed
+ * value without a type assertion.
  */
 export function getResultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]>;
 export function getResultSchema(method: string): z.ZodType | undefined;
 export function getResultSchema(method: string): z.ZodType | undefined {
-    return resultSchemas[method as RequestMethod] as unknown as z.ZodType | undefined;
+    return hasResultMethod(method) ? resultSchemas[method] : undefined;
 }
-
-/* Runtime schema lookup — request schemas by method */
-type RequestSchemaType = (typeof ClientRequestSchema.options)[number] | (typeof ServerRequestSchema.options)[number];
-type NotificationSchemaType = (typeof ClientNotificationSchema.options)[number] | (typeof ServerNotificationSchema.options)[number];
-
-function buildSchemaMap<T extends { shape: { method: { value: string } } }>(schemas: readonly T[]): Record<string, T> {
-    const map: Record<string, T> = {};
-    for (const schema of schemas) {
-        const method = schema.shape.method.value;
-        map[method] = schema;
-    }
-    return map;
-}
-
-const requestSchemas = buildSchemaMap([...ClientRequestSchema.options, ...ServerRequestSchema.options] as const) as Record<
-    RequestMethod,
-    RequestSchemaType
->;
-const notificationSchemas = buildSchemaMap([...ClientNotificationSchema.options, ...ServerNotificationSchema.options] as const) as Record<
-    NotificationMethod,
-    NotificationSchemaType
->;
 
 /**
  * Gets the Zod schema for a given request method.
  * Returns `undefined` for non-spec methods.
- * The return type is a ZodType that parses to RequestTypeMap[M], allowing callers
- * to use schema.parse() without needing additional type assertions.
- *
- * Note: The internal cast is necessary because TypeScript can't correlate the
- * Record-based schema lookup with the MethodToTypeMap-based RequestTypeMap
- * when M is a generic type parameter. Both compute to the same type at
- * instantiation, but TypeScript can't prove this statically.
+ * The typed overload returns a ZodType that parses to `RequestTypeMap[M]`,
+ * allowing callers to use `schema.parse()` without additional type assertions.
  */
 export function getRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]>;
 export function getRequestSchema(method: string): z.ZodType | undefined;
 export function getRequestSchema(method: string): z.ZodType | undefined {
-    return requestSchemas[method as RequestMethod] as unknown as z.ZodType | undefined;
+    return hasRequestMethod2025(method) ? requestSchemas[method] : undefined;
 }
 
 /**
  * Gets the Zod schema for a given notification method.
  * Returns `undefined` for non-spec methods.
- * @see getRequestSchema for explanation of the internal type assertion.
+ * @see getRequestSchema for the typed-overload contract.
  */
 export function getNotificationSchema<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]>;
 export function getNotificationSchema(method: string): z.ZodType | undefined;
 export function getNotificationSchema(method: string): z.ZodType | undefined {
-    return notificationSchemas[method as NotificationMethod] as unknown as z.ZodType | undefined;
-}
-
-/** The 2025-era request-method set (registry membership = the deletion story). */
-export function hasRequestMethod2025(method: string): boolean {
-    return Object.prototype.hasOwnProperty.call(requestSchemas, method);
-}
-
-/** The 2025-era notification-method set. */
-export function hasNotificationMethod2025(method: string): boolean {
-    return Object.prototype.hasOwnProperty.call(notificationSchemas, method);
+    return hasNotificationMethod2025(method) ? notificationSchemas[method] : undefined;
 }
 
 /** Registry method lists (for the spec-method universe and the CI registry-diff oracle). */

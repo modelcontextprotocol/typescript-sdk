@@ -29,15 +29,20 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** The wire→neutral trust boundary: a decoded 2025-era wire result is adopted as the neutral `Result` here (the module's single deliberate assertion). */
+function toNeutralResult(value: unknown): Result {
+    return value as Result;
+}
+
 export const rev2025Codec: WireCodec = {
     era: '2025-11-25',
 
     hasRequestMethod: hasRequestMethod2025,
     hasNotificationMethod: hasNotificationMethod2025,
 
-    requestSchema: method => getRequestSchema(method),
-    resultSchema: method => getResultSchema(method),
-    notificationSchema: method => getNotificationSchema(method),
+    requestSchema: getRequestSchema,
+    resultSchema: getResultSchema,
+    notificationSchema: getNotificationSchema,
 
     decodeResult(_method: string, raw: unknown): DecodedResult {
         // Strip-on-lift (Q1-SD3 ii): a foreign `resultType` on the 2025 leg is
@@ -46,9 +51,9 @@ export const rev2025Codec: WireCodec = {
         if (isPlainObject(raw) && 'resultType' in raw) {
             const stripped = { ...raw };
             delete stripped['resultType'];
-            return { kind: 'complete', result: stripped as Result };
+            return { kind: 'complete', result: toNeutralResult(stripped) };
         }
-        return { kind: 'complete', result: raw as Result };
+        return { kind: 'complete', result: toNeutralResult(raw) };
     },
 
     // The never-stamp guarantee: identity. No stamp code path exists.
