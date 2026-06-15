@@ -225,9 +225,23 @@ export type Role = Infer<typeof RoleSchema>;
 
 /* Initialization */
 export type Implementation = Infer<typeof ImplementationSchema>;
+/**
+ * Capabilities a client may support.
+ *
+ * Note: the `roots` and `sampling` capabilities are deprecated as of protocol
+ * version 2026-07-28 (SEP-2577); they remain in the specification for at least
+ * twelve months. See `ClientCapabilitiesSchema`.
+ */
 export type ClientCapabilities = Infer<typeof ClientCapabilitiesSchema>;
 export type InitializeRequestParams = Infer<typeof InitializeRequestParamsSchema>;
 export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
+/**
+ * Capabilities a server may support.
+ *
+ * Note: the `logging` capability is deprecated as of protocol version
+ * 2026-07-28 (SEP-2577); it remains in the specification for at least twelve
+ * months. See `ServerCapabilitiesSchema`.
+ */
 export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
 export type InitializeResult = Infer<typeof InitializeResultSchema>;
 export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;

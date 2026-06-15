@@ -163,37 +163,37 @@ describe('removed-apis transform', () => {
         });
     });
 
-    describe('StreamableHTTPError → SdkError', () => {
-        it('renames StreamableHTTPError to SdkError in references', () => {
+    describe('StreamableHTTPError → SdkHttpError', () => {
+        it('renames StreamableHTTPError to SdkHttpError in references', () => {
             const input = [
                 `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
                 `if (error instanceof StreamableHTTPError) { throw error; }`,
                 ''
             ].join('\n');
             const { text } = applyTransform(input);
-            expect(text).toContain('instanceof SdkError');
+            expect(text).toContain('instanceof SdkHttpError');
             expect(text).not.toContain('StreamableHTTPError');
         });
 
-        it('adds SdkError import without SdkErrorCode when no constructor calls', () => {
+        it('adds SdkHttpError import without SdkErrorCode when no constructor calls', () => {
             const input = [
                 `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
                 `if (error instanceof StreamableHTTPError) {}`,
                 ''
             ].join('\n');
             const { text } = applyTransform(input);
-            expect(text).toContain('SdkError');
+            expect(text).toContain('SdkHttpError');
             expect(text).not.toContain('SdkErrorCode');
         });
 
-        it('adds SdkError and SdkErrorCode imports when constructor calls exist', () => {
+        it('adds SdkHttpError and SdkErrorCode imports when constructor calls exist', () => {
             const input = [
                 `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
                 `throw new StreamableHTTPError(404, 'Not Found');`,
                 ''
             ].join('\n');
             const { text } = applyTransform(input);
-            expect(text).toContain('SdkError');
+            expect(text).toContain('SdkHttpError');
             expect(text).toContain('SdkErrorCode');
         });
 
@@ -208,14 +208,14 @@ describe('removed-apis transform', () => {
             expect(constructorWarning).toBeDefined();
         });
 
-        it('emits general migration warning', () => {
+        it('emits general migration warning pointing at the typed status accessor', () => {
             const input = [
                 `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
                 `if (error instanceof StreamableHTTPError) {}`,
                 ''
             ].join('\n');
             const { result } = applyTransform(input);
-            const migrationWarning = result.diagnostics.find(d => d.message.includes('error.data?.status'));
+            const migrationWarning = result.diagnostics.find(d => d.message.includes('error.status'));
             expect(migrationWarning).toBeDefined();
         });
 
@@ -227,7 +227,7 @@ describe('removed-apis transform', () => {
             ].join('\n');
             const { text } = applyTransform(input);
             expect(text).not.toContain('import { StreamableHTTPError }');
-            expect(text).toMatch(/import.*SdkError/);
+            expect(text).toMatch(/import.*SdkHttpError/);
         });
 
         it('is idempotent', () => {
@@ -249,9 +249,9 @@ describe('removed-apis transform', () => {
                 ''
             ].join('\n');
             const { text, result } = applyTransform(input);
-            expect(text).toContain('instanceof SdkError');
+            expect(text).toContain('instanceof SdkHttpError');
             expect(text).not.toMatch(/\bSHE\b/);
-            expect(text).toMatch(/import.*SdkError/);
+            expect(text).toMatch(/import.*SdkHttpError/);
             const constructorWarning = result.diagnostics.find(d => d.message.includes('Constructor arguments differ'));
             expect(constructorWarning).toBeDefined();
         });

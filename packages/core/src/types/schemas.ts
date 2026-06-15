@@ -421,6 +421,10 @@ export const ClientCapabilitiesSchema = z.object({
     experimental: z.record(z.string(), JSONObjectSchema).optional(),
     /**
      * Present if the client supports sampling from an LLM.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+     * in the specification for at least twelve months. Migrate to calling LLM
+     * provider APIs directly.
      */
     sampling: z
         .object({
@@ -441,6 +445,10 @@ export const ClientCapabilitiesSchema = z.object({
     elicitation: ElicitationCapabilitySchema.optional(),
     /**
      * Present if the client supports listing roots.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+     * in the specification for at least twelve months. Migrate to passing paths via
+     * tool parameters, resource URIs, or configuration.
      */
     roots: z
         .object({
@@ -486,6 +494,10 @@ export const ServerCapabilitiesSchema = z.object({
     experimental: z.record(z.string(), JSONObjectSchema).optional(),
     /**
      * Present if the server supports sending log messages to the client.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+     * in the specification for at least twelve months. Migrate to stderr logging
+     * (STDIO servers) or OpenTelemetry.
      */
     logging: JSONObjectSchema.optional(),
     /**

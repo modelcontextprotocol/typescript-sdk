@@ -412,11 +412,18 @@ async function startServer() {
     });
 
     // Start server
-    app.listen(PORT, () => {
+    const httpServer = app.listen(PORT, () => {
         console.log(`MCP Auth Test Server running at http://localhost:${PORT}/mcp`);
         console.log(`  - PRM endpoint: http://localhost:${PORT}/.well-known/oauth-protected-resource`);
         console.log(`  - Auth server: ${AUTH_SERVER_URL}`);
         console.log(`  - Introspection: ${asMetadata.introspection_endpoint}`);
+    });
+    httpServer.on('error', (error: NodeJS.ErrnoException) => {
+        if (error.code !== 'EADDRINUSE') {
+            throw error;
+        }
+        console.error(`Port ${PORT} is already in use — is a stale auth test server still running?`);
+        process.exit(1);
     });
 }
 
