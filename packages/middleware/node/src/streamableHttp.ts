@@ -153,6 +153,17 @@ export class NodeStreamableHTTPServerTransport implements Transport {
     }
 
     /**
+     * Forwards the supported protocol versions to the wrapped Web Standard
+     * transport for `MCP-Protocol-Version` header validation. Called by the
+     * protocol layer during connect; without this delegation a server's
+     * `supportedProtocolVersions` option never reached the Node adapter's
+     * header validation.
+     */
+    setSupportedProtocolVersions(versions: string[]): void {
+        this._webStandardTransport.setSupportedProtocolVersions(versions);
+    }
+
+    /**
      * Handles an incoming HTTP request, whether `GET` or `POST`.
      *
      * This method converts Node.js HTTP objects to Web Standard Request/Response

@@ -6,6 +6,7 @@ import type {
     CreateMessageRequestParamsWithTools,
     CreateMessageResult,
     CreateMessageResultWithTools,
+    DiscoverResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
@@ -38,16 +39,16 @@ import {
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     LATEST_PROTOCOL_VERSION,
+    legacyProtocolVersions,
     LoggingLevelSchema,
     mergeCapabilities,
-    negotiatedProtocolVersionOf,
+    modernProtocolVersions,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode,
-    setNegotiatedProtocolVersion
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
@@ -113,6 +114,12 @@ export class Server extends Protocol<ServerContext> {
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
+
+        // server/discover is installed only when the supported-versions list
+        // carries a modern revision: a legacy-only server keeps answering -32601.
+        if (modernProtocolVersions(this._supportedProtocolVersions).length > 0) {
+            this.setRequestHandler('server/discover', () => this._ondiscover());
+        }
 
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
@@ -207,7 +214,7 @@ export class Server extends Protocol<ServerContext> {
             // Era-exact validation: the request and result schemas come from
             // the instance era, resolved at dispatch time (the era gate
             // guarantees tools/call exists on the serving era).
-            const codec = codecForVersion(negotiatedProtocolVersionOf(this));
+            const codec = codecForVersion(this._negotiatedProtocolVersion);
             const callToolRequestSchema = codec.requestSchema('tools/call');
             // The era registry entry IS the plain CallToolResult schema (the
             // result map is aligned to the typed map — no widened unions),
@@ -386,19 +393,38 @@ export class Server extends Protocol<ServerContext> {
         this._clientCapabilities = request.params.capabilities;
         this._clientVersion = request.params.clientInfo;
 
-        const protocolVersion = this._supportedProtocolVersions.includes(requestedVersion)
+        // A 2026-07-28-or-later revision is NEVER negotiated via the legacy
+        // `initialize` handshake — only ever selected through `server/discover` —
+        // so the accept check and counter-offer consult only the legacy subset.
+        const legacyVersions = legacyProtocolVersions(this._supportedProtocolVersions);
+        const protocolVersion = legacyVersions.includes(requestedVersion)
             ? requestedVersion
-            : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
+            : (legacyVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
         // The negotiated version is the instance's connection state — it IS
         // the wire-era selection for everything this instance sends and
         // receives from here on (legacy handshake ⇒ a legacy-era version).
-        setNegotiatedProtocolVersion(this, protocolVersion);
+        this._negotiatedProtocolVersion = protocolVersion;
         this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
             protocolVersion,
             capabilities: this.getCapabilities(),
+            serverInfo: this._serverInfo,
+            ...(this._instructions && { instructions: this._instructions })
+        };
+    }
+
+    /**
+     * Answers `server/discover` (protocol revision 2026-07-28). `supportedVersions`
+     * lists only modern revisions (2025-era versions are negotiated via `initialize`);
+     * the advertised capabilities exclude the listChanged/subscribe-class capabilities
+     * (see {@linkcode discoverAdvertisedCapabilities}).
+     */
+    private _ondiscover(): DiscoverResult {
+        return {
+            supportedVersions: modernProtocolVersions(this._supportedProtocolVersions),
+            capabilities: discoverAdvertisedCapabilities(this.getCapabilities()),
             serverInfo: this._serverInfo,
             ...(this._instructions && { instructions: this._instructions })
         };
@@ -424,7 +450,7 @@ export class Server extends Protocol<ServerContext> {
      * `undefined` before initialization.
      */
     getNegotiatedProtocolVersion(): string | undefined {
-        return negotiatedProtocolVersionOf(this);
+        return this._negotiatedProtocolVersion;
     }
 
     /**
@@ -670,4 +696,29 @@ export class Server extends Protocol<ServerContext> {
     async sendPromptListChanged() {
         return this.notification({ method: 'notifications/prompts/list_changed' });
     }
+}
+
+/**
+ * The capability set a server advertises on `server/discover`: until the
+ * `subscriptions/listen` flow ships, the advertisement excludes the
+ * listChanged/subscribe-class capabilities, which a modern-era connection
+ * cannot be served yet. Pure — never mutates the input; the legacy
+ * `initialize` advertisement is untouched.
+ */
+export function discoverAdvertisedCapabilities(capabilities: ServerCapabilities): ServerCapabilities {
+    const advertised: ServerCapabilities = { ...capabilities };
+    if (capabilities.tools) {
+        advertised.tools = { ...capabilities.tools };
+        delete advertised.tools.listChanged;
+    }
+    if (capabilities.prompts) {
+        advertised.prompts = { ...capabilities.prompts };
+        delete advertised.prompts.listChanged;
+    }
+    if (capabilities.resources) {
+        advertised.resources = { ...capabilities.resources };
+        delete advertised.resources.listChanged;
+        delete advertised.resources.subscribe;
+    }
+    return advertised;
 }

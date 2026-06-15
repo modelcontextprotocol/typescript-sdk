@@ -1535,16 +1535,40 @@ class LoopbackTransport implements Transport {
         this.events.push('method' in message ? `send:${message.method}` : 'send:response');
         if (!isRequest(message)) return;
         this.clientRequests.push(message);
-        if (message.method === 'initialize') {
-            this.respond(message.id, {
-                protocolVersion: this.serverProtocolVersion,
-                capabilities: { tools: {} },
-                serverInfo: { name: 'loopback-server', version: '3.1.4' }
-            });
-        } else if (message.method === 'tools/list') {
-            this.respond(message.id, {
-                tools: [{ name: 'lookup_order', description: 'Look up an order by id', inputSchema: { type: 'object' } }]
-            });
+        const modern = this.serverProtocolVersion >= '2026-07-28';
+        switch (message.method) {
+            case 'initialize': {
+                this.respond(message.id, {
+                    protocolVersion: this.serverProtocolVersion,
+                    capabilities: { tools: {} },
+                    serverInfo: { name: 'loopback-server', version: '3.1.4' }
+                });
+                break;
+            }
+            case 'server/discover': {
+                // The 2026-era handshake: advertise the canned identity instead of
+                // answering an initialize exchange.
+                this.respond(message.id, {
+                    supportedVersions: [this.serverProtocolVersion],
+                    capabilities: { tools: {} },
+                    serverInfo: { name: 'loopback-server', version: '3.1.4' }
+                });
+                break;
+            }
+            case 'tools/list': {
+                const tools = [{ name: 'lookup_order', description: 'Look up an order by id', inputSchema: { type: 'object' } }];
+                this.respond(
+                    message.id,
+                    modern
+                        ? // The 2026 wire shape carries the result discriminator and the cacheable-result fields.
+                          ({ resultType: 'complete', ttlMs: 0, cacheScope: 'public', tools } as unknown as Result)
+                        : { tools }
+                );
+                break;
+            }
+            default: {
+                break;
+            }
         }
     }
 
@@ -1560,29 +1584,38 @@ class LoopbackTransport implements Transport {
 
 verifies('transport:custom:client-connect', async ({ protocolVersion }: TestArgs) => {
     // The body supplies its own consumer-implemented Transport, so the matrix transport arg is unused by design.
+    // On 2025-era cells the handshake is the plain initialize exchange; on 2026-era cells it is the
+    // server/discover negotiation (a 2026 revision is never negotiated via initialize), which the client opts
+    // into by pinning the cell's revision.
+    const modern = protocolVersion >= '2026-07-28';
     const customTransport = new LoopbackTransport(protocolVersion);
-    const client = newClient();
+    const client = modern
+        ? new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: protocolVersion } } })
+        : newClient();
     const clientOnclose = vi.fn();
     client.onclose = clientOnclose;
+    const handshake = modern ? ['send:server/discover'] : ['send:initialize', 'send:notifications/initialized'];
+    const handshakeRequests = modern ? ['server/discover'] : ['initialize'];
     try {
         await client.connect(customTransport);
 
-        // Protocol installed its callbacks on the consumer object before invoking start().
+        // Connect installed callbacks on the consumer object before invoking start().
         expect(customTransport.callbacksPresentAtStart).toEqual({ onmessage: true, onclose: true, onerror: true });
         // The full handshake ran over the consumer transport, and its canned identity is what the client now reports.
-        expect(customTransport.events).toEqual(['start', 'send:initialize', 'send:notifications/initialized']);
+        expect(customTransport.events).toEqual(['start', ...handshake]);
         expect(client.getServerCapabilities()).toEqual({ tools: {} });
         expect(client.getServerVersion()).toEqual({ name: 'loopback-server', version: '3.1.4' });
+        expect(client.getNegotiatedProtocolVersion()).toBe(protocolVersion);
 
         // A post-handshake request round-trips through the consumer transport's send().
         const listed = await client.listTools();
         expect(listed.tools).toEqual([{ name: 'lookup_order', description: 'Look up an order by id', inputSchema: { type: 'object' } }]);
-        expect(customTransport.clientRequests.map(m => m.method)).toEqual(['initialize', 'tools/list']);
+        expect(customTransport.clientRequests.map(m => m.method)).toEqual([...handshakeRequests, 'tools/list']);
 
         await client.close();
 
         // close() reached the consumer transport, and its onclose callback fed back into the client's close handling.
-        expect(customTransport.events).toEqual(['start', 'send:initialize', 'send:notifications/initialized', 'send:tools/list', 'close']);
+        expect(customTransport.events).toEqual(['start', ...handshake, 'send:tools/list', 'close']);
         expect(clientOnclose).toHaveBeenCalledTimes(1);
         expect(client.transport).toBeUndefined();
     } finally {

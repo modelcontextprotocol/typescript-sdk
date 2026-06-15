@@ -42,6 +42,15 @@ export enum SdkErrorCode {
      * `data.method` / `data.era`.
      */
     MethodNotSupportedByProtocolVersion = 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION',
+    /**
+     * Protocol-era negotiation at connect time failed without producing either a
+     * usable modern (2026-07-28+) era or a definitive legacy fallback signal —
+     * e.g. the negotiation mode forbids falling back (`pin`), or the probe hit a
+     * network failure (a typed connect error, never an era verdict).
+     *
+     * Negotiation-phase only: this code is never used once an era is established.
+     */
+    EraNegotiationFailed = 'ERA_NEGOTIATION_FAILED',
 
     // Transport errors
     ClientHttpNotImplemented = 'CLIENT_HTTP_NOT_IMPLEMENTED',
