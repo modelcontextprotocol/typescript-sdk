@@ -15,6 +15,8 @@
  *   ANTHROPIC_API_KEY=sk-... \
  *     pnpm --filter @modelcontextprotocol/examples-client exec tsx src/multiServerChatbot.ts
  *
+ *   Set ANTHROPIC_MODEL to override the default model.
+ *
  * Example prompts:
  *   "What's the weather in Tokyo?"
  *   "What is 17 × 19?"
@@ -28,7 +30,7 @@ import { createInterface } from 'node:readline';
 import Anthropic from '@anthropic-ai/sdk';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
-const MODEL = 'claude-opus-4-5';
+const MODEL = process.env.ANTHROPIC_MODEL ?? 'claude-opus-4-5';
 
 const SERVER_CONFIGS = [
     { url: 'http://localhost:3001/mcp', label: 'weather-server', file: 'weatherServer.ts' },
@@ -154,18 +156,37 @@ async function main(): Promise<void> {
 
                     console.log(`  [tool] ${block.name}(${JSON.stringify(block.input)})`);
 
-                    const result = await client.callTool({
-                        name: block.name,
-                        arguments: block.input as Record<string, unknown>
-                    });
+                    // Isolate each tool call: a thrown error or an isError result is
+                    // reported back to the model so it can recover, instead of crashing
+                    // the chatbot or silently pretending the call succeeded.
+                    try {
+                        const result = await client.callTool({
+                            name: block.name,
+                            arguments: block.input as Record<string, unknown>
+                        });
 
-                    const text = result.content
-                        .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
-                        .map(c => c.text)
-                        .join('\n');
+                        const text = result.content
+                            .filter((c): c is { type: 'text'; text: string } => c.type === 'text')
+                            .map(c => c.text)
+                            .join('\n');
 
-                    console.log(`  [result] ${text}`);
-                    return { type: 'tool_result', tool_use_id: block.id, content: text };
+                        console.log(`  [result] ${text}`);
+                        return {
+                            type: 'tool_result',
+                            tool_use_id: block.id,
+                            content: text,
+                            is_error: result.isError === true
+                        };
+                    } catch (error) {
+                        const message = error instanceof Error ? error.message : String(error);
+                        console.error(`  [error] ${block.name}: ${message}`);
+                        return {
+                            type: 'tool_result',
+                            tool_use_id: block.id,
+                            content: `Tool call failed: ${message}`,
+                            is_error: true
+                        };
+                    }
                 })
             );
 
