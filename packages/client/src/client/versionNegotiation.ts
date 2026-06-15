@@ -225,12 +225,17 @@ class ProbeWindow {
         });
     }
 
-    /** Detach the handlers and arm the one-shot `start()` pass-through for the `Protocol.connect()` handover. */
-    release(): void {
+    /** Detach the window's handlers, leaving the transport's own `start` untouched. */
+    detach(): void {
         this._pending = undefined;
         this._transport.onmessage = undefined;
         this._transport.onerror = undefined;
         this._transport.onclose = undefined;
+    }
+
+    /** Detach the handlers and arm the one-shot `start()` pass-through for the `Protocol.connect()` handover. */
+    release(): void {
+        this.detach();
         const transport = this._transport;
         const originalStart = transport.start.bind(transport);
         let armed = true;
@@ -309,8 +314,9 @@ export type NegotiationResult = { era: 'modern'; version: string; discover: Disc
 /**
  * Run the negotiation probe state machine on a raw (not yet Protocol-connected)
  * transport. Resolves with the negotiated era; throws typed connect errors. On
- * return (or throw) the probe window has been released: the transport is
- * started, handler-free, and ready for `Protocol.connect()` handover.
+ * return the probe window has been released: the transport is started,
+ * handler-free, and ready for `Protocol.connect()` handover. On throw the
+ * window is detached and the transport's `start` is left untouched.
  */
 export async function negotiateEra(
     negotiation: Extract<ResolvedVersionNegotiation, { kind: 'auto' | 'pin' }>,
@@ -321,7 +327,8 @@ export async function negotiateEra(
     const fallbackAvailable = negotiation.kind === 'auto' && negotiation.fallbackAvailable;
 
     const window = await ProbeWindow.open(deps.transport);
-    try {
+
+    const probe = async (): Promise<NegotiationResult> => {
         let requestedVersion = clientModernVersions[0]!;
         // The -32004 corrective continuation runs exactly once (even when the
         // mutual version equals the just-rejected one); the loop guard arms on
@@ -370,7 +377,17 @@ export async function negotiateEra(
                 }
             }
         }
-    } finally {
-        window.release();
+    };
+
+    let result: NegotiationResult;
+    try {
+        result = await probe();
+    } catch (error) {
+        // A failed negotiation leaves the transport exactly as it found it:
+        // handlers detached, original start untouched (no pass-through armed).
+        window.detach();
+        throw error;
     }
+    window.release();
+    return result;
 }

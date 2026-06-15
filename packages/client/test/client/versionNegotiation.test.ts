@@ -507,6 +507,21 @@ describe('pin mode', () => {
         expect(rejection!.requested).toBe(MODERN);
         expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
     });
+
+    test('a failed negotiation leaves the transport start() untouched (no armed pass-through)', async () => {
+        const transport = new ScriptedTransport(legacyServerScript);
+        const originalStart = transport.start;
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
+
+        await expect(client.connect(transport)).rejects.toSatisfy(
+            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+        );
+
+        // The probe window's one-shot start() pass-through must not stay armed
+        // on a transport the caller still owns after a failed connect.
+        expect(transport.start).toBe(originalStart);
+        expect(transport.onmessage).toBeUndefined();
+    });
 });
 
 /* ------------------------------------------------------------------------- *
