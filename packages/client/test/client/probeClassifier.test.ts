@@ -20,7 +20,8 @@ const baseContext: ProbeClassifierContext = {
     clientModernVersions: [MODERN],
     requestedVersion: MODERN,
     fallbackAvailable: true,
-    environment: 'node'
+    environment: 'node',
+    transportKind: 'http'
 };
 
 function classify(outcome: ProbeOutcome, context: Partial<ProbeClassifierContext> = {}): ProbeVerdict {
@@ -264,14 +265,28 @@ describe('row: network outage → typed connect error (Node)', () => {
     });
 });
 
-describe('row: timeout after maxRetries → typed connect error — NEVER a legacy verdict (Q12)', () => {
-    test('timeout maps to the standard RequestTimeout SdkError', () => {
-        const verdict = classify({ kind: 'timeout', timeoutMs: 60_000, attempts: 1 });
+describe('row: timeout after maxRetries — transport-aware verdict', () => {
+    // The specification's backward-compatibility rule for stdio: "any other
+    // error, or does not respond within a reasonable timeout: the server is
+    // legacy. Fall back to the initialize handshake." The versioning
+    // compatibility matrix draws the same line per transport: stdio probe
+    // times out → fall back to initialize; on HTTP the legacy signal is a 4xx
+    // without a recognized modern error body, so silence stays an outage.
+    test('HTTP: timeout maps to the standard RequestTimeout SdkError (silence on a deployed server is an outage)', () => {
+        const verdict = classify({ kind: 'timeout', timeoutMs: 60_000, attempts: 1 }, { transportKind: 'http' });
         expect(verdict.kind).toBe('error');
         if (verdict.kind === 'error') {
             expect(verdict.error).toBeInstanceOf(SdkError);
             expect((verdict.error as SdkError).code).toBe(SdkErrorCode.RequestTimeout);
         }
+    });
+
+    test('stdio: timeout is a legacy-server signal → fall back to initialize on the same stream', () => {
+        expect(classify({ kind: 'timeout', timeoutMs: 5_000, attempts: 1 }, { transportKind: 'stdio' })).toEqual({ kind: 'legacy' });
+    });
+
+    test('stdio: the verdict applies after the timeout re-sends, regardless of attempt count', () => {
+        expect(classify({ kind: 'timeout', timeoutMs: 5_000, attempts: 3 }, { transportKind: 'stdio' })).toEqual({ kind: 'legacy' });
     });
 });
 

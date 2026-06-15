@@ -8,16 +8,22 @@
  * connection), or a typed connect error.
  *
  * The classifier is deliberately **conservative**: anything it does not positively
- * recognize as modern resolves to the legacy fallback — with two exceptions that
- * are never era verdicts: network outage and timeout reject with typed connect
- * errors (era fallback happens only on definitive legacy signals; well-behaved
- * legacy servers always produce one fast).
+ * recognize as modern resolves to the legacy fallback. Network outage rejects with
+ * a typed connect error (never an era verdict). Timeouts are transport-aware: on
+ * stdio, a probe that nobody answers within the timeout indicates a legacy server
+ * — the stdio transport's backward-compatibility rule ("any other error, or does
+ * not respond within a reasonable timeout: the server is legacy"; some legacy
+ * servers do not respond to unknown pre-`initialize` requests at all) — and falls
+ * back to `initialize` on the same stream. On HTTP a deployed server answers, so
+ * silence is an outage, not a legacy signal: the timeout stays a typed connect
+ * error (the versioning compatibility matrix keys the HTTP legacy signal to a 4xx
+ * without a recognized modern error body, never to silence).
  *
  * **Scope: negotiation phase only.** These verdicts apply exclusively to the
  * connect-time probe exchange. Once a connection's era is established as modern, a
  * later unrecognized failure surfaces to the caller and is never re-classified
- * into a silent demotion to `initialize`; it marks the era record stale so the
- * NEXT `connect()` re-runs negotiation.
+ * into a silent demotion to `initialize`; the next fresh `connect()` re-runs
+ * negotiation from scratch.
  *
  * `-32001` and `-32003` are deliberately NOT probe-recognized in either direction:
  * deployed servers still overload `-32001` for session-404 bodies and the draft
@@ -44,6 +50,18 @@ import {
  * so a network failure stays a typed connect error.
  */
 export type ProbeEnvironment = 'node' | 'browser';
+
+/**
+ * The transport class the probe ran on. Only consulted for the timeout row:
+ * the specification's backward-compatibility rule for stdio treats a probe
+ * that gets no response within a reasonable timeout as a legacy-server signal
+ * (local pipes; some legacy servers do not respond to unknown
+ * pre-`initialize` requests at all), while on HTTP a deployed server answers,
+ * so silence is an outage — the HTTP legacy signal is a 4xx without a
+ * recognized modern error body. Anything that is not the stdio child-process
+ * transport is treated like HTTP (the conservative, typed-error posture).
+ */
+export type ProbeTransportKind = 'stdio' | 'http';
 
 /**
  * A normalized probe outcome, produced by the connect-time wiring from the raw
@@ -89,6 +107,8 @@ export interface ProbeClassifierContext {
     fallbackAvailable: boolean;
     /** See {@linkcode ProbeEnvironment}. */
     environment: ProbeEnvironment;
+    /** See {@linkcode ProbeTransportKind}. */
+    transportKind: ProbeTransportKind;
 }
 
 export type ProbeVerdict =
@@ -130,8 +150,23 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
             return classifyNetworkError(outcome.error, context);
         }
         case 'timeout': {
-            // Q12: timeout (standard request timeout, after all `maxRetries`
-            // re-sends) is a typed connect error, NEVER a legacy verdict.
+            if (context.transportKind === 'stdio') {
+                // stdio: a probe nobody answers within the timeout (after all
+                // `maxRetries` re-sends) indicates a legacy server — the stdio
+                // transport's backward-compatibility rule says "any other
+                // error, or does not respond within a reasonable timeout: the
+                // server is legacy. Fall back to the `initialize` handshake."
+                // Some legacy stdio servers do not respond to unknown
+                // pre-initialize requests at all; the fallback runs on the
+                // same stream.
+                return { kind: 'legacy' };
+            }
+            // HTTP (and anything that is not a local pipe): a deployed server
+            // answers, so silence is an outage, not a legacy signal — the
+            // timeout (standard request timeout, after all `maxRetries`
+            // re-sends) stays a typed connect error. Per the versioning
+            // compatibility matrix, the HTTP legacy signal is a 4xx response
+            // without a recognized modern error body.
             return {
                 kind: 'error',
                 error: new SdkError(

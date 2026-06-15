@@ -43,7 +43,7 @@ import {
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
-import type { ProbeEnvironment, ProbeOutcome, ProbeVerdict } from './probeClassifier.js';
+import type { ProbeEnvironment, ProbeOutcome, ProbeTransportKind, ProbeVerdict } from './probeClassifier.js';
 import { classifyProbeOutcome } from './probeClassifier.js';
 
 /**
@@ -61,15 +61,20 @@ export interface VersionNegotiationProbeOptions {
     timeoutMs?: number;
 
     /**
-     * How many times a TIMED-OUT probe is re-sent before `connect()` rejects
-     * with a typed timeout error.
+     * How many times a TIMED-OUT probe is re-sent before the timeout verdict
+     * applies.
      *
      * `maxRetries` governs timeout re-sends only; the `-32004` corrective
      * continuation (select-and-continue on a mutual version) is spec-mandated
      * and is not counted against it.
      *
-     * A timeout after all retries is a typed connect error — it is NEVER
-     * converted to a legacy-era verdict.
+     * The timeout verdict is transport-aware: on stdio, a probe that gets no
+     * response within the timeout (after all retries) indicates a legacy
+     * server and falls back to the `initialize` handshake on the same stream
+     * (the stdio transport's backward-compatibility rule — some legacy
+     * servers do not respond to unknown pre-`initialize` requests at all).
+     * On HTTP, where a deployed server answers and silence means an outage,
+     * `connect()` rejects with the standard typed timeout error instead.
      *
      * @default 0
      */
@@ -83,8 +88,10 @@ export interface VersionNegotiationProbeOptions {
  *   to a client without this option.
  * - `'auto'` — probe with `server/discover` at connect; conservative fallback to
  *   the plain legacy `initialize` handshake on the same connection unless the
- *   outcome is definitive modern evidence. Network outage and timeout reject
- *   with typed connect errors (never an era verdict).
+ *   outcome is definitive modern evidence. Network outage rejects with a typed
+ *   connect error; a probe timeout falls back to `initialize` on stdio (a silent
+ *   server on a local pipe is a legacy server) and rejects with a typed timeout
+ *   error on HTTP (silence there is an outage).
  * - `{ pin: '<version>' }` — modern era at exactly the pinned revision: the
  *   connect-time `server/discover` must offer it. No fallback — anything else
  *   fails loudly with a typed error.
@@ -172,6 +179,18 @@ export function resolveVersionNegotiation(
 export function detectProbeEnvironment(): ProbeEnvironment {
     const g = globalThis as { window?: unknown; document?: unknown };
     return g.window !== undefined && g.document !== undefined ? 'browser' : 'node';
+}
+
+/**
+ * Detect the transport class for the timeout row's transport-aware verdict
+ * (see {@linkcode ProbeTransportKind}). The stdio child-process transport is
+ * recognized structurally (its `stderr`/`pid` accessors), so consumer
+ * subclasses and re-bundled copies are recognized without `instanceof`;
+ * everything else — HTTP, SSE, in-memory, custom transports — keeps the
+ * conservative typed-error posture for timeouts.
+ */
+export function detectProbeTransportKind(transport: Transport): ProbeTransportKind {
+    return 'stderr' in transport && 'pid' in transport ? 'stdio' : 'http';
 }
 
 /** Raw reply from one probe exchange, before normalization. */
@@ -335,6 +354,8 @@ export interface NegotiationDeps {
     clientInfo: Implementation;
     capabilities: ClientCapabilities;
     environment: ProbeEnvironment;
+    /** The transport class, for the transport-aware timeout verdict (see {@linkcode ProbeTransportKind}). */
+    transportKind: ProbeTransportKind;
     /** The standard request timeout for this connect (probe inherits it unless `probe.timeoutMs` overrides). */
     defaultTimeoutMs: number;
 }
@@ -378,7 +399,8 @@ export async function negotiateEra(
                 clientModernVersions,
                 requestedVersion,
                 fallbackAvailable,
-                environment: deps.environment
+                environment: deps.environment,
+                transportKind: deps.transportKind
             });
 
             switch (verdict.kind) {

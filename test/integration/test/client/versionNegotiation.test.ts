@@ -9,14 +9,17 @@
  *   checked BEFORE version).
  *
  * Plus: structural fallback hygiene (the auto client's post-probe traffic is
- * byte-identical to a plain legacy client's, zero 2026 headers), and the Q12
- * typed connect errors for outage and timeout.
+ * byte-identical to a plain legacy client's, zero 2026 headers), the typed
+ * connect errors for outage and HTTP timeout, and the stdio timeout fallback
+ * (a silent legacy stdio server is detected by the probe timing out and the
+ * client falls back to initialize on the same pipe).
  */
 import { randomUUID } from 'node:crypto';
 import type { Server } from 'node:http';
 import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
@@ -221,5 +224,67 @@ describe('typed connect errors (Q12) over real sockets', () => {
 
         await new Promise<void>(resolve => hang.close(() => resolve()));
         await new Promise(resolve => setTimeout(resolve, 50));
+    }, 15_000);
+});
+
+describe('stdio: silent legacy server (probe timeout fallback)', () => {
+    // The stdio transport's backward-compatibility rule: a probe that gets no
+    // response within a reasonable timeout indicates a legacy server — some
+    // legacy servers do not respond to unknown pre-initialize requests at all
+    // — and the client falls back to initialize on the same pipe. (On HTTP,
+    // by contrast, a timeout stays a typed connect error; see the test above.)
+    const SILENT_LEGACY_SERVER_SCRIPT = String.raw`
+        let buffer = '';
+        process.stdin.on('data', chunk => {
+            buffer += chunk.toString();
+            let index;
+            while ((index = buffer.indexOf('\n')) !== -1) {
+                const line = buffer.slice(0, index);
+                buffer = buffer.slice(index + 1);
+                if (line.trim() === '') continue;
+                let message;
+                try {
+                    message = JSON.parse(line);
+                } catch {
+                    continue;
+                }
+                // A legacy server that simply ignores unknown pre-initialize
+                // requests (server/discover gets NO reply at all) but answers
+                // the initialize handshake normally.
+                if (message.method === 'initialize' && message.id !== undefined) {
+                    process.stdout.write(
+                        JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: message.id,
+                            result: {
+                                protocolVersion: '2025-11-25',
+                                capabilities: {},
+                                serverInfo: { name: 'silent-legacy-stdio-server', version: '1.0.0' }
+                            }
+                        }) + '\n'
+                    );
+                }
+            }
+        });
+    `;
+
+    it('auto mode: the probe times out, the client falls back to initialize on the same pipe and connects on the legacy era', async () => {
+        const transport = new StdioClientTransport({
+            command: process.execPath,
+            args: ['-e', SILENT_LEGACY_SERVER_SCRIPT]
+        });
+        const client = new Client(
+            { name: 'neg-client', version: '1.0.0' },
+            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 500, maxRetries: 1 } } }
+        );
+
+        try {
+            await client.connect(transport);
+            expect(client.getProtocolEra()).toBe('legacy');
+            expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+            expect(client.getServerVersion()?.name).toBe('silent-legacy-stdio-server');
+        } finally {
+            await client.close();
+        }
     }, 15_000);
 });

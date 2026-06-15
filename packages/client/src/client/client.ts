@@ -64,7 +64,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation.js';
-import { detectProbeEnvironment, negotiateEra, resolveVersionNegotiation } from './versionNegotiation.js';
+import { detectProbeEnvironment, detectProbeTransportKind, negotiateEra, resolveVersionNegotiation } from './versionNegotiation.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
@@ -164,9 +164,12 @@ export type ClientOptions = ProtocolOptions & {
      * - `mode: 'auto'` — `connect()` probes the server with `server/discover` first:
      *   definitive modern evidence selects the modern era; definitive legacy signals
      *   (and anything unrecognized) fall back to the plain legacy `initialize`
-     *   handshake on the same connection, byte-equivalent to a 2025 client. Network
-     *   outage and probe timeout reject with typed connect errors — they are never
-     *   converted to an era verdict.
+     *   handshake on the same connection, byte-equivalent to a 2025 client. A
+     *   network outage rejects with a typed connect error. A probe timeout is
+     *   transport-aware: on stdio it indicates a legacy server (some legacy servers
+     *   never answer unknown pre-`initialize` requests) and falls back to
+     *   `initialize` on the same stream; on HTTP it rejects with a typed timeout
+     *   error (silence on a deployed server is an outage, not a legacy signal).
      * - `mode: { pin: '2026-07-28' }` — modern era at exactly the pinned revision;
      *   no probe-and-fallback: anything else fails loudly.
      *
@@ -602,6 +605,7 @@ export class Client extends Protocol<ClientContext> {
                 clientInfo: this._clientInfo,
                 capabilities: this._capabilities,
                 environment: detectProbeEnvironment(),
+                transportKind: detectProbeTransportKind(transport),
                 defaultTimeoutMs: options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC
             });
         } catch (error) {

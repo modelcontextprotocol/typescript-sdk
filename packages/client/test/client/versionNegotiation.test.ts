@@ -270,15 +270,19 @@ describe('auto mode against a legacy server (fallback)', () => {
 });
 
 /* ------------------------------------------------------------------------- *
- * Q12: timeout & retries are typed connect errors, never era verdicts.
+ * Probe timeout policy: transport-aware. On HTTP-class transports a timeout
+ * is a typed connect error (silence on a deployed server is an outage); on
+ * stdio it is a legacy-server signal and falls back to initialize on the same
+ * stream (the stdio transport's backward-compatibility rule — some legacy
+ * servers do not respond to unknown pre-initialize requests at all).
  * ------------------------------------------------------------------------- */
 
-describe('probe timeout policy (Q12)', () => {
+describe('probe timeout policy (transport-aware)', () => {
     const silentScript: Script = () => {
         /* never replies */
     };
 
-    test('timeout rejects with the standard typed timeout error and is NEVER converted to a legacy verdict', async () => {
+    test('HTTP-class transport: timeout rejects with the standard typed timeout error and is never converted to a legacy verdict', async () => {
         const transport = new ScriptedTransport(silentScript);
         const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 50 } } });
 
@@ -307,6 +311,58 @@ describe('probe timeout policy (Q12)', () => {
         expect(probes).toHaveLength(3); // initial + 2 re-sends
         const ids = probes.map(p => String(p.id));
         expect(new Set(ids).size).toBe(3);
+        expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
+    });
+
+    /** A stdio-shaped transport: structurally recognizable by its stderr/pid accessors. */
+    class StdioShapedTransport extends ScriptedTransport {
+        get stderr(): null {
+            return null;
+        }
+        get pid(): number {
+            return 4242;
+        }
+    }
+
+    test('stdio-class transport: a server that never answers the probe is a legacy server — initialize fallback on the same stream', async () => {
+        // A silent legacy stdio server: ignores the unknown server/discover
+        // request entirely, but answers initialize like any 2025 server.
+        const silentLegacyScript: Script = (message, t) => {
+            if (!isJSONRPCRequest(message)) return;
+            if (message.method === 'initialize') {
+                legacyServerScript(message, t);
+            }
+            // Anything else (the probe) is ignored — no reply at all.
+        };
+
+        const transport = new StdioShapedTransport(silentLegacyScript);
+        const client = new Client(
+            { name: 'c', version: '0' },
+            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 30, maxRetries: 1 } } }
+        );
+
+        await client.connect(transport);
+
+        // The probe was re-sent per maxRetries, then the timeout resolved to the
+        // legacy verdict and the initialize fallback ran on the SAME transport.
+        const sent = requests(transport.sent);
+        expect(sent.filter(r => r.method === 'server/discover')).toHaveLength(2);
+        expect(sent.some(r => r.method === 'initialize')).toBe(true);
+        expect(client.getProtocolEra()).toBe('legacy');
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+
+        await client.close();
+    });
+
+    test('stdio-class transport: pin mode still fails loudly on a silent server (no fallback)', async () => {
+        const transport = new StdioShapedTransport(() => {
+            /* never replies */
+        });
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN }, probe: { timeoutMs: 30 } } });
+
+        await expect(client.connect(transport)).rejects.toSatisfy(
+            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+        );
         expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
     });
 });
