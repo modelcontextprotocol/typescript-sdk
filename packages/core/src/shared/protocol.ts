@@ -316,6 +316,10 @@ export type ServerContext = BaseContext & {
         /**
          * Send a log message notification to the client.
          * Respects the client's log level filter set via logging/setLevel.
+         *
+         * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+         * Remains functional during the deprecation window (at least twelve months).
+         * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
          */
         log: (level: LoggingLevel, data: unknown, logger?: string) => Promise<void>;
 
@@ -326,6 +330,10 @@ export type ServerContext = BaseContext & {
 
         /**
          * Request LLM sampling from the client.
+         *
+         * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+         * Remains functional during the deprecation window (at least twelve months).
+         * Migrate to calling LLM provider APIs directly.
          */
         requestSampling: (
             params: CreateMessageRequest['params'],

@@ -188,6 +188,12 @@ export type ClientOptions = ProtocolOptions & {
  * `sampling/createMessage` and `elicitation/create`, the handler is automatically wrapped with
  * schema validation for both the incoming request and the returned result.
  *
+ * Note: the `roots/list` and `sampling/createMessage` handler surfaces (and the corresponding
+ * `roots` and `sampling` capabilities) are deprecated as of protocol version 2026-07-28
+ * (SEP-2577). They remain functional during the deprecation window (at least twelve months).
+ * Migrate sampling to calling LLM provider APIs directly, and roots to passing paths via tool
+ * parameters, resource URIs, or configuration.
+ *
  * @example Handling a sampling request
  * ```ts source="./client.examples.ts#Client_setRequestHandler_sampling"
  * client.setRequestHandler('sampling/createMessage', async request => {
@@ -543,6 +549,8 @@ export class Client extends Protocol<ClientContext> {
 
     protected assertCapabilityForMethod(method: RequestMethod | string): void {
         switch (method as ClientRequest['method']) {
+            // Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+            // functional during the deprecation window (at least twelve months).
             case 'logging/setLevel': {
                 if (!this._serverCapabilities?.logging) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
@@ -606,6 +614,8 @@ export class Client extends Protocol<ClientContext> {
 
     protected assertNotificationCapability(method: NotificationMethod | string): void {
         switch (method as ClientNotification['method']) {
+            // Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+            // functional during the deprecation window (at least twelve months).
             case 'notifications/roots/list_changed': {
                 if (!this._capabilities.roots?.listChanged) {
                     throw new SdkError(
@@ -635,6 +645,8 @@ export class Client extends Protocol<ClientContext> {
 
     protected assertRequestHandlerCapability(method: string): void {
         switch (method) {
+            // Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+            // functional during the deprecation window (at least twelve months).
             case 'sampling/createMessage': {
                 if (!this._capabilities.sampling) {
                     throw new SdkError(
@@ -655,6 +667,8 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
 
+            // Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+            // functional during the deprecation window (at least twelve months).
             case 'roots/list': {
                 if (!this._capabilities.roots) {
                     throw new SdkError(
@@ -681,7 +695,13 @@ export class Client extends Protocol<ClientContext> {
         return this.request({ method: 'completion/complete', params }, options);
     }
 
-    /** Sets the minimum severity level for log messages sent by the server. */
+    /**
+     * Sets the minimum severity level for log messages sent by the server.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
+     */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions): Promise<EmptyResult> {
         return this.request({ method: 'logging/setLevel', params: { level } }, options);
     }
@@ -701,11 +721,12 @@ export class Client extends Protocol<ClientContext> {
      * ```ts source="./client.examples.ts#Client_listPrompts_pagination"
      * const allPrompts: Prompt[] = [];
      * let cursor: string | undefined;
+     * // Note: an empty-string cursor is valid and does not signal the end of results.
      * do {
      *     const { prompts, nextCursor } = await client.listPrompts({ cursor });
      *     allPrompts.push(...prompts);
      *     cursor = nextCursor;
-     * } while (cursor);
+     * } while (cursor !== undefined);
      * console.log(
      *     'Available prompts:',
      *     allPrompts.map(p => p.name)
@@ -731,11 +752,12 @@ export class Client extends Protocol<ClientContext> {
      * ```ts source="./client.examples.ts#Client_listResources_pagination"
      * const allResources: Resource[] = [];
      * let cursor: string | undefined;
+     * // Note: an empty-string cursor is valid and does not signal the end of results.
      * do {
      *     const { resources, nextCursor } = await client.listResources({ cursor });
      *     allResources.push(...resources);
      *     cursor = nextCursor;
-     * } while (cursor);
+     * } while (cursor !== undefined);
      * console.log(
      *     'Available resources:',
      *     allResources.map(r => r.name)
@@ -901,11 +923,12 @@ export class Client extends Protocol<ClientContext> {
      * ```ts source="./client.examples.ts#Client_listTools_pagination"
      * const allTools: Tool[] = [];
      * let cursor: string | undefined;
+     * // Note: an empty-string cursor is valid and does not signal the end of results.
      * do {
      *     const { tools, nextCursor } = await client.listTools({ cursor });
      *     allTools.push(...tools);
      *     cursor = nextCursor;
-     * } while (cursor);
+     * } while (cursor !== undefined);
      * console.log(
      *     'Available tools:',
      *     allTools.map(t => t.name)
@@ -986,7 +1009,13 @@ export class Client extends Protocol<ClientContext> {
         this.setNotificationHandler(notificationMethod, handler);
     }
 
-    /** Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability. */
+    /**
+     * Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to passing paths via tool parameters, resource URIs, or configuration.
+     */
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
     }

@@ -42,6 +42,44 @@ export const CLIENT_CAPABILITIES_META_KEY = 'io.modelcontextprotocol/clientCapab
  */
 export const LOG_LEVEL_META_KEY = 'io.modelcontextprotocol/logLevel';
 
+/*
+ * Reserved `_meta` keys for distributed trace context propagation (SEP-414).
+ *
+ * These unprefixed keys are reserved by the MCP specification as an explicit
+ * exception to the `_meta` key prefix rule. The SDK does not interpret them;
+ * they pass through `_meta` untouched for OpenTelemetry-style propagation.
+ */
+
+/**
+ * `_meta` key carrying W3C Trace Context for distributed tracing (SEP-414).
+ *
+ * When present, the value MUST follow the W3C `traceparent` header format,
+ * e.g. `00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`.
+ *
+ * @see https://www.w3.org/TR/trace-context/#traceparent-header
+ */
+export const TRACEPARENT_META_KEY = 'traceparent';
+
+/**
+ * `_meta` key carrying vendor-specific trace state for distributed tracing (SEP-414).
+ *
+ * When present, the value MUST follow the W3C `tracestate` header format,
+ * e.g. `vendor1=value1,vendor2=value2`.
+ *
+ * @see https://www.w3.org/TR/trace-context/#tracestate-header
+ */
+export const TRACESTATE_META_KEY = 'tracestate';
+
+/**
+ * `_meta` key carrying cross-cutting propagation values for distributed tracing (SEP-414).
+ *
+ * When present, the value MUST follow the W3C Baggage header format,
+ * e.g. `userId=alice,serverRegion=us-east-1`.
+ *
+ * @see https://www.w3.org/TR/baggage/
+ */
+export const BAGGAGE_META_KEY = 'baggage';
+
 /* JSON-RPC types */
 export const JSONRPC_VERSION = '2.0';
 
