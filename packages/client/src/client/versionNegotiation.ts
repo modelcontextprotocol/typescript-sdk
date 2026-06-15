@@ -56,7 +56,7 @@ export interface VersionNegotiationProbeOptions {
     /**
      * Timeout for a single probe exchange, in milliseconds.
      *
-     * @default the standard request timeout ({@linkcode DEFAULT_REQUEST_TIMEOUT_MSEC}, or the `timeout` passed to `connect()`)
+     * @default the standard request timeout (`DEFAULT_REQUEST_TIMEOUT_MSEC`, or the `timeout` passed to `connect()`)
      */
     timeoutMs?: number;
 
@@ -209,7 +209,7 @@ type RawProbeReply =
  * Protocol connect (which always starts its transport) takes over the
  * already-started channel without a double-start error.
  */
-export class ProbeWindow {
+class ProbeWindow {
     /** Inbound messages dropped (with zero bytes written back) while the window was open. */
     droppedInboundMessages = 0;
 
