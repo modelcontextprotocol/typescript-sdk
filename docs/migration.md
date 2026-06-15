@@ -334,6 +334,14 @@ app.use(hostHeaderValidation(['example.com']));
 
 Note: the v2 signature takes a plain `string[]` instead of an options object.
 
+### Resumability gating for unknown protocol versions (Streamable HTTP server)
+
+The server-side Streamable HTTP transport enables resumability behavior introduced with protocol version `2025-11-25` — SSE priming events and the `closeSSEStream` / `closeStandaloneSSEStream` callbacks — based on the client's protocol version. Previously this was an
+open-ended `protocolVersion >= '2025-11-25'` comparison, so an unrecognized future version string in an `initialize` request body (which, unlike the `MCP-Protocol-Version` header, is not validated against the supported-versions list) silently enabled the behavior.
+
+The check is now bounded: the version must be one of the transport's supported protocol versions (after `connect()`, the server's `supportedProtocolVersions`) **and** at least `2025-11-25`. Behavior for all currently supported protocol versions (`2024-10-07` through
+`2025-11-25`) is unchanged. Clients claiming an unknown future protocol version in the initialize body are now treated like clients without empty-SSE-data support: no priming event is sent and no early-close callbacks are provided.
+
 ### `setRequestHandler` and `setNotificationHandler` use method strings
 
 The low-level `setRequestHandler` and `setNotificationHandler` methods on `Client`, `Server`, and `Protocol` now take a method string instead of a Zod schema.
@@ -988,6 +996,10 @@ The following APIs are unchanged between v1 and v2 (only the import paths change
 - `StdioServerTransport` constructor and options
 - All Zod schemas and type definitions from `types.ts` (except the aliases listed above)
 - Tool, prompt, and resource callback return types
+
+**Session-ID mismatch responses**: when session management is enabled and a request carries an `Mcp-Session-Id` header that doesn't match the active session, the Streamable HTTP server transport responds `404 Not Found` with a JSON-RPC error body using code `-32001` and
+message `Session not found` — unchanged from v1. Note that this use of `-32001` is an SDK convention, not a spec-assigned error code, and it is expected to be re-derived as error handling for the 2026 protocol revision (`2026-07-28`) is adopted. Avoid hard-coding the
+`-32001` code in client logic; key off the HTTP `404` status instead.
 
 ## Using an LLM to migrate your code
 

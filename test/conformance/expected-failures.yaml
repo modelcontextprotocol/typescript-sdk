@@ -2,14 +2,13 @@
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.2). Relative to 0.2.0-alpha.1,
-# that release re-scoped the SEP-837 application_type check to draft-version
-# runs only, so the dated-version auth scenarios that failed only on that
-# check were removed from this baseline. Newer conformance releases are
-# adopted by deliberately bumping the package.json pin and reconciling this
-# file in the same change. (The auth/iss-* scenarios are not present in
-# 0.2.0-alpha.2; the runner reports them as unknown/failed, covered by their
-# entries below until a release ships them.)
+# release pinned in package.json (0.2.0-alpha.3). Newer conformance releases
+# are adopted by deliberately bumping the package.json pin and reconciling
+# this file in the same change. 0.2.0-alpha.3 fixes the draft wire version
+# (2026-07-28). Several auth scenarios in this baseline (auth/iss-*,
+# auth/authorization-server-migration, auth/enterprise-managed-authorization)
+# are still not shipped in the published release — the runner reports them
+# unknown/failed; their entries below cover them either way.
 #
 # NOTE: the draft error-code assignments exercised by the SEP-2243 server
 # scenarios (-32001 HeaderMismatch) and their neighbours (-32602, -32004) are
