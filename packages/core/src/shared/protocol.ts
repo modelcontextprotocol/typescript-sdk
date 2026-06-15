@@ -1162,55 +1162,26 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     return reject(response);
                 }
 
-                // Raw-first result discrimination (protocol revision
-                // 2026-07-28): inspect `resultType` BEFORE any schema
-                // validation, so a non-complete result can never be masked
-                // into a hollow success by a tolerant result schema (e.g.
-                // defaults filling in absent members).
-                let result = response.result;
-                if (isPlainObject(result) && result['resultType'] !== undefined) {
-                    const rawResultType = result['resultType'];
-                    if (typeof rawResultType !== 'string') {
-                        // Defense in depth, not a reachable rejection today:
-                        // the wire schema types `resultType` as a string, so
-                        // message classification rejects a non-string carrier
-                        // before it can reach this funnel (the request then
-                        // hangs until timeout — the pre-existing failure mode
-                        // for malformed responses). The arm stays so the
-                        // raw-first check is self-contained if classification
-                        // ever loosens.
-                        return reject(
-                            new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${request.method}: non-string resultType`, {
-                                resultType: rawResultType
-                            })
-                        );
-                    }
-                    if (rawResultType !== 'complete') {
-                        // Surface the discriminated kind; no retry. This arm
-                        // is replaced by full multi-round-trip handling when
-                        // the client driver lands.
-                        return reject(
-                            new SdkError(
-                                SdkErrorCode.UnsupportedResultType,
-                                `Unsupported result type '${rawResultType}' for ${request.method}`,
-                                { resultType: rawResultType, method: request.method }
-                            )
-                        );
-                    }
-                    // 'complete': the SDK consumes the wire discriminator;
-                    // strip it before validation so consumers receive the
-                    // public result shape.
-                    const rest = { ...result };
-                    delete rest['resultType'];
-                    result = rest as Result;
+                // Codec decode hop — the structural V-1 home. The era codec
+                // owns the raw-first resultType postures (Q1-SD3):
+                // - 2026 era: REQUIRED discriminator; absent → typed error
+                //   naming the spec violation; input_required → driver seam;
+                //   unknown kind → invalid, no retry; complete → wire-exact
+                //   parse then lift.
+                // - 2025 era: resultType is foreign vocabulary → strip-on-
+                //   lift, then today's schema validation decides.
+                // Either way a non-complete body can never be masked into a
+                // hollow success by a tolerant result schema.
+                // Guarded: this callback runs synchronously inside
+                // `_onresponse`, so a throw out of the decode hop would
+                // otherwise propagate into the transport's onmessage instead
+                // of failing this request.
+                let decoded: ReturnType<WireCodec['decodeResult']>;
+                try {
+                    decoded = codec.decodeResult(request.method, response.result);
+                } catch (error) {
+                    return reject(error instanceof Error ? error : new Error(String(error)));
                 }
-
-                // Codec decode hop (the structural V-1 home): the era codec
-                // applies its raw-first posture before schema validation.
-                // NOTE (staging): the funnel block above predates the codec
-                // split and still runs first; it is removed when the
-                // 2026-era codec lands and the codecs own the postures.
-                const decoded = codec.decodeResult(request.method, result);
                 if (decoded.kind === 'invalid') {
                     return reject(decoded.error);
                 }
@@ -1225,7 +1196,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         })
                     );
                 }
-                result = decoded.result;
+                const result = decoded.result;
 
                 validateStandardSchema(resultSchema, result).then(parseResult => {
                     if (parseResult.success) {
