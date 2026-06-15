@@ -1026,9 +1026,68 @@ versionNegotiation: {
 ```
 
 On the server side, a `Server`/`McpServer` whose `supportedProtocolVersions` list includes a 2026-era revision installs a `server/discover` handler, advertising only its modern revisions; servers with the default version list are byte-identical to before (they keep
-answering `-32601`, and the `initialize` handshake only ever negotiates 2025-era versions — a 2026-era revision is never accepted or counter-offered there). Note that serving the 2026 revision to ordinary HTTP/stdio traffic arrives with an upcoming server-side entry
-point: today the negotiation surface is client-side, and `mode: 'auto'` falls back cleanly against current SDK servers. The client can also issue the request directly via `client.discover()` on a 2026-era connection — though a full typed round-trip against an SDK
-server additionally needs the per-request envelope support that lands with that server entry — while on a 2025-era connection the method is rejected locally with a typed error, since it does not exist on that protocol revision.
+answering `-32601`, and the `initialize` handshake only ever negotiates 2025-era versions — a 2026-era revision is never accepted or counter-offered there). Serving the 2026 revision to ordinary HTTP traffic is done with the `createMcpHandler` entry point described in the
+next section; serving it over stdio arrives with a later release. The client can also issue the request directly via `client.discover()` on a 2026-era connection — a full typed round trip needs each request to carry the per-request `_meta` envelope (the negotiation probe
+already does; automatic envelope emission for every request is a client-side follow-up) — while on a 2025-era connection the method is rejected locally with a typed error, since it does not exist on that protocol revision.
+
+### Serving the 2026-07-28 draft revision over HTTP: `createMcpHandler`
+
+The server package now ships an HTTP entry point that serves the 2026-07-28 draft revision per request, with 2025-era serving available as an **opt-in** slot:
+
+```typescript
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+
+const handler = createMcpHandler(
+    ctx => {
+        const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+        // register tools/resources/prompts once — the same factory backs both eras
+        return server;
+    },
+    { legacy: 'stateless' }
+);
+
+// Web-standard runtimes (Cloudflare Workers, Deno, Bun, Hono):
+//   handler.fetch(request)
+// Node frameworks (Express, Fastify, plain node:http):
+//   handler.node(req, res, req.body)
+```
+
+How the `legacy` slot behaves:
+
+- **omitted** — modern-only strict. 2026-07-28 (per-request `_meta` envelope) requests are served; 2025-era requests are rejected with `-32004` naming the supported revisions, and 2025-era notifications are acknowledged with `202` and dropped. **There is no silent 2025
+  serving without the slot.**
+- **`legacy: 'stateless'`** — 2025-era traffic is additionally served per request through the established stateless idiom: a fresh instance from the same factory and a streamable HTTP transport constructed with only `sessionIdGenerator: undefined`. The exported
+  `legacyStatelessFallback(factory)` is the same handler as a standalone value.
+- **`legacy: <handler>`** — bring your own legacy serving (for example an existing sessionful `WebStandardStreamableHTTPServerTransport` wiring). Requests are handed to it untouched and its lifecycle stays yours.
+
+The optional `responseMode` controls how modern request exchanges are answered: `'auto'` (default) returns a single JSON body and lazily upgrades to an SSE stream when the handler emits a related message before its result; `'sse'` always streams; **`'json'` never streams
+and DROPS mid-call notifications** (progress, logging, and any other related message emitted before the result) — only the terminal result is delivered. Subscription (listen-class) streams are always served over SSE regardless of the setting. `onerror` receives
+out-of-band errors and rejected requests for logging.
+
+The entry performs no Origin/Host validation (see the origin-validation middleware below) and no token verification: `authInfo` passed to `handler.fetch(request, { authInfo })` / attached as `req.auth` on the Node face is forwarded to handlers as-is and never derived from
+request headers. Power users who want to compose routing themselves can use the exported `classifyInboundRequest` and `PerRequestHTTPServerTransport` building blocks directly; the handler faces are bound properties, so they can be detached and passed around
+(`const { fetch } = handler`).
+
+### Client identity accessors deprecated in favor of per-request context
+
+`Server.getClientCapabilities()`, `Server.getClientVersion()` and `Server.getNegotiatedProtocolVersion()` are deprecated (they remain functional). On 2026-07-28 requests the client's identity travels with each request in the validated `_meta` envelope and is available to
+handlers as `ctx.mcpReq.envelope`; instances serving that revision through `createMcpHandler` are backfilled per request, so existing code that calls the accessors keeps working on both eras. On 2025-era connections the accessors keep returning the `initialize`-scoped
+values, as before.
+
+### Origin validation middleware and default arming
+
+The middleware packages now ship Origin header validation alongside the existing Host header validation, and the app factories arm it by default for localhost-class binds:
+
+```typescript
+import { originValidation, localhostOriginValidation } from '@modelcontextprotocol/express'; // also @modelcontextprotocol/hono, /fastify
+
+const app = createMcpExpressApp(); // localhost bind: Host AND Origin validation armed by default
+const appCustom = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.local'], allowedOrigins: ['myapp.local'] });
+```
+
+Requests without an `Origin` header pass unchanged (MCP clients outside a browser do not send one), so non-browser traffic is unaffected. A present `Origin` whose hostname is not allowed — or that cannot be parsed, including the opaque `null` origin — is rejected with
+`403` (deny on failure). To restore the previous behavior of a localhost-bound factory app, pass an explicit `allowedOrigins` list. The framework-agnostic helpers (`validateOriginHeader`, `localhostAllowedOrigins`, `originValidationResponse`) live in
+`@modelcontextprotocol/server` for bare web-standard mounts, and `@modelcontextprotocol/node` now ships request guards (`hostHeaderValidation`, `originValidation` and their `localhost*` variants) for plain `node:http` servers, which previously had no validation helpers.
 
 ### Automatic JSON Schema validator selection by runtime
 
