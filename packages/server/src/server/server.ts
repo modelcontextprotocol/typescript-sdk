@@ -120,6 +120,13 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
+    /**
+     * Registers the built-in `logging/setLevel` request handler.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
+     */
     private _registerLoggingHandler(): void {
         this.setRequestHandler('logging/setLevel', async (request, ctx) => {
             const transportSessionId: string | undefined =
@@ -140,6 +147,9 @@ export class Server extends Protocol<ServerContext> {
             ...ctx,
             mcpReq: {
                 ...ctx.mcpReq,
+                // Deprecated as of protocol version 2026-07-28 (SEP-2577): `log` and
+                // `requestSampling` remain functional during the deprecation window
+                // (at least twelve months). See ServerContext for migration guidance.
                 log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
                 elicitInput: (params, options) => this.elicitInput(params, options),
                 requestSampling: (params, options) => this.createMessage(params, options)
@@ -417,18 +427,30 @@ export class Server extends Protocol<ServerContext> {
     /**
      * Request LLM sampling from the client (without tools).
      * Returns single content block for backwards compatibility.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to calling LLM provider APIs directly.
      */
     async createMessage(params: CreateMessageRequestParamsBase, options?: RequestOptions): Promise<CreateMessageResult>;
 
     /**
      * Request LLM sampling from the client with tool support.
      * Returns content that may be a single block or array (for parallel tool calls).
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to calling LLM provider APIs directly.
      */
     async createMessage(params: CreateMessageRequestParamsWithTools, options?: RequestOptions): Promise<CreateMessageResultWithTools>;
 
     /**
      * Request LLM sampling from the client.
      * When tools may or may not be present, returns the union type.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to calling LLM provider APIs directly.
      */
     async createMessage(
         params: CreateMessageRequest['params'],
@@ -583,6 +605,13 @@ export class Server extends Protocol<ServerContext> {
             );
     }
 
+    /**
+     * Requests the list of roots from the client.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to passing paths via tool parameters, resource URIs, or configuration.
+     */
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
         return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
@@ -593,6 +622,10 @@ export class Server extends Protocol<ServerContext> {
      * @see {@linkcode LoggingMessageNotification}
      * @param params
      * @param sessionId Optional for stateless transports and backward compatibility.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {

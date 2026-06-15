@@ -62,7 +62,11 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
             StreamableHTTPServerTransport: 'NodeStreamableHTTPServerTransport'
         },
         symbolTargetOverrides: {
-            StreamableHTTPServerTransport: '@modelcontextprotocol/node'
+            StreamableHTTPServerTransport: '@modelcontextprotocol/node',
+            // The companion options type moved with the transport. @modelcontextprotocol/node
+            // re-exports it under the same name (a backward-compat alias for
+            // WebStandardStreamableHTTPServerTransportOptions), so route it there without renaming.
+            StreamableHTTPServerTransportOptions: '@modelcontextprotocol/node'
         }
     },
     '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js': {

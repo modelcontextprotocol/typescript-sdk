@@ -95,13 +95,26 @@ describe('StreamableHTTPClientTransport with AuthProvider', () => {
         vi.spyOn(globalThis, 'fetch');
 
         (globalThis.fetch as Mock)
-            .mockResolvedValueOnce({ ok: false, status: 401, headers: new Headers(), text: async () => 'unauthorized' })
-            .mockResolvedValueOnce({ ok: false, status: 401, headers: new Headers(), text: async () => 'unauthorized' });
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers(),
+                text: async () => 'unauthorized'
+            })
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 401,
+                statusText: 'Unauthorized',
+                headers: new Headers(),
+                text: async () => 'unauthorized'
+            });
 
         const error = await transport.send(message).catch(e => e);
         expect(error).toBeInstanceOf(SdkHttpError);
         expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
         expect((error as SdkHttpError).status).toBe(401);
+        expect((error as SdkHttpError).statusText).toBe('Unauthorized');
         expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
     });
 
