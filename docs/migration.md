@@ -1026,8 +1026,9 @@ versionNegotiation: {
 ```
 
 On the server side, a `Server`/`McpServer` whose `supportedProtocolVersions` list includes a 2026-era revision installs a `server/discover` handler, advertising only its modern revisions; servers with the default version list are byte-identical to before (they keep
-answering `-32601`, and the `initialize` handshake only ever negotiates 2025-era versions — a 2026-era revision is never accepted or counter-offered there). The client can also issue the request directly via `client.discover()` on a 2026-era connection; on a 2025-era
-connection the method is rejected locally with a typed error, since it does not exist on that protocol revision.
+answering `-32601`, and the `initialize` handshake only ever negotiates 2025-era versions — a 2026-era revision is never accepted or counter-offered there). Note that serving the 2026 revision to ordinary HTTP/stdio traffic arrives with an upcoming server-side entry
+point: today the negotiation surface is client-side, and `mode: 'auto'` falls back cleanly against current SDK servers. The client can also issue the request directly via `client.discover()` on a 2026-era connection — though a full typed round-trip against an SDK
+server additionally needs the per-request envelope support that lands with that server entry — while on a 2025-era connection the method is rejected locally with a typed error, since it does not exist on that protocol revision.
 
 ### Automatic JSON Schema validator selection by runtime
 
