@@ -90,15 +90,20 @@ describe('isSpecType', () => {
         }
     });
 
-    it('narrows to the input type, not the output type, for schemas with defaults', () => {
-        const v: unknown = {};
+    it('CallToolResult requires content at the boundary (the wire default was removed)', () => {
+        // BEHAVIOR MIGRATION (Q1 increment 2, ledgered): CallToolResultSchema
+        // lost `content.default([])` — the silent-empty-success masking root.
+        // The guard's input shape now requires content, matching the spec in
+        // every revision. Changeset: codec-split-wire-break.
+        const empty: unknown = {};
+        expect(isSpecType.CallToolResult(empty)).toBe(false);
+        const v: unknown = { content: [] };
         expect(isSpecType.CallToolResult(v)).toBe(true);
         if (isSpecType.CallToolResult(v)) {
-            // CallToolResultSchema has `content: z.array(...).default([])`, so the input type
-            // permits `content` to be absent. The guard narrows to that input shape.
-            expectTypeOf(v.content).toEqualTypeOf<ContentBlock[] | undefined>();
-            expectTypeOf(v).not.toEqualTypeOf<CallToolResult>();
+            expectTypeOf(v.content).toEqualTypeOf<ContentBlock[]>();
+            expectTypeOf(v.content).not.toEqualTypeOf<ContentBlock[] | undefined>();
         }
+        void (0 as unknown as CallToolResult);
     });
 
     it('JSONValue / JSONObject — narrows to the JSON type, not unknown', () => {
@@ -134,13 +139,16 @@ describe('SpecTypeName / SpecTypes (type-level)', () => {
     });
 
     it('SpecTypes[K] matches the named export type', () => {
-        // Result entries are WIRE validator outputs: they carry the wire-only
-        // `resultType` member that the public result types deliberately do not
-        // declare. Stripping it must yield exactly the public type — pinned in
-        // both directions (the wire schema keeps modeling the member).
-        type StripWireOnly<T> = { [K in keyof T as K extends 'resultType' ? never : K]: T[K] };
-        expectTypeOf<StripWireOnly<SpecTypes['CallToolResult']>>().toEqualTypeOf<CallToolResult>();
-        expectTypeOf<SpecTypes['CallToolResult']['resultType']>().toEqualTypeOf<string | undefined>();
+        // RE-SCOPE (Q1 increment 2, ledgered): specTypeSchemas now validate
+        // the NEUTRAL model. Result entries no longer carry the wire-only
+        // `resultType` member — the strip-then-equal pin from the public-face
+        // cut reverts to plain equality, and per-revision wire validators are
+        // deliberately NOT public surface (addable later via the versioned
+        // zod-schemas exports). Changeset: codec-split-wire-break.
+        expectTypeOf<SpecTypes['CallToolResult']>().toEqualTypeOf<CallToolResult>();
+        type KnownKeys<T> = keyof { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
+        type DeclaresResultType = 'resultType' extends KnownKeys<SpecTypes['CallToolResult']> ? true : false;
+        expectTypeOf<DeclaresResultType>().toEqualTypeOf<false>();
         expectTypeOf<SpecTypes['ContentBlock']>().toEqualTypeOf<ContentBlock>();
         expectTypeOf<SpecTypes['Tool']>().toEqualTypeOf<Tool>();
         expectTypeOf<SpecTypes['Implementation']>().toEqualTypeOf<Implementation>();

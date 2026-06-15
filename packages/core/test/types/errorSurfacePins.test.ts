@@ -75,6 +75,7 @@ describe('SdkErrorCode', () => {
             SendFailed: 'SEND_FAILED',
             InvalidResult: 'INVALID_RESULT',
             UnsupportedResultType: 'UNSUPPORTED_RESULT_TYPE',
+            MethodNotSupportedByProtocolVersion: 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION',
             ClientHttpNotImplemented: 'CLIENT_HTTP_NOT_IMPLEMENTED',
             ClientHttpAuthentication: 'CLIENT_HTTP_AUTHENTICATION',
             ClientHttpForbidden: 'CLIENT_HTTP_FORBIDDEN',

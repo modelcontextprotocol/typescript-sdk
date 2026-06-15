@@ -22,6 +22,8 @@ import type {
 } from '../../src/types/index.js';
 import { ProtocolError, ProtocolErrorCode } from '../../src/types/index.js';
 import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
+import { InMemoryTransport } from '../../src/util/inMemory.js';
+import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec.js';
 
 // Test Protocol subclass for testing
 class TestProtocolImpl extends Protocol<BaseContext> {
@@ -908,5 +910,146 @@ describe('mergeCapabilities', () => {
         const additional = {};
         const merged = mergeCapabilities(base, additional);
         expect(merged).toEqual({});
+    });
+});
+
+describe('codec-seam hardening in the protocol funnels', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+
+    test('a throw inside codec.encodeResult answers −32603 on the wire — the peer is never stranded', async () => {
+        const [peerTx, protocolTx] = InMemoryTransport.createLinkedPair();
+        const sent: JSONRPCMessage[] = [];
+        peerTx.onmessage = message => void sent.push(message);
+        await peerTx.start();
+
+        const protocol = createTestProtocol();
+        const errors: Error[] = [];
+        protocol.onerror = error => void errors.push(error);
+        protocol.setRequestHandler('acme/op', { params: z.looseObject({}) }, () => ({ ok: true }) as Result);
+        await protocol.connect(protocolTx);
+
+        // The encode hop is the only throw-capable step between handler
+        // success and the transport send (and it grows stamping content in
+        // M3.2). Force it to throw once.
+        vi.spyOn(rev2025Codec, 'encodeResult').mockImplementationOnce(() => {
+            throw new Error('stamp exploded');
+        });
+
+        await peerTx.send({ jsonrpc: '2.0', id: 1, method: 'acme/op', params: {} });
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        expect((sent[0] as JSONRPCErrorResponse).error).toMatchObject({ code: ProtocolErrorCode.InternalError });
+        // Surfaced locally too.
+        expect(errors.some(error => error.message.includes('Failed to encode result'))).toBe(true);
+
+        // The connection stays serviceable: the next request round-trips.
+        await peerTx.send({ jsonrpc: '2.0', id: 2, method: 'acme/op', params: {} });
+        await flush();
+        expect(sent).toHaveLength(2);
+        expect((sent[1] as JSONRPCResultResponse).result).toMatchObject({ ok: true });
+
+        await protocol.close();
+    });
+});
+
+describe('inbound validation precedence: −32601 outranks envelope −32602', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+
+    async function wireWithFailingEnvelope(setup?: (protocol: TestProtocolImpl) => void) {
+        const [peerTx, protocolTx] = InMemoryTransport.createLinkedPair();
+        const sent: JSONRPCMessage[] = [];
+        peerTx.onmessage = message => void sent.push(message);
+        await peerTx.start();
+
+        const protocol = createTestProtocol();
+        setup?.(protocol);
+        await protocol.connect(protocolTx);
+
+        // Force the era's envelope check to fail for every request, so the
+        // test pins WHERE in the ladder it runs, independent of era wiring.
+        vi.spyOn(rev2025Codec, 'checkInboundEnvelope').mockImplementation(() => 'Request is missing the required _meta envelope');
+
+        return { peerTx, sent, flush };
+    }
+
+    test('a genuinely unknown method answers −32601 even when the envelope check would also fail', async () => {
+        const { peerTx, sent } = await wireWithFailingEnvelope();
+
+        await peerTx.send({ jsonrpc: '2.0', id: 1, method: 'acme/no-such-method', params: {} });
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        expect((sent[0] as JSONRPCErrorResponse).error).toMatchObject({
+            code: ProtocolErrorCode.MethodNotFound,
+            message: 'Method not found'
+        });
+    });
+
+    test('a served method still answers −32602 when the envelope check fails', async () => {
+        const { peerTx, sent } = await wireWithFailingEnvelope(protocol => {
+            protocol.setRequestHandler('acme/known', { params: z.looseObject({}) }, () => ({}) as Result);
+        });
+
+        await peerTx.send({ jsonrpc: '2.0', id: 1, method: 'acme/known', params: {} });
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        expect((sent[0] as JSONRPCErrorResponse).error).toMatchObject({
+            code: ProtocolErrorCode.InvalidParams,
+            message: 'Request is missing the required _meta envelope'
+        });
+    });
+});
+
+describe('inbound protocol-version mismatch (−32004): the error data lists every supported version', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+
+    test('a request classified for a protocol version this connection does not serve is rejected with the full supported list', async () => {
+        const supportedProtocolVersions = ['2025-11-25', '2025-06-18', '2025-03-26'];
+        const [peerTx, protocolTx] = InMemoryTransport.createLinkedPair();
+        const sent: JSONRPCMessage[] = [];
+        peerTx.onmessage = message => void sent.push(message);
+        await peerTx.start();
+
+        const protocol = new TestProtocolImpl({ supportedProtocolVersions });
+        const errors: Error[] = [];
+        protocol.onerror = error => void errors.push(error);
+        await protocol.connect(protocolTx);
+
+        // Deliver a request whose transport-edge classification names a
+        // protocol version this connection does not serve. The rejection's
+        // `data.supported` must list every protocol version the receiver
+        // supports — not just the version the connection is on — so the peer
+        // can pick a mutually supported version from the error alone.
+        protocolTx.onmessage?.(
+            { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} } as JSONRPCMessage,
+            // The in-memory transport's onmessage declares the narrower
+            // pre-classification extra type; the protocol layer reads the
+            // full MessageExtraInfo (same cast as the era-gate suite).
+            { classification: { era: 'modern' } } as never
+        );
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        const error = (sent[0] as JSONRPCErrorResponse).error as {
+            code: number;
+            message: string;
+            data?: { supported?: string[]; requested?: string };
+        };
+        expect(error.code).toBe(-32004);
+        expect(error.message).toContain('Unsupported protocol version');
+        expect(error.data?.supported).toEqual(supportedProtocolVersions);
+        expect(error.data?.requested).toBe('2026-07-28');
+
+        await protocol.close();
     });
 });
