@@ -1875,6 +1875,7 @@ describe('StreamableHTTPClientTransport', () => {
             expect(error).toBeInstanceOf(SdkHttpError);
             expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
             expect((error as SdkHttpError).status).toBe(401);
+            expect((error as SdkHttpError).statusText).toBe('Unauthorized');
             expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
                 access_token: 'new-access-token',
                 token_type: 'Bearer',

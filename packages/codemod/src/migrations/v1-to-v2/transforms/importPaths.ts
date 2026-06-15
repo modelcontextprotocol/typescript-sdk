@@ -14,7 +14,7 @@ const REEXPORT_WARNINGS: Record<string, string> = {
         'Re-exported RequestHandlerExtra was renamed to ServerContext/ClientContext in v2. Update this re-export manually.',
     IsomorphicHeaders: 'Re-exported IsomorphicHeaders was removed in v2 (replaced by standard Headers API). Remove this re-export.',
     StreamableHTTPError:
-        'Re-exported StreamableHTTPError was renamed to SdkError in v2 with different constructor. Update this re-export manually.'
+        'Re-exported StreamableHTTPError was renamed to SdkHttpError in v2 with a different constructor. Update this re-export manually.'
 };
 
 export const importPathsTransform: Transform = {
