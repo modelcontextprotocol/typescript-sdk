@@ -35,6 +35,8 @@ import type {
 } from '@modelcontextprotocol/core';
 import {
     codecForVersion,
+    CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
     LATEST_PROTOCOL_VERSION,
     LoggingLevelSchema,
     mergeCapabilities,
@@ -494,19 +496,24 @@ export class Server extends Protocol<ServerContext> {
             }
         }
 
-        // Use different schemas based on whether tools are provided
+        // Use different schemas based on whether tools are provided. The
+        // result schema depends on the REQUEST params, which a method-keyed
+        // registry entry cannot express, so it goes through the explicit-
+        // schema path (still era-gated: sampling/createMessage is not a wire
+        // request on the 2026 era, so a modern-era instance fails with the
+        // typed era error before anything reaches the transport).
         if (params.tools) {
-            return this._requestWithNarrowSchema<CreateMessageResultWithTools>(
+            return (await this._requestWithSchema(
                 { method: 'sampling/createMessage', params },
-                'sampling/createMessage:withTools',
+                CreateMessageResultWithToolsSchema,
                 options
-            );
+            )) as CreateMessageResultWithTools;
         }
-        return this._requestWithNarrowSchema<CreateMessageResult>(
+        return (await this._requestWithSchema(
             { method: 'sampling/createMessage', params },
-            'sampling/createMessage:plain',
+            CreateMessageResultSchema,
             options
-        );
+        )) as CreateMessageResult;
     }
 
     /**

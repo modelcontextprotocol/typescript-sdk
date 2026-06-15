@@ -47,7 +47,7 @@ import {
 import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
 import { bootstrapOutboundCodec } from '../wire/bootstrap.js';
-import type { LiftedWireMaterial, NarrowResultKey, WireCodec } from '../wire/codec.js';
+import type { LiftedWireMaterial, WireCodec } from '../wire/codec.js';
 import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod } from '../wire/codec.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
@@ -1036,40 +1036,24 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
-     * Sends a spec-method request whose result validation deliberately uses a
-     * NARROWER era schema than the generic per-method registry entry. With
-     * the result map aligned to the typed map, the only such surface is
-     * `server.createMessage`, whose result schema depends on the REQUEST
-     * params (tools vs no tools) — something a method-keyed registry entry
-     * cannot express. The schema is resolved from the outbound era codec at
-     * dispatch time, like every other method-keyed binding.
-     */
-    protected _requestWithNarrowSchema<R extends Result>(request: Request, narrow: NarrowResultKey, options?: RequestOptions): Promise<R> {
-        const codec = this._resolveOutboundCodec(request.method);
-        this._assertOutboundRequestInEra(codec, request.method);
-        const schema = codec.narrowResultSchema(narrow);
-        if (!schema) {
-            throw new SdkError(
-                SdkErrorCode.MethodNotSupportedByProtocolVersion,
-                `Method '${request.method}' is not supported by the negotiated protocol version (wire era ${codec.era})`,
-                { method: request.method, era: codec.era }
-            );
-        }
-        return this._requestWithSchemaViaCodec(codec, request, schema as unknown as StandardSchemaV1, options) as Promise<R>;
-    }
-
-    /**
-     * Sends a request and waits for a response, using the provided schema for validation.
+     * Sends a request and waits for a response, using the provided schema for
+     * validation instead of the era registry's method-keyed entry.
      *
-     * This is the internal implementation used by SDK methods that need to specify
-     * a particular result schema (e.g., for compatibility schemas).
+     * This is the internal implementation used by SDK methods whose result
+     * schema cannot be expressed as a method-keyed registry entry — the one
+     * surviving case is `server.createMessage`, whose result schema depends
+     * on the REQUEST params (tools vs no tools) — and by callers passing
+     * explicit compatibility schemas. Spec methods are still era-gated here:
+     * an explicit schema never smuggles a deleted method onto the wire.
      */
     protected _requestWithSchema<T extends StandardSchemaV1>(
         request: Request,
         resultSchema: T,
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>> {
-        return this._requestWithSchemaViaCodec(this._resolveOutboundCodec(request.method), request, resultSchema, options);
+        const codec = this._resolveOutboundCodec(request.method);
+        this._assertOutboundRequestInEra(codec, request.method);
+        return this._requestWithSchemaViaCodec(codec, request, resultSchema, options);
     }
 
     /**

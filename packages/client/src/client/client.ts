@@ -47,6 +47,8 @@ import type {
 } from '@modelcontextprotocol/core';
 import {
     codecForVersion,
+    CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
@@ -377,16 +379,13 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
+                // The result schema depends on the REQUEST params (tools vs
+                // no tools) — something a method-keyed registry entry cannot
+                // express, so the pair is picked here. The era gate keeps
+                // this era-correct: sampling/createMessage is only ever
+                // dispatched on an era whose registry defines it.
                 const hasTools = params.tools || params.toolChoice;
-                const resultSchema = codec.narrowResultSchema(
-                    hasTools ? 'sampling/createMessage:withTools' : 'sampling/createMessage:plain'
-                );
-                if (!resultSchema) {
-                    throw new ProtocolError(
-                        ProtocolErrorCode.InternalError,
-                        'No wire schema for sampling/createMessage in the resolved era'
-                    );
-                }
+                const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
                 const validationResult = parseSchema(resultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =

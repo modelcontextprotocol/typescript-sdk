@@ -25,7 +25,6 @@ import type * as z from 'zod/v4';
 import {
     CallToolResultSchema,
     CompleteResultSchema,
-    CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
     ElicitResultSchema,
     EmptyResultSchema,
@@ -141,16 +140,3 @@ export function hasNotificationMethod2025(method: string): boolean {
 /** Registry method lists (for the spec-method universe and the CI registry-diff oracle). */
 export const rev2025RequestMethods: readonly string[] = Object.keys(requestSchemas);
 export const rev2025NotificationMethods: readonly string[] = Object.keys(notificationSchemas);
-
-/**
- * Narrow high-level result schemas for this era (see `codec.ts`
- * `NarrowResultKey`). Only the sampling pair lives here: with the result map
- * aligned to the typed map, `tools/call` and `elicitation/create` have no
- * narrower surface than their registry entries — `server.createMessage` is
- * the one method whose result schema depends on the REQUEST params (tools vs
- * no tools), which a method-keyed registry cannot express.
- */
-export const narrowResultSchemas2025: Record<string, z.ZodType> = {
-    'sampling/createMessage:plain': CreateMessageResultSchema as unknown as z.ZodType,
-    'sampling/createMessage:withTools': CreateMessageResultWithToolsSchema as unknown as z.ZodType
-};

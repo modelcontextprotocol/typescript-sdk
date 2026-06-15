@@ -95,17 +95,6 @@ export type DecodedResult =
     | { kind: 'invalid'; error: SdkError };
 
 /**
- * Keys for the high-level method surfaces whose result validation is
- * deliberately narrower than the generic per-method registry entry. With the
- * registry result map aligned to the typed `ResultTypeMap` (no task-widened
- * unions), only `server.createMessage` qualifies: it picks its result schema
- * from the REQUEST params (tools vs no tools), which a method-keyed registry
- * entry cannot express. Every other high-level surface (`callTool`,
- * `elicitInput`) validates exactly its registry entry.
- */
-export type NarrowResultKey = 'sampling/createMessage:plain' | 'sampling/createMessage:withTools';
-
-/**
  * The per-era wire codec contract (design C §3, adapted to the live funnel
  * layout: the universal wire-only LIFT runs once in the protocol layer for
  * every message — spec, custom, and fallback paths alike — and codecs consume
@@ -122,9 +111,6 @@ export interface WireCodec {
     requestSchema(method: string): z.ZodType | undefined;
     resultSchema(method: string): z.ZodType | undefined;
     notificationSchema(method: string): z.ZodType | undefined;
-
-    /** Narrow high-level result schemas (see {@linkcode NarrowResultKey}). */
-    narrowResultSchema(key: NarrowResultKey): z.ZodType | undefined;
 
     /**
      * Step 1 of result decoding: RAW `resultType` handling BEFORE any schema

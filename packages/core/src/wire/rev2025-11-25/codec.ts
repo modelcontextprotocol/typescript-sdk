@@ -22,15 +22,8 @@
  * only, and it deletes — never reads, maps, or emits — the foreign value.
  */
 import type { Result } from '../../types/types.js';
-import type { DecodedResult, LiftedWireMaterial, NarrowResultKey, WireCodec } from '../codec.js';
-import {
-    getNotificationSchema,
-    getRequestSchema,
-    getResultSchema,
-    hasNotificationMethod2025,
-    hasRequestMethod2025,
-    narrowResultSchemas2025
-} from './registry.js';
+import type { DecodedResult, LiftedWireMaterial, WireCodec } from '../codec.js';
+import { getNotificationSchema, getRequestSchema, getResultSchema, hasNotificationMethod2025, hasRequestMethod2025 } from './registry.js';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -45,8 +38,6 @@ export const rev2025Codec: WireCodec = {
     requestSchema: method => getRequestSchema(method),
     resultSchema: method => getResultSchema(method),
     notificationSchema: method => getNotificationSchema(method),
-
-    narrowResultSchema: (key: NarrowResultKey) => narrowResultSchemas2025[key],
 
     decodeResult(_method: string, raw: unknown): DecodedResult {
         // Strip-on-lift (Q1-SD3 ii): a foreign `resultType` on the 2025 leg is
