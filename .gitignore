@@ -55,6 +55,3 @@ results/
 
 # Ignore local lefthook configuration
 lefthook-local.yml
-
-# API report scratch folders (committed reports live in packages/*/etc/)
-.api-extractor-tmp/

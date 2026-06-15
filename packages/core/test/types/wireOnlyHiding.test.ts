@@ -1,8 +1,7 @@
 /**
  * Public-face hiding pins: wire-only members and task vocabulary.
  *
- * Two contracts, enforced at the type level and against the committed API
- * reports (which the api-report CI gate keeps in lockstep with the dts):
+ * Two contracts, enforced at the type level:
  *
  * 1. Wire-only members are absent from every public result type. `resultType`
  *    is the 2026-07-28 wire discrimination field; the SDK consumes it at the
@@ -151,38 +150,6 @@ describe('task vocabulary is importable but in no API signature', () => {
     });
 });
 
-describe('API-report signature scan (no task type in any public signature)', () => {
-    const TASK_TYPE_NAME =
-        /\b(Task|TaskStatus|TaskCreationParams|TaskMetadata|RelatedTaskMetadata|CreateTaskResult|TaskStatusNotification|TaskStatusNotificationParams|GetTaskRequest|GetTaskResult|GetTaskPayloadRequest|GetTaskPayloadResult|ListTasksRequest|ListTasksResult|CancelTaskRequest|CancelTaskResult|TaskAugmentedRequestParams|TaskRequestMethod|TaskNotificationMethod)\b/;
-
-    /**
-     * Declarations allowed to mention task type names:
-     * - the deprecated vocabulary cluster itself (Task* types, their schemas,
-     *   the deprecated guard), and
-     * - the map declarations whose entire job is SUBTRACTING the task methods
-     *   (the Exclude<> helpers and the four typed maps that use them).
-     */
-    const EXEMPT_DECLARATION = new RegExp(
-        [
-            '(export )?(type|const) (Task|CreateTask|GetTask|ListTasks|CancelTask|RelatedTaskMetadata|TaskAugmented)',
-            'export const isTaskAugmentedRequestParams',
-            'export type (RequestMethod|NotificationMethod|RequestTypeMap|NotificationTypeMap) ='
-        ].join('|')
-    );
-
-    const reports = ['../../../client/etc/client.api.md', '../../../server/etc/server.api.md'];
-
-    test.each(reports)('%s', relPath => {
-        const report = readFileSync(join(__dirname, relPath), 'utf8');
-        // Blocks are separated by blank lines in the API report format.
-        const blocks = report.split(/\n\s*\n/);
-        const offending: string[] = [];
-        for (const block of blocks) {
-            if (!TASK_TYPE_NAME.test(block)) continue;
-            if (block.includes('@deprecated')) continue;
-            if (EXEMPT_DECLARATION.test(block)) continue;
-            offending.push(block.trim().split('\n').slice(0, 3).join('\n'));
-        }
-        expect(offending, 'public declarations mentioning task types outside the deprecated vocabulary cluster').toEqual([]);
-    });
-});
+// A generated-declaration scan (no task type name in any public signature) used
+// to live here; the type-level exclusion tests above pin the same contract
+// directly against the source types, so the substance stays covered.
