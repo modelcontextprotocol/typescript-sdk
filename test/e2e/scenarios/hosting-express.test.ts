@@ -24,7 +24,7 @@ import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/cli
 import { createMcpExpressApp, mcpAuthMetadataRouter, requireBearerAuth } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { OAuthMetadata } from '@modelcontextprotocol/server';
-import { McpServer, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
+import { LATEST_PROTOCOL_VERSION, McpServer, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
 import type { Express, RequestHandler } from 'express';
 import express from 'express';
 import { expect } from 'vitest';
@@ -475,13 +475,16 @@ verifies('hosting:express:adapter-host-header-validation', async ({ protocolVers
         expect(mcpRouteHits).toBe(0);
 
         // Control: the identical request with the real localhost Host reaches the transport and initializes normally.
+        // The negotiated version follows initialize semantics: a 2026-era request is answered with the latest legacy
+        // version (2026-era revisions are never negotiated via initialize); legacy requests are echoed back.
+        const negotiatedVersion = protocolVersion >= '2026-07-28' ? LATEST_PROTOCOL_VERSION : protocolVersion;
         const allowed = await postWithHost(new URL('/mcp', baseUrl), `127.0.0.1:${baseUrl.port}`, initializeBody);
         expect(allowed.status).toBe(200);
         const allowedJson: unknown = JSON.parse(allowed.body);
         expect(allowedJson).toMatchObject({
             jsonrpc: '2.0',
             id: 1,
-            result: { protocolVersion, serverInfo: { name: 'rebind-protected-server', version: '1.0.0' } }
+            result: { protocolVersion: negotiatedVersion, serverInfo: { name: 'rebind-protected-server', version: '1.0.0' } }
         });
         expect(mcpRouteHits).toBe(1);
     } finally {

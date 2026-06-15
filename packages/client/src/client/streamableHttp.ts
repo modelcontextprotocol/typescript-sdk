@@ -9,6 +9,7 @@ import {
     isJSONRPCResultResponse,
     JSONRPCMessageSchema,
     normalizeHeaders,
+    PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode,
     SdkHttpError
@@ -229,6 +230,27 @@ export class StreamableHTTPClientTransport implements Transport {
             ...headers,
             ...extraHeaders
         });
+    }
+
+    /**
+     * Body-derived per-request headers: when an outgoing request carries a
+     * protocol-version claim in its `_meta` envelope (the version negotiation
+     * probe is the first such sender), `MCP-Protocol-Version` and `Mcp-Method`
+     * derive from the message itself. The connection-level version slot is
+     * neither consulted nor mutated; messages without an envelope claim are
+     * untouched, so no 2026 header can appear on a legacy exchange.
+     */
+    private _applyBodyDerivedHeaders(headers: Headers, message: JSONRPCMessage | JSONRPCMessage[]): void {
+        if (Array.isArray(message) || !isJSONRPCRequest(message)) {
+            return;
+        }
+        const meta = (message.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
+        const envelopeVersion = meta?.[PROTOCOL_VERSION_META_KEY];
+        if (typeof envelopeVersion !== 'string') {
+            return;
+        }
+        headers.set('mcp-protocol-version', envelopeVersion);
+        headers.set('mcp-method', message.method);
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
@@ -541,6 +563,7 @@ export class StreamableHTTPClientTransport implements Transport {
             }
 
             const headers = await this._commonHeaders();
+            this._applyBodyDerivedHeaders(headers, message);
             headers.set('content-type', 'application/json');
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];

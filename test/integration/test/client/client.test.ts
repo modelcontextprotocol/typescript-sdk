@@ -6,6 +6,7 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
+    setNegotiatedProtocolVersion,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { McpServer, Server } from '@modelcontextprotocol/server';
@@ -174,10 +175,13 @@ test('should restore negotiated protocol version on transport when reconnecting 
 /***
  * Test: The negotiated protocol version (and with it the wire era) is connection state — it must
  * not survive into a fresh connect. A client whose previous connection negotiated the modern
- * revision (2026-07-28) must still be able to run a FRESH initialize handshake: `initialize` is
- * legacy-era vocabulary by definition (it is physically absent from the modern registry), so a
- * negotiated version left over from the dead connection would otherwise kill the handshake
- * locally before it reaches the transport.
+ * revision (2026-07-28) via server/discover must still be able to run a FRESH legacy initialize
+ * handshake: `initialize` is legacy-era vocabulary by definition (it is physically absent from
+ * the modern registry), so a negotiated version left over from the dead connection would
+ * otherwise kill the handshake locally before it reaches the transport.
+ *
+ * The modern era is reached through the real negotiation path (versionNegotiation + the
+ * server/discover probe) — never via initialize, which only negotiates legacy versions.
  */
 test('should run a fresh initialize handshake after close() when the previous connection negotiated the modern era', async () => {
     const MODERN_REVISION = '2026-07-28';
@@ -187,22 +191,41 @@ test('should run a fresh initialize handshake after close() when the previous co
         const server = new Server({ name: 'modern server', version: '1.0' }, { capabilities: {}, supportedProtocolVersions });
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await server.connect(serverTransport);
+        // Stand-in for the modern-era server entry (instance binding): mark the server instance
+        // as serving the modern era so it can answer the client's server/discover probe.
+        setNegotiatedProtocolVersion(server, MODERN_REVISION);
         await client.connect(clientTransport);
     };
 
-    const client = new Client({ name: 'test client', version: '1.0' }, { supportedProtocolVersions });
+    const connectLegacy = async (client: Client) => {
+        const server = new Server({ name: 'legacy server', version: '1.0' }, { capabilities: {} });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+    };
 
-    // First connection negotiates the modern revision: the instance now speaks the modern wire era.
+    // The client opts into negotiation: server/discover probe first, legacy initialize fallback.
+    const client = new Client({ name: 'test client', version: '1.0' }, { supportedProtocolVersions, versionNegotiation: { mode: 'auto' } });
+
+    // First connection negotiates the modern revision via server/discover: the instance now
+    // speaks the modern wire era.
     await connectModern(client);
     expect(client.getNegotiatedProtocolVersion()).toBe(MODERN_REVISION);
 
     await client.close();
 
-    // Fresh connect (new transport, no sessionId): the stale negotiated version is cleared, the
-    // handshake rides the pre-negotiation bootstrap pin (legacy era), and the connection
-    // can re-negotiate the modern revision.
+    // Fresh connect (new transport, no sessionId): the stale negotiated version is cleared and
+    // the connection re-negotiates from scratch — modern again here.
     await connectModern(client);
     expect(client.getNegotiatedProtocolVersion()).toBe(MODERN_REVISION);
+
+    await client.close();
+
+    // A fresh connect against a legacy-only server still runs the legacy initialize fallback:
+    // a leftover modern negotiated version would kill `initialize` locally (it is physically
+    // absent from the modern registry).
+    await connectLegacy(client);
+    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
 
     await client.close();
 });

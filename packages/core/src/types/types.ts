@@ -466,6 +466,7 @@ export type NotificationTypeMap = MethodToTypeMap<Exclude<ClientNotification | S
 export type ResultTypeMap = {
     ping: EmptyResult;
     initialize: InitializeResult;
+    'server/discover': DiscoverResult;
     'completion/complete': CompleteResult;
     'logging/setLevel': EmptyResult;
     'prompts/get': GetPromptResult;
@@ -630,14 +631,6 @@ export interface MessageClassification {
      * The exact protocol revision, when the classifier derived one.
      */
     revision?: string;
-
-    /**
-     * The per-request `_meta` envelope, when the classifier extracted it.
-     * Partial: whichever reserved keys the message actually carried —
-     * envelope requiredness is enforced per request at dispatch time, not at
-     * the classifying edge.
-     */
-    envelope?: Partial<RequestMetaEnvelope>;
 }
 
 /**

@@ -14,7 +14,7 @@ export const KNOWN_SPEC_VERSIONS = ['2025-11-25', '2026-07-28'] as const;
 export type SpecVersion = (typeof KNOWN_SPEC_VERSIONS)[number];
 
 /** The spec versions cells are registered for (the active matrix axis). */
-export const ALL_SPEC_VERSIONS = ['2025-11-25'] as const satisfies readonly SpecVersion[];
+export const ALL_SPEC_VERSIONS = ['2025-11-25', '2026-07-28'] as const satisfies readonly SpecVersion[];
 
 /**
  * Arguments every test body receives. Expand with new matrix axes here so

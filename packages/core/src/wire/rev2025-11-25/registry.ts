@@ -9,8 +9,9 @@
  * BEHAVIOR-FROZEN behind the Q10-L2 byte-identity suite: the request and
  * notification maps carry the full deliberate 2025-11-25 wire vocabulary,
  * including the task family (the #2248 wire-interop restore). The RESULT map
- * is the runtime/typed ALIGNED map (PR #2293 review): keyed by
- * `RequestMethod` so it cannot drift from the typed `ResultTypeMap` — no
+ * is the runtime/typed ALIGNED map (PR #2293 review): keyed by this era's
+ * subset of the typed `RequestMethod` set so it cannot drift from the typed
+ * `ResultTypeMap` — no
  * task-result union members and no `tasks/*` entries; a task-capable 2025
  * peer's `CreateTaskResult` answer fails the plain per-method schema as a
  * typed invalid-result error, and callers needing task interop pass an
@@ -87,15 +88,27 @@ export type Rev2025RequestMethod = WireRequest['method'];
 /** Every notification method in the 2025-era wire vocabulary. */
 export type Rev2025NotificationMethod = WireNotification['method'];
 
+/**
+ * The typed-method surface this era serves: the typed `RequestMethod` set
+ * minus methods whose wire vocabulary does not exist on this era (e.g.
+ * `server/discover`, which the typed maps carry but only the 2026-era
+ * registry serves). Deriving the subset from the era's own wire role unions
+ * keeps the both-direction drift guard: a typed 2025-era method without a map
+ * entry, or a map entry the era's wire vocabulary does not know, is a compile
+ * error.
+ */
+type Rev2025TypedRequestMethod = Extract<RequestMethod, Rev2025RequestMethod>;
+
 /* Runtime schema lookup — result schemas by method */
-// Keyed by `RequestMethod` and valued by `z.ZodType<ResultTypeMap[M]>` so the
-// runtime map and the typed `ResultTypeMap` cannot drift: a missing entry, an
-// extra key, or an entry that does not parse to the typed map's result type
-// is a compile error. No entry may be looser than the typed map (no
-// task-result union members) and no key may fall outside it (no `tasks/*`
-// entries — the task methods are 2025-11-25 wire vocabulary with no SDK
-// runtime; callers needing task interop pass an explicit schema).
-const resultSchemas: { readonly [M in RequestMethod]: z.ZodType<ResultTypeMap[M]> } = {
+// Keyed by the era's typed-method subset and valued by
+// `z.ZodType<ResultTypeMap[M]>` so the runtime map and the typed
+// `ResultTypeMap` cannot drift: a missing entry, an extra key, or an entry
+// that does not parse to the typed map's result type is a compile error. No
+// entry may be looser than the typed map (no task-result union members) and
+// no key may fall outside it (no `tasks/*` entries — the task methods are
+// 2025-11-25 wire vocabulary with no SDK runtime; callers needing task
+// interop pass an explicit schema).
+const resultSchemas: { readonly [M in Rev2025TypedRequestMethod]: z.ZodType<ResultTypeMap[M]> } = {
     ping: EmptyResultSchema,
     initialize: InitializeResultSchema,
     'completion/complete': CompleteResultSchema,
@@ -167,19 +180,19 @@ export function hasNotificationMethod2025(method: string): method is Rev2025Noti
     return Object.prototype.hasOwnProperty.call(notificationSchemas, method);
 }
 
-/** Result-map membership: exactly the typed `RequestMethod` set (no task entries). */
-function hasResultMethod(method: string): method is RequestMethod {
+/** Result-map membership: exactly the era's typed-method subset (no task entries, no 2026-only methods). */
+function hasResultMethod(method: string): method is Rev2025TypedRequestMethod {
     return Object.prototype.hasOwnProperty.call(resultSchemas, method);
 }
 
 /**
  * Gets the Zod schema for validating results of a given request method.
- * Returns `undefined` for non-spec methods.
+ * Returns `undefined` for non-spec methods and 2026-only methods.
  * The typed overload is backed by the map's own typing (`z.ZodType<ResultTypeMap[M]>`
- * per entry), so callers with a statically known method can use the parsed
- * value without a type assertion.
+ * per entry), so callers with a statically known 2025-era method can use the
+ * parsed value without a type assertion.
  */
-export function getResultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]>;
+export function getResultSchema<M extends Rev2025TypedRequestMethod>(method: M): z.ZodType<ResultTypeMap[M]>;
 export function getResultSchema(method: string): z.ZodType | undefined;
 export function getResultSchema(method: string): z.ZodType | undefined {
     return hasResultMethod(method) ? resultSchemas[method] : undefined;
@@ -187,11 +200,11 @@ export function getResultSchema(method: string): z.ZodType | undefined {
 
 /**
  * Gets the Zod schema for a given request method.
- * Returns `undefined` for non-spec methods.
+ * Returns `undefined` for non-spec methods and 2026-only methods.
  * The typed overload returns a ZodType that parses to `RequestTypeMap[M]`,
  * allowing callers to use `schema.parse()` without additional type assertions.
  */
-export function getRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]>;
+export function getRequestSchema<M extends Rev2025TypedRequestMethod>(method: M): z.ZodType<RequestTypeMap[M]>;
 export function getRequestSchema(method: string): z.ZodType | undefined;
 export function getRequestSchema(method: string): z.ZodType | undefined {
     return hasRequestMethod2025(method) ? requestSchemas[method] : undefined;

@@ -131,16 +131,15 @@ describe('Server', () => {
         });
 
         it('counter-offers only released versions when a draft revision is requested', async () => {
-            // ORDERING PIN — counter-offer leak guard. The initialize
-            // counter-offer is `supportedProtocolVersions[0]`: whatever sits at
-            // the head of that list is offered to EVERY legacy-era client whose
-            // requested version is unknown. Era-aware supported-version list
-            // semantics must therefore land BEFORE any LATEST/SUPPORTED
-            // constant bump that adds a 2026-era revision — bumping first
-            // would leak the modern revision into 2025-era initialize
-            // handshakes via this exact site. If this pin goes red because the
-            // constants moved, do NOT update it until the counter-offer is
-            // era-aware.
+            // ORDERING PIN — counter-offer leak guard. The initialize accept
+            // check and counter-offer are now ERA-AWARE: they consult only the
+            // legacy (pre-2026-07-28) subset of `supportedProtocolVersions`,
+            // because a 2026-07-28-or-later revision is never negotiated via
+            // the legacy initialize handshake (it is only selected through
+            // server/discover). This pin holds even after a future
+            // LATEST/SUPPORTED constant bump adds a modern revision: the
+            // counter-offer can never name it. The dual-era list arms live in
+            // discover.test.ts ("era-aware counter-offer ordering").
             const DRAFT_REVISION = '2026-07-28';
             expect(SUPPORTED_PROTOCOL_VERSIONS).not.toContain(DRAFT_REVISION);
             const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {} });

@@ -17,7 +17,12 @@ import { fileURLToPath } from 'node:url';
 
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { CallToolResultSchema, InitializeResultSchema, JSONRPCResultResponseSchema } from '@modelcontextprotocol/core';
+import {
+    CallToolResultSchema,
+    InitializeResultSchema,
+    JSONRPCResultResponseSchema,
+    LATEST_PROTOCOL_VERSION
+} from '@modelcontextprotocol/core';
 import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/server';
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
@@ -44,6 +49,17 @@ function initializeRequest(id: number, protocolVersion: string): JSONRPCRequest 
 }
 
 const INITIALIZED_NOTIFICATION: JSONRPCNotification = { jsonrpc: '2.0', method: 'notifications/initialized' };
+
+/**
+ * The protocol version a real SDK server negotiates for a raw `initialize`
+ * naming `requested`: 2026-era revisions are never negotiated via the legacy
+ * initialize handshake (they are only selected through `server/discover`), so
+ * the server answers with its latest legacy version instead of echoing the
+ * request.
+ */
+function expectedNegotiatedVersion(requested: string): string {
+    return requested >= '2026-07-28' ? LATEST_PROTOCOL_VERSION : requested;
+}
 
 /** Hand-built tools/call request for the echo tool exposed by both real servers used below. */
 function echoCallRequest(id: number): JSONRPCRequest {
@@ -158,7 +174,12 @@ async function rawRelayStdio(protocolVersion: string): Promise<void> {
         await transport.send(initializeRequest(1, protocolVersion));
         // Generous first wait: tsx compiles the fixture inside the freshly spawned child before it can answer.
         await vi.waitFor(() => expect(received).toHaveLength(1), { timeout: 10_000, interval: 25 });
-        expectInitializeResponse(defined(received[0], 'initialize response'), 1, protocolVersion, 'stdio-echo-server');
+        expectInitializeResponse(
+            defined(received[0], 'initialize response'),
+            1,
+            expectedNegotiatedVersion(protocolVersion),
+            'stdio-echo-server'
+        );
 
         // Forward the rest of a relay's traffic by hand: initialized notification, then a tools/call.
         await transport.send(INITIALIZED_NOTIFICATION);
@@ -206,7 +227,12 @@ async function rawRelayStreamableHttp(protocolVersion: string, stateless: boolea
         expect(records).toEqual([{ method: 'POST' }]);
 
         await vi.waitFor(() => expect(received).toHaveLength(1), { timeout: 5000, interval: 10 });
-        expectInitializeResponse(defined(received[0], 'initialize response'), 1, protocolVersion, 'raw-relay-http-server');
+        expectInitializeResponse(
+            defined(received[0], 'initialize response'),
+            1,
+            expectedNegotiatedVersion(protocolVersion),
+            'raw-relay-http-server'
+        );
 
         // Forward the rest of a relay's traffic by hand: initialized notification, then a tools/call.
         await transport.send(INITIALIZED_NOTIFICATION);
