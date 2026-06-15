@@ -1,15 +1,20 @@
 /**
- * Compares the SDK's types against the upcoming 2026-07-28 schema (spec.types.2026-07-28.ts).
- * The frozen-release comparison lives in spec.types.2025-11-25.test.ts.
+ * Per-revision parity: the 2026-era WIRE artifacts against the 2026-07-28
+ * anchor (spec.types.2026-07-28.ts). The frozen-release comparison lives in
+ * spec.types.2025-11-25.test.ts.
  *
- * The SDK does not implement the 2026-07-28 surface yet: every 2026-07-28 type whose shape the SDK
- * does not (yet) match is listed in MISSING_SDK_TYPES_2026_07_28 below. Removing a name from
- * that list forces a real mutual-assignability check to be added to sdkTypeChecks (the
- * completeness tests below fail otherwise) — implementation work burns the list down.
+ * Q1 increment 2 retired the old 67-name burn-down list (whose "permanent
+ * stratum" could never burn under a single shared schema set): the SDK now
+ * models era-specific wire shapes in `wire/rev2026-07-28/`, and everything
+ * that module models is compared here EXACTLY — wire-true request views
+ * (envelope-required `_meta`), resultType-required result wrappers, the
+ * forked Tool/SamplingMessage payloads, response envelopes, and discover.
  *
- * Unlike MISSING_SDK_TYPES in the 2025-11-25 comparison, names in this list may well
- * exist in the SDK (e.g. RequestParams) — they are listed because the 2026-07-28 revision changed
- * their shape, not necessarily because the SDK lacks them.
+ * What remains unmodeled lives in FEATURE_OWNED_PENDING_2026 below: every
+ * entry is OWNED by a named feature issue and is stale-checked — adding a
+ * check for a pending name forces the entry's removal, and the completeness
+ * tests fail on any spec type that is neither checked nor owned. There is no
+ * permanent stratum: when the owning features land, the list reaches zero.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -21,6 +26,8 @@ import {
 } from '../src/types/spec.types.2026-07-28.js';
 import type * as SpecTypes from '../src/types/spec.types.2026-07-28.js';
 import type * as SDKTypes from '../src/types/index.js';
+import type * as Wire2026 from '../src/wire/rev2026-07-28/schemas.js';
+import type * as z4 from 'zod/v4';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -36,6 +43,40 @@ type WithJSONRPC<T> = T & { jsonrpc: '2.0' };
 
 // Adds the `jsonrpc` and `id` properties to a type, to match the on-wire format of requests.
 type WithJSONRPCRequest<T> = T & { jsonrpc: '2.0'; id: SDKTypes.RequestId };
+
+/* The 2026-era wire artifacts under comparison (inferred from the era module's
+ * Zod schemas — the same objects the codec parses with). */
+type WResult = z4.infer<typeof Wire2026.ResultSchema>;
+type WResultType = z4.infer<typeof Wire2026.ResultTypeSchema>;
+type WPaginatedResult = z4.infer<typeof Wire2026.PaginatedResultSchema>;
+type WCacheableResult = z4.infer<typeof Wire2026.CacheableResultSchema>;
+type WCallToolResult = z4.infer<typeof Wire2026.CallToolResultSchema>;
+type WCompleteResult = z4.infer<typeof Wire2026.CompleteResultSchema>;
+type WGetPromptResult = z4.infer<typeof Wire2026.GetPromptResultSchema>;
+type WListPromptsResult = z4.infer<typeof Wire2026.ListPromptsResultSchema>;
+type WListResourceTemplatesResult = z4.infer<typeof Wire2026.ListResourceTemplatesResultSchema>;
+type WListResourcesResult = z4.infer<typeof Wire2026.ListResourcesResultSchema>;
+type WListToolsResult = z4.infer<typeof Wire2026.ListToolsResultSchema>;
+type WReadResourceResult = z4.infer<typeof Wire2026.ReadResourceResultSchema>;
+type WDiscoverResult = z4.infer<typeof Wire2026.DiscoverResultSchema>;
+type WTool = z4.infer<typeof Wire2026.ToolSchema>;
+type WSamplingMessage = z4.infer<typeof Wire2026.SamplingMessageSchema>;
+type WJSONRPCResultResponse = z4.infer<typeof Wire2026.JSONRPCResultResponseSchema>;
+type WCompleteRequest = z4.infer<typeof Wire2026.CompleteRequestSchema>;
+type WListPromptsRequest = z4.infer<typeof Wire2026.ListPromptsRequestSchema>;
+type WListResourceTemplatesRequest = z4.infer<typeof Wire2026.ListResourceTemplatesRequestSchema>;
+type WListResourcesRequest = z4.infer<typeof Wire2026.ListResourcesRequestSchema>;
+type WListToolsRequest = z4.infer<typeof Wire2026.ListToolsRequestSchema>;
+type WReadResourceRequest = z4.infer<typeof Wire2026.ReadResourceRequestSchema>;
+type WDiscoverRequest = z4.infer<typeof Wire2026.DiscoverRequestSchema>;
+// Param/base shapes derived from the request views (no second source of truth):
+type WRequestParams = NonNullable<WDiscoverRequest['params']>;
+type WPaginatedRequestParams = WListToolsRequest['params'];
+type WResourceRequestParams = WReadResourceRequest['params'];
+type WCompleteRequestParams = WCompleteRequest['params'];
+// PaginatedRequest in the anchor keeps `method: string` (it is the base, not
+// a concrete method) — composed from the derived params shape.
+type WPaginatedRequest = WithJSONRPCRequest<{ method: string; params: WPaginatedRequestParams }>;
 
 const sdkTypeChecks = {
     JSONValue: (sdk: SDKTypes.JSONValue, spec: SpecTypes.JSONValue) => {
@@ -378,126 +419,245 @@ const sdkTypeChecks = {
     }
 };
 
+/* 2026-era wire parity checks (Q1 increment 2) — appended to sdkTypeChecks. */
+const wireParityChecks = {
+    Result: (sdk: WResult, spec: SpecTypes.Result) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ResultType: (sdk: WResultType, spec: SpecTypes.ResultType) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    EmptyResult: (sdk: WResult, spec: SpecTypes.EmptyResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ClientResult: (sdk: WResult, spec: SpecTypes.ClientResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    PaginatedResult: (sdk: WPaginatedResult, spec: SpecTypes.PaginatedResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CacheableResult: (sdk: WCacheableResult, spec: SpecTypes.CacheableResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CallToolResult: (sdk: WCallToolResult, spec: SpecTypes.CallToolResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CompleteResult: (sdk: WCompleteResult, spec: SpecTypes.CompleteResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetPromptResult: (sdk: WGetPromptResult, spec: SpecTypes.GetPromptResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListPromptsResult: (sdk: WListPromptsResult, spec: SpecTypes.ListPromptsResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListResourceTemplatesResult: (sdk: WListResourceTemplatesResult, spec: SpecTypes.ListResourceTemplatesResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListResourcesResult: (sdk: WListResourcesResult, spec: SpecTypes.ListResourcesResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListToolsResult: (sdk: WListToolsResult, spec: SpecTypes.ListToolsResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ReadResourceResult: (sdk: WReadResourceResult, spec: SpecTypes.ReadResourceResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    DiscoverResult: (sdk: WDiscoverResult, spec: SpecTypes.DiscoverResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    DiscoverRequest: (sdk: WithJSONRPCRequest<WDiscoverRequest>, spec: SpecTypes.DiscoverRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    Tool: (sdk: WTool, spec: SpecTypes.Tool) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SamplingMessage: (sdk: WSamplingMessage, spec: SpecTypes.SamplingMessage) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SamplingMessageContentBlock: (
+        sdk: z4.infer<typeof Wire2026.SamplingMessageContentBlockSchema>,
+        spec: SpecTypes.SamplingMessageContentBlock
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ToolResultContent: (sdk: z4.infer<typeof Wire2026.ToolResultContentSchema>, spec: SpecTypes.ToolResultContent) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    Notification: (sdk: SDKTypes.Notification, spec: SpecTypes.Notification) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    JSONRPCResultResponse: (sdk: WJSONRPCResultResponse, spec: SpecTypes.JSONRPCResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    JSONRPCResponse: (sdk: WJSONRPCResultResponse | SDKTypes.JSONRPCErrorResponse, spec: SpecTypes.JSONRPCResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    JSONRPCMessage: (
+        sdk: SDKTypes.JSONRPCRequest | WithJSONRPC<SDKTypes.JSONRPCNotification> | WJSONRPCResultResponse | SDKTypes.JSONRPCErrorResponse,
+        spec: SpecTypes.JSONRPCMessage
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CompleteResultResponse: (sdk: z4.infer<typeof Wire2026.CompleteResultResponseSchema>, spec: SpecTypes.CompleteResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListPromptsResultResponse: (
+        sdk: z4.infer<typeof Wire2026.ListPromptsResultResponseSchema>,
+        spec: SpecTypes.ListPromptsResultResponse
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListResourceTemplatesResultResponse: (
+        sdk: z4.infer<typeof Wire2026.ListResourceTemplatesResultResponseSchema>,
+        spec: SpecTypes.ListResourceTemplatesResultResponse
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListResourcesResultResponse: (
+        sdk: z4.infer<typeof Wire2026.ListResourcesResultResponseSchema>,
+        spec: SpecTypes.ListResourcesResultResponse
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListToolsResultResponse: (sdk: z4.infer<typeof Wire2026.ListToolsResultResponseSchema>, spec: SpecTypes.ListToolsResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    DiscoverResultResponse: (sdk: z4.infer<typeof Wire2026.DiscoverResultResponseSchema>, spec: SpecTypes.DiscoverResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    RequestParams: (sdk: WRequestParams, spec: SpecTypes.RequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    PaginatedRequestParams: (sdk: WPaginatedRequestParams, spec: SpecTypes.PaginatedRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ResourceRequestParams: (sdk: WResourceRequestParams, spec: SpecTypes.ResourceRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CompleteRequestParams: (sdk: WCompleteRequestParams, spec: SpecTypes.CompleteRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    PaginatedRequest: (sdk: WPaginatedRequest, spec: SpecTypes.PaginatedRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CompleteRequest: (sdk: WithJSONRPCRequest<WCompleteRequest>, spec: SpecTypes.CompleteRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListPromptsRequest: (sdk: WithJSONRPCRequest<WListPromptsRequest>, spec: SpecTypes.ListPromptsRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListResourceTemplatesRequest: (
+        sdk: WithJSONRPCRequest<WListResourceTemplatesRequest>,
+        spec: SpecTypes.ListResourceTemplatesRequest
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListResourcesRequest: (sdk: WithJSONRPCRequest<WListResourcesRequest>, spec: SpecTypes.ListResourcesRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListToolsRequest: (sdk: WithJSONRPCRequest<WListToolsRequest>, spec: SpecTypes.ListToolsRequest) => {
+        sdk = spec;
+        spec = sdk;
+    }
+};
+
+const allTypeChecks = { ...sdkTypeChecks, ...wireParityChecks };
+
 // Generated from the 2026-07-28 schema by `pnpm run fetch:spec-types 2026-07-28 <sha>`.
 const SPEC_TYPES_FILE = path.resolve(__dirname, '../src/types/spec.types.2026-07-28.ts');
 
 /**
- * 2026-07-28 spec types the SDK does not match yet. Spec-implementation work for the
- * 2026-07-28 release removes entries from this list as the SDK adopts each shape.
+ * Spec types the 2026-era wire module does not model yet — every entry is
+ * OWNED by a named feature issue (no permanent stratum; the list reaches
+ * zero as the owners land). Adding a parity check for one of these names
+ * forces the entry's removal (stale-check below).
  */
-const MISSING_SDK_TYPES_2026_07_28 = [
+const FEATURE_OWNED_PENDING_2026: Record<string, string> = {
     // Inlined in the SDK (same as the 2025-11-25 comparison):
-    'Error', // The inner error object of a JSONRPCError
+    Error: 'the inner error object of a JSONRPCError is inlined in the SDK',
 
-    // SEP-2575 per-request envelope: 2026-07-28 requests REQUIRE a `_meta` envelope
-    // (`io.modelcontextprotocol/protocolVersion`, clientInfo, clientCapabilities). The
-    // envelope itself is modeled by RequestMetaEnvelope (see sdkTypeChecks above); the
-    // request shapes below stay here because the SDK wire schemas deliberately keep
-    // `_meta` lenient — the same schemas parse pre-2026 requests (no envelope) and 2026
-    // requests, with envelope requiredness enforced per request at dispatch. They burn
-    // only if the SDK ever models era-specific request types.
-    'RequestParams',
-    'PaginatedRequestParams',
-    'ResourceRequestParams',
-    'CallToolRequestParams',
-    'CompleteRequestParams',
-    'GetPromptRequestParams',
-    'ReadResourceRequestParams',
-    'CreateMessageRequestParams',
-    'PaginatedRequest',
-    'CallToolRequest',
-    'CompleteRequest',
-    'GetPromptRequest',
-    'ListPromptsRequest',
-    'ListResourceTemplatesRequest',
-    'ListResourcesRequest',
-    'ListRootsRequest',
-    'ListToolsRequest',
-    'ReadResourceRequest',
-    'CreateMessageRequest',
-    'ClientRequest',
+    // M4.1 MRTR (#13): the in-band input-request surface and the demoted
+    // sampling/elicitation/roots shapes (wire requests in 2025, in-band
+    // InputRequest payloads in 2026 — the SDK models them when the
+    // multi-round-trip driver lands):
+    InputRequest: 'M4.1 MRTR (#13)',
+    InputRequests: 'M4.1 MRTR (#13)',
+    InputRequiredResult: 'M4.1 MRTR (#13)',
+    InputResponse: 'M4.1 MRTR (#13)',
+    InputResponseRequestParams: 'M4.1 MRTR (#13)',
+    InputResponses: 'M4.1 MRTR (#13)',
+    CreateMessageRequest: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
+    CreateMessageRequestParams: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
+    CreateMessageResult: 'M4.1 MRTR (#13) — in-band response shape',
+    ElicitResult: 'M4.1 MRTR (#13) — in-band response shape',
+    ListRootsRequest: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
+    ListRootsResult: 'M4.1 MRTR (#13) — in-band response shape',
+    ServerResult: 'M4.1 MRTR (#13) — the union gains InputRequiredResult',
+    CallToolRequestParams: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
+    CallToolRequest: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
+    GetPromptRequestParams: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
+    GetPromptRequest: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
+    ReadResourceRequestParams: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
+    ReadResourceRequest: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
+    CallToolResultResponse: 'M4.1 MRTR (#13) — the result union gains InputRequiredResult',
+    GetPromptResultResponse: 'M4.1 MRTR (#13) — the result union gains InputRequiredResult',
+    ReadResourceResultResponse: 'M4.1 MRTR (#13) — the result union gains InputRequiredResult',
 
-    // SEP-2322 (MRTR) → PR for MRTR: 2026-07-28 results carry a required `resultType`
-    // discriminator. The SDK base result schema carries `resultType` as an optional
-    // passthrough only (absent means "complete"); per-result modeling lands with MRTR.
-    'Result',
-    'EmptyResult',
-    'PaginatedResult',
-    'CallToolResult',
-    'CompleteResult',
-    'ElicitResult',
-    'GetPromptResult',
-    'ListPromptsResult',
-    'ListResourceTemplatesResult',
-    'ListResourcesResult',
-    'ListRootsResult',
-    'ListToolsResult',
-    'ReadResourceResult',
-    'CreateMessageResult',
-    'ClientResult',
-    'ServerResult',
-    'ResultType',
+    // M6.1 subscriptions/listen (#14):
+    SubscriptionFilter: 'M6.1 subscriptions/listen (#14)',
+    SubscriptionsAcknowledgedNotification: 'M6.1 subscriptions/listen (#14)',
+    SubscriptionsAcknowledgedNotificationParams: 'M6.1 subscriptions/listen (#14)',
+    SubscriptionsListenRequest: 'M6.1 subscriptions/listen (#14)',
+    SubscriptionsListenRequestParams: 'M6.1 subscriptions/listen (#14)',
+    ClientRequest: 'M6.1 subscriptions/listen (#14) — the union gains SubscriptionsListenRequest',
+    ServerNotification: 'M6.1 subscriptions/listen (#14) — the union gains the acknowledged notification',
 
-    // SEP-2549 cacheable results: `ttlMs`/`cacheScope` caching hints on the list/read
-    // result shapes → PR for SEP-2549:
-    'CacheableResult',
+    // M1.2 validation ladder (#8): the per-code error response envelopes:
+    MissingRequiredClientCapabilityError: 'M1.2 validation ladder (#8)',
+    UnsupportedProtocolVersionError: 'M1.2 validation ladder (#8)'
+};
 
-    // Response envelopes embedding the changed Result shape → PR for MRTR:
-    'JSONRPCResultResponse',
-    'JSONRPCResponse',
-    'JSONRPCMessage',
-    'CallToolResultResponse',
-    'CompleteResultResponse',
-    'GetPromptResultResponse',
-    'ListPromptsResultResponse',
-    'ListResourceTemplatesResultResponse',
-    'ListResourcesResultResponse',
-    'ListToolsResultResponse',
-    'ReadResourceResultResponse',
-
-    // SEP-2575 sessionless discovery: the SDK ships the wire shapes
-    // (DiscoverRequestSchema / DiscoverResultSchema), but the 2026-07-28 shapes embed the
-    // required `_meta` envelope (request) and required `resultType` (result → MRTR PR),
-    // and DiscoverResult now extends CacheableResult (required `ttlMs`/`cacheScope`
-    // → PR for SEP-2549), so they do not match yet; DiscoverResultResponse is a
-    // response wrapper (→ MRTR PR):
-    'DiscoverRequest',
-    'DiscoverResult',
-    'DiscoverResultResponse',
-
-    // SEP-2567 input requests/responses (new surface) → PR for MRTR:
-    'InputRequest',
-    'InputRequests',
-    'InputRequiredResult',
-    'InputResponse',
-    'InputResponseRequestParams',
-    'InputResponses',
-
-    // 2026-07-28 subscriptions surface (new) → PR for subscriptions/listen:
-    'SubscriptionFilter',
-    'SubscriptionsAcknowledgedNotification',
-    'SubscriptionsAcknowledgedNotificationParams',
-    'SubscriptionsListenRequest',
-    'SubscriptionsListenRequestParams',
-
-    // New typed protocol errors: the SDK ships -32003/-32004 as ProtocolErrorCode
-    // entries plus the UnsupportedProtocolVersionError class (errors.ts); the spec's
-    // per-code error *response envelope* interfaces are not modeled as wire types:
-    'MissingRequiredClientCapabilityError',
-    'UnsupportedProtocolVersionError',
-
-    // Other shapes changed in the 2026-07-28 schema: sampling content changes (SamplingMessage,
-    // SamplingMessageContentBlock, ToolResultContent) → backchannel PR; open tool
-    // input/output schema typing (Tool); loosened Notification.params (Notification);
-    // server notification union, which gains the subscriptions ack (ServerNotification →
-    // PR for subscriptions/listen):
-    'SamplingMessage',
-    'SamplingMessageContentBlock',
-    'ToolResultContent',
-    'Tool',
-    'Notification',
-    'ServerNotification'
-];
+const MISSING_SDK_TYPES_2026_07_28 = Object.keys(FEATURE_OWNED_PENDING_2026);
 
 function extractExportedTypes(source: string): string[] {
     const matches = [...source.matchAll(/export\s+(?:interface|class|type)\s+(\w+)\b/g)];
@@ -540,7 +700,7 @@ describe('Spec Types (2026-07-28)', () => {
         const missingTests = [];
 
         for (const typeName of typesToCheck) {
-            if (!sdkTypeChecks[typeName as keyof typeof sdkTypeChecks]) {
+            if (!allTypeChecks[typeName as keyof typeof allTypeChecks]) {
                 missingTests.push(typeName);
             }
         }
@@ -548,12 +708,15 @@ describe('Spec Types (2026-07-28)', () => {
         expect(missingTests).toHaveLength(0);
     });
 
-    describe('Missing SDK Types', () => {
-        it.each(MISSING_SDK_TYPES_2026_07_28)(
-            '%s should not be present in MISSING_SDK_TYPES_2026_07_28 if it has a compatibility test',
-            type => {
-                expect(sdkTypeChecks[type as keyof typeof sdkTypeChecks]).toBeUndefined();
+    describe('Feature-owned pending entries', () => {
+        it.each(MISSING_SDK_TYPES_2026_07_28)('%s must not be pending once it has a parity check (stale-check)', type => {
+            expect(allTypeChecks[type as keyof typeof allTypeChecks]).toBeUndefined();
+        });
+
+        it('every pending entry names its owner', () => {
+            for (const [name, owner] of Object.entries(FEATURE_OWNED_PENDING_2026)) {
+                expect(owner.length, name).toBeGreaterThan(0);
             }
-        );
+        });
     });
 });
