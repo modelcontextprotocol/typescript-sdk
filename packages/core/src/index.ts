@@ -14,8 +14,8 @@ export * from './shared/uriTemplate.js';
 export * from './types/index.js';
 export * from './util/inMemory.js';
 // Wire-codec internals: ONLY the version→codec resolver the sibling packages
-// need (era state itself lives on Protocol and is reached through the
-// package-internal accessors exported by shared/protocol.ts). Nothing
+// need (era state itself lives on Protocol and is written through the
+// package-internal write hook exported by shared/protocol.ts). Nothing
 // per-revision (schemas, registries, codec objects) is ever exported — not
 // even on this internal barrel — so per-era vocabulary cannot leak toward the
 // public surface.

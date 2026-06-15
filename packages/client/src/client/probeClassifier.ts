@@ -55,8 +55,10 @@ export interface ProbeClassifierContext {
     requestedVersion: string;
     /**
      * Whether a legacy `initialize` fallback is possible — `false` for a
-     * modern-only client and for `pin` mode, where rows that would otherwise
-     * fall back yield a typed `UnsupportedProtocolVersionError` instead.
+     * modern-only client and for `pin` mode. Without a fallback, rows carrying
+     * definitive modern evidence but no version overlap yield a typed
+     * `UnsupportedProtocolVersionError`; rows that would otherwise fall back
+     * conservatively surface a typed negotiation error instead.
      */
     fallbackAvailable: boolean;
     /** See {@linkcode ProbeEnvironment}. */
