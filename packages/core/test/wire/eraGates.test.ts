@@ -418,6 +418,25 @@ describe('the edge→instance handoff — classification is validated, never an 
         expect(h.errors.some(e => e.message.includes('Era mismatch'))).toBe(true);
     });
 
+    test('the rejection’s data.requested names the exact revision the classification carried, not just the era label', async () => {
+        const h = await harness({
+            era: '2026-07-28',
+            setup: receiver => {
+                receiver.setRequestHandler('tools/list', () => ({ tools: [] }));
+            }
+        });
+
+        h.deliver({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} } as JSONRPCMessage, {
+            era: 'legacy',
+            revision: '2025-06-18'
+        });
+        await h.flush();
+
+        const error = errorOf(h.sent[0]) as { code: number; data?: { requested?: string } } | undefined;
+        expect(error?.code).toBe(-32004);
+        expect(error?.data?.requested).toBe('2025-06-18');
+    });
+
     test('a modern-classified notification on a legacy-era instance is dropped, with onerror', async () => {
         let delivered = 0;
         const h = await harness({
@@ -495,6 +514,24 @@ describe('outbound era gates — typed local error before the transport', () => 
         await expect(h.receiver.notification({ method: 'notifications/roots/list_changed' })).rejects.toMatchObject({
             code: SdkErrorCode.MethodNotSupportedByProtocolVersion
         });
+        expect(h.sent).toHaveLength(0);
+    });
+
+    test('_requestWithSchema applies the same outbound era gate: an explicit schema never smuggles a deleted method', async () => {
+        const h = await harness({ era: '2026-07-28' });
+        const requestWithSchema = (
+            h.receiver as unknown as {
+                _requestWithSchema: (request: { method: string }, schema: unknown) => Promise<unknown>;
+            }
+        )._requestWithSchema.bind(h.receiver);
+
+        expect(() => requestWithSchema({ method: 'ping' }, z.object({}))).toThrow(SdkError);
+        try {
+            requestWithSchema({ method: 'ping' }, z.object({}));
+        } catch (error) {
+            expect((error as SdkError).code).toBe(SdkErrorCode.MethodNotSupportedByProtocolVersion);
+            expect((error as SdkError).data).toMatchObject({ method: 'ping', era: '2026-07-28' });
+        }
         expect(h.sent).toHaveLength(0);
     });
 

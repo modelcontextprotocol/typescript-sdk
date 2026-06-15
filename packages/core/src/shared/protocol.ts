@@ -732,13 +732,21 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         `Era mismatch on inbound request '${request.method}': classified as ${classified} but this instance serves ${codec.era}`
                     )
                 );
-                sendErrorResponse(ProtocolErrorCode.UnsupportedProtocolVersion, `Unsupported protocol version: ${classified}`, {
+                // `requested` echoes the protocol version the classification
+                // actually named when it carried one; the wire-era label is
+                // only the fallback for classifications without an exact
+                // revision.
+                const requested = extra.classification.revision ?? classified;
+                sendErrorResponse(ProtocolErrorCode.UnsupportedProtocolVersion, `Unsupported protocol version: ${requested}`, {
                     // Per spec, `supported` is the full list of protocol
                     // versions the receiver supports — not just the version
                     // this connection is on — so the peer can pick a mutually
-                    // supported version from the error alone.
+                    // supported version from the error alone. (Revisit when
+                    // instances are bound to the modern era at the entry: a
+                    // bound instance's configured list may not name the
+                    // revision it was bound to.)
                     supported: this._supportedProtocolVersions,
-                    requested: classified
+                    requested
                 });
                 return;
             }
