@@ -49,7 +49,6 @@ import {
     CreateMessageResultWithToolsSchema,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
-    isModernProtocolVersion,
     LATEST_PROTOCOL_VERSION,
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
@@ -171,10 +170,8 @@ export type ClientOptions = ProtocolOptions & {
      * - `mode: { pin: '2026-07-28' }` — modern era at exactly the pinned revision;
      *   no probe-and-fallback: anything else fails loudly.
      *
-     * Probe policy lives under `probe: { timeoutMs?, maxRetries? }`; the probe
-     * inherits the client's standard request timeout unless overridden. Note
-     * `maxRetries` governs timeout re-sends only — the `-32004` corrective
-     * continuation is spec-mandated and not counted against it.
+     * Probe policy lives under `probe: { timeoutMs? }`; the probe inherits the
+     * client's standard request timeout unless overridden.
      */
     versionNegotiation?: VersionNegotiationOptions;
 
@@ -653,22 +650,6 @@ export class Client extends Protocol<ClientContext> {
      */
     getNegotiatedProtocolVersion(): string | undefined {
         return this._negotiatedProtocolVersion;
-    }
-
-    /**
-     * The protocol era of the current connection: `'modern'` for a 2026-07-28+
-     * connection negotiated via `server/discover`, `'legacy'` for a 2025
-     * `initialize` handshake (including the plain connect without
-     * `versionNegotiation`). `undefined` before negotiation completes. A thin
-     * read of the negotiated protocol version (the same connection state
-     * {@linkcode getNegotiatedProtocolVersion} exposes) — never persisted.
-     */
-    getProtocolEra(): 'legacy' | 'modern' | undefined {
-        const version = this._negotiatedProtocolVersion;
-        if (version === undefined) {
-            return undefined;
-        }
-        return isModernProtocolVersion(version) ? 'modern' : 'legacy';
     }
 
     /**

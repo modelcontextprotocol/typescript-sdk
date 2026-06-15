@@ -999,7 +999,6 @@ const client = new Client(
 );
 await client.connect(transport);
 
-client.getProtocolEra(); // 'modern' | 'legacy'
 client.getNegotiatedProtocolVersion(); // e.g. '2026-07-28' or '2025-11-25'
 ```
 
@@ -1021,13 +1020,10 @@ Probe policy is configured under `versionNegotiation.probe`:
 versionNegotiation: {
     mode: 'auto',
     probe: {
-        timeoutMs: 10_000, // default: the standard request timeout
-        maxRetries: 1 // default: 0
+        timeoutMs: 10_000 // default: the standard request timeout
     }
 }
 ```
-
-Note that `maxRetries` governs timeout re-sends only; the `-32004` corrective continuation (selecting a mutually supported version after a version rejection and continuing) is mandated by the specification and is not counted against it.
 
 On the server side, a `Server`/`McpServer` whose `supportedProtocolVersions` list includes a 2026-era revision installs a `server/discover` handler, advertising only its modern revisions; servers with the default version list are byte-identical to before (they keep
 answering `-32601`, and the `initialize` handshake only ever negotiates 2025-era versions — a 2026-era revision is never accepted or counter-offered there). The client can also issue the request directly via `client.discover()` on a 2026-era connection; on a 2025-era

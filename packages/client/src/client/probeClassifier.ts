@@ -45,8 +45,8 @@ export type ProbeOutcome =
     /** The HTTP layer rejected the probe POST (non-2xx); `body` is the raw response text, when available. */
     | { kind: 'http-error'; status: number; body?: string }
     | { kind: 'network-error'; error: unknown }
-    /** No response arrived within the probe timeout, after all timeout re-sends. */
-    | { kind: 'timeout'; timeoutMs: number; attempts: number };
+    /** No response arrived within the probe timeout. */
+    | { kind: 'timeout'; timeoutMs: number };
 
 export interface ProbeClassifierContext {
     /** Modern-era versions this client can negotiate, in preference order (never empty). */
@@ -118,11 +118,9 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
             // matrix keys the HTTP legacy signal to a 4xx, never to silence).
             return {
                 kind: 'error',
-                error: new SdkError(
-                    SdkErrorCode.RequestTimeout,
-                    `Version negotiation probe timed out after ${outcome.attempts} attempt(s)`,
-                    { timeout: outcome.timeoutMs, attempts: outcome.attempts }
-                )
+                error: new SdkError(SdkErrorCode.RequestTimeout, `Version negotiation probe timed out after ${outcome.timeoutMs}ms`, {
+                    timeout: outcome.timeoutMs
+                })
             };
         }
     }

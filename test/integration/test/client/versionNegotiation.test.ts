@@ -110,7 +110,6 @@ describe('version negotiation against real legacy servers (wire-real first-conta
         expect(probeBody.error.message).toContain('supported versions:');
 
         // Conservative fallback on the same connection.
-        expect(client.getProtocolEra()).toBe('legacy');
         expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
 
         // Fallback hygiene: ZERO 2026 headers on every post-probe request.
@@ -146,7 +145,7 @@ describe('version negotiation against real legacy servers (wire-real first-conta
         expect(probeBody.error.code).toBe(-32_000);
         expect(probeBody.error.message).toBe('Bad Request: Server not initialized');
 
-        expect(client.getProtocolEra()).toBe('legacy');
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
         const result = await client.callTool({ name: 'echo', arguments: { text: 'stateful' } });
         expect(result.content).toEqual([{ type: 'text', text: 'stateful' }]);
     });
@@ -198,7 +197,7 @@ describe('typed connect errors (Q12) over real sockets', () => {
         );
     });
 
-    it('probe timeout: typed timeout error after maxRetries, no initialize ever sent', async () => {
+    it('probe timeout: typed timeout error, no initialize ever sent', async () => {
         // A server that accepts the request and never responds.
         const hang = createServer(() => {
             /* never answer */
@@ -208,7 +207,7 @@ describe('typed connect errors (Q12) over real sockets', () => {
         const { calls, fetchFn } = recordingFetch();
         const client = new Client(
             { name: 'neg-client', version: '1.0.0' },
-            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 300, maxRetries: 1 } } }
+            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 300 } } }
         );
         const transport = new StreamableHTTPClientTransport(url, { fetch: fetchFn });
 
@@ -216,7 +215,7 @@ describe('typed connect errors (Q12) over real sockets', () => {
             error => error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout
         );
 
-        // Two probe attempts (initial + 1 retry), zero initialize POSTs.
+        // Probe POSTs only — zero initialize POSTs.
         const posts = calls.filter(c => c.method === 'POST');
         expect(posts.every(c => c.headers['mcp-method'] === 'server/discover')).toBe(true);
         expect(posts.every(c => (c.body ?? '').includes('server/discover'))).toBe(true);
@@ -275,12 +274,11 @@ describe('stdio: silent legacy server (probe timeout fallback)', () => {
         });
         const client = new Client(
             { name: 'neg-client', version: '1.0.0' },
-            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 500, maxRetries: 1 } } }
+            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 500 } } }
         );
 
         try {
             await client.connect(transport);
-            expect(client.getProtocolEra()).toBe('legacy');
             expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
             expect(client.getServerVersion()?.name).toBe('silent-legacy-stdio-server');
         } finally {

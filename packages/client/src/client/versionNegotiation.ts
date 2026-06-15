@@ -38,31 +38,17 @@ import { classifyProbeOutcome } from './probeClassifier.js';
  */
 export interface VersionNegotiationProbeOptions {
     /**
-     * Timeout for a single probe exchange, in milliseconds.
+     * Timeout for the probe exchange, in milliseconds.
+     *
+     * The timeout verdict is transport-aware: on stdio, a probe that gets no
+     * response within the timeout indicates a legacy server and falls back to
+     * the `initialize` handshake on the same stream; on HTTP, where a deployed
+     * server answers and silence means an outage, `connect()` rejects with the
+     * standard typed timeout error instead.
      *
      * @default the standard request timeout (`DEFAULT_REQUEST_TIMEOUT_MSEC`, or the `timeout` passed to `connect()`)
      */
     timeoutMs?: number;
-
-    /**
-     * How many times a TIMED-OUT probe is re-sent before the timeout verdict
-     * applies.
-     *
-     * `maxRetries` governs timeout re-sends only; the `-32004` corrective
-     * continuation (select-and-continue on a mutual version) is spec-mandated
-     * and is not counted against it.
-     *
-     * The timeout verdict is transport-aware: on stdio, a probe that gets no
-     * response within the timeout (after all retries) indicates a legacy
-     * server and falls back to the `initialize` handshake on the same stream
-     * (the stdio transport's backward-compatibility rule — some legacy
-     * servers do not respond to unknown pre-`initialize` requests at all).
-     * On HTTP, where a deployed server answers and silence means an outage,
-     * `connect()` rejects with the standard typed timeout error instead.
-     *
-     * @default 0
-     */
-    maxRetries?: number;
 }
 
 /**
@@ -177,9 +163,6 @@ type RawProbeReply =
  * transport) takes over the already-started channel without a double-start error.
  */
 class ProbeWindow {
-    /** Inbound messages dropped (with zero bytes written back) while the window was open. */
-    droppedInboundMessages = 0;
-
     private _pending: { id: string; resolve: (reply: RawProbeReply) => void } | undefined;
     private _probeCounter = 0;
 
@@ -202,8 +185,7 @@ class ProbeWindow {
                 }
                 return;
             }
-            // Probe-window guard: drop everything else with zero bytes (see module doc).
-            window.droppedInboundMessages++;
+            // Probe-window guard: drop everything else with zero bytes written back (see module doc).
         };
         transport.onerror = () => {
             // Out-of-band transport errors are not necessarily fatal; the probe
@@ -284,7 +266,7 @@ export function buildProbeRequest(
     };
 }
 
-function normalizeReply(reply: RawProbeReply, timeoutMs: number, attempts: number): ProbeOutcome {
+function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
     switch (reply.kind) {
         case 'response': {
             return reply.error === undefined ? { kind: 'result', result: reply.result } : { kind: 'rpc-error', ...reply.error };
@@ -306,7 +288,7 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number, attempts: numbe
             return { kind: 'network-error', error: new Error('Connection closed during the version negotiation probe') };
         }
         case 'timeout': {
-            return { kind: 'timeout', timeoutMs, attempts };
+            return { kind: 'timeout', timeoutMs };
         }
     }
 }
@@ -335,7 +317,6 @@ export async function negotiateEra(
     deps: NegotiationDeps
 ): Promise<NegotiationResult> {
     const timeoutMs = negotiation.probe.timeoutMs ?? deps.defaultTimeoutMs;
-    const maxRetries = negotiation.probe.maxRetries ?? 0;
     const clientModernVersions = negotiation.kind === 'pin' ? [negotiation.version] : negotiation.modernVersions;
     const fallbackAvailable = negotiation.kind === 'auto' && negotiation.fallbackAvailable;
 
@@ -347,15 +328,12 @@ export async function negotiateEra(
         // the second rejection.
         let correctiveUsed = false;
         for (;;) {
-            // `maxRetries` governs timeout re-sends only.
-            let attempts = 0;
-            let reply: RawProbeReply;
-            do {
-                attempts++;
-                reply = await window.exchange(id => buildProbeRequest(id, requestedVersion, deps.clientInfo, deps.capabilities), timeoutMs);
-            } while (reply.kind === 'timeout' && attempts <= maxRetries);
+            const reply = await window.exchange(
+                id => buildProbeRequest(id, requestedVersion, deps.clientInfo, deps.capabilities),
+                timeoutMs
+            );
 
-            const outcome = normalizeReply(reply, timeoutMs, attempts);
+            const outcome = normalizeReply(reply, timeoutMs);
             const verdict: ProbeVerdict = classifyProbeOutcome(outcome, {
                 clientModernVersions,
                 requestedVersion,

@@ -77,7 +77,6 @@ describe('server/discover round-trip against a modern server', () => {
         await client.connect(new StreamableHTTPClientTransport(baseUrl, { fetch: fetchFn }));
         cleanups.push(() => client.close());
 
-        expect(client.getProtocolEra()).toBe('modern');
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
         expect(client.getServerVersion()).toEqual({ name: 'dual-era-server', version: '2.0.0' });
         expect(client.getInstructions()).toBe('dual era');
@@ -94,7 +93,6 @@ describe('server/discover round-trip against a modern server', () => {
         await client.connect(new StreamableHTTPClientTransport(baseUrl));
         cleanups.push(() => client.close());
 
-        expect(client.getProtocolEra()).toBe('modern');
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
     });
 
@@ -108,7 +106,6 @@ describe('server/discover round-trip against a modern server', () => {
         await client.connect(new StreamableHTTPClientTransport(baseUrl));
         cleanups.push(() => client.close());
 
-        expect(client.getProtocolEra()).toBe('legacy');
         expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
         const result = await client.callTool({ name: 'echo', arguments: { text: 'fallback' } });
         expect(result.content).toEqual([{ type: 'text', text: 'fallback' }]);

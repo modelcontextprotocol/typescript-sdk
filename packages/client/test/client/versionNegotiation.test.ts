@@ -181,7 +181,6 @@ describe('auto mode against a modern server', () => {
         // stamped exactly once, after the era resolved modern.
         expect(transport.setProtocolVersionCalls).toEqual([MODERN]);
 
-        expect(client.getProtocolEra()).toBe('modern');
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
         expect(client.getServerVersion()?.name).toBe('scripted-modern-server');
 
@@ -223,8 +222,8 @@ describe('auto mode against a legacy server (fallback)', () => {
         // initialize-negotiated version) — nothing was set or cleared around the probe.
         expect(autoTransport.setProtocolVersionCalls).toEqual(plainTransport.setProtocolVersionCalls);
 
-        expect(autoClient.getProtocolEra()).toBe('legacy');
-        expect(plainClient.getProtocolEra()).toBe('legacy');
+        expect(autoClient.getNegotiatedProtocolVersion()).toBe('2025-11-25');
+        expect(plainClient.getNegotiatedProtocolVersion()).toBe('2025-11-25');
 
         await autoClient.close();
         await plainClient.close();
@@ -296,24 +295,6 @@ describe('probe timeout policy (transport-aware)', () => {
         expect(transport.setProtocolVersionCalls).toEqual([]);
     });
 
-    test('maxRetries governs timeout re-sends only (default 0); each re-send uses a fresh probe id', async () => {
-        const transport = new ScriptedTransport(silentScript);
-        const client = new Client(
-            { name: 'c', version: '0' },
-            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 30, maxRetries: 2 } } }
-        );
-
-        await expect(client.connect(transport)).rejects.toSatisfy(
-            error => error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout
-        );
-
-        const probes = requests(transport.sent);
-        expect(probes).toHaveLength(3); // initial + 2 re-sends
-        const ids = probes.map(p => String(p.id));
-        expect(new Set(ids).size).toBe(3);
-        expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
-    });
-
     /** A stdio-shaped transport: structurally recognizable by its stderr/pid accessors. */
     class StdioShapedTransport extends ScriptedTransport {
         get stderr(): null {
@@ -336,19 +317,15 @@ describe('probe timeout policy (transport-aware)', () => {
         };
 
         const transport = new StdioShapedTransport(silentLegacyScript);
-        const client = new Client(
-            { name: 'c', version: '0' },
-            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 30, maxRetries: 1 } } }
-        );
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 30 } } });
 
         await client.connect(transport);
 
-        // The probe was re-sent per maxRetries, then the timeout resolved to the
-        // legacy verdict and the initialize fallback ran on the SAME transport.
+        // The timeout resolved to the legacy verdict and the initialize fallback
+        // ran on the SAME transport.
         const sent = requests(transport.sent);
-        expect(sent.filter(r => r.method === 'server/discover')).toHaveLength(2);
+        expect(sent.filter(r => r.method === 'server/discover')).toHaveLength(1);
         expect(sent.some(r => r.method === 'initialize')).toBe(true);
-        expect(client.getProtocolEra()).toBe('legacy');
         expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
 
         await client.close();
@@ -368,11 +345,11 @@ describe('probe timeout policy (transport-aware)', () => {
 });
 
 /* ------------------------------------------------------------------------- *
- * T2/A6: -32004 corrective continuation — exactly once; loop guard on second
- * rejection. Not counted against probe.maxRetries (Q12 disambiguation).
+ * -32004 corrective continuation — exactly once; loop guard on second
+ * rejection.
  * ------------------------------------------------------------------------- */
 
-describe('-32004 corrective continuation (T2/A6)', () => {
+describe('-32004 corrective continuation', () => {
     test('select-and-continue runs exactly once, even when the mutual version equals the just-rejected one', async () => {
         let discoverCalls = 0;
         const script: Script = (message, t) => {
@@ -397,13 +374,11 @@ describe('-32004 corrective continuation (T2/A6)', () => {
         };
 
         const transport = new ScriptedTransport(script);
-        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto', probe: { maxRetries: 0 } } });
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(transport);
 
-        // The corrective continuation is spec-mandated and NOT counted against
-        // maxRetries (0 here): the second probe still happened.
+        // The corrective continuation is spec-mandated: the second probe still happened.
         expect(discoverCalls).toBe(2);
-        expect(client.getProtocolEra()).toBe('modern');
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
 
         // MUST NOT fall back at any point.
@@ -465,7 +440,7 @@ describe('-32004 corrective continuation (T2/A6)', () => {
         const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(transport);
 
-        expect(client.getProtocolEra()).toBe('legacy');
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
         await client.close();
     });
 
@@ -505,7 +480,6 @@ describe('pin mode', () => {
         const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
         await client.connect(transport);
 
-        expect(client.getProtocolEra()).toBe('modern');
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
         await client.close();
     });
@@ -561,7 +535,7 @@ describe('probe-window guard', () => {
         // Zero bytes for the dropped request: nothing in the sent log answers id 999.
         const repliesTo999 = transport.sent.filter(m => 'id' in m && m.id === 999);
         expect(repliesTo999).toEqual([]);
-        expect(client.getProtocolEra()).toBe('legacy');
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
         await client.close();
     });
 });
@@ -579,7 +553,7 @@ describe('era scope discipline', () => {
         const first = new ScriptedTransport(legacyServerScript);
         await client.connect(first);
         expect(requests(first.sent)[0]!.method).toBe('server/discover');
-        expect(client.getProtocolEra()).toBe('legacy');
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
         await client.close();
 
         // Second (fresh) connect: the negotiated protocol version is connection
@@ -588,7 +562,7 @@ describe('era scope discipline', () => {
         const second = new ScriptedTransport(legacyServerScript);
         await client.connect(second);
         expect(requests(second.sent)[0]!.method).toBe('server/discover');
-        expect(client.getProtocolEra()).toBe('legacy');
+        expect(client.getNegotiatedProtocolVersion()).toBe('2025-11-25');
         await client.close();
     });
 
@@ -597,12 +571,12 @@ describe('era scope discipline', () => {
 
         const transport = new ScriptedTransport(modernServerScript());
         await client.connect(transport);
-        expect(client.getProtocolEra()).toBe('modern');
+        expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
 
         // A later transport failure does not demote the current connection's era
         // and triggers no initialize.
         transport.onerror?.(new Error('boom'));
-        expect(client.getProtocolEra()).toBe('modern');
+        expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
         expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
         await client.close();
 
@@ -611,13 +585,13 @@ describe('era scope discipline', () => {
         const next = new ScriptedTransport(modernServerScript());
         await client.connect(next);
         expect(requests(next.sent)[0]!.method).toBe('server/discover');
-        expect(client.getProtocolEra()).toBe('modern');
+        expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
         await client.close();
     });
 
     test('no era state exists before the first connect, and none is persisted anywhere', () => {
         const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
-        expect(client.getProtocolEra()).toBeUndefined();
+        expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
         // No cachedEra option surface (deferred-additive).
         type NotAKeyOf<T, K extends string> = K extends keyof T ? false : true;
         const noCachedEra: NotAKeyOf<NonNullable<ConstructorParameters<typeof Client>[1]>, 'cachedEra'> = true;
