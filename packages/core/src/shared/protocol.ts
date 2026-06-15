@@ -725,7 +725,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     )
                 );
                 sendErrorResponse(ProtocolErrorCode.UnsupportedProtocolVersion, `Unsupported protocol version: ${classified}`, {
-                    supported: [codec.era],
+                    // Per spec, `supported` is the full list of protocol
+                    // versions the receiver supports — not just the version
+                    // this connection is on — so the peer can pick a mutually
+                    // supported version from the error alone.
+                    supported: this._supportedProtocolVersions,
                     requested: classified
                 });
                 return;

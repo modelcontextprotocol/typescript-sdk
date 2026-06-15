@@ -1009,3 +1009,47 @@ describe('inbound validation precedence: −32601 outranks envelope −32602', (
         });
     });
 });
+
+describe('inbound protocol-version mismatch (−32004): the error data lists every supported version', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+
+    test('a request classified for a protocol version this connection does not serve is rejected with the full supported list', async () => {
+        const supportedProtocolVersions = ['2025-11-25', '2025-06-18', '2025-03-26'];
+        const [peerTx, protocolTx] = InMemoryTransport.createLinkedPair();
+        const sent: JSONRPCMessage[] = [];
+        peerTx.onmessage = message => void sent.push(message);
+        await peerTx.start();
+
+        const protocol = new TestProtocolImpl({ supportedProtocolVersions });
+        const errors: Error[] = [];
+        protocol.onerror = error => void errors.push(error);
+        await protocol.connect(protocolTx);
+
+        // Deliver a request whose transport-edge classification names a
+        // protocol version this connection does not serve. The rejection's
+        // `data.supported` must list every protocol version the receiver
+        // supports — not just the version the connection is on — so the peer
+        // can pick a mutually supported version from the error alone.
+        protocolTx.onmessage?.(
+            { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} } as JSONRPCMessage,
+            // The in-memory transport's onmessage declares the narrower
+            // pre-classification extra type; the protocol layer reads the
+            // full MessageExtraInfo (same cast as the era-gate suite).
+            { classification: { era: 'modern' } } as never
+        );
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        const error = (sent[0] as JSONRPCErrorResponse).error as {
+            code: number;
+            message: string;
+            data?: { supported?: string[]; requested?: string };
+        };
+        expect(error.code).toBe(-32004);
+        expect(error.message).toContain('Unsupported protocol version');
+        expect(error.data?.supported).toEqual(supportedProtocolVersions);
+        expect(error.data?.requested).toBe('2026-07-28');
+
+        await protocol.close();
+    });
+});
