@@ -173,12 +173,14 @@ export function codecForVersion(version: string | undefined): WireCodec {
 }
 
 /**
- * The wire era an edge classification names (Q2 — produced at the
- * transport/entry edge; this layer only CONSUMES it). The dispatch funnel no
- * longer resolves a codec FROM the classification: era is instance state, and
- * a classified inbound message is VALIDATED against the instance era — a
- * mismatch is an entry/routing error, never a per-message era switch. The
- * exact `revision` wins over the coarse era flag when both are present.
+ * The wire era a classification names (Q2 — produced at the transport/entry
+ * edge or, for long-lived dual-era channels, by the protocol layer's own
+ * per-message classification consult). For edge classifications the dispatch
+ * funnel never resolves a codec FROM the classification: era is instance
+ * state, and the classified message is VALIDATED against it — a mismatch is
+ * an entry/routing error. Only an unbound dual-era instance selects the
+ * message's codec from its classification (per-message era). The exact
+ * `revision` wins over the coarse era flag when both are present.
  */
 export function classifiedWireEra(classification: MessageClassification): WireEra {
     if (classification.revision !== undefined) return codecForVersion(classification.revision).era;
