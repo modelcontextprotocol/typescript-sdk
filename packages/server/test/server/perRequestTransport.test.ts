@@ -10,6 +10,8 @@ import {
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     ProtocolError,
+    SdkError,
+    SdkErrorCode,
     setNegotiatedProtocolVersion
 } from '@modelcontextprotocol/core';
 import { describe, expect, it } from 'vitest';
@@ -291,7 +293,9 @@ describe('teardown and the close chain', () => {
         });
         const transport = await connectedTransport(server);
         const pending = transport.handleMessage(toolsCall());
-        const expectation = expect(pending).rejects.toThrow(/Connection closed/);
+        const expectation = expect(pending).rejects.toSatisfy(
+            (error: unknown) => error instanceof SdkError && error.code === SdkErrorCode.ConnectionClosed
+        );
         await new Promise(resolve => setTimeout(resolve, 5));
         await transport.close();
         await expectation;
@@ -312,18 +316,39 @@ describe('teardown and the close chain', () => {
         const abortController = new AbortController();
         const request = new Request('http://localhost/mcp', { method: 'POST', signal: abortController.signal });
         const pending = transport.handleMessage(toolsCall(), { request });
-        const expectation = expect(pending).rejects.toThrow(/Connection closed/);
+        const expectation = expect(pending).rejects.toSatisfy(
+            (error: unknown) => error instanceof SdkError && error.code === SdkErrorCode.ConnectionClosed
+        );
         await new Promise(resolve => setTimeout(resolve, 5));
         abortController.abort();
         await expectation;
         expect(observedSignal?.aborted).toBe(true);
     });
 
-    it('drops writes after close without raising', async () => {
+    it('rejects with the typed connection-closed error when the request signal is already aborted', async () => {
+        const { server, lastCtx } = modernServer();
+        const transport = await connectedTransport(server);
+        const abortController = new AbortController();
+        abortController.abort();
+        const request = new Request('http://localhost/mcp', { method: 'POST', signal: abortController.signal });
+        await expect(transport.handleMessage(toolsCall(), { request })).rejects.toSatisfy(
+            (error: unknown) => error instanceof SdkError && error.code === SdkErrorCode.ConnectionClosed
+        );
+        // The handler never ran; the exchange was torn down before dispatch.
+        expect(lastCtx()).toBeUndefined();
+    });
+
+    it('drops writes after close without raising or reporting through onerror', async () => {
         const { server } = modernServer();
         const transport = await connectedTransport(server);
         await transport.close();
+        // If the closed-guard were removed, this response (for a request the
+        // transport never saw) would be reported through onerror as an
+        // unknown-request-id write.
+        const errors: Error[] = [];
+        transport.onerror = error => errors.push(error);
         await expect(transport.send({ jsonrpc: '2.0', id: 1, result: {} }, { relatedRequestId: 1 })).resolves.toBeUndefined();
+        expect(errors).toHaveLength(0);
     });
 
     it('drops messages unrelated to the in-flight request', async () => {
