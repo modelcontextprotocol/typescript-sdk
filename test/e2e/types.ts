@@ -2,7 +2,16 @@
  * Shared types for the e2e suite.
  */
 
-export const ALL_TRANSPORTS = ['inMemory', 'stdio', 'streamableHttp', 'streamableHttpStateless', 'sse'] as const;
+export const ALL_TRANSPORTS = [
+    'inMemory',
+    'stdio',
+    'streamableHttp',
+    'streamableHttpStateless',
+    'sse',
+    'entryStateless',
+    'entryModern'
+] as const;
+export type Transport = (typeof ALL_TRANSPORTS)[number];
 
 /**
  * The createMcpHandler entry arms: the dual-era HTTP entry hosted in process
@@ -12,10 +21,8 @@ export const ALL_TRANSPORTS = ['inMemory', 'stdio', 'streamableHttp', 'streamabl
  * the entry's modern (per-request envelope) path. Each arm is era-fixed, so it
  * registers cells on exactly one spec-version axis (see TRANSPORT_SPEC_VERSIONS).
  */
-export const ENTRY_TRANSPORTS = ['entryStateless', 'entryModern'] as const;
+export const ENTRY_TRANSPORTS = ['entryStateless', 'entryModern'] as const satisfies readonly Transport[];
 export type EntryTransport = (typeof ENTRY_TRANSPORTS)[number];
-
-export type Transport = (typeof ALL_TRANSPORTS)[number] | EntryTransport;
 
 /**
  * Every spec version the manifest may reference — used for typing
