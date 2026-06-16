@@ -169,4 +169,16 @@ describe('legacyStatelessFallback', () => {
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_603);
     });
+
+    it('reports failures through the optional onerror callback while keeping the 500 response', async () => {
+        const onerror = vi.fn();
+        const handler = legacyStatelessFallback(() => {
+            throw new Error('factory exploded');
+        }, onerror);
+
+        const response = await handler(postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }));
+        expect(response.status).toBe(500);
+        expect(((await response.json()) as JSONRPCErrorBody).error.code).toBe(-32_603);
+        expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'factory exploded' }));
+    });
 });

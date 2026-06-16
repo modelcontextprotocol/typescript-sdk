@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import supertest from 'supertest';
 import { vi } from 'vitest';
 
 import { createMcpExpressApp } from '../src/express.js';
@@ -92,6 +93,58 @@ describe('@modelcontextprotocol/express origin validation', () => {
             const app = createMcpExpressApp();
             expect(app).toBeDefined();
             expect(typeof app.use).toBe('function');
+        });
+
+        test('arms localhost origin validation by default (requests are actually filtered)', async () => {
+            const app = createMcpExpressApp();
+            app.get('/health', (_req, res) => {
+                res.json({ ok: true });
+            });
+
+            const blocked = await supertest(app).get('/health').set('Origin', 'http://evil.example.com');
+            expect(blocked.status).toBe(403);
+            expect(blocked.body).toEqual(
+                expect.objectContaining({
+                    jsonrpc: '2.0',
+                    error: expect.objectContaining({ code: -32_000 }),
+                    id: null
+                })
+            );
+
+            const allowed = await supertest(app).get('/health').set('Origin', 'http://localhost:5173');
+            expect(allowed.status).toBe(200);
+
+            const noOrigin = await supertest(app).get('/health');
+            expect(noOrigin.status).toBe(200);
+        });
+
+        test('an explicit allowedOrigins list replaces the default allowlist (validation stays armed)', async () => {
+            const app = createMcpExpressApp({
+                host: '0.0.0.0',
+                allowedHosts: ['127.0.0.1', 'myapp.local'],
+                allowedOrigins: ['myapp.local']
+            });
+            app.get('/health', (_req, res) => {
+                res.json({ ok: true });
+            });
+
+            const good = await supertest(app).get('/health').set('Origin', 'https://myapp.local');
+            expect(good.status).toBe(200);
+
+            const bad = await supertest(app).get('/health').set('Origin', 'http://localhost:5173');
+            expect(bad.status).toBe(403);
+        });
+
+        test('applies no origin validation for 0.0.0.0 without allowedOrigins', async () => {
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            const app = createMcpExpressApp({ host: '0.0.0.0' });
+            app.get('/health', (_req, res) => {
+                res.json({ ok: true });
+            });
+
+            const res = await supertest(app).get('/health').set('Origin', 'http://evil.example.com');
+            expect(res.status).toBe(200);
+            warn.mockRestore();
         });
 
         test('accepts an allowedOrigins override without warnings', () => {

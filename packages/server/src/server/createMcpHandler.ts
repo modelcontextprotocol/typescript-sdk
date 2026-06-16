@@ -233,8 +233,13 @@ function internalServerErrorResponse(): Response {
  * operations) are answered with `405` / `Method not allowed.`, exactly like the
  * canonical stateless example. `createMcpHandler(factory, { legacy: 'stateless' })`
  * is shorthand for passing `legacyStatelessFallback(factory)` here explicitly.
+ *
+ * The optional `onerror` callback receives factory and serving failures on
+ * this leg (reporting only — the response stays the 500 internal-error body).
+ * The entry passes its own `onerror` here when expanding `legacy: 'stateless'`,
+ * so legacy-leg failures are never silently swallowed.
  */
-export function legacyStatelessFallback(factory: McpServerFactory): LegacyHttpHandler {
+export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
     return async (request, options) => {
         if (request.method.toUpperCase() !== 'POST') {
             return jsonRpcErrorResponse(405, -32_000, 'Method not allowed.');
@@ -307,7 +312,12 @@ export function legacyStatelessFallback(factory: McpServerFactory): LegacyHttpHa
                 statusText: response.statusText,
                 headers: response.headers
             });
-        } catch {
+        } catch (error) {
+            try {
+                onerror?.(toError(error));
+            } catch {
+                // Reporting must never alter the response.
+            }
             return internalServerErrorResponse();
         }
     };
@@ -355,7 +365,6 @@ export function legacyStatelessFallback(factory: McpServerFactory): LegacyHttpHa
  */
 export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHandlerOptions = {}): McpHttpHandler {
     const { legacy, onerror, responseMode } = options;
-    const legacyHandler: LegacyHttpHandler | undefined = legacy === 'stateless' ? legacyStatelessFallback(factory) : legacy;
 
     /** Modern per-request instances with an exchange still in flight (close() tears these down). */
     const inflight = new Set<Server>();
@@ -369,6 +378,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             // Reporting must never alter the response.
         }
     };
+
+    const legacyHandler: LegacyHttpHandler | undefined = legacy === 'stateless' ? legacyStatelessFallback(factory, reportError) : legacy;
 
     async function serveModern(
         route: InboundModernRoute,
@@ -454,6 +465,12 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                 // nobody left to answer.
                 return new Response(null, { status: 499 });
             }
+            // No terminal response will ride the transport's close chain after a
+            // failure here: close the per-request instance explicitly and drop it
+            // from the in-flight set so repeated failures cannot accumulate
+            // connected instances until handler.close().
+            await server.close().catch(() => {});
+            inflight.delete(server);
             reportError(toError(error));
             return internalServerErrorResponse();
         }
@@ -597,14 +614,28 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             return;
         }
         const reader = response.body.getReader();
+        // Honor write backpressure: when write() reports a full buffer (Node's
+        // `false` return), wait for the response to drain before pulling the
+        // next chunk. A single listener resolves whichever wait is pending; a
+        // closed response also releases the wait so a vanished client cannot
+        // park the loop forever.
+        let drainResolve: (() => void) | undefined;
+        const releaseDrainWait = () => {
+            drainResolve?.();
+            drainResolve = undefined;
+        };
+        res.on('drain', releaseDrainWait);
+        res.on('close', releaseDrainWait);
         try {
             for (;;) {
                 const { done, value } = await reader.read();
                 if (done) {
                     break;
                 }
-                if (value !== undefined) {
-                    res.write(value);
+                if (value !== undefined && res.write(value) === false) {
+                    await new Promise<void>(resolve => {
+                        drainResolve = resolve;
+                    });
                 }
             }
         } catch {
@@ -642,7 +673,10 @@ async function nodeRequestToFetchRequest(req: NodeIncomingMessageLike, parsedBod
 
     const headers = new Headers();
     for (const [name, value] of Object.entries(req.headers)) {
-        if (value === undefined) {
+        // HTTP/2 pseudo-headers (`:method`, `:path`, `:authority`, …) are
+        // connection metadata, not header fields — `Headers` rejects their
+        // names, so they are skipped rather than copied.
+        if (value === undefined || name.startsWith(':')) {
             continue;
         }
         if (Array.isArray(value)) {
@@ -658,7 +692,17 @@ async function nodeRequestToFetchRequest(req: NodeIncomingMessageLike, parsedBod
     // body keeps the constructed Request portable across runtime lib versions.
     let body: string | undefined;
     if (method !== 'GET' && method !== 'HEAD') {
-        if (parsedBody !== undefined) {
+        if (parsedBody === undefined) {
+            const decoder = new TextDecoder();
+            let collected = '';
+            for await (const chunk of req) {
+                collected += typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
+            }
+            collected += decoder.decode();
+            if (collected.length > 0) {
+                body = collected;
+            }
+        } else {
             // The caller already consumed and parsed the Node stream (the
             // documented `handler.node(req, res, req.body)` mounting behind
             // `express.json()`), so the bytes cannot be re-read. Re-serialize
@@ -674,16 +718,6 @@ async function nodeRequestToFetchRequest(req: NodeIncomingMessageLike, parsedBod
             } else {
                 body = serialized;
                 headers.set('content-length', String(new TextEncoder().encode(serialized).byteLength));
-            }
-        } else {
-            const decoder = new TextDecoder();
-            let collected = '';
-            for await (const chunk of req) {
-                collected += typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
-            }
-            collected += decoder.decode();
-            if (collected.length > 0) {
-                body = collected;
             }
         }
     }
