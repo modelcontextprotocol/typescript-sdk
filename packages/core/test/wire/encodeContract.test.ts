@@ -135,6 +135,9 @@ describe('step 2 — the cache fill', () => {
     test.each([
         ['a negative ttlMs', { ttlMs: -1 }],
         ['a non-integer ttlMs', { ttlMs: 1.5 }],
+        ['an unsafe-integer ttlMs (above 2^53 - 1, rejected by the wire schemas)', { ttlMs: 1e20 }],
+        ['a NaN ttlMs', { ttlMs: Number.NaN }],
+        ['an infinite ttlMs', { ttlMs: Number.POSITIVE_INFINITY }],
         ['a non-numeric ttlMs', { ttlMs: 'soon' }],
         ['an unknown cacheScope', { cacheScope: 'shared' }]
     ])('invalid handler-returned values (%s) never reach the wire — the next author wins', (_label, invalid) => {
