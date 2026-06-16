@@ -167,8 +167,13 @@ export interface InboundValidationRungDescriptor {
     rung: InboundValidationRung;
     /** Evaluation order: lower runs first; an earlier rung's outcome wins over a later rung's. */
     order: number;
-    /** Where the rung is evaluated: at the HTTP entry edge or at protocol dispatch. */
-    evaluatedAt: 'edge' | 'dispatch';
+    /**
+     * Where the rung is evaluated: at the HTTP entry edge by
+     * {@linkcode classifyInboundRequest} (`edge`), by the HTTP entry after
+     * classification but before dispatch (`pre-dispatch`), or by the protocol
+     * layer at dispatch (`dispatch`).
+     */
+    evaluatedAt: 'edge' | 'pre-dispatch' | 'dispatch';
     /** The JSON-RPC error codes this rung can produce (empty when the rung only routes). */
     codes: readonly number[];
     /** Conformance scenarios that exercise this rung (where one exists). */
@@ -183,9 +188,11 @@ export interface InboundValidationRungDescriptor {
  * The edge rungs are evaluated by {@linkcode classifyInboundRequest}; the
  * dispatch rungs are evaluated by the protocol layer once the classified
  * message is injected into a per-request server instance (the era registry
- * gate, the envelope requiredness check, per-method params validation, and
- * the client-capability check). The order is the precedence: a request that
- * fails several rungs is answered by the earliest one.
+ * gate, the envelope requiredness check, and per-method params validation).
+ * The client-capability rung is evaluated by the HTTP entry itself,
+ * pre-dispatch, on the validated envelope the classifier produced — see that
+ * rung's rationale for the ordering caveat. The order is the precedence: a
+ * request that fails several rungs is answered by the earliest one.
  */
 export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor[] = [
     {
@@ -249,14 +256,16 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
     {
         rung: 'client-capabilities',
         order: 7,
-        evaluatedAt: 'dispatch',
+        evaluatedAt: 'pre-dispatch',
         codes: [ProtocolErrorCode.MissingRequiredClientCapability],
         conformance: ['server-stateless'],
         rationale:
-            'Capability assertion runs after envelope validation and method resolution, immediately before the handler. The ' +
-            'emission is performed by the HTTP entry before dispatch (the requirement table is method-keyed, so a request ' +
-            'answered by an earlier rung never reaches it), pinning the spec-mandated HTTP 400 independently of how dispatch- ' +
-            'and handler-produced errors are mapped.'
+            'The capability requirement is checked by the HTTP entry, pre-dispatch, against the validated envelope the ' +
+            'classifier produced — pinning the spec-mandated HTTP 400 independently of how dispatch- and handler-produced ' +
+            'errors are mapped. The documented order (after method resolution and params validation) is preserved observably ' +
+            'only while the requirement table is empty: once a served method gains a requirement entry, a request that is ' +
+            'missing the capability and would also fail a dispatch rung is answered by this gate first, so the entry must ' +
+            'consult the method registry before the gate if the documented precedence is to stay observable.'
     }
 ];
 

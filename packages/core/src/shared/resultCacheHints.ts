@@ -30,7 +30,7 @@ export type CacheScope = 'public' | 'private';
  * (`ttlMs: 0`, `cacheScope: 'private'`).
  */
 export interface CacheHint {
-    /** Cache lifetime in milliseconds. Must be a non-negative integer. */
+    /** Cache lifetime in milliseconds. Must be a non-negative safe integer. */
     ttlMs?: number;
     /** Whether the result may be cached by shared caches (`public`) or only by the requesting client (`private`). */
     cacheScope?: CacheScope;
@@ -92,9 +92,15 @@ export function cacheHintFallbackOf(result: object): CacheHint | undefined {
     return (result as CacheHintCarrier)[RESULT_CACHE_HINT_FALLBACK];
 }
 
-/** Whether a value is a valid `ttlMs`: a non-negative, finite integer. */
+/**
+ * Whether a value is a valid `ttlMs`: a non-negative safe integer. Safe
+ * integers are required because the wire schemas validate `ttlMs` as an
+ * integer within `Number.MIN_SAFE_INTEGER`/`Number.MAX_SAFE_INTEGER`; a value
+ * outside that range is treated as invalid here so it falls through to the
+ * next author instead of being emitted and rejected downstream.
+ */
 export function isValidCacheTtlMs(value: unknown): value is number {
-    return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+    return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
 }
 
 /** Whether a value is a valid `cacheScope`. */
@@ -109,7 +115,7 @@ export function isValidCacheScope(value: unknown): value is CacheScope {
  */
 export function assertValidCacheHint(hint: CacheHint, context: string): void {
     if (hint.ttlMs !== undefined && !isValidCacheTtlMs(hint.ttlMs)) {
-        throw new RangeError(`Invalid cache hint for ${context}: ttlMs must be a non-negative integer (got ${String(hint.ttlMs)})`);
+        throw new RangeError(`Invalid cache hint for ${context}: ttlMs must be a non-negative safe integer (got ${String(hint.ttlMs)})`);
     }
     if (hint.cacheScope !== undefined && !isValidCacheScope(hint.cacheScope)) {
         throw new RangeError(

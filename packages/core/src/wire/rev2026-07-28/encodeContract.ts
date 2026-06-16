@@ -55,6 +55,10 @@ export const EXTENDED_RESULT_TYPE_METHODS: readonly string[] = ['tools/call', 'p
  * - Handler-provided `'complete'` → kept as-is.
  * - Handler-provided non-`'complete'` value on a method whose vocabulary
  *   allows it ({@linkcode EXTENDED_RESULT_TYPE_METHODS}) → passes through.
+ *   The value is forwarded verbatim — the wire vocabulary is an open union and
+ *   the SDK does not validate the string, so emitting a `resultType` the
+ *   negotiated revision does not define is the handler author's
+ *   responsibility.
  * - Handler-provided non-`'complete'` value on any other method → internal
  *   error (loud): the value would be mis-typed on the wire, and silently
  *   rewriting it would hide a server bug.
