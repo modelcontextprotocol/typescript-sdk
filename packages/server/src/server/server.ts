@@ -105,6 +105,13 @@ export type ServerOptions = ProtocolOptions & {
      *   per-request envelope (including `initialize`) are answered with the
      *   unsupported-protocol-version error naming the supported revisions.
      *
+     * Declaring `'dual-era'` or `'modern'` automatically adds the SDK's
+     * supported modern revisions to
+     * {@linkcode ProtocolOptions.supportedProtocolVersions}, and `'modern'`
+     * serves only those: a strict instance's supported-versions list (what
+     * `server/discover` advertises and version-mismatch errors name) is its
+     * modern subset.
+     *
      * Opting in is one option away and the transport stays unchanged:
      *
      * ```ts
@@ -269,11 +276,18 @@ export class Server extends Protocol<ServerContext> {
             }
             this.setRequestHandler('server/discover', { params: DISCOVER_PARAMS_SCHEMA }, () => this._ondiscover());
             if (this._eraSupport === 'modern') {
+                // A strict modern-only server serves only modern revisions, so
+                // the supported list is reduced to its modern subset — keeping
+                // the legacy entries would advertise revisions the instance
+                // never serves in the unsupported-protocol-version error's
+                // supported list, and `initialize` (the only other consumer of
+                // the legacy entries) is unreachable on a strict instance.
+                this._supportedProtocolVersions = modernProtocolVersions(this._supportedProtocolVersions);
                 // A strict modern-only server is bound to the modern era from
                 // construction: requests classified into the 2025 era are
                 // answered with the typed unsupported-protocol-version error
                 // naming the supported revisions, never served.
-                this._negotiatedProtocolVersion = modernProtocolVersions(this._supportedProtocolVersions)[0];
+                this._negotiatedProtocolVersion = this._supportedProtocolVersions[0];
             }
         }
 
