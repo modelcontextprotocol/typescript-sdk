@@ -2,12 +2,16 @@
  * Result stamping and cache-field fill, end to end over the dual-era HTTP
  * entry (`createMcpHandler`), with the era boundary asserted on the wire:
  *
- * - 2026-07-28 cells: typed tools/list and resources/read round trips through
- *   the negotiating client succeed, and the captured wire results carry
- *   `resultType: 'complete'` plus the required `ttlMs`/`cacheScope` fields,
- *   with configured cache hints visibly winning per the documented precedence
- *   (per-resource hint over the per-operation hint over the
- *   `{ ttlMs: 0, cacheScope: 'private' }` defaults).
+ * - 2026-07-28 cells: typed tools/list, resources/read and resources/list
+ *   round trips through the negotiating client succeed, and the captured wire
+ *   results carry `resultType: 'complete'` plus the required
+ *   `ttlMs`/`cacheScope` fields, with three rungs of the documented precedence
+ *   observable on the wire: the per-resource hint wins over the per-operation
+ *   hint (resources/read), a per-operation hint wins over the defaults
+ *   (tools/list), and a result with no configured author is filled with the
+ *   `{ ttlMs: 0, cacheScope: 'private' }` defaults (resources/list). The top
+ *   rung — a handler-returned value winning over every configured hint — is
+ *   pinned at unit level (encodeContract), not here.
  * - 2025-11-25 cells: the same fully cache-hint-configured factory served to a
  *   plain client through the legacy stateless slot answers the same calls with
  *   none of that vocabulary anywhere in the response bytes.
@@ -149,10 +153,16 @@ verifies('typescript:hosting:entry:modern-cacheable-stamping', async (_args: Tes
         })) as { contents: Array<{ text?: string }> };
         expect(read.contents[0]?.text).toBe('cached note');
 
+        const resourceList = (await client.request({ method: 'resources/list', params: { _meta: modernEnvelope() } })) as {
+            resources: Array<{ uri: string }>;
+        };
+        expect(resourceList.resources.map(resource => resource.uri)).toEqual(['memo://note']);
+
         // Wire-level: resultType is stamped and the cache fields carry the
-        // configured hints. tools/list has only the per-operation author;
-        // resources/read shows the per-resource hint winning over the
-        // per-operation hint (documented precedence).
+        // configured hints. tools/list has only the per-operation author (its
+        // hint wins over the defaults); resources/read shows the per-resource
+        // hint winning over the per-operation hint; resources/list has no
+        // configured author at all and is filled with the documented defaults.
         const listResult = wireResultWith(responseBodies, 'tools');
         expect(listResult).toBeDefined();
         expect(listResult).toMatchObject({ resultType: 'complete', ttlMs: 60_000, cacheScope: 'public' });
@@ -160,6 +170,10 @@ verifies('typescript:hosting:entry:modern-cacheable-stamping', async (_args: Tes
         const readResult = wireResultWith(responseBodies, 'contents');
         expect(readResult).toBeDefined();
         expect(readResult).toMatchObject({ resultType: 'complete', ttlMs: 12_000, cacheScope: 'private' });
+
+        const resourceListResult = wireResultWith(responseBodies, 'resources');
+        expect(resourceListResult).toBeDefined();
+        expect(resourceListResult).toMatchObject({ resultType: 'complete', ttlMs: 0, cacheScope: 'private' });
     } finally {
         await client.close();
     }
