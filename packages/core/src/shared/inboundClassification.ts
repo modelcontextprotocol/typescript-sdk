@@ -253,8 +253,10 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
         codes: [ProtocolErrorCode.MissingRequiredClientCapability],
         conformance: ['server-stateless'],
         rationale:
-            'Capability assertion runs after envelope validation and method resolution, immediately before the handler; the ' +
-            'emission itself ships with the capability-policy work and is recorded here for ordering only.'
+            'Capability assertion runs after envelope validation and method resolution, immediately before the handler. The ' +
+            'emission is performed by the HTTP entry before dispatch (the requirement table is method-keyed, so a request ' +
+            'answered by an earlier rung never reaches it), pinning the spec-mandated HTTP 400 independently of how dispatch- ' +
+            'and handler-produced errors are mapped.'
     }
 ];
 
@@ -277,6 +279,8 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
  * handler-produced invalid-params error is always in-band.
  */
 export const LADDER_ERROR_HTTP_STATUS: Readonly<Record<number, number>> = {
+    [ProtocolErrorCode.ParseError]: 400,
+    [ProtocolErrorCode.InvalidRequest]: 400,
     [ProtocolErrorCode.MethodNotFound]: 404,
     [ProtocolErrorCode.UnsupportedProtocolVersion]: 400,
     [ProtocolErrorCode.MissingRequiredClientCapability]: 400,

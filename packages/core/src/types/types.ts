@@ -539,6 +539,19 @@ export interface InternalError extends JSONRPCErrorObject {
 }
 
 /**
+ * Data carried by a `-32003` MissingRequiredClientCapability protocol error
+ * (protocol revision 2026-07-28).
+ */
+export interface MissingRequiredClientCapabilityErrorData {
+    /**
+     * The capabilities the server requires from the client to process the
+     * request, in the `ClientCapabilities` shape (only the missing
+     * capabilities are listed).
+     */
+    requiredCapabilities: ClientCapabilities;
+}
+
+/**
  * Data carried by a `-32004` UnsupportedProtocolVersion protocol error
  * (protocol revision 2026-07-28).
  */
