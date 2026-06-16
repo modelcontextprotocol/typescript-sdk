@@ -14,9 +14,12 @@
 
 import {
     Client,
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     ClientCredentialsProvider,
     CrossAppAccessProvider,
     PrivateKeyJwtProvider,
+    PROTOCOL_VERSION_META_KEY,
     requestJwtAuthorizationGrant,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
@@ -97,6 +100,38 @@ function registerScenarios(names: string[], handler: ScenarioHandler): void {
 }
 
 // ============================================================================
+// 2026-07-28 (modern era) helpers
+// ============================================================================
+
+/**
+ * Spec versions whose wire lifecycle is the 2026-07-28 per-request envelope
+ * (no `initialize` handshake). The conformance runner passes the resolved
+ * spec version of the current scenario run via the
+ * MCP_CONFORMANCE_PROTOCOL_VERSION environment variable; when it names a
+ * modern version, version-spanning scenarios (e.g. tools_call) must speak the
+ * modern lifecycle instead of the 2025 stateful one.
+ */
+const MODERN_SPEC_VERSIONS = new Set(['2026-07-28']);
+
+function isModernConformanceRun(): boolean {
+    const version = process.env.MCP_CONFORMANCE_PROTOCOL_VERSION;
+    return version !== undefined && MODERN_SPEC_VERSIONS.has(version);
+}
+
+/**
+ * The per-request `_meta` envelope every 2026-era request carries on the wire.
+ * Automatic envelope emission is not implemented in the client yet (it is a
+ * client-side follow-up), so modern-era requests attach it explicitly.
+ */
+function modernEnvelope(clientInfo: { name: string; version: string }, capabilities: object, protocolVersion: string | undefined) {
+    return {
+        [PROTOCOL_VERSION_META_KEY]: protocolVersion ?? '2026-07-28',
+        [CLIENT_INFO_META_KEY]: clientInfo,
+        [CLIENT_CAPABILITIES_META_KEY]: capabilities
+    };
+}
+
+// ============================================================================
 // Basic scenarios (initialize, tools_call)
 // ============================================================================
 
@@ -117,6 +152,10 @@ async function runBasicClient(serverUrl: string): Promise<void> {
 
 // tools_call scenario needs to actually call a tool
 async function runToolsCallClient(serverUrl: string): Promise<void> {
+    if (isModernConformanceRun()) {
+        return runToolsCallModernClient(serverUrl);
+    }
+
     const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
 
     const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
@@ -141,8 +180,60 @@ async function runToolsCallClient(serverUrl: string): Promise<void> {
     logger.debug('Connection closed successfully');
 }
 
+// tools_call under a 2026-07-28 run: negotiate the modern era via
+// server/discover (versionNegotiation), then drive the same tool flow with
+// the per-request _meta envelope attached to every request.
+async function runToolsCallModernClient(serverUrl: string): Promise<void> {
+    const clientInfo = { name: 'test-client', version: '1.0.0' };
+    const client = new Client(clientInfo, { capabilities: {}, versionNegotiation: { mode: 'auto' } });
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
+
+    await client.connect(transport);
+    logger.debug('Negotiated protocol version:', client.getNegotiatedProtocolVersion());
+
+    const envelope = modernEnvelope(clientInfo, {}, client.getNegotiatedProtocolVersion());
+    const tools = await client.request({ method: 'tools/list', params: { _meta: envelope } });
+    logger.debug('Successfully listed tools');
+
+    // Call the add_numbers tool
+    const addTool = tools.tools.find(t => t.name === 'add_numbers');
+    if (addTool) {
+        const result = await client.request({
+            method: 'tools/call',
+            params: { name: 'add_numbers', arguments: { a: 5, b: 3 }, _meta: envelope }
+        });
+        logger.debug('Tool call result:', JSON.stringify(result, null, 2));
+    }
+
+    await client.close();
+    logger.debug('Connection closed successfully');
+}
+
+// request-metadata scenario (SEP-2575): every request must carry the
+// MCP-Protocol-Version header and the per-request _meta envelope, and the
+// client must retry with a supported version when its first choice is
+// rejected with -32004. The version-negotiation probe (server/discover plus
+// the corrective continuation) is exactly that mechanism.
+async function runRequestMetadataClient(serverUrl: string): Promise<void> {
+    const clientInfo = { name: 'test-client', version: '1.0.0' };
+    const client = new Client(clientInfo, {
+        capabilities: { roots: { listChanged: true }, sampling: {}, elicitation: {} },
+        versionNegotiation: { mode: 'auto' }
+    });
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
+
+    await client.connect(transport);
+    logger.debug('Negotiated protocol version:', client.getNegotiatedProtocolVersion());
+
+    await client.close();
+    logger.debug('Connection closed successfully');
+}
+
 registerScenario('initialize', runBasicClient);
 registerScenario('tools_call', runToolsCallClient);
+registerScenario('request-metadata', runRequestMetadataClient);
 
 // ============================================================================
 // Auth scenarios - well-behaved client

@@ -12,7 +12,7 @@ import { randomUUID } from 'node:crypto';
 import { localhostHostValidation } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, EventId, EventStore, GetPromptResult, ReadResourceResult, StreamId } from '@modelcontextprotocol/server';
-import { isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { classifyInboundRequest, createMcpHandler, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
@@ -872,6 +872,23 @@ function createMcpServer() {
     return mcpServer;
 }
 
+// ===== 2026-07-28 (MODERN ERA) SERVING =====
+
+// Modern-era traffic — requests claiming the per-request `_meta` envelope
+// mechanism (SEP-2575), including `server/discover` and malformed variants of
+// the claim — is served through `createMcpHandler`, backed by the same
+// `createMcpServer()` fixture definition the 2025 sessions use. Legacy traffic
+// never reaches this handler (see the routing in the POST handler below), so
+// the 2025 stateful session path is unchanged.
+const modernHandler = createMcpHandler(() => createMcpServer(), {
+    onerror: error => console.error('Modern-era MCP handler error:', error)
+});
+
+/** Normalize a possibly-repeated HTTP header to its first value. */
+function headerValue(value: string | string[] | undefined): string | undefined {
+    return Array.isArray(value) ? value[0] : value;
+}
+
 // ===== EXPRESS APP =====
 
 const app = express();
@@ -894,6 +911,23 @@ app.post('/mcp', async (req: Request, res: Response) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     try {
+        // 2026-07-28 (modern era) traffic: anything claiming the per-request
+        // envelope mechanism — including malformed claims, which must get the
+        // modern validation-ladder errors rather than the 2025 session errors —
+        // is served by the createMcpHandler entry. Legacy-classified requests
+        // (initialize, no-claim traffic, batches, posted responses) fall
+        // through to the stateful 2025 session path below, untouched.
+        const inbound = classifyInboundRequest({
+            httpMethod: req.method,
+            protocolVersionHeader: headerValue(req.headers['mcp-protocol-version']),
+            mcpMethodHeader: headerValue(req.headers['mcp-method']),
+            body: req.body
+        });
+        if (inbound.kind !== 'legacy') {
+            await modernHandler.node(req, res, req.body);
+            return;
+        }
+
         let transport: NodeStreamableHTTPServerTransport;
 
         if (sessionId && transports[sessionId]) {
