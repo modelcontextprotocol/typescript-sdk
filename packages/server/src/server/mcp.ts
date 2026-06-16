@@ -41,6 +41,7 @@ import type * as z from 'zod/v4';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
+import { isScopeAware } from './streamableHttp.js';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -100,6 +101,10 @@ export class McpServer {
      * ```
      */
     async connect(transport: Transport): Promise<void> {
+        // Auto-wire scope resolver if the transport supports scope challenges.
+        if (isScopeAware(transport)) {
+            transport.setScopeResolver(toolName => this.getToolScopes(toolName));
+        }
         return await this.server.connect(transport);
     }
 
@@ -108,6 +113,51 @@ export class McpServer {
      */
     async close(): Promise<void> {
         await this.server.close();
+    }
+
+    /**
+     * Returns the scope configuration for a registered tool, if any.
+     * Checks tool-level scopes first, then falls back to server-level scope overrides.
+     * Used by the transport layer for pre-execution scope challenge checks.
+     */
+    getToolScopes(toolName: string): ToolScopeConfig | undefined {
+        return this._toolScopeOverrides[toolName] ?? this._registeredTools[toolName]?.scopes;
+    }
+
+    private _toolScopeOverrides: { [name: string]: ToolScopeConfig } = {};
+
+    /**
+     * Sets scope requirements for a tool independently of tool registration.
+     *
+     * This allows defining scopes separately — from a config file, a central
+     * mapping, or dynamically at runtime — rather than co-locating them with
+     * the tool definition. Scopes set here take precedence over any `scopes`
+     * provided during tool registration.
+     *
+     * @example Central scope mapping
+     * ```typescript
+     * // Define all scopes in one place
+     * const TOOL_SCOPES: Record<string, string[]> = {
+     *     'get_repo': ['repo:read'],
+     *     'create_issue': ['repo:write'],
+     *     'list_orgs': ['read:org'],
+     * };
+     *
+     * for (const [tool, scopes] of Object.entries(TOOL_SCOPES)) {
+     *     server.setToolScopes(tool, scopes);
+     * }
+     * ```
+     *
+     * @example With scope hierarchy
+     * ```typescript
+     * server.setToolScopes('get_repo', {
+     *     required: ['public_repo'],
+     *     accepted: ['public_repo', 'repo'],
+     * });
+     * ```
+     */
+    setToolScopes(toolName: string, scopes: string[] | ToolScopeConfig): void {
+        this._toolScopeOverrides[toolName] = Array.isArray(scopes) ? { required: scopes } : scopes;
     }
 
     private _toolHandlersInitialized = false;
@@ -796,6 +846,34 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            /**
+             * OAuth scopes required for this tool.
+             *
+             * When provided alongside a `ScopeChallengeConfig` on the transport,
+             * the transport checks the client's token scopes before executing the tool.
+             * If the token lacks required scopes, the transport returns HTTP 403 with a
+             * `WWW-Authenticate` header, triggering the client's step-up authorization flow.
+             *
+             * Can be a simple array of required scope strings, or an object with `required`
+             * and optional `accepted` arrays (for scope hierarchy support).
+             *
+             * @example Simple scopes
+             * ```typescript
+             * server.registerTool('get_repo', {
+             *     description: 'Get repository details',
+             *     scopes: ['repo:read'],
+             * }, handler);
+             * ```
+             *
+             * @example With scope hierarchy
+             * ```typescript
+             * server.registerTool('get_repo', {
+             *     description: 'Get repository details',
+             *     scopes: { required: ['public_repo'], accepted: ['public_repo', 'repo'] },
+             * }, handler);
+             * ```
+             */
+            scopes?: string[] | ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -821,6 +899,7 @@ export class McpServer {
             inputSchema?: StandardSchemaWithJSON | ZodRawShape;
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
+            scopes?: string[] | ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -829,9 +908,9 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
+        const { title, description, inputSchema, outputSchema, annotations, scopes, _meta } = config;
 
-        return this._createRegisteredTool(
+        const tool = this._createRegisteredTool(
             name,
             title,
             description,
@@ -842,6 +921,13 @@ export class McpServer {
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
+
+        // Normalize and attach scope metadata
+        if (scopes) {
+            tool.scopes = Array.isArray(scopes) ? { required: scopes } : scopes;
+        }
+
+        return tool;
     }
 
     /**
@@ -1092,6 +1178,7 @@ export type RegisteredTool = {
     outputSchema?: StandardSchemaWithJSON;
     annotations?: ToolAnnotations;
     execution?: ToolExecution;
+    scopes?: ToolScopeConfig;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
@@ -1112,6 +1199,50 @@ export type RegisteredTool = {
     }): void;
     remove(): void;
 };
+
+/**
+ * Scope metadata for a tool, used for pre-execution scope challenge checks.
+ *
+ * When configured alongside a `ScopeChallengeConfig` on the transport,
+ * the transport will check the client's token scopes against these requirements
+ * before executing the tool. If the token lacks the required scopes, the transport
+ * returns HTTP 403 with a `WWW-Authenticate` header per RFC 6750 §3.1.
+ */
+export interface ToolScopeConfig {
+    /**
+     * Scopes required for this tool, with **AND** semantics — the token must
+     * contain every scope in this array for the call to proceed (unless
+     * `accepted` is provided, see below). These are the scopes advertised in
+     * the 403 `WWW-Authenticate` challenge's `scope` parameter when the token
+     * is insufficient.
+     *
+     * @example Single scope
+     * ```typescript
+     * { required: ['repo:read'] }
+     * ```
+     *
+     * @example Multiple scopes (all must be present)
+     * ```typescript
+     * { required: ['repo:read', 'user:read'] }
+     * ```
+     */
+    required: string[];
+    /**
+     * Optional **OR** escape hatch for the satisfaction check. When provided,
+     * the satisfaction check switches from "token has all `required`" to
+     * "token has ANY of `accepted`". Use this for scope hierarchies where a
+     * broader scope subsumes a narrower one.
+     *
+     * Note: `accepted` only affects whether the request is allowed through —
+     * the scope challenge advertised on a 403 is still based on `required`.
+     *
+     * @example Hierarchy: `repo` (broad) satisfies `repo:read` (narrow)
+     * ```typescript
+     * { required: ['repo:read'], accepted: ['repo:read', 'repo'] }
+     * ```
+     */
+    accepted?: string[];
+}
 
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.
