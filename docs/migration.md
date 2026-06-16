@@ -1092,6 +1092,8 @@ What the values mean:
   2026-era request for a removed method (such as `logging/setLevel`) gets `-32601` too.
 - **`'modern'`** — strict 2026-only: requests without the per-request envelope (including `initialize`) are answered with the unsupported-protocol-version error naming the supported revisions; legacy-era notifications are dropped.
 
+Declaring `'dual-era'` or `'modern'` automatically adds the SDK's supported modern revisions to `supportedProtocolVersions`, and `'modern'` serves only those: a strict instance's supported list (what `server/discover` advertises and version-mismatch errors name) is modern-only.
+
 Directionality follows the era of the traffic: the 2026-07-28 revision has no server→client JSON-RPC request channel, so a `'modern'` instance cannot emit `sampling`/`elicitation`/`roots` wire requests (they fail locally with a typed error), while a `'dual-era'` instance
 can still send them to the 2025-era clients it serves via `initialize`. Symmetrically, a client whose connection negotiated a modern era drops inbound JSON-RPC requests instead of answering them.
 

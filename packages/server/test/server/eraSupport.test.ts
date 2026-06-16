@@ -163,7 +163,9 @@ describe("DV-31: strict 'modern' on a long-lived connection", () => {
             // settled (unsupported protocol version + supported list).
             expect(response.error.code).toBe(-32_004);
             const data = response.error.data as { supported?: string[]; requested?: string };
-            expect(data.supported).toContain(MODERN);
+            // The strict instance serves only modern revisions, so the supported
+            // list it advertises names only those (never the legacy defaults).
+            expect(data.supported).toEqual([MODERN]);
             expect(typeof data.requested).toBe('string');
         }
         await close();
@@ -175,7 +177,7 @@ describe("DV-31: strict 'modern' on a long-lived connection", () => {
         expect(isJSONRPCErrorResponse(response)).toBe(true);
         if (isJSONRPCErrorResponse(response)) {
             expect(response.error.code).toBe(-32_004);
-            expect((response.error.data as { supported?: string[] }).supported).toContain(MODERN);
+            expect((response.error.data as { supported?: string[] }).supported).toEqual([MODERN]);
             expect((response.error.data as { requested?: string }).requested).toBe(LATEST_PROTOCOL_VERSION);
         }
         await close();
@@ -196,6 +198,34 @@ describe("DV-31: strict 'modern' on a long-lived connection", () => {
         if (isJSONRPCResultResponse(response)) {
             expect((response.result as { tools?: unknown[] }).tools).toEqual([]);
             expect((response.result as { resultType?: string }).resultType).toBe('complete');
+        }
+        await close();
+    });
+
+    it('server/discover advertises only modern revisions', async () => {
+        const { request, close } = await wireModernServer();
+        const response = await request({ jsonrpc: '2.0', id: 4, method: 'server/discover', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(response)).toBe(true);
+        if (isJSONRPCResultResponse(response)) {
+            expect((response.result as { supportedVersions?: string[] }).supportedVersions).toEqual([MODERN]);
+        }
+        await close();
+    });
+
+    it('a mixed legacy+modern supported list is reduced to its modern subset at construction', async () => {
+        const server = new Server(
+            { name: 'strict', version: '1' },
+            { capabilities: { tools: {} }, supportedProtocolVersions: DUAL_ERA_VERSIONS, eraSupport: 'modern' }
+        );
+        const { request, close } = await wireServer(server);
+
+        // The unsupported-protocol-version handoff names only the modern
+        // revisions: the legacy entries the consumer passed are never served
+        // by a strict instance, so they are not advertised either.
+        const response = await request({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
+        expect(isJSONRPCErrorResponse(response)).toBe(true);
+        if (isJSONRPCErrorResponse(response)) {
+            expect((response.error.data as { supported?: string[] }).supported).toEqual([MODERN]);
         }
         await close();
     });
