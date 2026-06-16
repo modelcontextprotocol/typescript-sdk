@@ -10,11 +10,11 @@
 # are still not shipped in the published release — the runner reports them
 # unknown/failed; their entries below cover them either way.
 #
-# NOTE: the draft error-code assignments exercised by the SEP-2243 server
-# scenarios (-32001 HeaderMismatch) and their neighbours (-32602, -32004) are
-# still under discussion upstream (pending conformance #336). Those cells are
-# treated as parameterized, not settled: the entries below record today's
-# referee behavior and are re-derived when a #336-containing referee is pinned.
+# NOTE: the SDK's modern-path rejection codes are aligned with what this
+# referee asserts: header/body mismatches answer -32001 (HeaderMismatch) and a
+# missing _meta envelope (or missing protocolVersion key) answers -32602.
+# If a future published conformance release changes those assignments, the
+# affected cells are re-derived when that release is pinned.
 #
 # Entries are grouped by SEP. As each SEP/milestone is implemented in the SDK the
 # corresponding scenarios start passing and MUST be removed from this list (the
@@ -78,9 +78,10 @@ server:
     # SEP-2549 (caching): no ttlMs/cacheScope support; scenario also hits the
     # stateful-mode "Session ID required" error.
     - caching
-    # SEP-2243 (HTTP header standardization): -32001 HeaderMismatch handling and
-    # case-insensitive/whitespace-trimmed header validation not implemented.
-    # (Error-code cells parameterized pending conformance #336 — see header note.)
+    # SEP-2243 (HTTP header standardization): the reject cells the SDK does
+    # answer now use -32001 (HeaderMismatch), but missing-header enforcement
+    # (Mcp-Method, Mcp-Name) and the Mcp-Name cross-check are not implemented,
+    # so those reject cells are still accepted with 200.
     - http-header-validation
     - http-custom-header-server-validation
     # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
