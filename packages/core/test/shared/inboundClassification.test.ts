@@ -5,25 +5,19 @@
  * cross-checks, notification routing, element-wise batch classification, and
  * the modern-only (strict) rejection mapping.
  *
- * Cells whose exact error code is still under discussion upstream (the
- * header/body mismatch family) are asserted as parameterized: the outcome is
- * pinned (a rejection, marked unsettled), the code is asserted to be the
- * provisional constant and a member of the candidate set — never a hard-coded
- * literal of its own.
+ * The header/body mismatch cells are pinned to `-32001` (HeaderMismatch) and
+ * the missing-envelope / missing-protocol-version cells to `-32602` (invalid
+ * params naming the missing key(s)) — the assignments asserted by the
+ * published conformance suite.
  */
 import { describe, expect, test } from 'vitest';
 
 import { hasEnvelopeClaim, validateEnvelopeMeta } from '../../src/shared/envelope.js';
 import type { InboundHttpRequest, InboundLegacyRoute } from '../../src/shared/inboundClassification.js';
-import {
-    classifyInboundRequest,
-    modernOnlyStrictRejection,
-    PROVISIONAL_CROSS_CHECK_MISMATCH_CODE
-} from '../../src/shared/inboundClassification.js';
+import { classifyInboundRequest, modernOnlyStrictRejection } from '../../src/shared/inboundClassification.js';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants.js';
 
 const MODERN_REVISION = '2026-07-28';
-const MISMATCH_CODE_CANDIDATES = [-32_001, -32_602, -32_004];
 
 const ENVELOPE = {
     [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION,
@@ -66,12 +60,10 @@ const expectMismatch = (outcome: ReturnType<typeof classifyInboundRequest>, cell
     expect(outcome.cell).toBe(cell);
     expect(outcome.rung).toBe('era-classification');
     expect(outcome.httpStatus).toBe(400);
-    // Parameterized: the exact code for the mismatch family is not settled
-    // upstream. The classifier emits the provisional constant; assert set
-    // membership rather than a literal of our own.
-    expect(outcome.settled).toBe(false);
-    expect(outcome.code).toBe(PROVISIONAL_CROSS_CHECK_MISMATCH_CODE);
-    expect(MISMATCH_CODE_CANDIDATES).toContain(outcome.code);
+    // Pinned: a header/body disagreement is a header-validation failure and
+    // answers -32001 (HeaderMismatch), per the published conformance suite.
+    expect(outcome.settled).toBe(true);
+    expect(outcome.code).toBe(-32_001);
 };
 
 describe('envelope claim detection (claim = the reserved protocol-version key)', () => {
@@ -219,15 +211,47 @@ describe('body-primary era predicate', () => {
     });
 });
 
-describe('header cross-checks (parameterized mismatch family)', () => {
+describe('header cross-checks (-32001 HeaderMismatch) and the missing-envelope rejection (-32602)', () => {
     test('a body claim disagreeing with the protocol-version header is a mismatch outcome', () => {
         const outcome = classifyInboundRequest(post(modernToolsCall(), { protocolVersion: '2025-06-18' }));
         expectMismatch(outcome, 'header-body-version-mismatch');
     });
 
-    test('a modern header on a claim-less body is a mismatch outcome, not an upgrade', () => {
+    test('a modern header on a claim-less body is rejected with invalid params naming the missing _meta envelope', () => {
+        // Never an upgrade and never a silent legacy fallthrough: the modern
+        // revisions require the per-request envelope, so the request is
+        // answered as missing required params.
         const outcome = classifyInboundRequest(post(legacyToolsList(), { protocolVersion: MODERN_REVISION }));
-        expectMismatch(outcome, 'modern-header-without-claim');
+        expect(outcome).toMatchObject({
+            kind: 'reject',
+            rung: 'envelope',
+            cell: 'modern-header-without-claim',
+            httpStatus: 400,
+            code: -32_602,
+            settled: true,
+            data: { envelope: { missing: ['_meta'] } }
+        });
+    });
+
+    test('a modern header on a body whose _meta lacks the protocol-version key names that key as missing', () => {
+        const body = {
+            jsonrpc: '2.0',
+            id: 4,
+            method: 'tools/list',
+            params: { _meta: { [CLIENT_INFO_META_KEY]: { name: 'c', version: '1' }, [CLIENT_CAPABILITIES_META_KEY]: {} } }
+        };
+        const outcome = classifyInboundRequest(post(body, { protocolVersion: MODERN_REVISION }));
+        expect(outcome).toMatchObject({
+            kind: 'reject',
+            rung: 'envelope',
+            cell: 'modern-header-without-claim',
+            httpStatus: 400,
+            code: -32_602,
+            settled: true,
+            data: { envelope: { missing: [PROTOCOL_VERSION_META_KEY] } }
+        });
+        if (outcome.kind !== 'reject') return;
+        expect(outcome.message).toContain(PROTOCOL_VERSION_META_KEY);
     });
 
     test('initialize with a modern protocol-version header is a mismatch outcome', () => {

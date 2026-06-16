@@ -13,9 +13,9 @@
  *    carries its own HTTP 400 and is the only invalid-params rejection that
  *    maps to 400.
  *
- * Cells whose error CODE is still disputed upstream (the header/body mismatch
- * family) stay parameterized: the emitted code is asserted as candidate-set
- * membership, never a pinned literal.
+ * The header/body mismatch family is pinned to `-32001` (HeaderMismatch) and
+ * the missing-envelope cells to `-32602`, the assignments asserted by the
+ * published conformance suite.
  *
  * Transport- and dispatch-level behavior for these cells is covered by the
  * ladder cell sheet and the per-request transport suites; this file pins the
@@ -23,11 +23,7 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import {
-    httpStatusForErrorCode,
-    LADDER_ERROR_HTTP_STATUS,
-    PROVISIONAL_CROSS_CHECK_MISMATCH_CODE
-} from '../../src/shared/inboundClassification.js';
+import { HEADER_MISMATCH_ERROR_CODE, httpStatusForErrorCode, LADDER_ERROR_HTTP_STATUS } from '../../src/shared/inboundClassification.js';
 import { ProtocolErrorCode } from '../../src/types/enums.js';
 
 describe('the status matrix — pinned cells', () => {
@@ -84,15 +80,10 @@ describe('the status matrix — pinned cells', () => {
     });
 });
 
-describe('the status matrix — parameterized (disputed) cells', () => {
-    test('the header/body mismatch family code is a candidate, not a pin, and maps to 400 whichever candidate it is', () => {
-        const candidates = [-32_001, ProtocolErrorCode.InvalidParams, ProtocolErrorCode.UnsupportedProtocolVersion];
-        expect(candidates).toContain(PROVISIONAL_CROSS_CHECK_MISMATCH_CODE);
-        // Whatever the upstream resolution turns out to be, a ladder-originated
-        // rejection in this family answers HTTP 400: every candidate either has
-        // a 400 row or is carried by the classifier's own httpStatus.
-        if (PROVISIONAL_CROSS_CHECK_MISMATCH_CODE !== ProtocolErrorCode.InvalidParams) {
-            expect(httpStatusForErrorCode(PROVISIONAL_CROSS_CHECK_MISMATCH_CODE, 'ladder')).toBe(400);
-        }
+describe('the status matrix — header/body mismatch family', () => {
+    test('the header/body mismatch family is pinned to -32001 (HeaderMismatch) and maps to HTTP 400', () => {
+        expect(HEADER_MISMATCH_ERROR_CODE).toBe(-32_001);
+        expect(LADDER_ERROR_HTTP_STATUS[HEADER_MISMATCH_ERROR_CODE]).toBe(400);
+        expect(httpStatusForErrorCode(HEADER_MISMATCH_ERROR_CODE, 'ladder')).toBe(400);
     });
 });

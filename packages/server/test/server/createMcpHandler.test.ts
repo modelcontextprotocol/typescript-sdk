@@ -201,7 +201,7 @@ describe('createMcpHandler — modern path', () => {
         expect(state.contexts).toHaveLength(0);
     });
 
-    it('keeps the disputed header/body mismatch cells inside the candidate code set (parameterized, not pinned)', async () => {
+    it('rejects a header/body protocol-version mismatch with -32001 (HeaderMismatch) over HTTP 400', async () => {
         const { factory } = testFactory();
         const onerror = vi.fn();
         const handler = createMcpHandler(factory, { onerror });
@@ -209,10 +209,31 @@ describe('createMcpHandler — modern path', () => {
         const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'x' }), { 'mcp-protocol-version': '2025-11-25' }));
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
-        expect([-32_001, -32_602, -32_004]).toContain(body.error.code);
-        // Whatever the disputed code lands on, the rejection echoes the request id.
+        expect(body.error.code).toBe(-32_001);
+        // The rejection echoes the request id.
         expect(body.id).toBe(1);
         expect(onerror).toHaveBeenCalled();
+    });
+
+    it('rejects a modern-classified request without a _meta envelope with -32602 naming the missing key over HTTP 400', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory);
+
+        // The MCP-Protocol-Version header names the modern revision but the body
+        // carries no per-request envelope: invalid params naming what is missing,
+        // not a version error and not silent legacy serving.
+        const response = await handler.fetch(
+            postRequest(
+                { jsonrpc: '2.0', id: 11, method: 'tools/list', params: {} },
+                { 'mcp-protocol-version': MODERN_REVISION, 'mcp-method': 'tools/list' }
+            )
+        );
+        expect(response.status).toBe(400);
+        const body = (await response.json()) as JSONRPCErrorBody;
+        expect(body.error.code).toBe(-32_602);
+        expect(JSON.stringify(body.error.data)).toContain('_meta');
+        expect(body.id).toBe(11);
+        expect(state.contexts).toHaveLength(0);
     });
 
     it('answers entry-internal failures with 500/-32603 and reports them through onerror', async () => {

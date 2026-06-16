@@ -1,14 +1,16 @@
 /**
  * The inbound validation-ladder cell sheet.
  *
- * Each row names one ladder cell, whether its outcome is pinned or
- * parameterized, the conformance scenarios that exercise it (where one
- * exists), and the expected outcome. Pinned rows assert exact codes and HTTP
- * statuses; parameterized rows assert the outcome class and that the emitted
- * code is the documented provisional value drawn from the candidate set —
- * those cells are re-derived when a published conformance release settles the
- * disputed assignments (see the note in
- * `test/conformance/expected-failures.yaml`).
+ * Each row names one ladder cell, the conformance scenarios that exercise it
+ * (where one exists), and the expected outcome with its exact code and HTTP
+ * status. The header/body mismatch and missing-envelope cells were originally
+ * parameterized (asserted as candidate-set membership) while their error codes
+ * were under discussion upstream; they are now pinned to the assignments the
+ * published conformance suite asserts (`-32001` HeaderMismatch for header/body
+ * disagreements, `-32602` invalid params naming the missing key(s) for a
+ * missing envelope or missing protocol-version key). If a future published
+ * conformance release changes an assignment, the affected rows are re-derived
+ * here.
  *
  * Cells evaluated at protocol dispatch (the era registry gate, per-method
  * params, capability assertion) are listed for ordering and status mapping
@@ -23,13 +25,11 @@ import {
     httpStatusForErrorCode,
     INBOUND_VALIDATION_LADDER,
     LADDER_ERROR_HTTP_STATUS,
-    modernOnlyStrictRejection,
-    PROVISIONAL_CROSS_CHECK_MISMATCH_CODE
+    modernOnlyStrictRejection
 } from '../../src/shared/inboundClassification.js';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants.js';
 
 const MODERN_REVISION = '2026-07-28';
-const MISMATCH_CODE_CANDIDATES = [-32_001, -32_602, -32_004];
 
 const ENVELOPE = {
     [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION,
@@ -54,8 +54,6 @@ const post = (body: unknown, headers: { protocolVersion?: string; mcpMethod?: st
 interface SheetRow {
     /** Stable cell identifier (matches `InboundLadderRejection.cell` for rejection cells). */
     cell: string;
-    /** Pinned cells assert exact outcomes; parameterized cells assert the provisional outcome + candidate-set membership. */
-    status: 'pinned' | 'parameterized';
     /** Conformance scenarios exercising the cell, where one exists in the published referee. */
     conformance: readonly string[];
     /** The classifier input. */
@@ -64,7 +62,7 @@ interface SheetRow {
     strict?: boolean;
     /** The expected outcome for routing cells. */
     route?: 'legacy' | 'modern';
-    /** The expected rejection (exact for pinned cells; for parameterized cells `code` is the provisional value). */
+    /** The expected rejection, asserted exactly. */
     reject?: Partial<InboundLadderRejection>;
     /** Why the cell behaves the way it does. */
     rationale: string;
@@ -74,7 +72,6 @@ const SHEET: readonly SheetRow[] = [
     /* --- Routing cells (pinned) --------------------------------------------------- */
     {
         cell: 'modern-enveloped-request',
-        status: 'pinned',
         conformance: ['server-stateless'],
         input: post(enveloped('tools/call', { name: 'echo', arguments: {} }), { protocolVersion: MODERN_REVISION }),
         route: 'modern',
@@ -82,7 +79,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'modern-enveloped-request-header-stripped',
-        status: 'pinned',
         conformance: ['server-stateless'],
         input: post(enveloped('tools/call', { name: 'echo', arguments: {} })),
         route: 'modern',
@@ -90,7 +86,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'legacy-claimless-request',
-        status: 'pinned',
         conformance: [],
         input: post(bare('tools/list'), { protocolVersion: '2025-06-18' }),
         route: 'legacy',
@@ -98,7 +93,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'legacy-initialize',
-        status: 'pinned',
         conformance: [],
         input: post(bare('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'c', version: '1' } })),
         route: 'legacy',
@@ -106,7 +100,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'modern-enveloped-initialize',
-        status: 'pinned',
         conformance: ['server-stateless'],
         input: post(enveloped('initialize'), { protocolVersion: MODERN_REVISION, mcpMethod: 'initialize' }),
         route: 'modern',
@@ -117,7 +110,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'legacy-method-routed-get',
-        status: 'pinned',
         conformance: [],
         input: { httpMethod: 'GET' },
         route: 'legacy',
@@ -125,7 +117,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'legacy-notification-stripped-header',
-        status: 'pinned',
         conformance: [],
         input: post({ jsonrpc: '2.0', method: 'notifications/initialized' }),
         route: 'legacy',
@@ -134,7 +125,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'modern-notification-by-header',
-        status: 'pinned',
         conformance: ['http-header-validation'],
         input: post({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 1 } }, { protocolVersion: MODERN_REVISION }),
         route: 'modern',
@@ -142,7 +132,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'legacy-batch',
-        status: 'pinned',
         conformance: [],
         input: post([bare('tools/list')]),
         route: 'legacy',
@@ -150,7 +139,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'legacy-response-post',
-        status: 'pinned',
         conformance: [],
         input: post({ jsonrpc: '2.0', id: 5, result: {} }),
         route: 'legacy',
@@ -160,7 +148,6 @@ const SHEET: readonly SheetRow[] = [
     /* --- Edge rejection cells (pinned) -------------------------------------------- */
     {
         cell: 'envelope-invalid',
-        status: 'pinned',
         conformance: ['server-stateless'],
         input: post({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION } } }),
         reject: { rung: 'envelope', httpStatus: 400, code: -32_602, settled: true },
@@ -168,7 +155,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'batch-with-modern-element',
-        status: 'pinned',
         conformance: [],
         input: post([bare('tools/list'), enveloped('tools/call', { name: 'echo', arguments: {} })]),
         reject: { rung: 'jsonrpc-shape', httpStatus: 400, code: -32_600, settled: true },
@@ -176,7 +162,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'batch-with-invalid-element',
-        status: 'pinned',
         conformance: [],
         input: post([bare('tools/list'), { nonsense: true }]),
         reject: { rung: 'jsonrpc-shape', httpStatus: 400, code: -32_600, settled: true },
@@ -184,7 +169,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'invalid-json-rpc-body',
-        status: 'pinned',
         conformance: [],
         input: post({ hello: 'world' }),
         reject: { rung: 'jsonrpc-shape', httpStatus: 400, code: -32_600, settled: true },
@@ -195,7 +179,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'empty-batch',
-        status: 'pinned',
         conformance: [],
         input: post([]),
         reject: { rung: 'jsonrpc-shape', httpStatus: 400, code: -32_600, settled: true },
@@ -206,7 +189,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'notification-envelope-invalid',
-        status: 'pinned',
         conformance: [],
         input: post({ jsonrpc: '2.0', method: 'notifications/progress', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: 42 } } }),
         reject: { rung: 'envelope', httpStatus: 400, code: -32_602, settled: true },
@@ -218,7 +200,6 @@ const SHEET: readonly SheetRow[] = [
     /* --- Modern-only (strict) cells (pinned) --------------------------------------- */
     {
         cell: 'modern-only-missing-envelope',
-        status: 'pinned',
         conformance: ['server-stateless'],
         input: post(bare('tools/list')),
         strict: true,
@@ -229,7 +210,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'modern-only-missing-envelope-initialize',
-        status: 'pinned',
         conformance: ['server-stateless'],
         input: post(bare('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'c', version: '1' } })),
         strict: true,
@@ -246,7 +226,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'modern-only-method-not-allowed',
-        status: 'pinned',
         conformance: [],
         input: { httpMethod: 'DELETE' },
         strict: true,
@@ -255,7 +234,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'modern-only-batch-not-supported',
-        status: 'pinned',
         conformance: [],
         input: post([bare('tools/list')]),
         strict: true,
@@ -264,7 +242,6 @@ const SHEET: readonly SheetRow[] = [
     },
     {
         cell: 'modern-only-response-post',
-        status: 'pinned',
         conformance: [],
         input: post({ jsonrpc: '2.0', id: 5, result: {} }),
         strict: true,
@@ -272,88 +249,89 @@ const SHEET: readonly SheetRow[] = [
         rationale: 'There is no server-to-client request channel on the modern era, so posted responses are invalid requests.'
     },
 
-    /* --- Parameterized cells (disputed error-code assignments) --------------------- */
+    /* --- Header cross-check and missing-envelope cells (pinned to the published suite) --- */
     {
         cell: 'header-body-version-mismatch',
-        status: 'parameterized',
-        conformance: ['http-header-validation', 'http-custom-header-server-validation'],
+        conformance: ['server-stateless', 'http-header-validation', 'http-custom-header-server-validation'],
         input: post(enveloped('tools/call', { name: 'echo', arguments: {} }), { protocolVersion: '2025-06-18' }),
-        reject: { rung: 'era-classification', httpStatus: 400, settled: false },
-        rationale: 'Header/body protocol-version disagreement; the exact code is still under discussion upstream.'
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_001, settled: true },
+        rationale:
+            'Header/body protocol-version disagreement is a header-validation failure: -32001 (HeaderMismatch) on HTTP 400, as ' +
+            'asserted by the published conformance suite.'
     },
     {
         cell: 'modern-header-without-claim',
-        status: 'parameterized',
-        conformance: ['http-header-validation'],
+        conformance: ['server-stateless'],
         input: post(bare('tools/list'), { protocolVersion: MODERN_REVISION }),
-        reject: { rung: 'era-classification', httpStatus: 400, settled: false },
-        rationale: 'A modern header on a claim-less body is a disagreement, not an upgrade; code pending upstream settlement.'
+        reject: { rung: 'envelope', httpStatus: 400, code: -32_602, settled: true },
+        rationale:
+            'A modern protocol-version header on a claim-less body is a modern-classified request missing its required _meta ' +
+            'envelope: invalid params naming the missing key(s), never an upgrade and never a silent legacy fallthrough.'
     },
     {
         cell: 'initialize-with-modern-header',
-        status: 'parameterized',
-        conformance: ['http-header-validation'],
+        conformance: [],
         input: post(bare('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'c', version: '1' } }), {
             protocolVersion: MODERN_REVISION
         }),
-        reject: { rung: 'era-classification', httpStatus: 400, settled: false },
-        rationale: 'An envelope-less initialize classifies legacy; a modern header on it is the same disagreement family.'
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_001, settled: true },
+        rationale:
+            'An envelope-less initialize classifies legacy; a modern header on it is a header/body disagreement and answers the ' +
+            'same -32001 (HeaderMismatch) as the rest of the mismatch family.'
     },
     {
         cell: 'method-header-mismatch',
-        status: 'parameterized',
-        conformance: ['http-custom-header-server-validation'],
+        conformance: ['http-header-validation', 'http-custom-header-server-validation'],
         input: post(enveloped('tools/call', { name: 'echo', arguments: {} }), {
             protocolVersion: MODERN_REVISION,
             mcpMethod: 'tools/list'
         }),
-        reject: { rung: 'era-classification', httpStatus: 400, settled: false },
-        rationale: 'The Mcp-Method header must describe the body it accompanies; the rejection code is pending upstream settlement.'
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_001, settled: true },
+        rationale:
+            'The Mcp-Method header must describe the body it accompanies; a disagreement is a header-validation failure and ' +
+            'answers -32001 (HeaderMismatch) on HTTP 400.'
     },
     {
         cell: 'notification-header-body-version-mismatch',
-        status: 'parameterized',
         conformance: [],
         input: post(
             { jsonrpc: '2.0', method: 'notifications/progress', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION } } },
             { protocolVersion: '2025-06-18' }
         ),
-        reject: { rung: 'era-classification', httpStatus: 400, settled: false },
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_001, settled: true },
         rationale:
-            'A notification body claim disagreeing with the protocol-version header is the same disagreement family as the request ' +
-            'cells above; the exact code is still under discussion upstream.'
+            'A notification body claim disagreeing with the protocol-version header is the same header-validation failure as the ' +
+            'request cells above and answers the same -32001 (HeaderMismatch).'
     },
     {
         cell: 'notification-method-header-mismatch',
-        status: 'parameterized',
         conformance: [],
         input: post(
             { jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 1, progress: 1 } },
             { protocolVersion: MODERN_REVISION, mcpMethod: 'notifications/cancelled' }
         ),
-        reject: { rung: 'era-classification', httpStatus: 400, settled: false },
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_001, settled: true },
         rationale:
             'The Mcp-Method header must describe the notification body it accompanies (validated only when the notification ' +
-            'classifies modern); the rejection code is pending upstream settlement.'
+            'classifies modern); a disagreement answers -32001 (HeaderMismatch).'
     },
     {
         cell: 'multi-fault-mismatched-claim-and-malformed-envelope',
-        status: 'parameterized',
         conformance: ['server-stateless', 'http-header-validation'],
         // The claim names a different version than the header AND the envelope
-        // is missing required keys: today the envelope rung answers (the
-        // mismatch is only checked on a valid envelope), so the emitted code is
-        // -32602 — but the precedence between the era-classification and
-        // envelope rungs for multi-fault requests is part of the disputed set.
+        // is missing required keys: the envelope rung answers (the header
+        // cross-check is only evaluated on a valid envelope), so the emitted
+        // code is the envelope rung's -32602.
         input: post(
             { jsonrpc: '2.0', id: 1, method: 'tools/call', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION } } },
             {
                 protocolVersion: '2025-06-18'
             }
         ),
-        reject: { httpStatus: 400 },
+        reject: { rung: 'envelope', httpStatus: 400, code: -32_602, settled: true },
         rationale:
-            'Multi-fault precedence between the version error and invalid params is not settled upstream; asserted as candidate-set membership only.'
+            'Multi-fault precedence: envelope validity is checked before the header cross-check, so the malformed envelope answers ' +
+            'with invalid params; the mismatch is never reached.'
     }
 ];
 
@@ -383,26 +361,15 @@ describe('inbound validation-ladder cell sheet', () => {
         expect(outcome.kind).toBe('reject');
         if (outcome.kind !== 'reject') return;
 
-        if (row.status === 'pinned') {
-            expect(outcome).toMatchObject(row.reject ?? {});
-        } else {
-            // Parameterized: outcome class and provisional code only — the
-            // exact assignment is re-derived from a future conformance pin.
-            if (row.reject?.rung !== undefined) expect(outcome.rung).toBe(row.reject.rung);
-            if (row.reject?.httpStatus !== undefined) expect(outcome.httpStatus).toBe(row.reject.httpStatus);
-            expect(MISMATCH_CODE_CANDIDATES).toContain(outcome.code);
-            if (row.reject?.settled !== undefined) {
-                expect(outcome.settled).toBe(row.reject.settled);
-                expect(outcome.code).toBe(PROVISIONAL_CROSS_CHECK_MISMATCH_CODE);
-            }
-        }
+        expect(outcome).toMatchObject(row.reject ?? {});
     });
 
-    test('every cell id is unique and every parameterized cell is marked unsettled or candidate-bound', () => {
+    test('every cell id is unique and every rejection row pins an expected outcome', () => {
         const ids = SHEET.map(row => row.cell);
         expect(new Set(ids).size).toBe(ids.length);
-        for (const row of SHEET.filter(candidate => candidate.status === 'parameterized')) {
-            expect(row.reject).toBeDefined();
+        for (const row of SHEET.filter(candidate => candidate.route === undefined)) {
+            expect(row.reject?.code).toBeDefined();
+            expect(row.reject?.httpStatus).toBeDefined();
         }
     });
 });
