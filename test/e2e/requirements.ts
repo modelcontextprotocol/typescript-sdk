@@ -2228,6 +2228,22 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'The entry is an HTTP-only surface; each cell hosts the handler node face on a real node:http listener (the matrix transport arg is ignored, fixed to a single streamableHttp-labelled cell) and the spec-version axis selects which leg the notification rides.'
     },
+    'typescript:hosting:entry:modern-cacheable-stamping': {
+        source: 'sdk',
+        behavior:
+            'Typed tools/list and resources/read round trips negotiated on 2026-07-28 over a createMcpHandler endpoint succeed, and the wire results carry resultType "complete" plus the required ttlMs/cacheScope fields, with configured cache hints winning per the documented precedence (per-resource cacheHint over the per-operation cacheHints entry over the ttlMs 0 / cacheScope private defaults).',
+        transports: ['streamableHttp'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The entry is an HTTP-only surface; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis.'
+    },
+    'typescript:hosting:entry:legacy-cacheable-suppression': {
+        source: 'sdk',
+        behavior:
+            'A factory with every cache-hint author configured (per-operation cacheHints and a per-resource cacheHint), served to a plain 2025 client through the legacy stateless slot of a createMcpHandler endpoint, answers tools/list and resources/read with no resultType, ttlMs, cacheScope or cacheHint vocabulary anywhere in the response bytes.',
+        transports: ['streamableHttp'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'The suppression invariant is a statement about 2025-era serving, so the requirement is bounded to the 2025-11-25 axis; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and fixed to a single streamableHttp-labelled cell.'
+    },
     'typescript:transport:stdio:dual-era-serving': {
         source: 'sdk',
         behavior:
