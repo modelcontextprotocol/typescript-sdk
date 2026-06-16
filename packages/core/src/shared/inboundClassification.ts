@@ -41,12 +41,21 @@
  * legacy and hand-wired traffic is never classified, which keeps its
  * dispatch behavior byte-identical to today's.
  *
- * Some ladder cells do not have a settled error code upstream yet (the
- * header/body mismatch family: the candidate codes are `-32001`, `-32602`
- * and `-32004`; see the note in `test/conformance/expected-failures.yaml`).
- * Those outcomes are emitted with a single provisional code and are marked
- * `settled: false` so tests and consumers can treat them as parameterized
- * rather than pinned.
+ * Error codes for the modern-path rejection cells follow the published
+ * conformance suite (and the spec text it asserts):
+ *
+ * - A header/body cross-check mismatch (the `MCP-Protocol-Version` header
+ *   disagreeing with the body, or the `Mcp-Method` header disagreeing with the
+ *   body method) is rejected with `-32001` (`HeaderMismatch`) on HTTP 400.
+ * - A request whose protocol-version header names a modern revision but whose
+ *   body carries no `_meta` envelope claim — including an envelope present but
+ *   missing the required protocol-version key — is rejected with `-32602`
+ *   (invalid params) naming the missing key(s), on HTTP 400.
+ *
+ * Should a future spec revision or conformance release change these
+ * assignments, the affected cells are re-derived against that release; the
+ * `settled` flag on {@linkcode InboundLadderRejection} stays available to mark
+ * a cell provisional again while such a change is in flight.
  */
 import { PROTOCOL_VERSION_META_KEY } from '../types/constants.js';
 import { ProtocolErrorCode } from '../types/enums.js';
@@ -159,6 +168,23 @@ export interface InboundLadderRejection {
 export type InboundClassificationOutcome = InboundLegacyRoute | InboundModernRoute | InboundLadderRejection;
 
 /* ------------------------------------------------------------------------ *
+ * Header cross-check mismatches
+ * ------------------------------------------------------------------------ */
+
+/**
+ * The error code emitted for header/body cross-check mismatches: the
+ * `MCP-Protocol-Version` header disagreeing with the body's envelope claim (or
+ * with the body's classification), and the `Mcp-Method` header disagreeing
+ * with the body method.
+ *
+ * `-32001` is the SEP-2243 `HeaderMismatch` code, as asserted by the published
+ * conformance suite for header-validation failures. It has no
+ * {@linkcode ProtocolErrorCode} member because it is not part of the 2025-era
+ * wire vocabulary; the validation ladder is its only emitter.
+ */
+export const HEADER_MISMATCH_ERROR_CODE = -32_001;
+
+/* ------------------------------------------------------------------------ *
  * The validation ladder as data
  * ------------------------------------------------------------------------ */
 
@@ -219,11 +245,12 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
         rung: 'era-classification',
         order: 3,
         evaluatedAt: 'edge',
-        codes: [ProtocolErrorCode.UnsupportedProtocolVersion],
+        codes: [HEADER_MISMATCH_ERROR_CODE, ProtocolErrorCode.UnsupportedProtocolVersion],
         conformance: ['server-stateless', 'http-header-validation', 'http-custom-header-server-validation'],
         rationale:
-            'Body-primary era classification with the protocol-version header as a cross-check; a header/body disagreement is a ' +
-            'distinct outcome whose exact error code is still under discussion upstream (provisional, see expected-failures.yaml).'
+            'Body-primary era classification with the protocol-version header as a cross-check; a header/body disagreement is rejected ' +
+            'with -32001 (HeaderMismatch), and an envelope-less request on a modern-only endpoint is answered with the ' +
+            'unsupported-protocol-version error naming the supported revisions.'
     },
     {
         rung: 'envelope',
@@ -232,8 +259,9 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
         codes: [ProtocolErrorCode.InvalidParams],
         conformance: ['server-stateless'],
         rationale:
-            'A present envelope claim with a malformed envelope is an invalid-params rejection naming the offending key — never a ' +
-            'silent fall back to legacy handling. This is the only place an invalid-params rejection maps to HTTP 400.'
+            'A present envelope claim with a malformed envelope — and a missing envelope on a request whose protocol-version header ' +
+            'names a modern revision — is an invalid-params rejection naming the offending or missing key(s); never a silent fall ' +
+            'back to legacy handling. This is the only place an invalid-params rejection maps to HTTP 400.'
     },
     {
         rung: 'method-registry',
@@ -293,7 +321,7 @@ export const LADDER_ERROR_HTTP_STATUS: Readonly<Record<number, number>> = {
     [ProtocolErrorCode.MethodNotFound]: 404,
     [ProtocolErrorCode.UnsupportedProtocolVersion]: 400,
     [ProtocolErrorCode.MissingRequiredClientCapability]: 400,
-    [-32_001]: 400
+    [HEADER_MISMATCH_ERROR_CODE]: 400
 };
 
 /**
@@ -306,23 +334,6 @@ export function httpStatusForErrorCode(code: number, origin: 'ladder' | 'in-band
     if (origin === 'in-band') return 200;
     return LADDER_ERROR_HTTP_STATUS[code] ?? 400;
 }
-
-/* ------------------------------------------------------------------------ *
- * Provisional cells
- * ------------------------------------------------------------------------ */
-
-/**
- * The error code emitted for header/body cross-check mismatches (the
- * protocol-version header disagreeing with the body classification, and the
- * `Mcp-Method` header disagreeing with the body method).
- *
- * The exact code for these cells is still under discussion upstream — the
- * candidates are `-32001`, `-32602` and `-32004` (see the note in
- * `test/conformance/expected-failures.yaml`). Until a published conformance
- * release settles them, the ladder emits the protocol-layer era-mismatch code
- * and marks the outcome `settled: false`.
- */
-export const PROVISIONAL_CROSS_CHECK_MISMATCH_CODE: number = ProtocolErrorCode.UnsupportedProtocolVersion;
 
 /* ------------------------------------------------------------------------ *
  * The classifier
@@ -352,10 +363,10 @@ function crossCheckMismatch(cell: string, header: string, body: string): Inbound
         'era-classification',
         cell,
         400,
-        new ProtocolError(PROVISIONAL_CROSS_CHECK_MISMATCH_CODE, `Bad Request: the request headers and body disagree: ${body}`, {
+        new ProtocolError(HEADER_MISMATCH_ERROR_CODE, `Bad Request: the request headers and body disagree: ${body}`, {
             mismatch: { header, body }
         }),
-        false
+        true
     );
 }
 
@@ -504,13 +515,29 @@ function classifyRequestBody(request: InboundHttpRequest, body: Record<string, u
         return { kind: 'modern', messageKind: 'request', classification: classificationForClaim(claimedVersion) };
     }
 
-    // No claim: legacy-era traffic. The header is a cross-check only — a
-    // modern header on a claim-less body is a disagreement, not an upgrade.
+    // No claim: legacy-era traffic — unless the protocol-version header names a
+    // modern revision. The modern revisions carry their request metadata in the
+    // per-request `_meta` envelope, so a modern-classified request without one
+    // is missing required params: it is rejected with invalid params naming the
+    // missing key(s), never silently served as legacy traffic and never
+    // upgraded from the header alone.
     if (headerNamesModern) {
-        return crossCheckMismatch(
+        const meta = requestMetaOf(params);
+        const missingFromEnvelope = validateEnvelopeMeta(meta ?? {})
+            .filter(issue => issue.problem === 'missing')
+            .map(issue => issue.key);
+        const missing = meta === undefined ? ['_meta'] : missingFromEnvelope.length > 0 ? missingFromEnvelope : [PROTOCOL_VERSION_META_KEY];
+        return rejection(
+            'envelope',
             'modern-header-without-claim',
-            headerVersion,
-            'the MCP-Protocol-Version header names a modern protocol revision but the request body carries no _meta envelope claim'
+            400,
+            new ProtocolError(
+                ProtocolErrorCode.InvalidParams,
+                `Invalid params: the MCP-Protocol-Version header names protocol revision ${headerVersion}, but the request is missing ` +
+                    `the required per-request envelope key(s): ${missing.join(', ')}`,
+                { envelope: { missing } }
+            ),
+            true
         );
     }
     return { kind: 'legacy', reason: 'no-claim', ...(headerVersion !== undefined && { requestedVersion: headerVersion }) };
@@ -687,8 +714,7 @@ export function classifyInboundMessage(message: { method: string; params?: unkno
  *   versions and echoing the version the request named (when it named one —
  *   `requested` is omitted rather than fabricated when the request named no
  *   version at all), so a legacy client can discover what the endpoint serves
- *   from the error alone. (This cell shares its numeric code with the
- *   still-disputed mismatch cells above, but its own outcome is settled.)
+ *   from the error alone.
  * - Posted responses and batch arrays are invalid requests on the modern era.
  * - Non-`POST` methods are not allowed.
  * - Legacy-classified notifications return `undefined`: the caller answers

@@ -161,9 +161,10 @@ describe("DV-31: strict 'modern' on a long-lived connection", () => {
         const response = await request({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
         expect(isJSONRPCErrorResponse(response)).toBe(true);
         if (isJSONRPCErrorResponse(response)) {
-            // Note: this cell shares its numeric code (−32004) with the
-            // still-disputed header/body mismatch family; the cell itself is
-            // settled (unsupported protocol version + supported list).
+            // The envelope-less request on a modern-only instance answers the
+            // unsupported-protocol-version error with the supported list (the
+            // HTTP entry's header/body mismatch cells use −32001 instead; there
+            // is no header layer on a long-lived connection).
             expect(response.error.code).toBe(-32_004);
             const data = response.error.data as { supported?: string[]; requested?: string };
             // The strict instance serves only modern revisions, so the supported
