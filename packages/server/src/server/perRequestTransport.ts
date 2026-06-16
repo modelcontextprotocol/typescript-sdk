@@ -55,7 +55,10 @@ import {
  * - `auto` (default): answer with a single JSON body unless the handler emits
  *   a related message before its result, in which case the response upgrades
  *   to an SSE stream.
- * - `sse`: open the SSE stream immediately.
+ * - `sse`: always answer handler output over an SSE stream. The stream opens
+ *   once the request has passed the pre-dispatch validation gates, so ladder
+ *   rejections keep their mapped HTTP status instead of being framed onto a
+ *   200 stream.
  * - `json`: never stream; related messages other than the terminal response
  *   are dropped.
  */
@@ -114,6 +117,16 @@ export class PerRequestHTTPServerTransport implements Transport {
     private _used = false;
     private _closed = false;
     private _terminalDelivered = false;
+    /**
+     * `true` only while the inbound message is being delivered synchronously
+     * to the connected protocol layer. The pre-handler gates (the era
+     * registry gate, the edge→instance handoff check, the missing-handler
+     * rejection) answer inside this window; request handlers always run
+     * after it (the protocol layer defers them to a microtask). An error
+     * sent inside the window is therefore ladder-originated, and an error
+     * sent after it is handler-produced.
+     */
+    private _dispatchWindowOpen = false;
     private _requestId?: RequestId;
     private _deferredResponse?: DeferredResponse;
     private _sse?: SseSink;
@@ -145,13 +158,13 @@ export class PerRequestHTTPServerTransport implements Transport {
         if (this._used) {
             throw new Error('PerRequestHTTPServerTransport serves exactly one exchange; construct a new transport per request');
         }
-        this._used = true;
         if (!this._started || this.onmessage === undefined) {
             throw new Error('PerRequestHTTPServerTransport is not connected: connect a server to this transport before handling a message');
         }
         if (this._closed) {
             throw new Error('PerRequestHTTPServerTransport is closed');
         }
+        this._used = true;
 
         const signal = extra?.request?.signal;
         if (signal?.aborted) {
@@ -184,11 +197,22 @@ export class PerRequestHTTPServerTransport implements Transport {
                 this._abortCleanup = () => signal.removeEventListener('abort', onAbort);
             }
 
-            if (this._responseMode === 'sse') {
-                this.upgradeToSse();
+            this._dispatchWindowOpen = true;
+            try {
+                this.onmessage(message, messageExtra);
+            } finally {
+                this._dispatchWindowOpen = false;
             }
 
-            this.onmessage(message, messageExtra);
+            if (this._responseMode === 'sse' && !this._closed && !this._deferredResponse.settled) {
+                // Forced-SSE exchanges open their stream as soon as the
+                // request has passed the pre-dispatch gates: a ladder
+                // rejection settles inside the dispatch window with its
+                // mapped HTTP status, while handler output — including
+                // comment frames written before the first message — streams
+                // as before.
+                this.upgradeToSse();
+            }
             return promise;
         }
 
@@ -223,23 +247,38 @@ export class PerRequestHTTPServerTransport implements Transport {
             }
             this._terminalDelivered = true;
 
-            if (this._sse !== undefined) {
+            // The HTTP status is keyed on the error's origin, not on its bare
+            // code: only errors produced inside the dispatch window — the
+            // validation ladder, the era registry gate and handoff check, a
+            // missing handler — are answered with the mapped HTTP status from
+            // the ladder table. Handler-produced errors, whatever their code,
+            // stay in-band on HTTP 200. Ladder rejections keep that mapped
+            // status in every response mode (the SSE upgrade is deferred to
+            // the first actual send), so a forced-`sse` exchange still
+            // answers pre-dispatch rejections as plain HTTP errors.
+            const ladderStatus =
+                this._dispatchWindowOpen && isJSONRPCErrorResponse(message)
+                    ? LADDER_ERROR_HTTP_STATUS[(message as JSONRPCErrorResponse).error.code]
+                    : undefined;
+            if (ladderStatus !== undefined && this._sse === undefined) {
+                this.settleResponse(Response.json(message, { status: ladderStatus, headers: { 'Content-Type': 'application/json' } }));
+                queueMicrotask(() => void this.close());
+                return;
+            }
+
+            if (this._sse !== undefined || this._responseMode === 'sse') {
                 // Finalize the stream: serialize the terminal result onto it
                 // after everything already enqueued, then close.
+                if (this._sse === undefined) {
+                    this.upgradeToSse();
+                }
                 this.writeMessageFrame(message);
                 this.finalizeStream();
                 return;
             }
 
-            // Single JSON body. Errors produced before a handler ran (the
-            // protocol-version mismatch, the era registry gate, a missing
-            // handler) carry the codes in the ladder status table and are
-            // answered with the mapped HTTP status; every other error —
-            // whatever its code — stays in-band on HTTP 200.
-            const status = isJSONRPCErrorResponse(message)
-                ? (LADDER_ERROR_HTTP_STATUS[(message as JSONRPCErrorResponse).error.code] ?? 200)
-                : 200;
-            this.settleResponse(Response.json(message, { status, headers: { 'Content-Type': 'application/json' } }));
+            // Single JSON body.
+            this.settleResponse(Response.json(message, { status: 200, headers: { 'Content-Type': 'application/json' } }));
             queueMicrotask(() => void this.close());
             return;
         }

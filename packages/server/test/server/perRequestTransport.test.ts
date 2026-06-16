@@ -172,6 +172,34 @@ describe('HTTP status mapping', () => {
         expect(errorOf(await response.json())).toMatchObject({ code: -32_002, message: 'resource missing' });
     });
 
+    it('keeps a handler-thrown method-not-found error in-band on HTTP 200 (the status table is origin-keyed)', async () => {
+        // A handler relaying a downstream -32601 (a proxy/relay tool is the
+        // realistic case) is a handler-produced error: it must not be
+        // re-mapped to HTTP 404 just because the ladder table maps that code
+        // for ladder-originated rejections.
+        const { server } = modernServer({
+            toolsCallHandler: async () => {
+                throw new ProtocolError(-32_601, 'Method not found');
+            }
+        });
+        const transport = await connectedTransport(server);
+        const response = await transport.handleMessage(toolsCall());
+        expect(response.status).toBe(200);
+        expect(errorOf(await response.json())).toMatchObject({ code: -32_601, message: 'Method not found' });
+    });
+
+    it('keeps a handler-thrown unsupported-protocol-version error in-band on HTTP 200', async () => {
+        const { server } = modernServer({
+            toolsCallHandler: async () => {
+                throw new ProtocolError(-32_004, 'Unsupported protocol version: 2099-01-01');
+            }
+        });
+        const transport = await connectedTransport(server);
+        const response = await transport.handleMessage(toolsCall());
+        expect(response.status).toBe(200);
+        expect(errorOf(await response.json())?.code).toBe(-32_004);
+    });
+
     it('keeps handler-produced invalid-params errors in-band on HTTP 200 (never status-mapped)', async () => {
         const { server } = modernServer({
             toolsCallHandler: async () => {
