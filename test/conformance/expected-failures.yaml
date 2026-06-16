@@ -57,11 +57,13 @@ client:
 server:
     # --- Draft-spec scenarios (in `--suite draft`; the default `active` suite is green) ---
     # SEP-2575 (stateless HTTP / _meta envelope): the fixture serves the
-    # 2026-07-28 path, but the scenario still fails on (a) error responses not
-    # echoing the request JSON-RPC id, (b) the envelope/header error-code cells
-    # that are parameterized pending conformance #336 (see header note), and
-    # (c) removed-method handling for `initialize` (404/-32601 expected,
-    # 400/-32004 served).
+    # 2026-07-28 path; error responses now echo the request JSON-RPC id and
+    # `initialize` gets removed-method handling (404/-32601), so the only
+    # remaining failures are the envelope/header error-code cells that are
+    # parameterized pending conformance #336 (see header note): missing _meta
+    # and missing protocolVersion expect -32602 and the header/body mismatch
+    # cell expects -32001 HeaderMismatch, while the SDK emits the provisional
+    # -32004.
     - server-stateless
     # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented
     # in the SDK, so the fixture does not register the scenarios' diagnostic
