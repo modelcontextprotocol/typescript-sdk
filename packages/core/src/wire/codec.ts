@@ -144,10 +144,10 @@ export interface WireCodec {
     /**
      * Outbound result mapping (the stamp seam). The 2025-era codec is the
      * identity — it has NO stamp code path (the never-stamp guarantee). The
-     * 2026-era codec stamps `resultType` and strictly enforces the 2026 wire
-     * shape for the known deleted-field set (`execution.taskSupport`,
-     * `capabilities.tasks` — Q1-SD3 iii). ttlMs/cacheScope stamping content
-     * is M3.2 scope and lands in this seam.
+     * 2026-era codec strictly enforces the 2026 wire shape for the known
+     * deleted-field set (`execution.taskSupport`, `capabilities.tasks` —
+     * Q1-SD3 iii), stamps `resultType`, and fills the required
+     * `ttlMs`/`cacheScope` fields on cacheable results.
      */
     encodeResult(method: string, result: Result): Result;
 

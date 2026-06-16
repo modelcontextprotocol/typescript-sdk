@@ -8,6 +8,7 @@ export * from './shared/inboundClassification.js';
 export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
 export * from './shared/protocolEras.js';
+export * from './shared/resultCacheHints.js';
 export * from './shared/stdio.js';
 export * from './shared/toolNameValidation.js';
 export * from './shared/transport.js';
