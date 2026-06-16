@@ -94,7 +94,12 @@ export {
 export { ProtocolErrorCode } from '../../types/enums.js';
 
 // Error classes
-export { ProtocolError, UnsupportedProtocolVersionError, UrlElicitationRequiredError } from '../../types/errors.js';
+export {
+    MissingRequiredClientCapabilityError,
+    ProtocolError,
+    UnsupportedProtocolVersionError,
+    UrlElicitationRequiredError
+} from '../../types/errors.js';
 
 // Type guards and message parsing
 export {

@@ -1,5 +1,10 @@
 import { ProtocolErrorCode } from './enums.js';
-import type { ElicitRequestURLParams, UnsupportedProtocolVersionErrorData } from './types.js';
+import type {
+    ClientCapabilities,
+    ElicitRequestURLParams,
+    MissingRequiredClientCapabilityErrorData,
+    UnsupportedProtocolVersionErrorData
+} from './types.js';
 
 /**
  * Protocol errors are JSON-RPC errors that cross the wire as error responses.
@@ -31,6 +36,17 @@ export class ProtocolError extends Error {
             const errorData = data as Partial<UnsupportedProtocolVersionErrorData>;
             if (Array.isArray(errorData.supported) && typeof errorData.requested === 'string') {
                 return new UnsupportedProtocolVersionError({ supported: errorData.supported, requested: errorData.requested }, message);
+            }
+        }
+
+        if (code === ProtocolErrorCode.MissingRequiredClientCapability && data) {
+            const errorData = data as Partial<MissingRequiredClientCapabilityErrorData>;
+            if (
+                errorData.requiredCapabilities !== null &&
+                typeof errorData.requiredCapabilities === 'object' &&
+                !Array.isArray(errorData.requiredCapabilities)
+            ) {
+                return new MissingRequiredClientCapabilityError({ requiredCapabilities: errorData.requiredCapabilities }, message);
             }
         }
 
@@ -81,5 +97,36 @@ export class UnsupportedProtocolVersionError extends ProtocolError {
      */
     get requested(): string {
         return (this.data as UnsupportedProtocolVersionErrorData).requested;
+    }
+}
+
+/**
+ * Error type for the `-32003` MissingRequiredClientCapability protocol error
+ * (protocol revision 2026-07-28): processing the request requires a capability
+ * the client did not declare in the request's `clientCapabilities`.
+ *
+ * The error data lists the missing capabilities (`requiredCapabilities`) in
+ * the `ClientCapabilities` shape, so the client can see exactly what it would
+ * have to declare for the request to be served. On HTTP, the response status
+ * is `400 Bad Request`.
+ *
+ * Recognize this error by its code and `data.requiredCapabilities` rather than
+ * by class identity (`instanceof` does not work across separately bundled
+ * copies of the SDK).
+ */
+export class MissingRequiredClientCapabilityError extends ProtocolError {
+    constructor(
+        data: MissingRequiredClientCapabilityErrorData,
+        message: string = `Missing required client capabilities: ${Object.keys(data.requiredCapabilities).join(', ')}`
+    ) {
+        super(ProtocolErrorCode.MissingRequiredClientCapability, message, data);
+    }
+
+    /**
+     * The capabilities the server requires from the client to process the
+     * request (only the missing capabilities are listed).
+     */
+    get requiredCapabilities(): ClientCapabilities {
+        return (this.data as MissingRequiredClientCapabilityErrorData).requiredCapabilities;
     }
 }

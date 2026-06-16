@@ -5,12 +5,14 @@
  * the RAW value is inspected BEFORE any schema validation, so a non-complete
  * result can never be masked into a hollow success by a tolerant schema),
  * then wire-exact parse, then lift (drop the wire member). Encode = the
- * stamp seam: `resultType: 'complete'` is stamped on outbound results, and
- * the known deleted-field set is strictly enforced (Q1-SD3 iii) — the 2026
- * wire types have no slot for `execution.taskSupport` or
+ * stamp seam: the known deleted-field set is strictly enforced (Q1-SD3 iii) —
+ * the 2026 wire types have no slot for `execution.taskSupport` or
  * `capabilities.tasks`, so the encode mapping deletes them; era-blind
  * handlers stay era-invisible while deleted vocabulary cannot cross eras
- * through the parse-free outbound path.
+ * through the parse-free outbound path — and then the encode contract steps
+ * run (see `encodeContract.ts`): the `resultType` stamp (with handler
+ * pass-through for the multi round-trip methods) followed by the required
+ * `ttlMs`/`cacheScope` fill on cacheable results.
  *
  * Q1-SD3 postures implemented here:
  * (i)  absent `resultType` from a 2026-classified peer → typed error NAMING
@@ -22,15 +24,13 @@
  *      driver, M4.1/#13, consumes it; until then the protocol layer surfaces
  *      the discriminated kind as a typed local error, no retry).
  * (iii) unrecognized kinds → invalid, no retry (DQ5).
- *
- * The ttlMs/cacheScope stamping content (M3.2) lands in `encodeResult` —
- * this seam is its final home.
  */
 import type * as z from 'zod/v4';
 
 import { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
 import type { Result } from '../../types/types.js';
 import type { DecodedResult, LiftedWireMaterial, WireCodec } from '../codec.js';
+import { fillCacheFields, stampResultType } from './encodeContract.js';
 import {
     getNotificationSchema2026,
     getRequestSchema2026,
@@ -172,10 +172,11 @@ export const rev2026Codec: WireCodec = {
     },
 
     encodeResult(method: string, result: Result): Result {
-        // The stamp seam: outbound results carry the required discriminator.
-        // (Handler-authored resultType for methods whose vocabulary exceeds
-        // 'complete' is MRTR scope — #13 extends this seam.)
-        return { ...enforceDeletedFields(method, result), resultType: 'complete' } as Result;
+        // The stamp seam, in pinned order: deleted-field strictness, then the
+        // resultType stamp (handler pass-through only for methods whose
+        // vocabulary goes beyond 'complete'), then the cache fill for the
+        // cacheable operations (only on post-stamp 'complete' results).
+        return fillCacheFields(method, stampResultType(method, enforceDeletedFields(method, result)));
     },
 
     checkInboundEnvelope(material: LiftedWireMaterial): string | undefined {
