@@ -21,7 +21,7 @@ import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
 import { invoke } from '../../src/server/invoke.js';
-import { McpServer } from '../../src/server/mcp.js';
+import { McpServer, ResourceTemplate } from '../../src/server/mcp.js';
 import type { ServerOptions } from '../../src/server/server.js';
 import { installModernOnlyHandlers, Server } from '../../src/server/server.js';
 
@@ -103,6 +103,36 @@ describe('modern (2026-07-28) responses', () => {
         const body = (await response.json()) as { result: Record<string, unknown> };
         expect(body.result).toMatchObject({ resultType: 'complete', ttlMs: 30_000, cacheScope: 'private' });
         expect(Array.isArray(body.result['supportedVersions'])).toBe(true);
+    });
+
+    it('uses the per-operation hint for prompts/list', async () => {
+        const mcpServer = buildMcpServer({ cacheHints: { 'prompts/list': { ttlMs: 15_000, cacheScope: 'public' } } });
+        mcpServer.registerPrompt('greeting', { description: 'Say hello' }, async () => ({
+            messages: [{ role: 'user', content: { type: 'text', text: 'hello' } }]
+        }));
+        const result = await modernResult(mcpServer, modernRequest('prompts/list'));
+        expect(result).toMatchObject({ resultType: 'complete', ttlMs: 15_000, cacheScope: 'public' });
+    });
+
+    it('uses the per-operation hint for resources/list', async () => {
+        const mcpServer = buildMcpServer({ cacheHints: { 'resources/list': { ttlMs: 20_000 } } });
+        mcpServer.registerResource('plain', 'test://plain', {}, async uri => ({
+            contents: [{ uri: uri.href, text: 'plain' }]
+        }));
+        const result = await modernResult(mcpServer, modernRequest('resources/list'));
+        expect(result).toMatchObject({ resultType: 'complete', ttlMs: 20_000, cacheScope: 'private' });
+    });
+
+    it('uses the per-operation hint for resources/templates/list', async () => {
+        const mcpServer = buildMcpServer({ cacheHints: { 'resources/templates/list': { ttlMs: 45_000, cacheScope: 'public' } } });
+        mcpServer.registerResource(
+            'templated',
+            new ResourceTemplate('test://things/{id}', { list: undefined }),
+            {},
+            async (uri, { id }) => ({ contents: [{ uri: uri.href, text: `id=${String(id)}` }] })
+        );
+        const result = await modernResult(mcpServer, modernRequest('resources/templates/list'));
+        expect(result).toMatchObject({ resultType: 'complete', ttlMs: 45_000, cacheScope: 'public' });
     });
 
     it('a per-resource cacheHint wins over the per-operation hint for that resource', async () => {

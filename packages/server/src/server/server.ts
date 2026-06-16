@@ -1,5 +1,6 @@
 import type {
     BaseContext,
+    CacheableResultMethod,
     CacheHint,
     ClientCapabilities,
     CreateMessageRequest,
@@ -85,24 +86,21 @@ export type ServerOptions = ProtocolOptions & {
 
     /**
      * Cache hints for the cacheable results of the 2026-07-28 protocol
-     * revision (`ttlMs` / `cacheScope`), keyed by operation. The hint is used
-     * when the result for that operation does not provide its own cache
-     * fields — most useful for the list results and `server/discover`, which
-     * the SDK builds itself. A hint registered with an individual resource
-     * (`registerResource(..., { cacheHint })`) takes precedence for that
-     * resource's `resources/read` results.
+     * revision (`ttlMs` / `cacheScope`), keyed by operation. The cacheable
+     * operations are `tools/list`, `prompts/list`, `resources/list`,
+     * `resources/templates/list`, `resources/read` and `server/discover`. The
+     * hint is used when the result for that operation does not provide its own
+     * cache fields — most useful for the list results and `server/discover`,
+     * which the SDK builds itself. A hint registered with an individual
+     * resource (`registerResource(..., { cacheHint })`) takes precedence for
+     * that resource's `resources/read` results.
      *
      * Absent hints (or omitting this option entirely) keep today's behavior:
      * cacheable 2026-07-28 results are emitted with `ttlMs: 0` and
      * `cacheScope: 'private'`. Responses to 2025-era requests are never
      * affected. Invalid values throw a `RangeError` at construction time.
      */
-    cacheHints?: Partial<
-        Record<
-            'tools/list' | 'prompts/list' | 'resources/list' | 'resources/templates/list' | 'resources/read' | 'server/discover',
-            CacheHint
-        >
-    >;
+    cacheHints?: Partial<Record<CacheableResultMethod, CacheHint>>;
 };
 
 /*
