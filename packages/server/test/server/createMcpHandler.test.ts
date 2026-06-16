@@ -208,6 +208,51 @@ describe('createMcpHandler — modern path', () => {
         expect(onerror).toHaveBeenCalled();
     });
 
+    it('answers entry-internal failures with 500/-32603 and reports them through onerror', async () => {
+        const onerror = vi.fn();
+        const handler = createMcpHandler(
+            () => {
+                throw new Error('factory exploded');
+            },
+            { onerror }
+        );
+
+        const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'x' })));
+        expect(response.status).toBe(500);
+        const body = (await response.json()) as JSONRPCErrorBody;
+        expect(body.error.code).toBe(-32_603);
+        expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'factory exploded' }));
+    });
+
+    it('closes and releases the per-request instance when a modern exchange fails internally', async () => {
+        const { factory, state } = testFactory();
+        const onerror = vi.fn();
+        let closeCalls = 0;
+        const failingFactory = (ctx: McpRequestContext): McpServer => {
+            const product = factory(ctx);
+            vi.spyOn(product.server, 'connect').mockRejectedValue(new Error('connect exploded'));
+            const realClose = product.server.close.bind(product.server);
+            product.server.close = async () => {
+                closeCalls += 1;
+                await realClose();
+            };
+            return product;
+        };
+        const handler = createMcpHandler(failingFactory, { onerror });
+
+        const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'x' })));
+        expect(response.status).toBe(500);
+        expect(((await response.json()) as JSONRPCErrorBody).error.code).toBe(-32_603);
+        expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'connect exploded' }));
+        expect(state.contexts).toHaveLength(1);
+
+        // The failed exchange's instance was closed and released from the
+        // in-flight set: the handler's own close() finds nothing to tear down.
+        expect(closeCalls).toBe(1);
+        await handler.close();
+        expect(closeCalls).toBe(1);
+    });
+
     it('rejects a malformed envelope behind a present claim with invalid params naming the offending key', async () => {
         const { factory, state } = testFactory();
         const handler = createMcpHandler(factory);
@@ -419,6 +464,48 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
         expect(state.contexts[0]?.era).toBe('modern');
     });
 
+    it("reports legacy: 'stateless' leg failures through the entry's onerror instead of swallowing them", async () => {
+        const onerror = vi.fn();
+        const handler = createMcpHandler(
+            ctx => {
+                if (ctx.era === 'legacy') {
+                    throw new Error('legacy factory exploded');
+                }
+                return new McpServer({ name: 'modern-only-product', version: '1.0.0' });
+            },
+            { legacy: 'stateless', onerror }
+        );
+
+        const response = await handler.fetch(postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }));
+        expect(response.status).toBe(500);
+        expect(((await response.json()) as JSONRPCErrorBody).error.code).toBe(-32_603);
+        expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'legacy factory exploded' }));
+    });
+
+    it('keeps classifier rejections authoritative on the dual arm (pins the current -32600 cells with a slot configured)', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+
+        // Parsed-but-not-JSON-RPC single object: the entry's -32600, not the
+        // legacy transport's -32700.
+        const notJsonRpc = await handler.fetch(postRequest({ hello: 'world' }));
+        expect(notJsonRpc.status).toBe(400);
+        expect(((await notJsonRpc.json()) as JSONRPCErrorBody).error.code).toBe(-32_600);
+
+        // Empty batch: the entry's -32600/400, not the legacy leg's 202 ack.
+        const emptyBatch = await handler.fetch(postRequest([]));
+        expect(emptyBatch.status).toBe(400);
+        expect(((await emptyBatch.json()) as JSONRPCErrorBody).error.code).toBe(-32_600);
+
+        // A batch containing an invalid element is rejected on both arms (element-wise classification).
+        const mixedBatch = await handler.fetch(postRequest([{ jsonrpc: '2.0', method: 'notifications/initialized' }, { nope: true }]));
+        expect(mixedBatch.status).toBe(400);
+        expect(((await mixedBatch.json()) as JSONRPCErrorBody).error.code).toBe(-32_600);
+
+        // The legacy leg is never consulted for these cells.
+        expect(state.contexts).toHaveLength(0);
+    });
+
     it('answers a legacy-direction server/discover with a plain method-not-found and zero 2026 vocabulary', async () => {
         const { factory } = testFactory();
         const handler = createMcpHandler(factory, { legacy: 'stateless' });
@@ -568,6 +655,77 @@ describe('createMcpHandler — handler faces', () => {
         await handler.node(req, res);
         expect(res.statusCode).toBe(200);
         expect(await body()).toContain('node-client');
+    });
+
+    it('skips HTTP/2 pseudo-headers when copying node request headers', async () => {
+        const { factory } = testFactory();
+        const handler = createMcpHandler(factory);
+
+        const { req, res, body } = nodeRequestResponse(modernToolsCall('echo', { text: 'http2 served' }));
+        Object.assign(req.headers, {
+            ':method': 'POST',
+            ':path': '/mcp',
+            ':scheme': 'http',
+            ':authority': 'localhost:3000'
+        });
+        await handler.node(req, res);
+
+        expect(res.statusCode).toBe(200);
+        expect(await body()).toContain('http2 served');
+    });
+
+    it('waits for drain before writing the next chunk when res.write reports backpressure', async () => {
+        const { factory } = testFactory();
+        const handler = createMcpHandler(factory);
+
+        const writes: string[] = [];
+        const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
+        const res: NodeServerResponseLike & { statusCode: number } = {
+            statusCode: 0,
+            writeHead(statusCode: number) {
+                this.statusCode = statusCode;
+                return this;
+            },
+            write(chunk: string | Uint8Array) {
+                writes.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
+                // Always report a full buffer.
+                return false;
+            },
+            end() {
+                return this;
+            },
+            on(event: string, listener: (...args: unknown[]) => void) {
+                const existing = listeners.get(event) ?? [];
+                existing.push(listener);
+                listeners.set(event, existing);
+                return this;
+            }
+        };
+        const emitDrain = () => {
+            for (const listener of listeners.get('drain') ?? []) {
+                listener();
+            }
+        };
+
+        // The default (auto) response mode streams this exchange over SSE, so
+        // the loop sees at least two chunks (the progress frame and the result).
+        const { req } = nodeRequestResponse(modernToolsCall('progress-then-echo', { text: 'paced' }));
+        const served = handler.node(req, res);
+
+        await vi.waitFor(() => expect(writes.length).toBe(1));
+        // With the buffer reported full and no drain yet, no further chunk is written.
+        await new Promise(resolve => setTimeout(resolve, 25));
+        expect(writes).toHaveLength(1);
+
+        // Draining releases the loop chunk by chunk until the stream completes.
+        const pump = setInterval(emitDrain, 5);
+        await served;
+        clearInterval(pump);
+
+        const streamed = writes.join('');
+        expect(writes.length).toBeGreaterThan(1);
+        expect(streamed).toContain('notifications/progress');
+        expect(streamed).toContain('paced');
     });
 });
 
