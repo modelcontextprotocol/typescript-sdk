@@ -3,7 +3,7 @@
  * independently of createMcpHandler: per-request stateless serving via the
  * frozen idiom (fresh instance + sessionIdGenerator: undefined + handleRequest).
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { McpRequestContext } from '../../src/server/createMcpHandler.js';
@@ -92,6 +92,72 @@ describe('legacyStatelessFallback', () => {
             expect(body.error.message).toBe('Method not allowed.');
             expect(body.id).toBeNull();
         }
+    });
+
+    it('tears the per-request pair down after a normally-completed SSE exchange (factory product close hooks fire)', async () => {
+        let productClosed = false;
+        const handler = legacyStatelessFallback(() => {
+            const mcpServer = new McpServer({ name: 'fallback-teardown', version: '1.0.0' });
+            mcpServer.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, async ({ text }) => ({
+                content: [{ type: 'text', text }]
+            }));
+            mcpServer.server.onclose = () => {
+                productClosed = true;
+            };
+            return mcpServer;
+        });
+
+        const response = await handler(
+            postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'echo', arguments: { text: 'all done' } } })
+        );
+        expect(response.status).toBe(200);
+        // Request-bearing POSTs are answered over SSE by the stateless idiom's
+        // default transport options — the dominant legacy exchange shape.
+        expect(response.headers.get('content-type')).toContain('text/event-stream');
+        expect(productClosed).toBe(false);
+
+        // Drain the stream to completion: only then is the exchange over.
+        expect(await response.text()).toContain('all done');
+        await vi.waitFor(() => {
+            expect(productClosed).toBe(true);
+        });
+    });
+
+    it('still tears the per-request pair down when the client aborts a streaming exchange', async () => {
+        let productClosed = false;
+        const handler = legacyStatelessFallback(ctx => {
+            const mcpServer = new McpServer({ name: 'fallback-abort', version: '1.0.0' });
+            mcpServer.registerTool('park', { inputSchema: z.object({}) }, async (_args, toolCtx) => {
+                await new Promise<void>(resolve => {
+                    toolCtx.mcpReq.signal.addEventListener('abort', () => resolve(), { once: true });
+                });
+                return { content: [{ type: 'text', text: `parked on ${ctx.era}` }] };
+            });
+            mcpServer.server.onclose = () => {
+                productClosed = true;
+            };
+            return mcpServer;
+        });
+
+        const controller = new AbortController();
+        const request = new Request('http://localhost/mcp', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream'
+            },
+            body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'park', arguments: {} } }),
+            signal: controller.signal
+        });
+
+        const response = await handler(request);
+        expect(response.status).toBe(200);
+        expect(productClosed).toBe(false);
+
+        controller.abort();
+        await vi.waitFor(() => {
+            expect(productClosed).toBe(true);
+        });
     });
 
     it('answers factory failures with a 500 internal error body', async () => {
