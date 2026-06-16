@@ -6,7 +6,6 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
-    setNegotiatedProtocolVersion,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { McpServer, Server } from '@modelcontextprotocol/server';
@@ -188,12 +187,15 @@ test('should run a fresh initialize handshake after close() when the previous co
     const supportedProtocolVersions = [MODERN_REVISION, ...SUPPORTED_PROTOCOL_VERSIONS];
 
     const connectModern = async (client: Client) => {
-        const server = new Server({ name: 'modern server', version: '1.0' }, { capabilities: {}, supportedProtocolVersions });
+        // Serving a 2026-era revision on a hand-constructed instance is a declared act
+        // (eraSupport); a dual-era instance answers the client's server/discover probe
+        // per message with no instance binding.
+        const server = new Server(
+            { name: 'modern server', version: '1.0' },
+            { capabilities: {}, supportedProtocolVersions, eraSupport: 'dual-era' }
+        );
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await server.connect(serverTransport);
-        // Stand-in for the modern-era server entry (instance binding): mark the server instance
-        // as serving the modern era so it can answer the client's server/discover probe.
-        setNegotiatedProtocolVersion(server, MODERN_REVISION);
         await client.connect(clientTransport);
     };
 

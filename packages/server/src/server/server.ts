@@ -14,6 +14,7 @@ import type {
     Implementation,
     InitializeRequest,
     InitializeResult,
+    JSONRPCNotification,
     JSONRPCRequest,
     JsonSchemaType,
     jsonSchemaValidator,
@@ -21,6 +22,7 @@ import type {
     ListRootsResult,
     LoggingLevel,
     LoggingMessageNotification,
+    MessageClassification,
     MessageExtraInfo,
     NotificationMethod,
     NotificationOptions,
@@ -35,6 +37,7 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
+    classifyInboundMessage,
     codecForVersion,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
@@ -48,9 +51,11 @@ import {
     ProtocolError,
     ProtocolErrorCode,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
+import * as z from 'zod/v4';
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -79,7 +84,56 @@ export type ServerOptions = ProtocolOptions & {
      * @default Runtime-selected validator (AJV-backed on Node.js, `@cfworker/json-schema`-backed on browser/workerd runtimes)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
+
+    /**
+     * Which protocol eras this server serves on its long-lived connection
+     * (e.g. stdio): the 2025-era `initialize` family, the 2026-07-28
+     * per-request-envelope revision, or both.
+     *
+     * - `'legacy'` (the default) preserves exactly what existing code was
+     *   written for: the server speaks the 2025-era protocol negotiated via
+     *   `initialize`, never registers or advertises `server/discover`, and
+     *   upgrading the SDK changes nothing about what the instance puts on the
+     *   wire.
+     * - `'dual-era'` serves BOTH eras on the same connection, selecting the
+     *   era per message: `initialize`-negotiated 2025 traffic is served as
+     *   before, while messages carrying the 2026-07-28 per-request `_meta`
+     *   envelope (including `server/discover`) are served on the modern era.
+     *   Declaring dual-era support is an explicit act — the consumer asserts
+     *   that the server is ready to serve modern-era requests.
+     * - `'modern'` is strict 2026-07-28-only: requests without the
+     *   per-request envelope (including `initialize`) are answered with the
+     *   unsupported-protocol-version error naming the supported revisions.
+     *
+     * Opting in is one option away and the transport stays unchanged:
+     *
+     * ```ts
+     * const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { eraSupport: 'dual-era' });
+     * await server.connect(new StdioServerTransport());
+     * ```
+     *
+     * A 2026-era revision in {@linkcode ProtocolOptions.supportedProtocolVersions}
+     * requires `'dual-era'` or `'modern'`; passing one on a (default)
+     * `'legacy'` instance throws a `TypeError` at construction.
+     *
+     * Per-request HTTP serving via `createMcpHandler` does not use this
+     * option: the entry classifies each request and binds the per-request
+     * instance itself.
+     *
+     * @default 'legacy'
+     */
+    eraSupport?: 'legacy' | 'dual-era' | 'modern';
 };
+
+/**
+ * Permissive params schema for the `server/discover` registration on servers
+ * that declared modern-era support. The discover request carries only the
+ * per-request `_meta` envelope, which the protocol layer lifts and validates
+ * before dispatch — and a long-lived dual-era instance is never bound to a
+ * single era, so the spec-method registration form (which resolves its
+ * dispatch schema from the instance era) cannot be used here.
+ */
+const DISCOVER_PARAMS_SCHEMA = z.looseObject({});
 
 /*
  * Package-internal hooks for the per-request (2026-07-28) HTTP serving entry.
@@ -159,6 +213,14 @@ export class Server extends Protocol<ServerContext> {
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
+    private _eraSupport: 'legacy' | 'dual-era' | 'modern';
+    /**
+     * The protocol version a legacy `initialize` handshake negotiated on a
+     * dual-era instance. A dual-era instance is never bound to a single era
+     * (the era is selected per message), so the handshake result is recorded
+     * here only for the initialize-scoped accessor.
+     */
+    private _dualEraInitializeVersion?: string;
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
@@ -176,19 +238,63 @@ export class Server extends Protocol<ServerContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
+        this._eraSupport = options?.eraSupport ?? 'legacy';
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
 
-        // server/discover is installed only when the supported-versions list
-        // carries a modern revision: a legacy-only server keeps answering -32601.
-        if (modernProtocolVersions(this._supportedProtocolVersions).length > 0) {
-            this.setRequestHandler('server/discover', () => this._ondiscover());
+        if (this._eraSupport === 'legacy') {
+            // The default preserves exactly what the code was written for:
+            // 2025-era serving only, nothing 2026-era registered or
+            // advertised. Serving a 2026-era revision is a declared act — a
+            // modern revision in the supported list without that declaration
+            // is a configuration error, never a silent behavior change.
+            const modernVersions = modernProtocolVersions(this._supportedProtocolVersions);
+            if (modernVersions.length > 0) {
+                throw new TypeError(
+                    `supportedProtocolVersions contains the protocol revision ${modernVersions[0]}, which this server does not serve ` +
+                        `with the default eraSupport of 'legacy'. Declare { eraSupport: 'dual-era' } (serve both eras) or ` +
+                        `{ eraSupport: 'modern' } (2026-era only) to serve it.`
+                );
+            }
+        } else {
+            // server/discover is registered (and modern revisions advertised)
+            // only on servers that declared modern-era support; the served
+            // modern revisions are added to the supported list so the
+            // advertisement and version-mismatch errors name them (a new
+            // array — the shared default constant is never mutated).
+            const missing = SUPPORTED_MODERN_PROTOCOL_VERSIONS.filter(version => !this._supportedProtocolVersions.includes(version));
+            if (missing.length > 0) {
+                this._supportedProtocolVersions = [...this._supportedProtocolVersions, ...missing];
+            }
+            this.setRequestHandler('server/discover', { params: DISCOVER_PARAMS_SCHEMA }, () => this._ondiscover());
+            if (this._eraSupport === 'modern') {
+                // A strict modern-only server is bound to the modern era from
+                // construction: requests classified into the 2025 era are
+                // answered with the typed unsupported-protocol-version error
+                // naming the supported revisions, never served.
+                this._negotiatedProtocolVersion = modernProtocolVersions(this._supportedProtocolVersions)[0];
+            }
         }
 
         if (this._capabilities.logging) {
             this._registerLoggingHandler();
         }
+    }
+
+    /**
+     * Per-message era classification for long-lived dual-era channels (e.g. a
+     * stdio server that declared modern-era support). Active only when the
+     * consumer opted in: default (`'legacy'`) instances return `undefined`,
+     * which keeps their dispatch byte-identical to today's. Transport-edge
+     * classification (the per-request HTTP entry) always wins and never
+     * reaches this hook.
+     */
+    protected override _classifyInbound(message: JSONRPCRequest | JSONRPCNotification): MessageClassification | 'drop' | undefined {
+        if (this._eraSupport === 'legacy') {
+            return undefined;
+        }
+        return classifyInboundMessage(message);
     }
 
     /**
@@ -469,7 +575,15 @@ export class Server extends Protocol<ServerContext> {
         // The negotiated version is the instance's connection state — it IS
         // the wire-era selection for everything this instance sends and
         // receives from here on (legacy handshake ⇒ a legacy-era version).
-        this._negotiatedProtocolVersion = protocolVersion;
+        // The one exception is a dual-era instance: it serves both eras on
+        // the same long-lived connection, selecting the era per message, so
+        // the handshake never binds the instance — the result is recorded
+        // only for the initialize-scoped accessor.
+        if (this._eraSupport === 'dual-era') {
+            this._dualEraInitializeVersion = protocolVersion;
+        } else {
+            this._negotiatedProtocolVersion = protocolVersion;
+        }
         this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
@@ -530,10 +644,13 @@ export class Server extends Protocol<ServerContext> {
      * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` names the revision the
      * request was sent for, while on 2025-era connections this accessor keeps returning the
      * `initialize`-negotiated version. The accessor remains functional — instances serving the
-     * 2026-07-28 era report that revision.
+     * 2026-07-28 era report that revision. On a long-lived dual-era instance (`eraSupport:
+     * 'dual-era'`), where the era is selected per message, the accessor keeps its
+     * initialize-scoped semantics and reports what a legacy `initialize` handshake negotiated
+     * (or `undefined` when none ran).
      */
     getNegotiatedProtocolVersion(): string | undefined {
-        return this._negotiatedProtocolVersion;
+        return this._negotiatedProtocolVersion ?? this._dualEraInitializeVersion;
     }
 
     /**
