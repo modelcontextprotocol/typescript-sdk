@@ -81,6 +81,51 @@ export type ServerOptions = ProtocolOptions & {
     jsonSchemaValidator?: jsonSchemaValidator;
 };
 
+/*
+ * Package-internal hooks for the per-request (2026-07-28) HTTP serving entry.
+ *
+ * The connection-scoped client-identity fields and the modern-only handler set are
+ * private to `Server`; the per-request entry in this package needs to write/install
+ * them on the fresh instance it gets from a consumer factory. The static initializer
+ * below hands these module-scoped closures privileged access; the exported wrappers
+ * are imported by sibling modules in this package only and are deliberately NOT
+ * re-exported from the package index (they are not public API).
+ */
+let writeClientIdentity: (server: Server, identity: PerRequestClientIdentity) => void;
+let installDiscoverHandler: (server: Server, servedModernVersions: readonly string[]) => void;
+
+/** Connection-scoped client-identity fields backfilled per request from a validated `_meta` envelope. */
+export interface PerRequestClientIdentity {
+    /** The client's name/version information, when the envelope carried it. */
+    clientInfo?: Implementation;
+    /** The client's declared capabilities, when the envelope carried them. */
+    clientCapabilities?: ClientCapabilities;
+}
+
+/**
+ * Package-internal: backfills the connection-scoped client-identity fields of a
+ * per-request server instance from the request's validated `_meta` envelope, so the
+ * (deprecated) {@linkcode Server.getClientCapabilities} / {@linkcode Server.getClientVersion}
+ * accessors keep answering on instances that never see an `initialize` handshake.
+ * Not public API.
+ */
+export function seedClientIdentityFromEnvelope(server: Server, identity: PerRequestClientIdentity): void {
+    writeClientIdentity(server, identity);
+}
+
+/**
+ * Package-internal: installs the modern-only `server/discover` handler on an instance
+ * the HTTP entry has marked as serving the 2026-07-28 era, and makes sure the modern
+ * revisions the entry serves appear in the instance's supported-versions list (so the
+ * discover advertisement and version-mismatch errors name them). Idempotent.
+ * Hand-constructed instances are unaffected: nothing else calls this, so they keep
+ * answering `-32601` unless their own supported-versions list opts into a modern
+ * revision. Not public API.
+ */
+export function installModernOnlyHandlers(server: Server, servedModernVersions: readonly string[]): void {
+    installDiscoverHandler(server, servedModernVersions);
+}
+
 /**
  * An MCP server on top of a pluggable transport.
  *
@@ -91,6 +136,26 @@ export type ServerOptions = ProtocolOptions & {
 export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
+
+    static {
+        writeClientIdentity = (server, identity) => {
+            if (identity.clientCapabilities !== undefined) {
+                server._clientCapabilities = identity.clientCapabilities;
+            }
+            if (identity.clientInfo !== undefined) {
+                server._clientVersion = identity.clientInfo;
+            }
+        };
+        installDiscoverHandler = (server, servedModernVersions) => {
+            const missing = servedModernVersions.filter(version => !server._supportedProtocolVersions.includes(version));
+            if (missing.length > 0) {
+                // Never mutate the existing array in place: the default supported-versions
+                // list is a shared module constant.
+                server._supportedProtocolVersions = [...server._supportedProtocolVersions, ...missing];
+            }
+            server.setRequestHandler('server/discover', () => server._ondiscover());
+        };
+    }
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
@@ -432,6 +497,12 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * After initialization has completed, this will be populated with the client's reported capabilities.
+     *
+     * @deprecated Read client identity from the per-request handler context instead: on
+     * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
+     * declared capabilities, while on 2025-era connections this accessor keeps returning the
+     * `initialize`-scoped value. The accessor remains functional — instances serving the
+     * 2026-07-28 era are backfilled per request from the validated envelope.
      */
     getClientCapabilities(): ClientCapabilities | undefined {
         return this._clientCapabilities;
@@ -439,6 +510,12 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * After initialization has completed, this will be populated with information about the client's name and version.
+     *
+     * @deprecated Read client identity from the per-request handler context instead: on
+     * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` carries the client's
+     * name and version, while on 2025-era connections this accessor keeps returning the
+     * `initialize`-scoped value. The accessor remains functional — instances serving the
+     * 2026-07-28 era are backfilled per request from the validated envelope.
      */
     getClientVersion(): Implementation | undefined {
         return this._clientVersion;
@@ -448,6 +525,12 @@ export class Server extends Protocol<ServerContext> {
      * After initialization has completed, this will be populated with the protocol version negotiated
      * with the client (the version the server responded with during the initialize handshake), or
      * `undefined` before initialization.
+     *
+     * @deprecated Read the protocol revision from the per-request handler context instead: on
+     * 2026-07-28 (per-request envelope) requests `ctx.mcpReq.envelope` names the revision the
+     * request was sent for, while on 2025-era connections this accessor keeps returning the
+     * `initialize`-negotiated version. The accessor remains functional — instances serving the
+     * 2026-07-28 era report that revision.
      */
     getNegotiatedProtocolVersion(): string | undefined {
         return this._negotiatedProtocolVersion;

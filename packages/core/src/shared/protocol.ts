@@ -61,8 +61,10 @@ export type ProgressCallback = (progress: Progress) => void;
  */
 export type ProtocolOptions = {
     /**
-     * Protocol versions supported. First version is preferred (sent by client,
-     * used as fallback by server). Passed to transport during {@linkcode Protocol.connect | connect()}.
+     * Protocol versions supported. The legacy `initialize` handshake offers and
+     * falls back to the first 2025-era entry in the list (the client sends it,
+     * the server counter-offers it); 2026-era entries are only ever selected via
+     * `server/discover`. Passed to transport during {@linkcode Protocol.connect | connect()}.
      *
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
