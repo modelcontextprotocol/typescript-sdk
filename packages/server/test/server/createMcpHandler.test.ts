@@ -530,6 +530,35 @@ describe('createMcpHandler — handler faces', () => {
         expect(await body()).toContain('pre-parsed');
     });
 
+    it('synthesizes the forwarded body from a pre-parsed body so node-face BYO legacy handlers can read it', async () => {
+        const { factory } = testFactory();
+        const legacyMessage = { jsonrpc: '2.0', id: 7, method: 'tools/list', params: {} };
+        let receivedText: string | undefined;
+        let receivedContentLength: string | null = null;
+        let receivedTransferEncoding: string | null = null;
+        const byo = async (request: Request) => {
+            receivedText = await request.text();
+            receivedContentLength = request.headers.get('content-length');
+            receivedTransferEncoding = request.headers.get('transfer-encoding');
+            return new Response('byo-node-served', { status: 200 });
+        };
+        const handler = createMcpHandler(factory, { legacy: byo });
+
+        // The documented Express mounting: express.json() consumed the stream
+        // and hands the parsed object as the third argument; the raw headers
+        // still describe the original (already-consumed) bytes.
+        const { req, res, body } = nodeRequestResponse(undefined);
+        req.headers['content-length'] = '999';
+        req.headers['transfer-encoding'] = 'chunked';
+        await handler.node(req, res, legacyMessage);
+
+        expect(res.statusCode).toBe(200);
+        expect(await body()).toBe('byo-node-served');
+        expect(receivedText).toBe(JSON.stringify(legacyMessage));
+        expect(receivedContentLength).toBe(String(JSON.stringify(legacyMessage).length));
+        expect(receivedTransferEncoding).toBeNull();
+    });
+
     it('forwards req.auth from upstream middleware as pass-through authInfo on the node face', async () => {
         const { factory } = testFactory();
         const handler = createMcpHandler(factory);

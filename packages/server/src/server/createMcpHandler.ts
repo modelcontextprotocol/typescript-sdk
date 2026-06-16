@@ -576,7 +576,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
 
         let response: Response;
         try {
-            const request = await nodeRequestToFetchRequest(req, parsedBody !== undefined, abort.signal);
+            const request = await nodeRequestToFetchRequest(req, parsedBody, abort.signal);
             response = await fetchFace(request, {
                 ...(req.auth !== undefined && { authInfo: req.auth }),
                 ...(parsedBody !== undefined && { parsedBody })
@@ -635,7 +635,7 @@ function singleHeaderValue(value: string | string[] | undefined): string | undef
     return Array.isArray(value) ? value[0] : value;
 }
 
-async function nodeRequestToFetchRequest(req: NodeIncomingMessageLike, hasParsedBody: boolean, signal: AbortSignal): Promise<Request> {
+async function nodeRequestToFetchRequest(req: NodeIncomingMessageLike, parsedBody: unknown, signal: AbortSignal): Promise<Request> {
     const method = (req.method ?? 'GET').toUpperCase();
     const host = singleHeaderValue(req.headers['host']) ?? 'localhost';
     const url = `http://${host}${req.url ?? '/'}`;
@@ -654,18 +654,37 @@ async function nodeRequestToFetchRequest(req: NodeIncomingMessageLike, hasParsed
         }
     }
 
-    // The body is collected as text: MCP request bodies are JSON, and a string
+    // The body is carried as text: MCP request bodies are JSON, and a string
     // body keeps the constructed Request portable across runtime lib versions.
     let body: string | undefined;
-    if (!hasParsedBody && method !== 'GET' && method !== 'HEAD') {
-        const decoder = new TextDecoder();
-        let collected = '';
-        for await (const chunk of req) {
-            collected += typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
-        }
-        collected += decoder.decode();
-        if (collected.length > 0) {
-            body = collected;
+    if (method !== 'GET' && method !== 'HEAD') {
+        if (parsedBody !== undefined) {
+            // The caller already consumed and parsed the Node stream (the
+            // documented `handler.node(req, res, req.body)` mounting behind
+            // `express.json()`), so the bytes cannot be re-read. Re-serialize
+            // the parsed value so consumers of the forwarded Request — a
+            // bring-your-own legacy handler reading `request.json()`/`text()`
+            // in particular — still receive the body, and replace the entity
+            // headers that described the original raw bytes.
+            const serialized: string | undefined = JSON.stringify(parsedBody);
+            headers.delete('content-encoding');
+            headers.delete('transfer-encoding');
+            if (serialized === undefined) {
+                headers.delete('content-length');
+            } else {
+                body = serialized;
+                headers.set('content-length', String(new TextEncoder().encode(serialized).byteLength));
+            }
+        } else {
+            const decoder = new TextDecoder();
+            let collected = '';
+            for await (const chunk of req) {
+                collected += typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
+            }
+            collected += decoder.decode();
+            if (collected.length > 0) {
+                body = collected;
+            }
         }
     }
 
