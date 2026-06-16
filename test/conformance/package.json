@@ -30,7 +30,7 @@
         "client": "tsx scripts/cli.ts client",
         "test:conformance:client": "conformance client --command 'node --import tsx ./src/everythingClient.ts' --suite core --expected-failures ./expected-failures.yaml",
         "test:conformance:client:all": "conformance client --command 'node --import tsx ./src/everythingClient.ts' --suite all --expected-failures ./expected-failures.yaml",
-        "test:conformance:client:2026": "conformance client --command 'node --import tsx ./src/everythingClient.ts' --suite all --spec-version 2026-07-28 --expected-failures ./expected-failures.client.2026-07-28.yaml",
+        "test:conformance:client:2026": "conformance client --command 'node --import tsx ./src/everythingClient.ts' --suite all --spec-version 2026-07-28 --expected-failures ./expected-failures.2026-07-28.yaml",
         "test:conformance:client:run": "node --import tsx ./src/everythingClient.ts",
         "test:conformance:server": "scripts/run-server-conformance.sh --expected-failures ./expected-failures.yaml",
         "test:conformance:server:draft": "scripts/run-server-conformance.sh --suite draft --expected-failures ./expected-failures.yaml",
