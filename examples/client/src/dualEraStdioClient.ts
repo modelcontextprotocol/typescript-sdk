@@ -10,15 +10,19 @@
  *    stop-gap: automatic per-request envelope emission is a client-side
  *    follow-up.)
  *
- * Build `examples/server` first; this client spawns the built server via stdio:
+ * The client spawns the server example directly from source over stdio:
  *
- *     pnpm --filter @modelcontextprotocol/examples-server build
  *     tsx examples/client/src/dualEraStdioClient.ts
  */
+import path from 'node:path';
+
 import { Client, CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
-const SERVER = { command: 'node', args: ['../server/dist/dualEraStdio.js'] };
+// Spawn the sibling server example straight from its source (no build step),
+// located relative to this file so the demo runs from any working directory.
+const SERVER_SOURCE = path.resolve(import.meta.dirname, '../../server/src/dualEraStdio.ts');
+const SERVER = { command: 'npx', args: ['tsx', SERVER_SOURCE] };
 
 async function legacyLeg(): Promise<void> {
     console.log('--- leg 1: plain 2025 client (initialize handshake) ---');
