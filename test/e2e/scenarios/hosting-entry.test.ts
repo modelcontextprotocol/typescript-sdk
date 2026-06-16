@@ -89,12 +89,23 @@ verifies('typescript:hosting:entry:dual-era-one-factory', async ({ protocolVersi
         return;
     }
 
-    // 2026-era leg: the auto-negotiating client reaches 2026-07-28 (via
-    // server/discover) and tools/call is served with the per-request envelope.
+    // 2026-era leg: the auto-negotiating client reaches 2026-07-28 via
+    // server/discover — never initialize — and tools/call is served with the
+    // per-request envelope.
+    const requestBodies: string[] = [];
+    const recordingFetch: typeof fetch = async (input, init) => {
+        if (typeof init?.body === 'string') requestBodies.push(init.body);
+        return fetch(input, init);
+    };
     const client = new Client({ name: 'auto-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
-    await client.connect(new StreamableHTTPClientTransport(endpoint.baseUrl));
+    await client.connect(new StreamableHTTPClientTransport(endpoint.baseUrl, { fetch: recordingFetch }));
     try {
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
+        // The "(never initialize)" clause of the requirement, asserted on the
+        // recorded wire traffic: no request body ever carried an initialize,
+        // and the negotiation rode server/discover.
+        expect(requestBodies.some(body => body.includes('"initialize"'))).toBe(false);
+        expect(requestBodies.some(body => body.includes('server/discover'))).toBe(true);
         const result = (await client.request({
             method: 'tools/call',
             params: { name: 'greet', arguments: { name: 'new friend' }, _meta: modernEnvelope('auto-client') }
@@ -157,8 +168,13 @@ verifies('typescript:hosting:entry:strict-rejects-legacy', async (_args: TestArg
 
     // The plain SDK client sees the same rejection at connect time.
     const client = new Client({ name: 'plain-2025-client', version: '1.0.0' });
-    await expect(client.connect(new StreamableHTTPClientTransport(endpoint.baseUrl))).rejects.toThrow(/Unsupported protocol version|400/);
-    await client.close().catch(() => {});
+    try {
+        await expect(client.connect(new StreamableHTTPClientTransport(endpoint.baseUrl))).rejects.toThrow(
+            /Unsupported protocol version|400/
+        );
+    } finally {
+        await client.close().catch(() => {});
+    }
 });
 
 verifies('typescript:hosting:entry:notification-202', async ({ protocolVersion }: TestArgs) => {

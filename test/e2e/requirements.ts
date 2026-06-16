@@ -2226,15 +2226,15 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'A POST carrying only a notification is answered 202 Accepted with an empty body by a createMcpHandler endpoint on both legs: an envelope-less notification through the legacy stateless slot and an envelope-carrying notification on the modern path.',
         transports: ['streamableHttp'],
-        note: 'The entry is an HTTP-only surface; each cell hosts the handler node face on a real node:http listener (the matrix transport arg is ignored, fixed to a single streamableHttp-labelled cell) and the spec-version axis selects which leg the notification rides.'
+        note: 'The entry is an HTTP-only surface; each cell hosts the handler node face on a real node:http listener (the matrix transport arg is ignored, fixed to a single streamableHttp-labelled cell) and the spec-version axis selects which leg the notification rides. The cells pin the HTTP contract only (status code and empty body); delivery of the notification to the per-request server instance is pinned at unit level.'
     },
     'typescript:hosting:entry:modern-cacheable-stamping': {
         source: 'sdk',
         behavior:
-            'Typed tools/list and resources/read round trips negotiated on 2026-07-28 over a createMcpHandler endpoint succeed, and the wire results carry resultType "complete" plus the required ttlMs/cacheScope fields, with configured cache hints winning per the documented precedence (per-resource cacheHint over the per-operation cacheHints entry over the ttlMs 0 / cacheScope private defaults).',
+            'Typed tools/list, resources/read and resources/list round trips negotiated on 2026-07-28 over a createMcpHandler endpoint succeed, and the wire results carry resultType "complete" plus the required ttlMs/cacheScope fields, with the configured-hint precedence observable on the wire: the per-resource cacheHint wins over the per-operation cacheHints entry (resources/read), a per-operation hint wins over the defaults (tools/list), and a result with no configured author is filled with the ttlMs 0 / cacheScope private defaults (resources/list).',
         transports: ['streamableHttp'],
         addedInSpecVersion: '2026-07-28',
-        note: 'The entry is an HTTP-only surface; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis.'
+        note: 'The entry is an HTTP-only surface; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis. The top precedence rung — a handler-returned ttlMs/cacheScope value winning over every configured hint — is pinned at unit level and not exercised here.'
     },
     'typescript:hosting:entry:legacy-cacheable-suppression': {
         source: 'sdk',
