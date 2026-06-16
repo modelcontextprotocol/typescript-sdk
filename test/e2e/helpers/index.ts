@@ -164,6 +164,7 @@ export async function wire(
                 clientTx = attachModernEnvelope(clientTx);
             }
             await client.connect(sniffTransport(clientTx, 'client', sniff));
+            if (transport === 'entryModern') assertModernNegotiation(client);
             return {
                 fetch,
                 url,
@@ -352,14 +353,32 @@ function pinModernNegotiation(client: Client): void {
 }
 
 /**
+ * Fail fast if an entryModern connection did not actually negotiate the
+ * 2026-07-28 revision. Every cell on the arm asserts modern-path behavior, so
+ * a broken negotiation pin (or a regression in the discover negotiation) would
+ * otherwise surface as hundreds of unrelated downstream assertion failures;
+ * this turns it into one attributable arm-level error right after connect.
+ */
+function assertModernNegotiation(client: Client): void {
+    const negotiated = client.getNegotiatedProtocolVersion();
+    if (negotiated !== MODERN_REVISION) {
+        throw new Error(
+            `entryModern arm: expected the connection to negotiate protocol version ${MODERN_REVISION}, but it negotiated ${negotiated ?? 'no version'}`
+        );
+    }
+}
+
+/**
  * The per-request `_meta` envelope stop-gap for the entryModern arm: the
  * negotiating client only attaches the envelope to its `server/discover` probe
  * today (automatic per-request emission is a client-side follow-up), so the
  * harness re-attaches the same envelope to every later request and notification
  * the scenario's typed calls put on the wire. The envelope is captured from the
- * probe itself, so it always matches what the client actually claimed; messages
- * that already carry a protocol-version claim (the probe, or a scenario's
- * explicitly enveloped request) pass through untouched.
+ * latest enveloped message the client sent (normally the probe), so it always
+ * matches the most recent claim the client actually made — a connection that
+ * renegotiated would not keep stamping a stale version; messages that already
+ * carry a protocol-version claim (the probe, or a scenario's explicitly
+ * enveloped request) pass through untouched.
  *
  * Applied beneath the wire sniffer and `tapWire`, so recorded traffic shows the
  * messages exactly as the scenario sent them while the wire carries the
@@ -374,7 +393,7 @@ function attachModernEnvelope<T extends SdkTransport>(transport: T): T {
             const params = (message.params ?? {}) as { _meta?: Record<string, unknown> };
             const meta = params._meta;
             if (meta?.[PROTOCOL_VERSION_META_KEY] !== undefined) {
-                envelope ??= {
+                envelope = {
                     [PROTOCOL_VERSION_META_KEY]: meta[PROTOCOL_VERSION_META_KEY],
                     [CLIENT_INFO_META_KEY]: meta[CLIENT_INFO_META_KEY],
                     [CLIENT_CAPABILITIES_META_KEY]: meta[CLIENT_CAPABILITIES_META_KEY]
