@@ -2195,6 +2195,46 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. The allowed-host control asserts initialize semantics per spec version: a 2026-era request is answered with the latest legacy version, since 2026-era revisions are never negotiated via initialize.'
     },
+
+    // v2 features: dual-era serving (createMcpHandler entry, eraSupport stdio, result stamping)
+
+    'typescript:hosting:entry:dual-era-one-factory': {
+        source: 'sdk',
+        behavior:
+            'createMcpHandler serves one ctx-taking factory to both protocol eras on one endpoint: with the legacy "stateless" slot configured, a plain client is served per request via initialize, tools/list and tools/call on the 2025 era, and an auto-negotiating client reaches 2026-07-28 via server/discover (never initialize) and gets tools/call served with the per-request _meta envelope.',
+        transports: ['streamableHttp'],
+        note: 'The entry is an HTTP-only surface; each cell hosts the handler node face on a real node:http listener (the matrix transport arg is ignored, fixed to a single streamableHttp-labelled cell) and the spec-version axis selects which era the cell drives.'
+    },
+    'typescript:hosting:entry:pin-negotiation': {
+        source: 'sdk',
+        behavior:
+            'A client pinned to the 2026-07-28 revision (versionNegotiation mode pin) connects to a strict createMcpHandler endpoint without ever sending initialize — its first request is server/discover — and an enveloped tools/call round-trips.',
+        transports: ['streamableHttp'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The entry is an HTTP-only surface; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis.'
+    },
+    'typescript:hosting:entry:strict-rejects-legacy': {
+        source: 'sdk',
+        behavior:
+            'A createMcpHandler endpoint with no legacy slot configured (modern-only strict) rejects a 2025-shaped initialize with the unsupported-protocol-version error carrying the supported modern revisions in error.data.supported; nothing is silently served on the 2025 era.',
+        transports: ['streamableHttp'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The entry is an HTTP-only surface; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis. The numeric error code is asserted by message and supported-list shape only, since it shares a code with the still-disputed header/body mismatch family.'
+    },
+    'typescript:hosting:entry:notification-202': {
+        source: 'sdk',
+        behavior:
+            'A POST carrying only a notification is answered 202 Accepted with an empty body by a createMcpHandler endpoint on both legs: an envelope-less notification through the legacy stateless slot and an envelope-carrying notification on the modern path.',
+        transports: ['streamableHttp'],
+        note: 'The entry is an HTTP-only surface; each cell hosts the handler node face on a real node:http listener (the matrix transport arg is ignored, fixed to a single streamableHttp-labelled cell) and the spec-version axis selects which leg the notification rides.'
+    },
+    'typescript:transport:stdio:dual-era-serving': {
+        source: 'sdk',
+        behavior:
+            'A hand-constructed stdio server declaring eraSupport "dual-era" (transport line unchanged) serves a plain 2025 client via initialize and an auto-negotiating client on 2026-07-28 via server/discover, over a real child-process pipe.',
+        transports: ['stdio'],
+        note: 'Dual-era stdio serving is exercised against a real spawned child process (fixtures/dual-era-stdio-server.ts), so the matrix transport arg is ignored and the requirement lists stdio only; the spec-version axis selects which client drives the cell.'
+    },
     'custom-methods:server-handler:roundtrip': {
         source: 'sdk',
         behavior:
