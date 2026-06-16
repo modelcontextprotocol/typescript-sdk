@@ -18,9 +18,6 @@
 
 client:
     # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-    # SEP-2322 (multi-round-trip requests): client does not echo requestState /
-    # handle IncompleteResult yet.
-    - sep-2322-client-request-state
     # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
     - http-custom-headers
     - http-invalid-tool-headers
@@ -52,29 +49,20 @@ client:
 
 server:
     # --- Draft-spec scenarios (in `--suite draft`; the default `active` suite is green) ---
-    # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented
-    # in the SDK, so the fixture does not register the scenarios' diagnostic
-    # test_input_required_result_* tools.
-    - input-required-result-basic-elicitation
-    - input-required-result-basic-sampling
-    - input-required-result-basic-list-roots
-    - input-required-result-request-state
-    - input-required-result-multiple-input-requests
-    - input-required-result-multi-round
-    - input-required-result-non-tool-request
-    - input-required-result-result-type
+    # SEP-2322 (multi-round-trip requests): the fixture integrity-protects
+    # requestState with an HMAC and rejects tampered state, but a rejection
+    # thrown from a tool callback surfaces as an isError tool result (the
+    # tools/call funnel wraps handler throws), not the JSON-RPC error this
+    # scenario requires. Unblocks when the SDK can reject invalid requestState
+    # at the protocol layer (the opt-in requestState sealing helper) or lets
+    # this rejection escape the tools/call funnel as a protocol error.
     - input-required-result-tampered-state
-    - input-required-result-capability-check
     # SEP-2243 (HTTP header standardization): the reject cells the SDK does
     # answer now use -32001 (HeaderMismatch), but missing-header enforcement
     # (Mcp-Method, Mcp-Name) and the Mcp-Name cross-check are not implemented,
     # so those reject cells are still accepted with 200.
     - http-header-validation
-    # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
-    # WARNINGs, but the expected-failures evaluator counts WARNINGs as failures.
+    # WARNING-only entry: the scenario emits no FAILURE checks, only a SHOULD-level
+    # WARNING, but the expected-failures evaluator counts WARNINGs as failures.
     # SEP-2164: server returns -32002 without the requested URI in error.data.
     - sep-2164-resource-not-found
-    # SEP-2322 SHOULD-level behaviours (re-request missing inputResponses, ignore
-    # unrecognized inputResponses keys).
-    - input-required-result-missing-input-response
-    - input-required-result-ignore-extra-params

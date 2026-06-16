@@ -48,9 +48,6 @@ client:
     - auth/scope-retry-limit
 
     # --- Same gaps as the 2025 baseline (fail identically when forced to 2026-07-28) ---
-    # SEP-2322 (multi-round-trip requests): client does not echo requestState /
-    # handle IncompleteResult yet.
-    - sep-2322-client-request-state
     # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
     - http-custom-headers
     - http-invalid-tool-headers
@@ -86,21 +83,11 @@ server:
     # (Mcp-Method, Mcp-Name) and the Mcp-Name cross-check are not implemented,
     # so those reject cells are still accepted with 200.
     - http-header-validation
-    # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented
-    # in the SDK, so the fixture does not register the scenarios' diagnostic
-    # test_input_required_result_* tools.
-    - input-required-result-basic-elicitation
-    - input-required-result-basic-sampling
-    - input-required-result-basic-list-roots
-    - input-required-result-request-state
-    - input-required-result-multiple-input-requests
-    - input-required-result-multi-round
-    - input-required-result-non-tool-request
-    - input-required-result-result-type
+    # SEP-2322 (multi-round-trip requests): the fixture integrity-protects
+    # requestState with an HMAC and rejects tampered state, but a rejection
+    # thrown from a tool callback surfaces as an isError tool result (the
+    # tools/call funnel wraps handler throws), not the JSON-RPC error this
+    # scenario requires. Unblocks when the SDK can reject invalid requestState
+    # at the protocol layer (the opt-in requestState sealing helper) or lets
+    # this rejection escape the tools/call funnel as a protocol error.
     - input-required-result-tampered-state
-    - input-required-result-capability-check
-    # SEP-2322 SHOULD-level behaviours (re-request missing inputResponses,
-    # ignore unrecognized inputResponses keys): WARNING-only, but the
-    # expected-failures evaluator counts WARNINGs as failures.
-    - input-required-result-missing-input-response
-    - input-required-result-ignore-extra-params
