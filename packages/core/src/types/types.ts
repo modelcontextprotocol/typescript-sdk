@@ -618,7 +618,10 @@ export type ListChangedHandlers = {
  * `Client`/`Server` instance); the protocol layer validates a classified
  * message against that instance era at dispatch — a mismatch is treated as
  * an entry/routing error, never a per-message era switch. Unclassified
- * traffic is dispatched on the instance era unchanged.
+ * traffic is dispatched on the instance era unchanged, except on long-lived
+ * dual-era channels (e.g. a stdio server that declared dual-era support),
+ * where the protocol layer's own classification consult classifies each
+ * message and selects its era per message.
  */
 export interface MessageClassification {
     /**
@@ -646,7 +649,9 @@ export interface MessageExtraInfo {
      * Protocol-era classification of the message, when the transport
      * classified it at the edge. Validated by the protocol layer against the
      * instance's negotiated era at dispatch (the edge→instance handoff
-     * check); it does not select the era itself.
+     * check); an edge classification never selects the era itself. When the
+     * transport did not classify, the protocol layer's classification consult
+     * may populate this carrier per message (long-lived dual-era channels).
      */
     classification?: MessageClassification;
 
