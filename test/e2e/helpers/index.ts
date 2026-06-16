@@ -15,30 +15,93 @@ import { PassThrough } from 'node:stream';
 
 import type { Client } from '@modelcontextprotocol/client';
 import { SSEClientTransport, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import type { EventStore, JSONRPCMessage, McpServer, Server } from '@modelcontextprotocol/server';
-import { InMemoryTransport, ReadBuffer, serializeMessage, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import type {
+    CreateMcpHandlerOptions,
+    EventStore,
+    Implementation,
+    JSONRPCMessage,
+    McpRequestContext,
+    McpServer,
+    Server,
+    Transport as SdkTransport
+} from '@modelcontextprotocol/server';
+import {
+    createMcpHandler,
+    InMemoryTransport,
+    ReadBuffer,
+    serializeMessage,
+    WebStandardStreamableHTTPServerTransport
+} from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
-import type { Transport } from '../types.js';
+import type { SpecVersion, Transport } from '../types.js';
 import { startLegacySseHost } from './sse-host.js';
 import type { SnifferOptions } from './wire-sniffer.js';
 import { sniffTransport } from './wire-sniffer.js';
 
 export type ServerFactory = () => McpServer | Server;
 
+/**
+ * A factory that optionally consumes the createMcpHandler per-request context.
+ * The context is only supplied on the entry arms (where the entry constructs a
+ * fresh instance per request); on every other arm the factory is called with no
+ * arguments, so declare the parameter optional.
+ */
+export type EntryServerFactory = (ctx?: McpRequestContext) => McpServer | Server;
+
+/** One HTTP exchange recorded by the entry arms (see {@linkcode Wired.httpLog}). */
+export interface RecordedHttpExchange {
+    /** HTTP request method (GET/POST/DELETE). */
+    method: string;
+    /** The request body text, when one was sent as a string. */
+    requestBody?: string;
+    /** HTTP response status. */
+    status: number;
+    /** Response content-type header (empty string when absent). */
+    contentType: string;
+    /** An unread clone of the HTTP response, for byte-level assertions (`await exchange.response.text()`). */
+    response: Response;
+}
+
 export interface Wired extends AsyncDisposable {
     readonly fetch?: (url: URL | string, init?: RequestInit) => Promise<Response>;
     readonly url?: URL;
+    /**
+     * Every HTTP exchange the wired client performed, in order, including the
+     * connect-time negotiation. Recorded by the createMcpHandler entry arms
+     * only — scenarios on those arms use it to assert raw wire facts (request
+     * bodies, response status/content-type/bytes) that the typed client API
+     * does not expose.
+     */
+    readonly httpLog?: readonly RecordedHttpExchange[];
 }
 
 /**
- * The fourth argument controls the wire-format sniffer (see wire-sniffer.ts):
- * every message the client sends or receives is validated against the SDK's
- * spec-anchored Zod schemas. Tests that intentionally use vendor-extension
- * methods pass `{ allowCustomMethods: true }`; tests that deliberately put
- * malformed MCP on the wire pass `{ strictValidation: false }`.
+ * The fourth argument's sniffer options control the wire-format sniffer (see
+ * wire-sniffer.ts): every message the client sends or receives is validated
+ * against the SDK's spec-anchored Zod schemas. Tests that intentionally use
+ * vendor-extension methods pass `{ allowCustomMethods: true }`; tests that
+ * deliberately put malformed MCP on the wire pass `{ strictValidation: false }`.
+ * `entry` overrides the hosting options of the createMcpHandler entry arms
+ * (ignored by every other transport).
  */
-export async function wire(transport: Transport, makeServer: ServerFactory, client: Client, sniff: SnifferOptions = {}): Promise<Wired> {
+export interface WireOptions extends SnifferOptions {
+    /**
+     * createMcpHandler hosting overrides for the entry arms. Defaults:
+     * `{ legacy: 'stateless' }` on entryStateless (the canonical slot value) and
+     * modern-only strict (no legacy slot) on entryModern. `onerror` and
+     * `responseMode` pass through unchanged.
+     */
+    entry?: CreateMcpHandlerOptions;
+}
+
+export async function wire(
+    transport: Transport,
+    makeServer: ServerFactory | EntryServerFactory,
+    client: Client,
+    sniff: WireOptions = {}
+): Promise<Wired> {
     switch (transport) {
         case 'inMemory': {
             const server = makeServer();
@@ -65,6 +128,47 @@ export async function wire(transport: Transport, makeServer: ServerFactory, clie
                 fetch,
                 url,
                 [Symbol.asyncDispose]: () => Promise.all([client.close(), handle.close()]).then(() => {})
+            };
+        }
+        case 'entryStateless':
+        case 'entryModern': {
+            // The dual-era HTTP entry (`createMcpHandler`) hosted in process via an
+            // injected fetch, exactly like the other HTTP arms. The scenario factory
+            // backs the entry directly (the entry calls it once per request with its
+            // per-request context). `entryStateless` serves the scenario's plain
+            // client through the entry's `legacy: 'stateless'` slot; `entryModern`
+            // keeps the endpoint modern-only strict and connects the client on the
+            // 2026-07-28 revision (pin-mode negotiation + the per-request envelope
+            // stop-gap). Every HTTP exchange is recorded on `httpLog`.
+            const handler = createMcpHandler(
+                makeServer,
+                transport === 'entryStateless' ? { legacy: 'stateless', ...sniff.entry } : { ...sniff.entry }
+            );
+            const url = new URL('http://in-process/mcp');
+            const httpLog: RecordedHttpExchange[] = [];
+            const fetch = async (u: URL | string, init?: RequestInit) => {
+                const request = new Request(u, init);
+                const response = await handler.fetch(request);
+                httpLog.push({
+                    method: request.method.toUpperCase(),
+                    ...(typeof init?.body === 'string' && { requestBody: init.body }),
+                    status: response.status,
+                    contentType: response.headers.get('content-type') ?? '',
+                    response: response.clone()
+                });
+                return response;
+            };
+            let clientTx = new StreamableHTTPClientTransport(url, { fetch });
+            if (transport === 'entryModern') {
+                pinModernNegotiation(client);
+                clientTx = attachModernEnvelope(clientTx);
+            }
+            await client.connect(sniffTransport(clientTx, 'client', sniff));
+            return {
+                fetch,
+                url,
+                httpLog,
+                [Symbol.asyncDispose]: () => Promise.all([client.close(), handler.close()]).then(() => {})
             };
         }
         case 'sse': {
@@ -210,6 +314,78 @@ export function hostStateless(makeServer: ServerFactory): { handleRequest: HttpH
             for (const c of cleanups) await c();
         }
     };
+}
+
+// ───────────────────────────────────────────────────────────────────────────────
+// createMcpHandler entry arms (entryStateless / entryModern) — client-side shims
+// ───────────────────────────────────────────────────────────────────────────────
+
+/** The protocol revision the entryModern arm negotiates and claims per request. */
+const MODERN_REVISION: SpecVersion = '2026-07-28';
+
+/**
+ * The per-request `_meta` envelope of a 2026-07-28 request, for scenario bodies
+ * that put raw HTTP requests on the wire (via `wired.fetch`) rather than going
+ * through the wired client. Typed calls through the wired client never need
+ * this — the entryModern arm attaches the envelope itself (see
+ * {@linkcode attachModernEnvelope}).
+ */
+export function modernEnvelopeMeta(clientInfo?: Implementation): Record<string, unknown> {
+    return {
+        [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION,
+        [CLIENT_INFO_META_KEY]: clientInfo ?? { name: 'e2e-entry-client', version: '1.0.0' },
+        [CLIENT_CAPABILITIES_META_KEY]: {}
+    };
+}
+
+/**
+ * Put the (already constructed) scenario client into pinned 2026-07-28
+ * negotiation. Version negotiation is a constructor-only option and the
+ * scenario corpus constructs era-agnostic clients, so the entryModern arm flips
+ * the option on the instance before `connect()` — a harness stop-gap, not a
+ * public API. Clients that already opted into a negotiation mode are left
+ * untouched (their cells deliberately exercise that mode).
+ */
+function pinModernNegotiation(client: Client): void {
+    const internals = client as unknown as { _versionNegotiation?: { mode?: unknown } };
+    internals._versionNegotiation ??= { mode: { pin: MODERN_REVISION } };
+}
+
+/**
+ * The per-request `_meta` envelope stop-gap for the entryModern arm: the
+ * negotiating client only attaches the envelope to its `server/discover` probe
+ * today (automatic per-request emission is a client-side follow-up), so the
+ * harness re-attaches the same envelope to every later request and notification
+ * the scenario's typed calls put on the wire. The envelope is captured from the
+ * probe itself, so it always matches what the client actually claimed; messages
+ * that already carry a protocol-version claim (the probe, or a scenario's
+ * explicitly enveloped request) pass through untouched.
+ *
+ * Applied beneath the wire sniffer and `tapWire`, so recorded traffic shows the
+ * messages exactly as the scenario sent them while the wire carries the
+ * envelope the entry requires.
+ */
+function attachModernEnvelope<T extends SdkTransport>(transport: T): T {
+    let envelope: Record<string, unknown> | undefined;
+    const origSend = transport.send.bind(transport);
+    transport.send = async (message, opts) => {
+        let outbound = message;
+        if ('method' in message) {
+            const params = (message.params ?? {}) as { _meta?: Record<string, unknown> };
+            const meta = params._meta;
+            if (meta?.[PROTOCOL_VERSION_META_KEY] !== undefined) {
+                envelope ??= {
+                    [PROTOCOL_VERSION_META_KEY]: meta[PROTOCOL_VERSION_META_KEY],
+                    [CLIENT_INFO_META_KEY]: meta[CLIENT_INFO_META_KEY],
+                    [CLIENT_CAPABILITIES_META_KEY]: meta[CLIENT_CAPABILITIES_META_KEY]
+                };
+            } else if (envelope !== undefined) {
+                outbound = { ...message, params: { ...params, _meta: { ...envelope, ...meta } } };
+            }
+        }
+        return origSend(outbound, opts);
+    };
+    return transport;
 }
 
 // ───────────────────────────────────────────────────────────────────────────────
