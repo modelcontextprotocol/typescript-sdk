@@ -27,7 +27,8 @@ import type {
     InboundLegacyRoute,
     InboundModernRoute,
     JSONRPCNotification,
-    JSONRPCRequest
+    JSONRPCRequest,
+    RequestId
 } from '@modelcontextprotocol/core';
 import {
     classifyInboundRequest,
@@ -185,19 +186,38 @@ export interface McpHttpHandler {
  * Shared response helpers
  * ------------------------------------------------------------------------ */
 
-function jsonRpcErrorResponse(httpStatus: number, code: number, message: string, data?: unknown): Response {
+/**
+ * The JSON-RPC id to echo on an entry-built error response: the body's `id`
+ * when the body is a single JSON-RPC request whose id is a string or number,
+ * `null` otherwise. Error responses must carry the id of the request they
+ * correspond to whenever it could be read; `null` is reserved for the cases
+ * where no single request id is determinable — unparseable bodies, body-less
+ * methods, notifications, posted responses and batch arrays.
+ */
+function echoableRequestId(body: unknown): RequestId | null {
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+        return null;
+    }
+    const { method, id } = body as { method?: unknown; id?: unknown };
+    if (typeof method !== 'string') {
+        return null;
+    }
+    return typeof id === 'string' || typeof id === 'number' ? id : null;
+}
+
+function jsonRpcErrorResponse(httpStatus: number, code: number, message: string, data?: unknown, id: RequestId | null = null): Response {
     return Response.json(
         {
             jsonrpc: '2.0',
             error: { code, message, ...(data !== undefined && { data }) },
-            id: null
+            id
         },
         { status: httpStatus }
     );
 }
 
-function rejectionResponse(rejection: InboundLadderRejection): Response {
-    return jsonRpcErrorResponse(rejection.httpStatus, rejection.code, rejection.message, rejection.data);
+function rejectionResponse(rejection: InboundLadderRejection, id: RequestId | null = null): Response {
+    return jsonRpcErrorResponse(rejection.httpStatus, rejection.code, rejection.message, rejection.data, id);
 }
 
 function toError(value: unknown): Error {
@@ -214,8 +234,8 @@ function hasConfiguredSubscriptions(_product: McpServer | Server): boolean {
     return false;
 }
 
-function internalServerErrorResponse(): Response {
-    return jsonRpcErrorResponse(500, -32_603, 'Internal server error');
+function internalServerErrorResponse(id: RequestId | null = null): Response {
+    return jsonRpcErrorResponse(500, -32_603, 'Internal server error', undefined, id);
 }
 
 /* ------------------------------------------------------------------------ *
@@ -318,7 +338,7 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
             } catch {
                 // Reporting must never alter the response.
             }
-            return internalServerErrorResponse();
+            return internalServerErrorResponse(echoableRequestId(options?.parsedBody));
         }
     };
 }
@@ -397,7 +417,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                 requested: claimedRevision ?? 'unknown'
             });
             reportError(error);
-            return jsonRpcErrorResponse(400, error.code, error.message, error.data);
+            return jsonRpcErrorResponse(400, error.code, error.message, error.data, echoableRequestId(message));
         }
 
         const product = await factory({
@@ -472,7 +492,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             await server.close().catch(() => {});
             inflight.delete(server);
             reportError(toError(error));
-            return internalServerErrorResponse();
+            return internalServerErrorResponse(echoableRequestId(message));
         }
     }
 
@@ -495,7 +515,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             return new Response(null, { status: 202 });
         }
         reportError(new Error(`Rejected 2025-era request on a modern-only endpoint (${strict.cell}): ${strict.message}`));
-        return rejectionResponse(strict);
+        return rejectionResponse(strict, echoableRequestId(parsedBody));
     }
 
     async function handle(request: Request, requestOptions?: McpHandlerRequestOptions): Promise<Response> {
@@ -550,17 +570,26 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             ...(body !== undefined && { body })
         });
 
-        switch (outcome.kind) {
-            case 'reject': {
-                reportError(new Error(`Rejected inbound request (${outcome.cell}): ${outcome.message}`));
-                return rejectionResponse(outcome);
+        try {
+            switch (outcome.kind) {
+                case 'reject': {
+                    reportError(new Error(`Rejected inbound request (${outcome.cell}): ${outcome.message}`));
+                    return rejectionResponse(outcome, echoableRequestId(body));
+                }
+                case 'modern': {
+                    return await serveModern(outcome, body as JSONRPCRequest | JSONRPCNotification, request, authInfo);
+                }
+                case 'legacy': {
+                    return await serveLegacyRoute(outcome, forwardRequest, authInfo, parsedBody);
+                }
             }
-            case 'modern': {
-                return serveModern(outcome, body as JSONRPCRequest | JSONRPCNotification, request, authInfo);
-            }
-            case 'legacy': {
-                return serveLegacyRoute(outcome, forwardRequest, authInfo, parsedBody);
-            }
+        } catch (error) {
+            // Entry-internal failure while serving a classified request (a
+            // throwing factory, a failed connect, a throwing bring-your-own
+            // legacy handler): the parsed body is in scope here, so the 500
+            // body echoes the request id when it could be read.
+            reportError(toError(error));
+            return internalServerErrorResponse(echoableRequestId(body));
         }
     }
 
@@ -572,7 +601,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             return await handle(request, requestOptions);
         } catch (error) {
             reportError(toError(error));
-            return internalServerErrorResponse();
+            return internalServerErrorResponse(echoableRequestId(requestOptions?.parsedBody));
         }
     };
 
@@ -600,7 +629,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             });
         } catch (error) {
             reportError(toError(error));
-            response = internalServerErrorResponse();
+            response = internalServerErrorResponse(echoableRequestId(parsedBody));
         }
 
         const headers: Record<string, string> = {};

@@ -174,11 +174,15 @@ describe('createMcpHandler — modern path', () => {
             postRequest({ jsonrpc: '2.0', id: 2, method: 'logging/setLevel', params: { level: 'info', _meta: ENVELOPE } })
         );
         expect(eraRemoved.status).toBe(404);
-        expect(((await eraRemoved.json()) as JSONRPCErrorBody).error.code).toBe(-32_601);
+        const eraRemovedBody = (await eraRemoved.json()) as JSONRPCErrorBody;
+        expect(eraRemovedBody.error.code).toBe(-32_601);
+        expect(eraRemovedBody.id).toBe(2);
 
         const unknown = await handler.fetch(postRequest({ jsonrpc: '2.0', id: 3, method: 'no/such-method', params: { _meta: ENVELOPE } }));
         expect(unknown.status).toBe(404);
-        expect(((await unknown.json()) as JSONRPCErrorBody).error.code).toBe(-32_601);
+        const unknownBody = (await unknown.json()) as JSONRPCErrorBody;
+        expect(unknownBody.error.code).toBe(-32_601);
+        expect(unknownBody.id).toBe(3);
     });
 
     it('rejects an envelope claiming a revision the endpoint does not serve with the supported list', async () => {
@@ -193,6 +197,7 @@ describe('createMcpHandler — modern path', () => {
         expect(body.error.code).toBe(-32_004);
         expect(body.error.data?.['supported']).toEqual([MODERN_REVISION]);
         expect(body.error.data?.['requested']).toBe('2030-01-01');
+        expect(body.id).toBe(1);
         expect(state.contexts).toHaveLength(0);
     });
 
@@ -205,6 +210,8 @@ describe('createMcpHandler — modern path', () => {
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
         expect([-32_001, -32_602, -32_004]).toContain(body.error.code);
+        // Whatever the disputed code lands on, the rejection echoes the request id.
+        expect(body.id).toBe(1);
         expect(onerror).toHaveBeenCalled();
     });
 
@@ -221,6 +228,7 @@ describe('createMcpHandler — modern path', () => {
         expect(response.status).toBe(500);
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_603);
+        expect(body.id).toBe(1);
         expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'factory exploded' }));
     });
 
@@ -264,6 +272,7 @@ describe('createMcpHandler — modern path', () => {
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_602);
         expect(JSON.stringify(body.error.data)).toContain('clientInfo');
+        expect(body.id).toBe(1);
         expect(state.contexts).toHaveLength(0);
     });
 });
@@ -281,6 +290,7 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
         const body = (await response.json()) as JSONRPCErrorBody;
         expect(body.error.code).toBe(-32_004);
         expect(body.error.data?.['supported']).toEqual([MODERN_REVISION]);
+        expect(body.id).toBe(1);
         expect(state.contexts).toHaveLength(0);
         expect(onerror).toHaveBeenCalled();
     });
@@ -302,6 +312,7 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
         expect(body.error.code).toBe(-32_004);
         expect(body.error.data?.['supported']).toEqual([MODERN_REVISION]);
         expect(body.error.data?.['requested']).toBe('2025-11-25');
+        expect(body.id).toBe('init-1');
     });
 
     it('answers GET and DELETE with 405 Method not allowed', async () => {
@@ -314,6 +325,8 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
             const body = (await response.json()) as JSONRPCErrorBody;
             expect(body.error.code).toBe(-32_000);
             expect(body.error.message).toBe('Method not allowed.');
+            // Body-less methods carry no request id to echo.
+            expect(body.id).toBeNull();
         }
     });
 
@@ -323,11 +336,17 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
 
         const batch = await handler.fetch(postRequest([{ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }]));
         expect(batch.status).toBe(400);
-        expect(((await batch.json()) as JSONRPCErrorBody).error.code).toBe(-32_600);
+        const batchBody = (await batch.json()) as JSONRPCErrorBody;
+        expect(batchBody.error.code).toBe(-32_600);
+        // A whole-array rejection corresponds to no single request: id stays null.
+        expect(batchBody.id).toBeNull();
 
         const responseBody = await handler.fetch(postRequest({ jsonrpc: '2.0', id: 9, result: { ok: true } }));
         expect(responseBody.status).toBe(400);
-        expect(((await responseBody.json()) as JSONRPCErrorBody).error.code).toBe(-32_600);
+        const responseBodyJson = (await responseBody.json()) as JSONRPCErrorBody;
+        expect(responseBodyJson.error.code).toBe(-32_600);
+        // A posted response is not a request; there is no request id to echo.
+        expect(responseBodyJson.id).toBeNull();
     });
 
     it('answers unparseable JSON with a parse error', async () => {
@@ -336,7 +355,10 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
 
         const response = await handler.fetch(postRequest('{not json'));
         expect(response.status).toBe(400);
-        expect(((await response.json()) as JSONRPCErrorBody).error.code).toBe(-32_700);
+        const body = (await response.json()) as JSONRPCErrorBody;
+        expect(body.error.code).toBe(-32_700);
+        // The id could not be read from the malformed body, so it stays null.
+        expect(body.id).toBeNull();
     });
 
     it('acknowledges and drops legacy-classified notifications (202, never dispatched)', async () => {
