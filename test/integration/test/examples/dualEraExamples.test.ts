@@ -17,23 +17,26 @@
  * each spawn (listeners only — `lsof -sTCP:LISTEN`, never a bare kill by
  * port), and the spawned child is always stopped by PID.
  *
- * The examples resolve the workspace packages through their published dist
- * entry points, so the suite requires `pnpm build:all` to have run. During a
- * full integration run, cloudflareWorkers.test.ts repacks the server package
- * (`pnpm pack` → prepack → build), which transiently rewrites
- * packages/server/dist; an example spawned inside that window dies with a
- * missing-dist module error. Such failures are retried a bounded number of
- * times so only genuine example breakage fails the suite.
+ * The examples are spawned with this package's root as the working directory,
+ * so tsx picks up test/integration/tsconfig.json and its paths map every
+ * `@modelcontextprotocol/*` specifier to the workspace package sources. That
+ * keeps the suite independent of built dist output (the CI job running this
+ * package does not build) and of anything rewriting dist mid-run; the stdio
+ * client example's own nested spawn inherits the working directory, so the
+ * server example it launches resolves the same way. Running the examples by
+ * hand from the repo root still resolves through the published dist entry
+ * points and therefore still needs `pnpm build:all` first.
  */
 import type { ChildProcess } from 'node:child_process';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
+/** This package's root: the spawn cwd, so tsx resolves workspace packages from source via the package tsconfig. */
+const INTEGRATION_ROOT = path.resolve(__dirname, '../..');
 const STDIO_CLIENT_EXAMPLE = path.join(REPO_ROOT, 'examples/client/src/dualEraStdioClient.ts');
 const HTTP_SERVER_EXAMPLE = path.join(REPO_ROOT, 'examples/server/src/dualEraStreamableHttp.ts');
 
@@ -43,10 +46,6 @@ const MODERN = '2026-07-28';
 /** The HTTP example's hard-coded listen port (it exposes no override). */
 const EXAMPLE_PORT = 3000;
 const EXAMPLE_URL = `http://localhost:${EXAMPLE_PORT}/mcp`;
-
-/** Failure signature of a workspace dist being rewritten underneath a spawned example (see the file header). */
-const MISSING_DIST_PATTERN = /(ERR_MODULE_NOT_FOUND|ENOENT)[\s\S]*[/\\]dist[/\\]/;
-const MAX_ATTEMPTS = 3;
 
 interface RunningExample {
     child: ChildProcess;
@@ -71,7 +70,7 @@ describe('dual-era examples run as real programs', () => {
 
     function spawnExample(scriptPath: string, env: Record<string, string> = {}): RunningExample {
         const child = spawn(process.execPath, ['--import', 'tsx', scriptPath], {
-            cwd: REPO_ROOT,
+            cwd: INTEGRATION_ROOT,
             env: { ...process.env, ...env },
             stdio: ['ignore', 'pipe', 'pipe']
         });
@@ -91,14 +90,8 @@ describe('dual-era examples run as real programs', () => {
     }
 
     it('dualEraStdioClient drives both legs against the stdio server example and exits cleanly', async () => {
-        let example = spawnExample(STDIO_CLIENT_EXAMPLE);
-        let { code, signal } = await example.exited;
-        for (let attempt = 1; attempt < MAX_ATTEMPTS && code !== 0 && MISSING_DIST_PATTERN.test(example.stderr()); attempt++) {
-            // A workspace dist was being rewritten underneath the example; wait it out and rerun.
-            await delay(10_000);
-            example = spawnExample(STDIO_CLIENT_EXAMPLE);
-            ({ code, signal } = await example.exited);
-        }
+        const example = spawnExample(STDIO_CLIENT_EXAMPLE);
+        const { code, signal } = await example.exited;
         const stdout = example.stdout();
 
         expect(code, `expected exit 0\nstdout:\n${stdout}\nstderr:\n${example.stderr()}`).toBe(0);
@@ -133,34 +126,32 @@ describe('dual-era examples run as real programs', () => {
     }
 
     async function startHttpExample(mode: 'none' | 'stateless' | 'byo'): Promise<RunningExample> {
-        for (let attempt = 1; ; attempt++) {
-            await clearStalePortListeners();
-            const example = spawnExample(HTTP_SERVER_EXAMPLE, { MCP_LEGACY_MODE: mode });
-            // Wait for the listening line, but stop waiting as soon as the child exits.
-            let exited = false;
-            void example.exited.then(() => {
-                exited = true;
-            });
-            await vi.waitFor(
-                () => {
-                    if (!example.stdout().includes('Dual-era MCP server listening') && !exited) throw new Error('not listening yet');
-                },
-                { timeout: 60_000, interval: 100 }
-            );
-            if (example.stdout().includes('Dual-era MCP server listening')) {
-                expect(example.stdout()).toContain(`legacy mode: ${mode}`);
-                return example;
-            }
-            if (attempt < MAX_ATTEMPTS && MISSING_DIST_PATTERN.test(example.stderr())) {
-                // A workspace dist was being rewritten underneath the example; wait it out and respawn.
-                await delay(10_000);
-                continue;
-            }
+        await clearStalePortListeners();
+        const example = spawnExample(HTTP_SERVER_EXAMPLE, { MCP_LEGACY_MODE: mode });
+        // Wait for the listening line, but stop waiting as soon as the child exits.
+        let exited = false;
+        void example.exited.then(() => {
+            exited = true;
+        });
+        await vi.waitFor(
+            () => {
+                if (!example.stdout().includes('Dual-era MCP server listening') && !exited) throw new Error('not listening yet');
+            },
+            { timeout: 60_000, interval: 100 }
+        );
+        if (!example.stdout().includes('Dual-era MCP server listening')) {
             throw new Error(`example exited before listening\nstdout:\n${example.stdout()}\nstderr:\n${example.stderr()}`);
         }
+        expect(example.stdout()).toContain(`legacy mode: ${mode}`);
+        return example;
     }
 
-    /** Stops the spawned example by PID and asserts it shuts down cleanly (the example handles SIGINT itself). */
+    /**
+     * Stops the spawned example by PID and asserts it shuts down cleanly (the
+     * example handles SIGINT itself). Only call this on the success path: when
+     * a probe has already failed, kill the child outright instead so the
+     * shutdown assertions can never mask the original failure.
+     */
     async function stopHttpExample(example: RunningExample): Promise<void> {
         if (example.child.exitCode === null && example.child.signalCode === null) {
             example.child.kill('SIGINT');
@@ -168,6 +159,13 @@ describe('dual-era examples run as real programs', () => {
         const { code, signal } = await example.exited;
         expect(signal).toBeNull();
         expect(code).toBe(0);
+    }
+
+    /** Best-effort teardown after a failed probe: kill the child and rethrow the original failure unchanged. */
+    async function killAndRethrow(example: RunningExample, error: unknown): Promise<never> {
+        example.child.kill('SIGKILL');
+        await example.exited;
+        throw error;
     }
 
     function modernEnvelope() {
@@ -239,9 +237,10 @@ describe('dual-era examples run as real programs', () => {
             expect(initResult?.serverInfo?.name).toBe('dual-era-server');
 
             await probeModernPath();
-        } finally {
-            await stopHttpExample(example);
+        } catch (error) {
+            await killAndRethrow(example, error);
         }
+        await stopHttpExample(example);
     });
 
     it('dualEraStreamableHttp with MCP_LEGACY_MODE=none rejects 2025-shaped initialize and still serves the modern path', async () => {
@@ -254,8 +253,9 @@ describe('dual-era examples run as real programs', () => {
             expect(error?.data?.supported).toContain(MODERN);
 
             await probeModernPath();
-        } finally {
-            await stopHttpExample(example);
+        } catch (error) {
+            await killAndRethrow(example, error);
         }
+        await stopHttpExample(example);
     });
 });
