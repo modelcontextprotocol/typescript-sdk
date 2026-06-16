@@ -2145,11 +2145,11 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This is an HTTP-specific flow requiring session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'flow:tool-result:resource-link-follow': {
-        transports: STATEFUL_TRANSPORTS,
+        transports: [...STATEFUL_TRANSPORTS, 'entryStateless', 'entryModern'],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#resource-links',
         behavior:
             'A resource_link returned by a tool call can be followed with resources/read on the linked URI to retrieve the referenced contents.',
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these. The createMcpHandler entry arms are included: the body is plain client→server request/response (a tools/call, then a resources/read against the same statically-registered factory), so the per-request entry serves it on both eras.'
     },
     'flow:proxy:forward-tools-resources': {
         transports: ['inMemory', 'streamableHttp'],
@@ -2367,8 +2367,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior:
             'A notification handler registered for a non-spec method with a params schema receives schema-validated custom notifications sent by the remote side.',
-        transports: STATEFUL_TRANSPORTS,
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+        transports: [...STATEFUL_TRANSPORTS, 'entryStateless', 'entryModern'],
+        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these. The createMcpHandler entry arms are included: the server→client heartbeats are emitted during the tools/call exchange (ctx.mcpReq.notify) and observed after it completes, and the client→server heartbeat is a plain notification handled by the per-request instance, so the entry arms serve the body on both eras.'
     },
     'typescript:method-string-handlers:result-type-inference': {
         entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],
