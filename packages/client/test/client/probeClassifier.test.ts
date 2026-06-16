@@ -234,7 +234,7 @@ describe('row: plain-text/unparseable 400, code 0, empty body, 406, any unrecogn
 });
 
 describe('row: -32001 / -32003 are NEVER probe-recognized → fall into unrecognized → legacy', () => {
-    test('-32001 (session-404 overload on deployed servers; ladder cell underived pending conformance #336)', () => {
+    test('-32001 (session-404 overload on deployed servers; the spec-assigned HeaderMismatch code is still never probe evidence)', () => {
         expect(classify({ kind: 'rpc-error', code: -32_001, message: 'Session not found' })).toEqual({ kind: 'legacy' });
         expect(classify({ kind: 'http-error', status: 404, body: httpErrorBody(-32_001, 'Session not found') })).toEqual({
             kind: 'legacy'
