@@ -1,0 +1,67 @@
+# Expected failures for the carried-forward x 2026-07-28 server leg
+# (`test:conformance:server:2026` = `--suite all --spec-version 2026-07-28`).
+#
+# This baseline is separate from expected-failures.yaml because entries are
+# keyed by scenario name only: a scenario that passes in one leg and fails in
+# another cannot be expressed in a shared file (the passing leg would flag the
+# entry as stale). This file is owned exclusively by the server 2026 leg and
+# burns down independently of the 2025 legs.
+#
+# Baseline established against the published @modelcontextprotocol/conformance
+# release pinned in package.json (0.2.0-alpha.3). Newer conformance releases
+# are adopted by deliberately bumping the package.json pin and reconciling
+# this file in the same change.
+#
+# NOTE: the draft error-code assignments exercised by the SEP-2243/SEP-2575
+# scenarios (-32001 HeaderMismatch, -32602, -32004) are still under discussion
+# upstream (pending conformance #336). Those cells are treated as
+# parameterized, not settled: the entries below record today's referee
+# behavior and are re-derived when a #336-containing referee is pinned.
+#
+# Entries are grouped by what unblocks them. As each gap closes the
+# corresponding scenarios start passing and MUST be removed from this list
+# (the runner fails on stale entries), so the baseline burns down per
+# milestone.
+
+server:
+    # --- Carried-forward scenarios (also run by the 2025 legs) ---
+    # Pre-existing fixture/baseline bug: the fixture tool's schema is a plain
+    # Zod object with none of the JSON Schema 2020-12 keywords the scenario
+    # checks; it fails identically at 2025 in `--suite all` (not a 2026-path
+    # regression).
+    - json-schema-2020-12
+    # SEP-2164: server returns -32002 without the requested URI in error.data
+    # (WARNING-only; the expected-failures evaluator counts WARNINGs as
+    # failures). Same failure as in the 2025 baseline.
+    - sep-2164-resource-not-found
+
+    # --- Draft scenarios (same failures and reasons as the `--suite draft` leg) ---
+    # SEP-2575 (stateless HTTP / _meta envelope): only the envelope/header
+    # error-code cells fail - missing _meta and missing protocolVersion expect
+    # -32602 and the header/body mismatch cell expects -32001 HeaderMismatch,
+    # while the SDK emits the provisional -32004 (parameterized pending
+    # conformance #336, see header note).
+    - server-stateless
+    # SEP-2243 (HTTP header standardization): some header cross-check cells
+    # (Mcp-Name mismatch, case/whitespace handling) are not rejected yet, and
+    # the rejection error code is the disputed cell family.
+    # (Error-code cells parameterized pending conformance #336 - see header note.)
+    - http-header-validation
+    # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented
+    # in the SDK, so the fixture does not register the scenarios' diagnostic
+    # test_input_required_result_* tools.
+    - input-required-result-basic-elicitation
+    - input-required-result-basic-sampling
+    - input-required-result-basic-list-roots
+    - input-required-result-request-state
+    - input-required-result-multiple-input-requests
+    - input-required-result-multi-round
+    - input-required-result-non-tool-request
+    - input-required-result-result-type
+    - input-required-result-tampered-state
+    - input-required-result-capability-check
+    # SEP-2322 SHOULD-level behaviours (re-request missing inputResponses,
+    # ignore unrecognized inputResponses keys): WARNING-only, but the
+    # expected-failures evaluator counts WARNINGs as failures.
+    - input-required-result-missing-input-response
+    - input-required-result-ignore-extra-params
