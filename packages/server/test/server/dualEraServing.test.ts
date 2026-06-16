@@ -59,9 +59,10 @@ const MODERN_ONLY_METHODS = ['server/discover', 'subscriptions/listen'];
 
 /**
  * Legacy-only methods whose modern-direction denial mirrors the gate.
- * (`initialize` is deliberately not in this list: per the body-primary
- * predicate it is the legacy handshake by definition, so even an enveloped
- * `initialize` is served as legacy rather than denied.)
+ * (`initialize` is not in this list only because it has its own dedicated
+ * coverage below: an `initialize` carrying a valid modern envelope claim is
+ * classified by the claim — the claim wins over the legacy-handshake rule —
+ * and is denied with the same plain −32601.)
  */
 const LEGACY_ONLY_METHODS = ['ping', 'logging/setLevel', 'resources/subscribe'];
 
@@ -241,6 +242,87 @@ describe('long-lived era gate + zero-2026-vocabulary leak test', () => {
             const error = (response as JSONRPCErrorResponse).error;
             expect(error.code).toBe(-32_601);
             expect(error.message).toBe('Method not found');
+        }
+        await close();
+    });
+});
+
+describe('enveloped initialize on a dual-era instance (a valid modern claim wins over the legacy-handshake rule)', () => {
+    it('an initialize carrying a valid modern envelope claim answers a plain −32601 and is never served by the legacy handshake', async () => {
+        const server = buildServer({ eraSupport: 'dual-era' });
+        const { request, close } = await wire(server);
+
+        const response = await request({ jsonrpc: '2.0', id: 30, method: 'initialize', params: { _meta: envelope() } });
+        expect(isJSONRPCErrorResponse(response)).toBe(true);
+        const error = (response as JSONRPCErrorResponse).error;
+        expect(error.code).toBe(-32_601);
+        expect(error.message).toBe('Method not found');
+        expect(error.data).toBeUndefined();
+
+        // Nothing beyond the normal method-not-found shape leaks 2026 vocabulary.
+        const serialized = JSON.stringify({ error, id: null });
+        for (const term of FORBIDDEN_2026_VOCABULARY) {
+            expect(serialized.toLowerCase()).not.toContain(term.toLowerCase());
+        }
+
+        // The legacy initialize path never ran: the initialize-scoped accessors stay unset.
+        expect(server.server.getNegotiatedProtocolVersion()).toBeUndefined();
+        expect(server.server.getClientVersion()).toBeUndefined();
+
+        // An envelope-less initialize on the same connection keeps today's behavior:
+        // the legacy handshake is served exactly as before, with zero 2026 vocabulary.
+        const init = await request(initializeRequest(31));
+        expect(isJSONRPCResultResponse(init)).toBe(true);
+        if (isJSONRPCResultResponse(init)) {
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+            expect(JSON.stringify(init)).not.toContain('resultType');
+            expect(JSON.stringify(init)).not.toContain('2026');
+        }
+        await close();
+    });
+
+    it('an initialize with a malformed envelope claim keeps the legacy handshake', async () => {
+        const server = buildServer({ eraSupport: 'dual-era' });
+        const { request, close } = await wire(server);
+
+        // The claim key is present but the envelope is incomplete — never a
+        // silent flip to the modern era; the legacy handshake serves it as before.
+        const response = await request({
+            jsonrpc: '2.0',
+            id: 40,
+            method: 'initialize',
+            params: {
+                protocolVersion: LATEST_PROTOCOL_VERSION,
+                capabilities: {},
+                clientInfo: { name: 'legacy-client', version: '1.0.0' },
+                _meta: { [PROTOCOL_VERSION_META_KEY]: MODERN }
+            }
+        });
+        expect(isJSONRPCResultResponse(response)).toBe(true);
+        if (isJSONRPCResultResponse(response)) {
+            expect((response.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+        }
+        await close();
+    });
+
+    it('an initialize whose valid envelope claim names a pre-2026 revision keeps the legacy handshake', async () => {
+        const server = buildServer({ eraSupport: 'dual-era' });
+        const { request, close } = await wire(server);
+
+        const response = await request({
+            jsonrpc: '2.0',
+            id: 50,
+            method: 'initialize',
+            params: {
+                protocolVersion: LATEST_PROTOCOL_VERSION,
+                capabilities: {},
+                clientInfo: { name: 'legacy-client', version: '1.0.0' },
+                _meta: envelope({ [PROTOCOL_VERSION_META_KEY]: '2025-06-18' })
+            }
+        });
+        expect(isJSONRPCResultResponse(response)).toBe(true);
+        if (isJSONRPCResultResponse(response)) {
+            expect((response.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
         }
         await close();
     });

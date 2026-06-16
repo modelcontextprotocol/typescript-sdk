@@ -186,6 +186,22 @@ describe("DV-31: strict 'modern' on a long-lived connection", () => {
         await close();
     });
 
+    it('an initialize carrying a valid modern envelope claim answers a plain −32601 (the claim wins over the legacy-handshake rule)', async () => {
+        const { request, close } = await wireModernServer();
+        const response = await request({ jsonrpc: '2.0', id: 5, method: 'initialize', params: { _meta: envelope() } });
+        expect(isJSONRPCErrorResponse(response)).toBe(true);
+        if (isJSONRPCErrorResponse(response)) {
+            // Classified by its valid modern claim, the request is served on the
+            // modern era, where `initialize` is answered like every other method
+            // that era does not define — never with the version error reserved
+            // for envelope-less requests.
+            expect(response.error.code).toBe(-32_601);
+            expect(response.error.message).toBe('Method not found');
+            expect(response.error.data).toBeUndefined();
+        }
+        await close();
+    });
+
     it('a legacy-classified notification is dropped without a response', async () => {
         const { notify, flush, inbound, close } = await wireModernServer();
         await notify({ jsonrpc: '2.0', method: 'notifications/initialized' });

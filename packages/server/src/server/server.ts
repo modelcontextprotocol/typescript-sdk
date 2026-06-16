@@ -41,7 +41,10 @@ import {
     codecForVersion,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    envelopeClaimVersion,
     FIRST_MODERN_PROTOCOL_VERSION,
+    hasEnvelopeClaim,
+    isModernProtocolVersion,
     LATEST_PROTOCOL_VERSION,
     legacyProtocolVersions,
     LoggingLevelSchema,
@@ -51,9 +54,11 @@ import {
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
+    requestMetaOf,
     SdkError,
     SdkErrorCode,
-    SUPPORTED_MODERN_PROTOCOL_VERSIONS
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS,
+    validateEnvelopeMeta
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 import * as z from 'zod/v4';
@@ -142,6 +147,30 @@ export type ServerOptions = ProtocolOptions & {
  * dispatch schema from the instance era) cannot be used here.
  */
 const DISCOVER_PARAMS_SCHEMA = z.looseObject({});
+
+/**
+ * Whether a message's params carry a per-request envelope claim that is both
+ * well-formed and names a modern protocol revision.
+ *
+ * The per-message form of the inbound classifier's `initialize` precedence
+ * rule: only such a claim overrides the `initialize` ⇒ legacy-handshake
+ * classification — a message carrying a valid modern envelope is a modern
+ * request regardless of its method name, and the modern era then answers
+ * `initialize` exactly like any other method it does not define
+ * (method-not-found). A malformed claim, or one naming a pre-2026 revision,
+ * keeps the legacy-handshake routing unchanged.
+ */
+function carriesValidModernEnvelopeClaim(params: unknown): boolean {
+    if (!hasEnvelopeClaim(params)) {
+        return false;
+    }
+    const claimedVersion = envelopeClaimVersion(params);
+    if (claimedVersion === undefined || !isModernProtocolVersion(claimedVersion)) {
+        return false;
+    }
+    const meta = requestMetaOf(params);
+    return meta !== undefined && validateEnvelopeMeta(meta).length === 0;
+}
 
 /*
  * Package-internal hooks for the per-request (2026-07-28) HTTP serving entry.
@@ -308,6 +337,20 @@ export class Server extends Protocol<ServerContext> {
     protected override _classifyInbound(message: JSONRPCRequest | JSONRPCNotification): MessageClassification | 'drop' | undefined {
         if (this._eraSupport === 'legacy') {
             return undefined;
+        }
+        // `initialize` is the legacy handshake by definition — unless the
+        // message carries a valid envelope claim naming a modern revision, in
+        // which case the claim wins: the message is classified like any other
+        // enveloped message and served on the modern era, where the era
+        // registry answers `initialize` with the same plain method-not-found
+        // it answers every other method that era does not define. A malformed
+        // or absent claim, or a claim naming a pre-2026 revision, keeps the
+        // legacy-handshake classification from the per-message predicate.
+        if (message.method === 'initialize' && carriesValidModernEnvelopeClaim(message.params)) {
+            const claimedVersion = envelopeClaimVersion(message.params);
+            if (claimedVersion !== undefined) {
+                return { era: 'modern', revision: claimedVersion };
+            }
         }
         return classifyInboundMessage(message);
     }
