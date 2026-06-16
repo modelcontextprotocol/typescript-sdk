@@ -7,7 +7,7 @@
  * For Node.js Express/HTTP compatibility, use {@linkcode @modelcontextprotocol/node!NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} which wraps this transport.
  */
 
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
+import type { AuthInfo, JSONRPCMessage, JSONRPCRequest, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     isInitializeRequest,
@@ -17,6 +17,8 @@ import {
     JSONRPCMessageSchema,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
+
+import type { ToolScopeConfig } from './mcp.js';
 
 export type StreamId = string;
 export type EventId = string;
@@ -65,6 +67,129 @@ interface StreamMapping {
     resolveJson?: (response: Response) => void;
     /** Cleanup function to close stream and remove mapping */
     cleanup: () => void;
+}
+
+/**
+ * Configuration for automatic scope challenge handling on tool calls.
+ *
+ * When provided to the transport, the transport checks the client's token scopes
+ * (from {@linkcode AuthInfo.scopes}) against tool-level scope requirements before
+ * executing the tool. If the token lacks required scopes, the transport returns
+ * HTTP 403 with a `WWW-Authenticate` header per RFC 6750 §3.1, triggering the
+ * client's step-up authorization flow.
+ *
+ * The server implementer is responsible for populating {@linkcode AuthInfo.scopes}
+ * with the token's active scopes in their auth middleware, and for declaring the
+ * required/accepted scopes on each tool at registration time. The SDK only provides
+ * the plumbing to compare them and emit the correct HTTP response.
+ *
+ * This is only meaningful for HTTP-based transports — stdio transports have no
+ * concept of HTTP status codes or OAuth flows.
+ *
+ * @example
+ * ```typescript
+ * const transport = new WebStandardStreamableHTTPServerTransport({
+ *     sessionIdGenerator: () => crypto.randomUUID(),
+ *     scopeChallenge: {
+ *         resourceMetadataUrl: 'https://api.example.com/.well-known/oauth-protected-resource',
+ *     }
+ * });
+ * ```
+ */
+/**
+ * Result returned by a {@linkcode ScopeResolver}. Identifies the operation
+ * being checked (for inclusion in the `WWW-Authenticate` error description)
+ * and the scopes that must be satisfied.
+ */
+export interface ScopeResolution {
+    /**
+     * A human-readable label for the operation being checked, used in default
+     * error messages and as the `operationName` passed to
+     * {@linkcode ScopeChallengeConfig.buildErrorDescription}.
+     *
+     * Examples: `'tool:get_repo'`, `'resource:github://octo/hello'`,
+     * `'prompt:summarise'`, `'completion:summarise/repository'`.
+     */
+    operationName: string;
+
+    /**
+     * The scope requirements for this operation.
+     */
+    scopes: ToolScopeConfig;
+}
+
+/**
+ * Function that resolves scope requirements for an incoming JSON-RPC request.
+ * Receives the full request so it can dispatch on method and params.
+ *
+ * Returns `undefined` if the request has no scope requirements (the request is
+ * then allowed through). May return synchronously or as a Promise so that
+ * implementations can perform asynchronous lookups (for example, matching a
+ * resource URI against a list of dynamic resource templates).
+ */
+export type ScopeResolver = (request: JSONRPCRequest) => ScopeResolution | Promise<ScopeResolution | undefined> | undefined;
+
+/**
+ * Transports that support scope challenge handling implement this interface,
+ * allowing {@linkcode McpServer.connect} to auto-wire a {@linkcode ScopeResolver}
+ * sourced from the registered primitives.
+ */
+export interface ScopeAware {
+    setScopeResolver(resolver: ScopeResolver): void;
+}
+
+/**
+ * Type guard for transports that implement {@linkcode ScopeAware}.
+ */
+export function isScopeAware(transport: unknown): transport is ScopeAware {
+    return (
+        typeof transport === 'object' &&
+        transport !== null &&
+        'setScopeResolver' in transport &&
+        typeof (transport as { setScopeResolver: unknown }).setScopeResolver === 'function'
+    );
+}
+
+export interface ScopeChallengeConfig {
+    /**
+     * The `resource_metadata` URL to include in `WWW-Authenticate` headers.
+     * Should point to the server's OAuth Protected Resource Metadata document
+     * per RFC 9728.
+     */
+    resourceMetadataUrl: string;
+
+    /**
+     * When `true`, the `WWW-Authenticate` `scope` parameter is the union of the
+     * token's currently active scopes and the operation's `required` scopes,
+     * rather than just the per-operation `required` scopes.
+     *
+     * Per RFC 6750 §3.1 and MCP SEP-2350, the recommended posture is to emit
+     * only the scopes required for the current operation and rely on the client
+     * to accumulate scopes across step-up challenges. Enable this option only
+     * if you need to defend against older clients that do not accumulate scopes
+     * client-side (i.e. they replace their requested scope set on each 403).
+     *
+     * @default false
+     */
+    includeGrantedScopes?: boolean;
+
+    /**
+     * Optional custom error description generator. Receives the operation name
+     * (e.g. `'tool:get_repo'`) and the required scopes. If not provided, a
+     * default description listing the required scopes is used.
+     */
+    buildErrorDescription?: (operationName: string, requiredScopes: string[]) => string;
+}
+
+/**
+ * Quotes a value for use inside a `WWW-Authenticate` auth-param `quoted-string`
+ * per RFC 7235. Escapes `\` and `"` so the header parses unambiguously even when
+ * developer-supplied descriptions or scope strings contain quotes or commas.
+ *
+ * Does NOT add the surrounding quotes — call sites embed the result inside `"..."`.
+ */
+function quoteAuthParam(value: string): string {
+    return value.replaceAll('\\', '\\\\').replaceAll('"', String.raw`\"`);
 }
 
 /**
@@ -152,6 +277,19 @@ export interface WebStandardStreamableHTTPServerTransportOptions {
      * @default {@linkcode SUPPORTED_PROTOCOL_VERSIONS}
      */
     supportedProtocolVersions?: string[];
+
+    /**
+     * Configuration for automatic scope challenge handling.
+     *
+     * When provided alongside tools registered with `scopes` metadata, the transport
+     * will check the client's token scopes before executing `tools/call` requests.
+     * If the token lacks required scopes, HTTP 403 is returned with a `WWW-Authenticate`
+     * header, triggering the client's step-up authorization (upscoping) flow.
+     *
+     * Also requires a `scopeResolver` to be set — a function that looks up scope
+     * metadata for a given tool name. This is typically wired to `McpServer.getToolScopes()`.
+     */
+    scopeChallenge?: ScopeChallengeConfig;
 }
 
 /**
@@ -240,6 +378,8 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     private _enableDnsRebindingProtection: boolean;
     private _retryInterval?: number;
     private _supportedProtocolVersions: string[];
+    private _scopeChallenge?: ScopeChallengeConfig;
+    private _scopeResolver?: ScopeResolver;
 
     sessionId?: string;
     onclose?: () => void;
@@ -257,6 +397,20 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         this._enableDnsRebindingProtection = options.enableDnsRebindingProtection ?? false;
         this._retryInterval = options.retryInterval;
         this._supportedProtocolVersions = options.supportedProtocolVersions ?? SUPPORTED_PROTOCOL_VERSIONS;
+        this._scopeChallenge = options.scopeChallenge;
+    }
+
+    /**
+     * Sets the scope resolver function, which looks up scope metadata for a given tool name.
+     * This is typically wired to `McpServer.getToolScopes()`.
+     *
+     * @example
+     * ```typescript
+     * transport.setScopeResolver((toolName) => mcpServer.getToolScopes(toolName));
+     * ```
+     */
+    setScopeResolver(resolver: ScopeResolver): void {
+        this._scopeResolver = resolver;
     }
 
     /**
@@ -305,6 +459,76 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
         );
+    }
+
+    /**
+     * Checks each request in the incoming JSON-RPC payload against the
+     * configured {@linkcode ScopeResolver}. Returns an HTTP 403 response with
+     * a `WWW-Authenticate` header for the first request that fails its scope
+     * check, or `undefined` if all requests pass (or no scope challenge is
+     * configured).
+     *
+     * Implements the MCP Scope Challenge Handling spec (§10.1):
+     * https://modelcontextprotocol.io/specification/draft/basic/authorization#scope-challenge-handling
+     */
+    private async _checkScopeChallenge(messages: JSONRPCMessage[], authInfo?: AuthInfo): Promise<Response | undefined> {
+        if (!this._scopeChallenge || !this._scopeResolver || !authInfo) {
+            return undefined;
+        }
+
+        const activeScopes = authInfo.scopes;
+
+        for (const message of messages) {
+            if (!isJSONRPCRequest(message)) {
+                continue;
+            }
+
+            const resolved = await this._scopeResolver(message);
+            if (!resolved) {
+                continue;
+            }
+
+            const { operationName, scopes } = resolved;
+
+            // Satisfaction check:
+            //   - If `accepted` is provided, ANY of those scopes in the token satisfies
+            //     the requirement (OR / hierarchy escape hatch).
+            //   - Otherwise, ALL `required` scopes must be present in the token (AND).
+            const satisfied = scopes.accepted
+                ? scopes.accepted.some(s => activeScopes.includes(s))
+                : scopes.required.every(s => activeScopes.includes(s));
+
+            if (satisfied) {
+                continue;
+            }
+
+            // Per RFC 6750 §3.1 and MCP SEP-2350, the `scope` parameter advertises
+            // the scopes needed for the current operation; clients accumulate
+            // across step-up challenges. Opt in via `includeGrantedScopes` to
+            // additionally union the token's active scopes (defensive against
+            // clients that don't accumulate).
+            const recommendedScopes = this._scopeChallenge.includeGrantedScopes
+                ? [...new Set([...activeScopes, ...scopes.required])]
+                : scopes.required;
+
+            const errorDescription = this._scopeChallenge.buildErrorDescription
+                ? this._scopeChallenge.buildErrorDescription(operationName, scopes.required)
+                : `Additional scopes required: ${scopes.required.join(', ')}`;
+
+            const wwwAuthenticate =
+                `Bearer error="insufficient_scope"` +
+                `, scope="${quoteAuthParam(recommendedScopes.join(' '))}"` +
+                `, resource_metadata="${quoteAuthParam(this._scopeChallenge.resourceMetadataUrl)}"` +
+                `, error_description="${quoteAuthParam(errorDescription)}"`;
+
+            return this.createJsonErrorResponse(403, -32_600, `Insufficient scope for ${operationName}`, {
+                headers: {
+                    'WWW-Authenticate': wwwAuthenticate
+                }
+            });
+        }
+
+        return undefined;
     }
 
     /**
@@ -714,6 +938,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 if (protocolError) {
                     return protocolError;
                 }
+            }
+
+            // Pre-execution scope challenge check.
+            // Runs BEFORE the SSE stream opens so we can still return HTTP 403.
+            const scopeChallengeResponse = await this._checkScopeChallenge(messages, options?.authInfo);
+            if (scopeChallengeResponse) {
+                return scopeChallengeResponse;
             }
 
             // check if it contains requests

@@ -6,6 +6,7 @@ import type {
     CompleteResult,
     GetPromptResult,
     Implementation,
+    JSONRPCRequest,
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
@@ -41,6 +42,8 @@ import type * as z from 'zod/v4';
 import { getCompleter, isCompletable } from './completable.js';
 import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
+import type { ScopeResolution } from './streamableHttp.js';
+import { isScopeAware } from './streamableHttp.js';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
@@ -100,6 +103,10 @@ export class McpServer {
      * ```
      */
     async connect(transport: Transport): Promise<void> {
+        // Auto-wire scope resolver if the transport supports scope challenges.
+        if (isScopeAware(transport)) {
+            transport.setScopeResolver(request => this._resolveOperationScopes(request));
+        }
         return await this.server.connect(transport);
     }
 
@@ -108,6 +115,198 @@ export class McpServer {
      */
     async close(): Promise<void> {
         await this.server.close();
+    }
+
+    /**
+     * Routes an incoming JSON-RPC request to the correct scope resolver based
+     * on its method. Returns a {@linkcode ScopeResolution} when the operation
+     * has scope requirements, or `undefined` otherwise (the transport then
+     * allows the request through).
+     */
+    private async _resolveOperationScopes(request: JSONRPCRequest): Promise<ScopeResolution | undefined> {
+        const params = request.params as Record<string, unknown> | undefined;
+        switch (request.method) {
+            case 'tools/call': {
+                const name = typeof params?.name === 'string' ? params.name : undefined;
+                if (!name) return undefined;
+                const scopes = this.getToolScopes(name);
+                return scopes ? { operationName: `tool:${name}`, scopes } : undefined;
+            }
+            case 'resources/read': {
+                const uri = typeof params?.uri === 'string' ? params.uri : undefined;
+                if (!uri) return undefined;
+                const scopes = await this.getResourceScopes(uri);
+                return scopes ? { operationName: `resource:${uri}`, scopes } : undefined;
+            }
+            case 'prompts/get': {
+                const name = typeof params?.name === 'string' ? params.name : undefined;
+                if (!name) return undefined;
+                const scopes = this.getPromptScopes(name);
+                return scopes ? { operationName: `prompt:${name}`, scopes } : undefined;
+            }
+            case 'completion/complete': {
+                const ref = params?.ref as { type?: string; name?: string; uri?: string } | undefined;
+                const argument = params?.argument as { name?: string } | undefined;
+                if (!ref || !argument?.name) return undefined;
+                const refKey = completionRefKey(ref);
+                if (!refKey) return undefined;
+                const scopes = this.getCompletionScopes(ref, argument.name);
+                return scopes ? { operationName: `completion:${refKey}/${argument.name}`, scopes } : undefined;
+            }
+            default: {
+                return undefined;
+            }
+        }
+    }
+
+    /**
+     * Returns the scope configuration for a registered tool, if any.
+     * Checks tool-level scopes first, then falls back to server-level scope overrides.
+     * Used by the transport layer for pre-execution scope challenge checks.
+     */
+    getToolScopes(toolName: string): ToolScopeConfig | undefined {
+        return this._toolScopeOverrides[toolName] ?? this._registeredTools[toolName]?.scopes;
+    }
+
+    private _toolScopeOverrides: { [name: string]: ToolScopeConfig } = {};
+
+    /**
+     * Sets scope requirements for a tool independently of tool registration.
+     *
+     * This allows defining scopes separately — from a config file, a central
+     * mapping, or dynamically at runtime — rather than co-locating them with
+     * the tool definition. Scopes set here take precedence over any `scopes`
+     * provided during tool registration.
+     *
+     * @example Central scope mapping
+     * ```typescript
+     * // Define all scopes in one place
+     * const TOOL_SCOPES: Record<string, string[]> = {
+     *     'get_repo': ['repo:read'],
+     *     'create_issue': ['repo:write'],
+     *     'list_orgs': ['read:org'],
+     * };
+     *
+     * for (const [tool, scopes] of Object.entries(TOOL_SCOPES)) {
+     *     server.setToolScopes(tool, scopes);
+     * }
+     * ```
+     *
+     * @example With scope hierarchy
+     * ```typescript
+     * server.setToolScopes('get_repo', {
+     *     required: ['public_repo'],
+     *     accepted: ['public_repo', 'repo'],
+     * });
+     * ```
+     */
+    setToolScopes(toolName: string, scopes: string[] | ToolScopeConfig): void {
+        this._toolScopeOverrides[toolName] = Array.isArray(scopes) ? { required: scopes } : scopes;
+    }
+
+    private _promptScopeOverrides: { [name: string]: ToolScopeConfig } = {};
+    private _resourceScopeOverrides: { [uri: string]: ResourceScopeConfig } = {};
+    private _completionScopeOverrides: { [refKey: string]: { [argumentName: string]: ToolScopeConfig } } = {};
+
+    /**
+     * Returns the scope configuration for a registered prompt, if any.
+     * Checks server-level overrides first, then prompt-level scopes set at
+     * registration time. Used by the transport for pre-execution scope checks
+     * on `prompts/get` requests.
+     */
+    getPromptScopes(promptName: string): ToolScopeConfig | undefined {
+        return this._promptScopeOverrides[promptName] ?? this._registeredPrompts[promptName]?.scopes;
+    }
+
+    /**
+     * Sets scope requirements for a prompt independently of registration.
+     * Mirrors {@linkcode setToolScopes} for `prompts/get`.
+     */
+    setPromptScopes(promptName: string, scopes: string[] | ToolScopeConfig): void {
+        this._promptScopeOverrides[promptName] = Array.isArray(scopes) ? { required: scopes } : scopes;
+    }
+
+    /**
+     * Returns the scope configuration for a resource URI, if any. Checks (in
+     * order): server-level exact-URI override; the static resource registered
+     * at exactly this URI; each registered resource template whose URI
+     * template matches the URI, calling its dynamic scope function if
+     * configured.
+     *
+     * For dynamic template-scope functions the call is `await`ed, so this
+     * method returns a Promise.
+     */
+    async getResourceScopes(uri: string): Promise<ToolScopeConfig | undefined> {
+        const override = this._resourceScopeOverrides[uri];
+        if (override !== undefined) {
+            return resolveResourceScopeConfig(override, uri, {});
+        }
+
+        const exact = this._registeredResources[uri];
+        if (exact?.scopes !== undefined) {
+            return resolveResourceScopeConfig(exact.scopes, uri, {});
+        }
+
+        for (const [name, registered] of Object.entries(this._registeredResourceTemplates)) {
+            if (!registered.scopes) continue;
+            const variables = registered.resourceTemplate.uriTemplate.match(uri);
+            if (variables === null) continue;
+            const templateOverride = this._resourceScopeOverrides[name];
+            const config = templateOverride ?? registered.scopes;
+            return resolveResourceScopeConfig(config, uri, variables);
+        }
+
+        return undefined;
+    }
+
+    /**
+     * Sets scope requirements for a resource. Pass an exact URI for static
+     * resources or the template `name` for templated resources; overrides take
+     * precedence over scopes set at registration time.
+     *
+     * The scopes value can be a plain array, a {@linkcode ToolScopeConfig},
+     * or a function that receives the concrete URI and matched template
+     * variables and returns scopes at request time (useful when the required
+     * scope depends on path parameters, e.g. public vs private repositories).
+     */
+    setResourceScopes(uriOrTemplateName: string, scopes: ResourceScopeConfig): void {
+        this._resourceScopeOverrides[uriOrTemplateName] = scopes;
+    }
+
+    /**
+     * Returns the scope configuration for a completion request, if any.
+     * Looks up by reference (prompt name or resource URI template) and
+     * argument name, falling back to a `'*'` wildcard entry that applies to
+     * any argument of that reference.
+     */
+    getCompletionScopes(
+        ref: PromptReference | ResourceTemplateReference | { type?: string; name?: string; uri?: string },
+        argumentName: string
+    ): ToolScopeConfig | undefined {
+        const refKey = completionRefKey(ref);
+        if (!refKey) return undefined;
+        const argMap = this._completionScopeOverrides[refKey];
+        return argMap?.[argumentName] ?? argMap?.['*'];
+    }
+
+    /**
+     * Sets scope requirements for completion argument suggestions. Completion
+     * scopes are explicit and never inherited from the referenced prompt or
+     * resource; if your search scope happens to equal the read scope, pass
+     * the same scopes array to both calls.
+     *
+     * Pass `'*'` as `argumentName` to apply the same scopes to every argument
+     * of the reference.
+     */
+    setCompletionScopes(ref: PromptReference | ResourceTemplateReference, argumentName: string, scopes: string[] | ToolScopeConfig): void {
+        const refKey = completionRefKey(ref);
+        if (!refKey) {
+            throw new Error('Invalid completion reference; expected ref/prompt or ref/resource');
+        }
+        const normalized = Array.isArray(scopes) ? { required: scopes } : scopes;
+        const argMap = this._completionScopeOverrides[refKey] ?? {};
+        argMap[argumentName] = normalized;
+        this._completionScopeOverrides[refKey] = argMap;
     }
 
     private _toolHandlersInitialized = false;
@@ -499,19 +698,25 @@ export class McpServer {
      * );
      * ```
      */
-    registerResource(name: string, uriOrTemplate: string, config: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
+    registerResource(
+        name: string,
+        uriOrTemplate: string,
+        config: ResourceMetadata & { scopes?: ResourceScopeConfig },
+        readCallback: ReadResourceCallback
+    ): RegisteredResource;
     registerResource(
         name: string,
         uriOrTemplate: ResourceTemplate,
-        config: ResourceMetadata,
+        config: ResourceMetadata & { scopes?: ResourceScopeConfig },
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate;
     registerResource(
         name: string,
         uriOrTemplate: string | ResourceTemplate,
-        config: ResourceMetadata,
+        config: ResourceMetadata & { scopes?: ResourceScopeConfig },
         readCallback: ReadResourceCallback | ReadResourceTemplateCallback
     ): RegisteredResource | RegisteredResourceTemplate {
+        const { scopes, ...metadata } = config;
         if (typeof uriOrTemplate === 'string') {
             if (this._registeredResources[uriOrTemplate]) {
                 throw new Error(`Resource ${uriOrTemplate} is already registered`);
@@ -519,10 +724,11 @@ export class McpServer {
 
             const registeredResource = this._createRegisteredResource(
                 name,
-                (config as BaseMetadata).title,
+                (metadata as BaseMetadata).title,
                 uriOrTemplate,
-                config,
-                readCallback as ReadResourceCallback
+                metadata,
+                readCallback as ReadResourceCallback,
+                scopes
             );
 
             this.setResourceRequestHandlers();
@@ -535,10 +741,11 @@ export class McpServer {
 
             const registeredResourceTemplate = this._createRegisteredResourceTemplate(
                 name,
-                (config as BaseMetadata).title,
+                (metadata as BaseMetadata).title,
                 uriOrTemplate,
-                config,
-                readCallback as ReadResourceTemplateCallback
+                metadata,
+                readCallback as ReadResourceTemplateCallback,
+                scopes
             );
 
             this.setResourceRequestHandlers();
@@ -552,13 +759,15 @@ export class McpServer {
         title: string | undefined,
         uri: string,
         metadata: ResourceMetadata | undefined,
-        readCallback: ReadResourceCallback
+        readCallback: ReadResourceCallback,
+        scopes?: ResourceScopeConfig
     ): RegisteredResource {
         const registeredResource: RegisteredResource = {
             name,
             title,
             metadata,
             readCallback,
+            scopes,
             enabled: true,
             disable: () => registeredResource.update({ enabled: false }),
             enable: () => registeredResource.update({ enabled: true }),
@@ -585,13 +794,15 @@ export class McpServer {
         title: string | undefined,
         template: ResourceTemplate,
         metadata: ResourceMetadata | undefined,
-        readCallback: ReadResourceTemplateCallback
+        readCallback: ReadResourceTemplateCallback,
+        scopes?: ResourceScopeConfig
     ): RegisteredResourceTemplate {
         const registeredResourceTemplate: RegisteredResourceTemplate = {
             resourceTemplate: template,
             title,
             metadata,
             readCallback,
+            scopes,
             enabled: true,
             disable: () => registeredResourceTemplate.update({ enabled: false }),
             enable: () => registeredResourceTemplate.update({ enabled: true }),
@@ -796,6 +1007,34 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            /**
+             * OAuth scopes required for this tool.
+             *
+             * When provided alongside a `ScopeChallengeConfig` on the transport,
+             * the transport checks the client's token scopes before executing the tool.
+             * If the token lacks required scopes, the transport returns HTTP 403 with a
+             * `WWW-Authenticate` header, triggering the client's step-up authorization flow.
+             *
+             * Can be a simple array of required scope strings, or an object with `required`
+             * and optional `accepted` arrays (for scope hierarchy support).
+             *
+             * @example Simple scopes
+             * ```typescript
+             * server.registerTool('get_repo', {
+             *     description: 'Get repository details',
+             *     scopes: ['repo:read'],
+             * }, handler);
+             * ```
+             *
+             * @example With scope hierarchy
+             * ```typescript
+             * server.registerTool('get_repo', {
+             *     description: 'Get repository details',
+             *     scopes: { required: ['public_repo'], accepted: ['public_repo', 'repo'] },
+             * }, handler);
+             * ```
+             */
+            scopes?: string[] | ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -821,6 +1060,7 @@ export class McpServer {
             inputSchema?: StandardSchemaWithJSON | ZodRawShape;
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
+            scopes?: string[] | ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -829,9 +1069,9 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
+        const { title, description, inputSchema, outputSchema, annotations, scopes, _meta } = config;
 
-        return this._createRegisteredTool(
+        const tool = this._createRegisteredTool(
             name,
             title,
             description,
@@ -842,6 +1082,13 @@ export class McpServer {
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
         );
+
+        // Normalize and attach scope metadata
+        if (scopes) {
+            tool.scopes = Array.isArray(scopes) ? { required: scopes } : scopes;
+        }
+
+        return tool;
     }
 
     /**
@@ -876,6 +1123,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            scopes?: string[] | ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<Args>
@@ -887,6 +1135,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            scopes?: string[] | ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: LegacyPromptCallback<Args>
@@ -897,6 +1146,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: StandardSchemaWithJSON | ZodRawShape;
+            scopes?: string[] | ToolScopeConfig;
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
@@ -905,7 +1155,7 @@ export class McpServer {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema, _meta } = config;
+        const { title, description, argsSchema, scopes, _meta } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
@@ -915,6 +1165,10 @@ export class McpServer {
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
             _meta
         );
+
+        if (scopes) {
+            registeredPrompt.scopes = Array.isArray(scopes) ? { required: scopes } : scopes;
+        }
 
         this.setPromptRequestHandlers();
         this.sendPromptListChanged();
@@ -1092,6 +1346,7 @@ export type RegisteredTool = {
     outputSchema?: StandardSchemaWithJSON;
     annotations?: ToolAnnotations;
     execution?: ToolExecution;
+    scopes?: ToolScopeConfig;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
@@ -1112,6 +1367,99 @@ export type RegisteredTool = {
     }): void;
     remove(): void;
 };
+
+/**
+ * Scope metadata for a tool, used for pre-execution scope challenge checks.
+ *
+ * When configured alongside a `ScopeChallengeConfig` on the transport,
+ * the transport will check the client's token scopes against these requirements
+ * before executing the tool. If the token lacks the required scopes, the transport
+ * returns HTTP 403 with a `WWW-Authenticate` header per RFC 6750 §3.1.
+ */
+export interface ToolScopeConfig {
+    /**
+     * Scopes required for this operation, with **AND** semantics: the token
+     * must contain every scope in this array for the call to proceed (unless
+     * `accepted` is provided, see below). These are the scopes advertised in
+     * the 403 `WWW-Authenticate` challenge's `scope` parameter when the token
+     * is insufficient.
+     *
+     * @example Single scope
+     * ```typescript
+     * { required: ['repo:read'] }
+     * ```
+     *
+     * @example Multiple scopes (all must be present)
+     * ```typescript
+     * { required: ['repo:read', 'user:read'] }
+     * ```
+     */
+    required: string[];
+    /**
+     * Optional **OR** escape hatch for the satisfaction check. When provided,
+     * the satisfaction check switches from "token has all `required`" to
+     * "token has ANY of `accepted`". Use this for scope hierarchies where a
+     * broader scope subsumes a narrower one.
+     *
+     * Note: `accepted` only affects whether the request is allowed through.
+     * The scope challenge advertised on a 403 is still based on `required`.
+     *
+     * @example Hierarchy: `repo` (broad) satisfies `repo:read` (narrow)
+     * ```typescript
+     * { required: ['repo:read'], accepted: ['repo:read', 'repo'] }
+     * ```
+     */
+    accepted?: string[];
+}
+
+/**
+ * Dynamic resolver for resource scopes. Receives the concrete URI being read
+ * and any variables matched against the template, and returns the scope
+ * requirements at request time. Returning `undefined` means the request has
+ * no scope requirement and is allowed through.
+ *
+ * Useful when the required scope depends on path parameters (for example,
+ * `public_repo` for public repositories and `repo` for private ones).
+ */
+export type ResourceScopeFn = (
+    uri: string,
+    variables: Variables
+) => string[] | ToolScopeConfig | Promise<string[] | ToolScopeConfig | undefined> | undefined;
+
+/**
+ * Scope configuration accepted by `registerResource` and `setResourceScopes`.
+ * Either static scopes or a {@linkcode ResourceScopeFn} for per-request
+ * dynamic resolution.
+ */
+export type ResourceScopeConfig = string[] | ToolScopeConfig | ResourceScopeFn;
+
+/**
+ * Computes a stable key for a {@linkcode PromptReference} or
+ * {@linkcode ResourceTemplateReference} for use in scope override maps.
+ */
+function completionRefKey(ref: { type?: string; name?: string; uri?: string }): string | undefined {
+    if (ref.type === 'ref/prompt' && typeof ref.name === 'string') {
+        return `prompt:${ref.name}`;
+    }
+    if (ref.type === 'ref/resource' && typeof ref.uri === 'string') {
+        return `resource:${ref.uri}`;
+    }
+    return undefined;
+}
+
+/**
+ * Normalises a {@linkcode ResourceScopeConfig} into a {@linkcode ToolScopeConfig},
+ * resolving dynamic functions and `string[]` shorthand.
+ */
+async function resolveResourceScopeConfig(
+    config: ResourceScopeConfig,
+    uri: string,
+    variables: Variables
+): Promise<ToolScopeConfig | undefined> {
+    const resolved: string[] | ToolScopeConfig | undefined = typeof config === 'function' ? await config(uri, variables) : config;
+    if (!resolved) return undefined;
+    return Array.isArray(resolved) ? { required: resolved } : resolved;
+}
 
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.
@@ -1157,6 +1505,11 @@ export type RegisteredResource = {
     title?: string;
     metadata?: ResourceMetadata;
     readCallback: ReadResourceCallback;
+    /**
+     * OAuth scopes required to read this resource, used for pre-execution
+     * scope challenge checks. See {@linkcode ResourceScopeConfig}.
+     */
+    scopes?: ResourceScopeConfig;
     enabled: boolean;
     enable(): void;
     disable(): void;
@@ -1185,6 +1538,12 @@ export type RegisteredResourceTemplate = {
     title?: string;
     metadata?: ResourceMetadata;
     readCallback: ReadResourceTemplateCallback;
+    /**
+     * OAuth scopes required to read resources matching this template, used
+     * for pre-execution scope challenge checks. See
+     * {@linkcode ResourceScopeConfig}.
+     */
+    scopes?: ResourceScopeConfig;
     enabled: boolean;
     enable(): void;
     disable(): void;
@@ -1216,6 +1575,11 @@ export type RegisteredPrompt = {
     description?: string;
     argsSchema?: StandardSchemaWithJSON;
     _meta?: Record<string, unknown>;
+    /**
+     * OAuth scopes required to get this prompt, used for pre-execution scope
+     * challenge checks on `prompts/get`.
+     */
+    scopes?: ToolScopeConfig;
     /** @hidden */
     handler: PromptHandler;
     enabled: boolean;
