@@ -2244,6 +2244,30 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         removedInSpecVersion: '2026-07-28',
         note: 'The suppression invariant is a statement about 2025-era serving, so the requirement is bounded to the 2025-11-25 axis; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and fixed to a single streamableHttp-labelled cell.'
     },
+    'typescript:hosting:entry:byo-sessionful-legacy': {
+        source: 'sdk',
+        behavior:
+            'A real sessionful legacy wiring (per-session WebStandardStreamableHTTPServerTransport instances keyed by Mcp-Session-Id) passed as the createMcpHandler legacy slot value serves the full 2025-era session lifecycle through the entry: initialize issues an Mcp-Session-Id, a follow-up POST is served on that session, GET opens the standalone SSE stream, and DELETE tears the session down (a request carrying the dead session id answers 404).',
+        transports: ['streamableHttp'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'The lifecycle is a statement about 2025-era serving through the bring-your-own legacy slot, so the requirement is bounded to the 2025-11-25 axis; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and fixed to a single streamableHttp-labelled cell. It pins the entry routing of body-less GET and DELETE to the legacy slot and byte-untouched forwarding to the bring-your-own handler.'
+    },
+    'typescript:hosting:entry:modern-lazy-sse-upgrade': {
+        source: 'sdk',
+        behavior:
+            'On the default response mode, a modern (2026-07-28) request exchange over a createMcpHandler endpoint is answered as a single JSON body when the handler emits nothing before its result, and upgrades to an SSE stream when the handler emits related notifications mid-call: the response content-type becomes text/event-stream and the frames carry the notifications in emission order with the terminal result as the last frame.',
+        transports: ['streamableHttp'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The entry is an HTTP-only surface; the cell hosts the handler node face on a real node:http listener and drives it with the negotiating client over a recording fetch, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis.'
+    },
+    'typescript:hosting:entry:modern-response-mode': {
+        source: 'sdk',
+        behavior:
+            'The createMcpHandler responseMode option shapes modern (2026-07-28) request exchanges end to end: "sse" answers over an SSE stream even when the handler emits nothing before its result, and "json" answers with a single JSON body whose only payload is the terminal result — mid-call notifications are dropped, not buffered.',
+        transports: ['streamableHttp'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'The entry is an HTTP-only surface; the cell hosts one endpoint per responseMode value on a real node:http listener and drives both with the negotiating client over a recording fetch, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis.'
+    },
     'typescript:transport:stdio:dual-era-serving': {
         source: 'sdk',
         behavior:
