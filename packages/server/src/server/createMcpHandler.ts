@@ -252,19 +252,61 @@ export function legacyStatelessFallback(factory: McpServerFactory): LegacyHttpHa
                 void transport.close().catch(() => {});
                 void product.close().catch(() => {});
             };
-            // The closest fetch-world analog of the example's close-on-response-end:
-            // tear the per-request pair down when the client goes away.
+            // Tear the per-request pair down when the client goes away before
+            // the exchange completes.
             request.signal?.addEventListener('abort', teardown, { once: true });
 
             const response = await transport.handleRequest(request, {
                 ...(options?.authInfo !== undefined && { authInfo: options.authInfo }),
                 ...(options?.parsedBody !== undefined && { parsedBody: options.parsedBody })
             });
-            if (!(response.headers.get('content-type') ?? '').includes('text/event-stream')) {
-                // Non-streaming exchange: the response is complete, release the pair now.
+            if (response.body === null || !(response.headers.get('content-type') ?? '').includes('text/event-stream')) {
+                // Non-streaming exchange (a buffered JSON body or a body-less
+                // ack): the response is complete, release the pair now.
                 teardown();
+                return response;
             }
-            return response;
+            // Streaming exchange: the legacy transport answers request-bearing
+            // POSTs over SSE, so the exchange is only over once the stream has
+            // been fully delivered. Wrap the body so the pair is torn down on
+            // completion, on a producer error, or when the consumer abandons
+            // the stream — the fetch-world analog of the canonical stateless
+            // example's close-on-response-end.
+            const reader = response.body.getReader();
+            let toreDown = false;
+            const completeExchange = () => {
+                if (!toreDown) {
+                    toreDown = true;
+                    teardown();
+                }
+            };
+            const monitoredBody = new ReadableStream<Uint8Array>({
+                pull: async controller => {
+                    try {
+                        const { done, value } = await reader.read();
+                        if (done) {
+                            completeExchange();
+                            controller.close();
+                            return;
+                        }
+                        if (value !== undefined) {
+                            controller.enqueue(value);
+                        }
+                    } catch (error) {
+                        completeExchange();
+                        controller.error(error);
+                    }
+                },
+                cancel: reason => {
+                    completeExchange();
+                    return reader.cancel(reason).catch(() => {});
+                }
+            });
+            return new Response(monitoredBody, {
+                status: response.status,
+                statusText: response.statusText,
+                headers: response.headers
+            });
         } catch {
             return internalServerErrorResponse();
         }
