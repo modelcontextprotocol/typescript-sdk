@@ -1,39 +1,37 @@
 /**
  * Sessionful 2025-era serving through the dual-era HTTP entry's
- * bring-your-own legacy slot.
+ * bring-your-own legacy slot, exercised on the wire() entryStateless arm with
+ * the slot overridden via `wire()`'s `entry.legacy` option.
  *
  * The legacy slot value is a real sessionful wiring — one
  * WebStandardStreamableHTTPServerTransport per session, kept in a map keyed by
  * the Mcp-Session-Id the transport itself issues (the documented sessionful
  * hosting pattern) — and a plain 2025 SDK client drives the full session
- * lifecycle through `createMcpHandler` over a real socket: initialize issues a
+ * lifecycle through the harness-hosted `createMcpHandler`: initialize issues a
  * session id, a follow-up POST is served on that session, the body-less GET
  * opens the standalone SSE stream, and DELETE tears the session down. Every
  * exchange the slot serves is recorded as it leaves the wiring (method, status,
  * content-type), so the entry's routing of GET/DELETE (no envelope, no body →
  * legacy slot) to the bring-your-own handler is pinned directly; byte-level
  * forwarding fidelity is not asserted here.
- *
- * Like hosting-entry.test.ts these bodies host the handler's node face on a
- * real node:http listener and do not use `wire()`.
  */
 import { randomUUID } from 'node:crypto';
-import { createServer } from 'node:http';
 
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { Client } from '@modelcontextprotocol/client';
 import type { LegacyHttpHandler, McpHandlerRequestOptions, McpRequestContext } from '@modelcontextprotocol/server';
-import { createMcpHandler, McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
-import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
+import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
+import { wire } from '../helpers/index.js';
 import { verifies } from '../helpers/verifies.js';
 import type { TestArgs } from '../types.js';
 
 const LEGACY = '2025-11-25';
 
 /** The factory backing the modern path; this cell never drives it (the lifecycle under test is the legacy slot's). */
-function modernFactory(_ctx: McpRequestContext): McpServer {
+function modernFactory(_ctx?: McpRequestContext): McpServer {
     const server = new McpServer({ name: 'e2e-entry-session', version: '1.0.0' }, { capabilities: { tools: {} } });
     server.registerTool('greet', { inputSchema: z.object({ name: z.string() }) }, ({ name }) => ({
         content: [{ type: 'text', text: `hello ${name} (modern)` }]
@@ -41,7 +39,7 @@ function modernFactory(_ctx: McpRequestContext): McpServer {
     return server;
 }
 
-verifies('typescript:hosting:entry:byo-sessionful-legacy', async (_args: TestArgs) => {
+verifies('typescript:hosting:entry:byo-sessionful-legacy', async ({ transport }: TestArgs) => {
     // The documented sessionful wiring, passed as the bring-your-own legacy
     // slot value: a fresh transport per initialize, kept in a map keyed by the
     // Mcp-Session-Id it issues; later requests are routed by that header.
@@ -88,18 +86,17 @@ verifies('typescript:hosting:entry:byo-sessionful-legacy', async (_args: TestArg
         return response;
     };
 
-    const handler = createMcpHandler(modernFactory, { legacy: sessionfulLegacy });
-    const httpServer = createServer((req, res) => void handler.node(req, res));
-    const baseUrl = await listenOnRandomPort(httpServer);
-
-    const clientTransport = new StreamableHTTPClientTransport(baseUrl);
     const client = new Client({ name: 'plain-2025-client', version: '1.0.0' });
     try {
+        // The harness hosts the entry; the bring-your-own wiring replaces the
+        // arm's default 'stateless' slot value.
+        await using wired = await wire(transport, modernFactory, client, { entry: { legacy: sessionfulLegacy } });
+
         // initialize → the bring-your-own transport issues an Mcp-Session-Id.
         // (The stateless slot never issues one, so a defined session id alone
         // proves the request reached the bring-your-own wiring.)
-        await client.connect(clientTransport);
         expect(client.getNegotiatedProtocolVersion()).toBe(LEGACY);
+        const clientTransport = client.transport as StreamableHTTPClientTransport;
         const sessionId = clientTransport.sessionId;
         expect(sessionId).toBeDefined();
         expect(sessions.has(sessionId!)).toBe(true);
@@ -135,7 +132,7 @@ verifies('typescript:hosting:entry:byo-sessionful-legacy', async (_args: TestArg
 
         // The dead session is gone: a POST carrying its id is answered 404 by
         // the bring-your-own wiring, not silently re-served by anything else.
-        const stale = await fetch(baseUrl, {
+        const stale = await wired.fetch!(wired.url!, {
             method: 'POST',
             headers: {
                 'content-type': 'application/json',
@@ -153,7 +150,5 @@ verifies('typescript:hosting:entry:byo-sessionful-legacy', async (_args: TestArg
     } finally {
         await client.close().catch(() => {});
         for (const server of sessionServers) await server.close().catch(() => {});
-        await handler.close();
-        await new Promise<void>((resolve, reject) => httpServer.close(error => (error ? reject(error) : resolve())));
     }
 });

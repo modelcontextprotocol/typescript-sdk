@@ -2273,71 +2273,71 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior:
             'createMcpHandler serves one ctx-taking factory to both protocol eras on one endpoint: with the legacy "stateless" slot configured, a plain client is served per request via initialize, tools/list and tools/call on the 2025 era, and an auto-negotiating client reaches 2026-07-28 via server/discover (never initialize) and gets tools/call served with the per-request _meta envelope.',
-        transports: ['streamableHttp'],
-        note: 'The entry is an HTTP-only surface; each cell hosts the handler node face on a real node:http listener (the matrix transport arg is ignored, fixed to a single streamableHttp-labelled cell) and the spec-version axis selects which era the cell drives.'
+        transports: ['entryStateless', 'entryModern'],
+        note: 'Runs on the createMcpHandler entry arms (the same one-factory, legacy-stateless-slot handler shape on both): the entryStateless cell drives the 2025 leg through the slot and the entryModern cell drives the modern path, with the never-initialize/server-discover clauses asserted on the arm-recorded HTTP exchanges.'
     },
     'typescript:hosting:entry:pin-negotiation': {
         source: 'sdk',
         behavior:
             'A client pinned to the 2026-07-28 revision (versionNegotiation mode pin) connects to a strict createMcpHandler endpoint without ever sending initialize — its first request is server/discover — and an enveloped tools/call round-trips.',
-        transports: ['streamableHttp'],
+        transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
-        note: 'The entry is an HTTP-only surface; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis.'
+        note: 'Runs on the entryModern arm (modern-only strict is its default hosting); the body constructs the pinned client itself and asserts the never-initialize, discover-first and envelope clauses on the arm-recorded HTTP exchanges.'
     },
     'typescript:hosting:entry:strict-rejects-legacy': {
         source: 'sdk',
         behavior:
             'A createMcpHandler endpoint with no legacy slot configured (modern-only strict) rejects a 2025-shaped initialize with the unsupported-protocol-version error carrying the supported modern revisions in error.data.supported; nothing is silently served on the 2025 era.',
-        transports: ['streamableHttp'],
+        transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
-        note: 'The entry is an HTTP-only surface; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis. The numeric error code is asserted by message and supported-list shape only, since it shares a code with the still-disputed header/body mismatch family.'
+        note: 'Runs on the entryModern arm (modern-only strict is its default hosting); the 2025-shaped initialize and the plain-client connect attempt are driven against the harness-hosted endpoint via wired.fetch/wired.url. The numeric error code is asserted by message and supported-list shape only, since it shares a code with the still-disputed header/body mismatch family.'
     },
     'typescript:hosting:entry:notification-202': {
         source: 'sdk',
         behavior:
             'A POST carrying only a notification is answered 202 Accepted with an empty body by a createMcpHandler endpoint on both legs: an envelope-less notification through the legacy stateless slot and an envelope-carrying notification on the modern path.',
-        transports: ['streamableHttp'],
-        note: 'The entry is an HTTP-only surface; each cell hosts the handler node face on a real node:http listener (the matrix transport arg is ignored, fixed to a single streamableHttp-labelled cell) and the spec-version axis selects which leg the notification rides. The cells pin the HTTP contract only (status code and empty body); delivery of the notification to the per-request server instance is pinned at unit level.'
+        transports: ['entryStateless', 'entryModern'],
+        note: 'Runs on the createMcpHandler entry arms; each cell POSTs the raw notification through wired.fetch so the HTTP contract (status code and empty body) is observed directly, and the arm selects which leg the notification rides. Delivery of the notification to the per-request server instance is pinned at unit level.'
     },
     'typescript:hosting:entry:modern-cacheable-stamping': {
         source: 'sdk',
         behavior:
             'Typed tools/list, resources/read and resources/list round trips negotiated on 2026-07-28 over a createMcpHandler endpoint succeed, and the wire results carry resultType "complete" plus the required ttlMs/cacheScope fields, with the configured-hint precedence observable on the wire: the per-resource cacheHint wins over the per-operation cacheHints entry (resources/read), a per-operation hint wins over the defaults (tools/list), and a result with no configured author is filled with the ttlMs 0 / cacheScope private defaults (resources/list).',
-        transports: ['streamableHttp'],
+        transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
-        note: 'The entry is an HTTP-only surface; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis. The top precedence rung — a handler-returned ttlMs/cacheScope value winning over every configured hint — is pinned at unit level and not exercised here.'
+        note: 'Runs on the entryModern arm; the typed round trips go through the wired negotiating client and the wire-level stamping is asserted on the arm-recorded response bytes. The top precedence rung — a handler-returned ttlMs/cacheScope value winning over every configured hint — is pinned at unit level and not exercised here.'
     },
     'typescript:hosting:entry:legacy-cacheable-suppression': {
         source: 'sdk',
         behavior:
             'A factory with every cache-hint author configured (per-operation cacheHints and a per-resource cacheHint), served to a plain 2025 client through the legacy stateless slot of a createMcpHandler endpoint, answers tools/list and resources/read with no resultType, ttlMs, cacheScope or cacheHint vocabulary anywhere in the response bytes.',
-        transports: ['streamableHttp'],
+        transports: ['entryStateless'],
         removedInSpecVersion: '2026-07-28',
-        note: 'The suppression invariant is a statement about 2025-era serving, so the requirement is bounded to the 2025-11-25 axis; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and fixed to a single streamableHttp-labelled cell.'
+        note: 'The suppression invariant is a statement about 2025-era serving, so the requirement is bounded to the 2025-11-25 axis and runs on the entryStateless arm; the response bytes are asserted on the arm-recorded HTTP exchanges.'
     },
     'typescript:hosting:entry:byo-sessionful-legacy': {
         source: 'sdk',
         behavior:
             'A real sessionful legacy wiring (per-session WebStandardStreamableHTTPServerTransport instances keyed by Mcp-Session-Id) passed as the createMcpHandler legacy slot value serves the full 2025-era session lifecycle through the entry: initialize issues an Mcp-Session-Id, a follow-up POST is served on that session, GET opens the standalone SSE stream, and DELETE tears the session down (a request carrying the dead session id answers 404).',
-        transports: ['streamableHttp'],
+        transports: ['entryStateless'],
         removedInSpecVersion: '2026-07-28',
-        note: 'The lifecycle is a statement about 2025-era serving through the bring-your-own legacy slot, so the requirement is bounded to the 2025-11-25 axis; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and fixed to a single streamableHttp-labelled cell. It pins the entry routing of body-less GET and DELETE to the bring-your-own legacy slot, observed at the slot as method/status/content-type; byte-level forwarding fidelity is not asserted.'
+        note: "The lifecycle is a statement about 2025-era serving through the bring-your-own legacy slot, so the requirement is bounded to the 2025-11-25 axis and runs on the entryStateless arm with the slot overridden via wire()'s entry.legacy option. It pins the entry routing of body-less GET and DELETE to the bring-your-own legacy slot, observed at the slot as method/status/content-type; byte-level forwarding fidelity is not asserted."
     },
     'typescript:hosting:entry:modern-lazy-sse-upgrade': {
         source: 'sdk',
         behavior:
             'On the default response mode, a modern (2026-07-28) request exchange over a createMcpHandler endpoint is answered as a single JSON body when the handler emits nothing before its result, and upgrades to an SSE stream when the handler emits related notifications mid-call: the response content-type becomes text/event-stream and the frames carry the notifications in emission order with the terminal result as the last frame.',
-        transports: ['streamableHttp'],
+        transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
-        note: 'The entry is an HTTP-only surface; the cell hosts the handler node face on a real node:http listener and drives it with the negotiating client over a recording fetch, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis.'
+        note: 'Runs on the entryModern arm; the typed calls go through the wired negotiating client and the response shape (status, content-type, SSE frame order) is asserted on the arm-recorded HTTP exchanges.'
     },
     'typescript:hosting:entry:modern-response-mode': {
         source: 'sdk',
         behavior:
             'The createMcpHandler responseMode option shapes modern (2026-07-28) request exchanges end to end: "sse" answers over an SSE stream even when the handler emits nothing before its result, and "json" answers with a single JSON body whose only payload is the terminal result — mid-call notifications are dropped, not buffered.',
-        transports: ['streamableHttp'],
+        transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
-        note: 'The entry is an HTTP-only surface; the cell hosts one endpoint per responseMode value on a real node:http listener and drives both with the negotiating client over a recording fetch, so the matrix transport arg is ignored and the requirement is fixed to a single streamableHttp-labelled cell on the 2026-07-28 axis.'
+        note: "Runs on the entryModern arm; the body wires one harness-hosted endpoint per responseMode value via wire()'s entry.responseMode option and asserts the response shape on the arm-recorded HTTP exchanges."
     },
     'typescript:transport:stdio:dual-era-serving': {
         source: 'sdk',
