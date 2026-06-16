@@ -71,5 +71,9 @@ export type {
 } from '@modelcontextprotocol/core';
 export { classifyInboundRequest } from '@modelcontextprotocol/core';
 
+// Cache hints for cacheable 2026-07-28 results (ServerOptions.cacheHints and
+// the registerResource cacheHint option).
+export type { CacheHint, CacheScope } from '@modelcontextprotocol/core';
+
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core/public';
