@@ -2,13 +2,9 @@
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.3). Newer conformance releases
+# release pinned in package.json (0.2.0-alpha.4). Newer conformance releases
 # are adopted by deliberately bumping the package.json pin and reconciling
-# this file in the same change. 0.2.0-alpha.3 fixes the draft wire version
-# (2026-07-28). Several auth scenarios in this baseline (auth/iss-*,
-# auth/authorization-server-migration, auth/enterprise-managed-authorization)
-# are still not shipped in the published release — the runner reports them
-# unknown/failed; their entries below cover them either way.
+# this file in the same change.
 #
 # NOTE: the SDK's modern-path rejection codes are aligned with what this
 # referee asserts: header/body mismatches answer -32001 (HeaderMismatch) and a
@@ -22,9 +18,6 @@
 
 client:
     # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-    # SEP-2575 (request metadata / _meta envelope): client does not populate the
-    # _meta envelope or the MCP-Protocol-Version header semantics yet.
-    - request-metadata
     # SEP-2322 (multi-round-trip requests): client does not echo requestState /
     # handle IncompleteResult yet.
     - sep-2322-client-request-state
@@ -59,12 +52,9 @@ client:
 
 server:
     # --- Draft-spec scenarios (in `--suite draft`; the default `active` suite is green) ---
-    # SEP-2575 (stateless HTTP / _meta envelope): server has no stateless mode,
-    # _meta-derived capabilities, error-code mappings, or server/discover yet.
-    - server-stateless
-    # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented;
-    # most scenarios currently fail early with "Session ID required" because the
-    # fixture only runs in stateful mode.
+    # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented
+    # in the SDK, so the fixture does not register the scenarios' diagnostic
+    # test_input_required_result_* tools.
     - input-required-result-basic-elicitation
     - input-required-result-basic-sampling
     - input-required-result-basic-list-roots
@@ -75,15 +65,11 @@ server:
     - input-required-result-result-type
     - input-required-result-tampered-state
     - input-required-result-capability-check
-    # SEP-2549 (caching): no ttlMs/cacheScope support; scenario also hits the
-    # stateful-mode "Session ID required" error.
-    - caching
     # SEP-2243 (HTTP header standardization): the reject cells the SDK does
     # answer now use -32001 (HeaderMismatch), but missing-header enforcement
     # (Mcp-Method, Mcp-Name) and the Mcp-Name cross-check are not implemented,
     # so those reject cells are still accepted with 200.
     - http-header-validation
-    - http-custom-header-server-validation
     # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
     # WARNINGs, but the expected-failures evaluator counts WARNINGs as failures.
     # SEP-2164: server returns -32002 without the requested URI in error.data.

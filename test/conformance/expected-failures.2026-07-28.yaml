@@ -1,0 +1,106 @@
+# Expected failures for the carried-forward x 2026-07-28 legs
+# (`test:conformance:client:2026` and `test:conformance:server:2026`, both
+# `--suite all --spec-version 2026-07-28`).
+#
+# This baseline is separate from expected-failures.yaml because entries are
+# keyed by scenario name only: a scenario that passes at its default version
+# in the 2025 legs but fails when forced to 2026-07-28 (or vice versa) cannot
+# be expressed in a shared file (the passing leg would flag the entry as
+# stale). Like expected-failures.yaml, this single file covers both
+# directions: the client 2026 leg reads the `client:` section and the server
+# 2026 leg reads the `server:` section. Both burn down independently of the
+# 2025 legs.
+#
+# Baseline established against the published @modelcontextprotocol/conformance
+# release pinned in package.json. Newer conformance releases are adopted by
+# deliberately bumping the pin and reconciling this file in the same change.
+#
+# Entries are grouped by what unblocks them. As each gap closes the
+# corresponding scenarios start passing and MUST be removed from this list
+# (the runner fails on stale entries), so the baseline burns down per
+# milestone.
+
+client:
+    # --- SEP-837 (application_type during DCR) ---
+    # The sep-837-application-type-present check only fires on draft-version
+    # runs; the client omits application_type during Dynamic Client
+    # Registration, so every auth scenario that reaches DCR fails it on this
+    # leg (the same scenarios pass at their default version in the 2025 legs).
+    - auth/metadata-default
+    - auth/metadata-var1
+    - auth/metadata-var2
+    - auth/metadata-var3
+    - auth/scope-from-www-authenticate
+    - auth/scope-from-scopes-supported
+    - auth/scope-omitted-when-undefined
+    - auth/token-endpoint-auth-basic
+    - auth/token-endpoint-auth-post
+    - auth/token-endpoint-auth-none
+    - auth/offline-access-not-supported
+
+    # --- Auth scenarios cut short by the 2026 connection lifecycle ---
+    # The fixture's auth flow drives the 2025 stateful lifecycle; the
+    # 2026-mode mock rejects the MCP POST (-32001, missing
+    # MCP-Protocol-Version header) before the scope-escalation behaviour these
+    # scenarios measure, so no authorization requests are observed. Unblocks
+    # when the auth fixture flow speaks the 2026 per-request lifecycle.
+    - auth/scope-step-up
+    - auth/scope-retry-limit
+
+    # --- Same gaps as the 2025 baseline (fail identically when forced to 2026-07-28) ---
+    # SEP-2322 (multi-round-trip requests): client does not echo requestState /
+    # handle IncompleteResult yet.
+    - sep-2322-client-request-state
+    # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
+    - http-custom-headers
+    - http-invalid-tool-headers
+    # SEP-2106 (JSON Schema $ref handling): no fixture handler for the scenario yet.
+    - json-schema-ref-no-deref
+    # SEP-2468 (authorization response iss parameter): not implemented in the client.
+    - auth/iss-supported
+    - auth/iss-not-advertised
+    - auth/iss-supported-missing
+    - auth/iss-wrong-issuer
+    - auth/iss-unexpected
+    - auth/iss-normalized
+    - auth/metadata-issuer-mismatch
+    # SEP-2352 (authorization server migration): client does not re-register
+    # when PRM authorization_servers changes.
+    - auth/authorization-server-migration
+
+server:
+    # --- Carried-forward scenarios (also run by the 2025 legs) ---
+    # Pre-existing fixture/baseline bug: the fixture tool's schema is a plain
+    # Zod object with none of the JSON Schema 2020-12 keywords the scenario
+    # checks; it fails identically at 2025 in `--suite all` (not a 2026-path
+    # regression).
+    - json-schema-2020-12
+    # SEP-2164: server returns -32002 without the requested URI in error.data
+    # (WARNING-only; the expected-failures evaluator counts WARNINGs as
+    # failures). Same failure as in the 2025 baseline.
+    - sep-2164-resource-not-found
+
+    # --- Draft scenarios (same failures and reasons as the `--suite draft` leg) ---
+    # SEP-2243 (HTTP header standardization): the reject cells the SDK does
+    # answer now use -32001 (HeaderMismatch), but missing-header enforcement
+    # (Mcp-Method, Mcp-Name) and the Mcp-Name cross-check are not implemented,
+    # so those reject cells are still accepted with 200.
+    - http-header-validation
+    # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented
+    # in the SDK, so the fixture does not register the scenarios' diagnostic
+    # test_input_required_result_* tools.
+    - input-required-result-basic-elicitation
+    - input-required-result-basic-sampling
+    - input-required-result-basic-list-roots
+    - input-required-result-request-state
+    - input-required-result-multiple-input-requests
+    - input-required-result-multi-round
+    - input-required-result-non-tool-request
+    - input-required-result-result-type
+    - input-required-result-tampered-state
+    - input-required-result-capability-check
+    # SEP-2322 SHOULD-level behaviours (re-request missing inputResponses,
+    # ignore unrecognized inputResponses keys): WARNING-only, but the
+    # expected-failures evaluator counts WARNINGs as failures.
+    - input-required-result-missing-input-response
+    - input-required-result-ignore-extra-params
