@@ -1086,7 +1086,8 @@ const appCustom = createMcpExpressApp({ host: '0.0.0.0', allowedHosts: ['myapp.l
 ```
 
 Requests without an `Origin` header pass unchanged (MCP clients outside a browser do not send one), so non-browser traffic is unaffected. A present `Origin` whose hostname is not allowed — or that cannot be parsed, including the opaque `null` origin — is rejected with
-`403` (deny on failure). To restore the previous behavior of a localhost-bound factory app, pass an explicit `allowedOrigins` list. The framework-agnostic helpers (`validateOriginHeader`, `localhostAllowedOrigins`, `originValidationResponse`) live in
+`403` (deny on failure). For a localhost-bound factory app there is no switch that turns Origin validation off: passing an explicit `allowedOrigins` list replaces the default localhost allowlist (use it to allow additional origins, such as a deployed web frontend), and
+validation stays armed. The framework-agnostic helpers (`validateOriginHeader`, `localhostAllowedOrigins`, `originValidationResponse`) live in
 `@modelcontextprotocol/server` for bare web-standard mounts, and `@modelcontextprotocol/node` now ships request guards (`hostHeaderValidation`, `originValidation` and their `localhost*` variants) for plain `node:http` servers, which previously had no validation helpers.
 
 ### Automatic JSON Schema validator selection by runtime

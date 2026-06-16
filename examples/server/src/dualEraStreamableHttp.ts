@@ -15,9 +15,15 @@
  *                                 (stand-in for bringing your own legacy handler,
  *                                 e.g. an existing sessionful wiring).
  *
- * Run with `tsx examples/server/src/dualEraStreamableHttp.ts`, then point a
- * 2026-capable client (`versionNegotiation: { mode: 'auto' }`) or any plain
- * 2025 client at http://localhost:3000/mcp.
+ * Run with `tsx examples/server/src/dualEraStreamableHttp.ts`, then point any
+ * plain 2025 client at http://localhost:3000/mcp (served through the legacy
+ * slot when one is configured). A `versionNegotiation: { mode: 'auto' }`
+ * client negotiates 2026-07-28 against the same endpoint, but automatic
+ * envelope emission for every request is still a client-side follow-up:
+ * ordinary typed calls (for example `callTool`) must attach the per-request
+ * `_meta` envelope explicitly for now (see
+ * `test/integration/test/server/createMcpHandler.test.ts` for the pattern),
+ * or the endpoint rejects them on the header/body cross-check.
  */
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import type { CallToolResult, CreateMcpHandlerOptions, McpRequestContext } from '@modelcontextprotocol/server';
