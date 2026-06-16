@@ -1068,6 +1068,35 @@ The entry performs no Origin/Host validation (see the origin-validation middlewa
 request headers. Power users who want to compose routing themselves can use the exported `classifyInboundRequest` and `PerRequestHTTPServerTransport` building blocks directly; the handler faces are bound properties, so they can be detached and passed around
 (`const { fetch } = handler`).
 
+### Cache fields and cache hints for cacheable 2026-07-28 results
+
+The 2026-07-28 revision requires `ttlMs` and `cacheScope` on the cacheable results (`tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, `resources/read`, `server/discover`). When serving that revision, the SDK now always emits both fields,
+defaulting to `ttlMs: 0` and `cacheScope: 'private'` — the most conservative policy, equivalent to "do not cache". To advertise a real cache policy:
+
+```typescript
+const server = new McpServer(
+    { name: 'my-server', version: '1.0.0' },
+    {
+        capabilities: { tools: {}, resources: {} },
+        // per-operation hints, used when a result does not carry its own values
+        cacheHints: { 'tools/list': { ttlMs: 60_000, cacheScope: 'public' } }
+    }
+);
+
+// per-resource hint for that resource's resources/read results
+server.registerResource('config', 'config://app', { cacheHint: { ttlMs: 5_000 } }, async uri => ({
+    contents: [{ uri: uri.href, text: '…' }]
+}));
+```
+
+Resolution is most specific first: cache fields returned by the handler itself (when valid) win over the per-resource `cacheHint`, which wins over `ServerOptions.cacheHints[operation]`, which wins over the defaults. Configured hints are validated when they are configured —
+an invalid `ttlMs` (negative or non-integer) or `cacheScope` throws a `RangeError`. Responses on 2025-era connections never carry these fields, with or without configuration.
+
+### Typed `-32003` missing-client-capability error
+
+`MissingRequiredClientCapabilityError` is the typed error class for the 2026-07-28 `-32003` protocol error: processing a request requires a capability the client did not declare in the request's `clientCapabilities`. Its `data.requiredCapabilities` lists the missing
+capabilities, and `ProtocolError.fromError` recognizes the code/data shape (recognize peers' errors by their code and `error.data`, not by `instanceof`). When the HTTP entry refuses such a request, the response uses HTTP status `400` as the specification requires.
+
 ### Client identity accessors deprecated in favor of per-request context
 
 `Server.getClientCapabilities()`, `Server.getClientVersion()` and `Server.getNegotiatedProtocolVersion()` are deprecated (they remain functional). On 2026-07-28 requests the client's identity travels with each request in the validated `_meta` envelope and is available to
