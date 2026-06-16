@@ -598,7 +598,7 @@ const app = createMcpExpressApp({
 
 `createMcpHonoApp()` from `@modelcontextprotocol/hono` provides the same protection for Hono-based servers and Web Standard runtimes (Cloudflare Workers, Deno, Bun).
 
-The app factories also validate the `Origin` header with the same arming rules: localhost-class binds are protected by default, and an explicit `allowedOrigins` list (hostnames, port-agnostic — the same convention as `allowedHosts`) overrides the default. Requests without
+The app factories also validate the `Origin` header with the same arming rules: localhost-class binds are protected by default, and an explicit `allowedOrigins` list (hostnames, port-agnostic — the same convention as `allowedHosts`) replaces the default localhost allowlist; there is no option that disables Origin validation for a localhost-class bind. Requests without
 an `Origin` header always pass, so MCP clients outside a browser are unaffected; a present `Origin` that is not allowed, or that cannot be parsed, is rejected with `403`. The per-framework middleware (`originValidation`, `localhostOriginValidation`) can also be mounted
 explicitly, and `@modelcontextprotocol/node` ships equivalent request guards for plain `node:http` servers.
 

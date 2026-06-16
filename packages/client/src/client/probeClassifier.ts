@@ -56,9 +56,12 @@ export interface ProbeClassifierContext {
     /**
      * Whether a legacy `initialize` fallback is possible — `false` for a
      * modern-only client and for `pin` mode. Without a fallback, rows carrying
-     * definitive modern evidence but no version overlap yield a typed
-     * `UnsupportedProtocolVersionError`; rows that would otherwise fall back
-     * conservatively surface a typed negotiation error instead.
+     * modern evidence but no usable version overlap — a `DiscoverResult` with
+     * no overlapping version, or a `-32004` whose `data.supported` lists only
+     * legacy revisions — yield a typed `UnsupportedProtocolVersionError` built
+     * from that evidence; the remaining rows that would have fallen back still
+     * classify as `legacy`, and the caller reports them as a typed negotiation
+     * error instead of starting an `initialize` handshake.
      */
     fallbackAvailable: boolean;
     /** See {@linkcode ProbeEnvironment}. */
