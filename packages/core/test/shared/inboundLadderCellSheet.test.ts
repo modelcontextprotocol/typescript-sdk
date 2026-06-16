@@ -105,6 +105,17 @@ const SHEET: readonly SheetRow[] = [
         rationale: 'initialize is the legacy handshake by definition; the modern era has no initialize.'
     },
     {
+        cell: 'modern-enveloped-initialize',
+        status: 'pinned',
+        conformance: ['server-stateless'],
+        input: post(enveloped('initialize'), { protocolVersion: MODERN_REVISION, mcpMethod: 'initialize' }),
+        route: 'modern',
+        rationale:
+            'A valid modern envelope claim wins over the initialize ⇒ legacy-handshake rule: the request is served on the modern path, ' +
+            'where the modern registry answers initialize as method-not-found (-32601, HTTP 404 via the ladder status table) like every ' +
+            'other method the revision does not define.'
+    },
+    {
         cell: 'legacy-method-routed-get',
         status: 'pinned',
         conformance: [],
@@ -222,8 +233,16 @@ const SHEET: readonly SheetRow[] = [
         conformance: ['server-stateless'],
         input: post(bare('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'c', version: '1' } })),
         strict: true,
-        reject: { rung: 'era-classification', httpStatus: 400, code: -32_004, settled: true },
-        rationale: 'An envelope-less initialize on a modern-only endpoint is answered with the version error naming both sides.'
+        reject: {
+            rung: 'era-classification',
+            httpStatus: 400,
+            code: -32_004,
+            settled: true,
+            data: { supported: [MODERN_REVISION], requested: '2025-06-18' }
+        },
+        rationale:
+            'An envelope-less initialize on a modern-only endpoint is answered with the version error naming both sides — the ' +
+            'unsupported-protocol-version rejection with the supported list stays reserved for envelope-less requests.'
     },
     {
         cell: 'modern-only-method-not-allowed',
@@ -278,7 +297,7 @@ const SHEET: readonly SheetRow[] = [
             protocolVersion: MODERN_REVISION
         }),
         reject: { rung: 'era-classification', httpStatus: 400, settled: false },
-        rationale: 'initialize classifies legacy; a modern header on it is the same disagreement family.'
+        rationale: 'An envelope-less initialize classifies legacy; a modern header on it is the same disagreement family.'
     },
     {
         cell: 'method-header-mismatch',

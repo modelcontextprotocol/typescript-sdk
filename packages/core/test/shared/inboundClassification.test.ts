@@ -147,6 +147,39 @@ describe('body-primary era predicate', () => {
         expect(outcome).toMatchObject({ kind: 'legacy', reason: 'initialize', requestedVersion: '2025-03-26' });
     });
 
+    test('an initialize carrying a valid modern envelope claim classifies modern (the claim wins over the handshake rule)', () => {
+        // Body-primary: no headers at all, the valid claim alone decides. The
+        // modern path then answers `initialize` as method-not-found, exactly
+        // like every other method the modern revision does not define.
+        const body = { jsonrpc: '2.0', id: 7, method: 'initialize', params: { _meta: ENVELOPE } };
+        expect(classifyInboundRequest(post(body))).toMatchObject({
+            kind: 'modern',
+            messageKind: 'request',
+            classification: { era: 'modern', revision: MODERN_REVISION }
+        });
+
+        // The same request with conformant standard headers (the wire shape a
+        // modern client actually sends) classifies the same way.
+        const withHeaders = classifyInboundRequest(post(body, { protocolVersion: MODERN_REVISION, mcpMethod: 'initialize' }));
+        expect(withHeaders).toMatchObject({ kind: 'modern', classification: { era: 'modern', revision: MODERN_REVISION } });
+    });
+
+    test('an initialize with a malformed envelope claim keeps the legacy-handshake classification', () => {
+        const body = {
+            jsonrpc: '2.0',
+            id: 7,
+            method: 'initialize',
+            params: { protocolVersion: '2025-06-18', _meta: { [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION } }
+        };
+        expect(classifyInboundRequest(post(body))).toMatchObject({ kind: 'legacy', reason: 'initialize', requestedVersion: '2025-06-18' });
+    });
+
+    test('an initialize whose valid envelope claim names a pre-2026 revision keeps the legacy-handshake classification', () => {
+        const meta = { ...ENVELOPE, [PROTOCOL_VERSION_META_KEY]: '2025-06-18' };
+        const body = { jsonrpc: '2.0', id: 7, method: 'initialize', params: { _meta: meta } };
+        expect(classifyInboundRequest(post(body))).toMatchObject({ kind: 'legacy', reason: 'initialize' });
+    });
+
     test('GET and DELETE are method-routed legacy session operations', () => {
         expect(classifyInboundRequest({ httpMethod: 'GET' })).toMatchObject({ kind: 'legacy', reason: 'http-method' });
         expect(classifyInboundRequest({ httpMethod: 'DELETE' })).toMatchObject({ kind: 'legacy', reason: 'http-method' });
@@ -200,6 +233,15 @@ describe('header cross-checks (parameterized mismatch family)', () => {
     test('initialize with a modern protocol-version header is a mismatch outcome', () => {
         const outcome = classifyInboundRequest(post(initializeRequest(), { protocolVersion: MODERN_REVISION }));
         expectMismatch(outcome, 'initialize-with-modern-header');
+    });
+
+    test('an enveloped initialize whose claim disagrees with the protocol-version header is still a mismatch outcome', () => {
+        // The claim precedence never bypasses the cross-checks: an initialize
+        // carrying a valid modern claim is checked against the header exactly
+        // like any other enveloped request.
+        const body = { jsonrpc: '2.0', id: 7, method: 'initialize', params: { _meta: ENVELOPE } };
+        const outcome = classifyInboundRequest(post(body, { protocolVersion: '2025-06-18' }));
+        expectMismatch(outcome, 'header-body-version-mismatch');
     });
 
     test('an Mcp-Method header disagreeing with the body method is a mismatch outcome on modern requests', () => {

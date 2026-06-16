@@ -7,7 +7,11 @@
  * exactly once, at the entry boundary, on the already-parsed request body:
  *
  * - `initialize` is a legacy-era request by definition (the modern era has no
- *   `initialize` handshake).
+ *   `initialize` handshake) — unless it carries a valid envelope claim naming
+ *   a modern revision, in which case the claim wins and the request is
+ *   classified like any other enveloped request (the modern era then answers
+ *   it with method-not-found, exactly like every other method it does not
+ *   define).
  * - A request whose `params._meta` carries the reserved protocol-version key
  *   claims the per-request envelope mechanism and classifies into the era the
  *   named revision belongs to (a malformed envelope behind a present claim is
@@ -81,7 +85,7 @@ export interface InboundHttpRequest {
 export type InboundLegacyRouteReason =
     /** Non-`POST` HTTP method: a body-less 2025-era session operation. */
     | 'http-method'
-    /** An `initialize` request — the legacy handshake by definition. */
+    /** An `initialize` request without a valid modern envelope claim — the legacy handshake by definition. */
     | 'initialize'
     /** A request without a per-request envelope claim. */
     | 'no-claim'
@@ -353,6 +357,29 @@ function classificationForClaim(claimedVersion: string | undefined): MessageClas
     return { era: isModernProtocolVersion(claimedVersion) ? 'modern' : 'legacy', revision: claimedVersion };
 }
 
+/**
+ * Whether a request's params carry a per-request envelope claim that is both
+ * well-formed and names a modern protocol revision.
+ *
+ * Used by the `initialize` precedence rule: only such a claim overrides the
+ * `initialize` ⇒ legacy-handshake classification — a request carrying a valid
+ * modern envelope is a modern request regardless of its method name, and the
+ * modern era then answers `initialize` exactly like any other method it does
+ * not define (method-not-found). A malformed claim, or one naming a pre-2026
+ * revision, keeps the legacy-handshake routing unchanged.
+ */
+function carriesValidModernEnvelopeClaim(params: unknown): boolean {
+    if (!hasEnvelopeClaim(params)) {
+        return false;
+    }
+    const claimedVersion = envelopeClaimVersion(params);
+    if (claimedVersion === undefined || !isModernProtocolVersion(claimedVersion)) {
+        return false;
+    }
+    const meta = requestMetaOf(params);
+    return meta !== undefined && validateEnvelopeMeta(meta).length === 0;
+}
+
 function classifyBatch(body: readonly unknown[]): InboundClassificationOutcome {
     if (body.length === 0) {
         return rejection(
@@ -405,8 +432,14 @@ function classifyRequestBody(request: InboundHttpRequest, body: Record<string, u
     const headerVersion = request.protocolVersionHeader;
     const headerNamesModern = headerVersion !== undefined && isModernProtocolVersion(headerVersion);
 
-    // `initialize` is the legacy handshake by definition — before claim detection.
-    if (method === 'initialize') {
+    // `initialize` is the legacy handshake by definition — unless the request
+    // carries a valid envelope claim naming a modern revision, in which case
+    // the claim wins: the request is classified like any other enveloped
+    // request and served on the modern path, where the modern registry answers
+    // `initialize` as method-not-found like every other method it does not
+    // define. A malformed or absent claim, or a claim naming a pre-2026
+    // revision, keeps the legacy-handshake classification below.
+    if (method === 'initialize' && !carriesValidModernEnvelopeClaim(params)) {
         if (headerNamesModern) {
             return crossCheckMismatch(
                 'initialize-with-modern-header',
