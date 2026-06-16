@@ -1,5 +1,6 @@
 import type {
     BaseMetadata,
+    CacheHint,
     CallToolResult,
     CompleteRequestPrompt,
     CompleteRequestResourceTemplate,
@@ -27,6 +28,8 @@ import type {
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
+    assertValidCacheHint,
+    attachCacheHintFallback,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
@@ -413,14 +416,17 @@ export class McpServer {
                 if (!resource.enabled) {
                     throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Resource ${uri} disabled`);
                 }
-                return resource.readCallback(uri, ctx);
+                // A per-resource cache hint is the most specific configured
+                // author for this result's 2026-07-28 cache fields; it rides a
+                // never-serialized carrier and is resolved at the encode seam.
+                return attachCacheHintFallback(await resource.readCallback(uri, ctx), resource.cacheHint);
             }
 
             // Then check templates
             for (const template of Object.values(this._registeredResourceTemplates)) {
                 const variables = template.resourceTemplate.uriTemplate.match(uri.toString());
                 if (variables) {
-                    return template.readCallback(uri, variables, ctx);
+                    return attachCacheHintFallback(await template.readCallback(uri, variables, ctx), template.cacheHint);
                 }
             }
 
@@ -499,19 +505,36 @@ export class McpServer {
      * );
      * ```
      */
-    registerResource(name: string, uriOrTemplate: string, config: ResourceMetadata, readCallback: ReadResourceCallback): RegisteredResource;
+    registerResource(
+        name: string,
+        uriOrTemplate: string,
+        config: ResourceMetadata & { cacheHint?: CacheHint },
+        readCallback: ReadResourceCallback
+    ): RegisteredResource;
     registerResource(
         name: string,
         uriOrTemplate: ResourceTemplate,
-        config: ResourceMetadata,
+        config: ResourceMetadata & { cacheHint?: CacheHint },
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate;
     registerResource(
         name: string,
         uriOrTemplate: string | ResourceTemplate,
-        config: ResourceMetadata,
+        config: ResourceMetadata & { cacheHint?: CacheHint },
         readCallback: ReadResourceCallback | ReadResourceTemplateCallback
     ): RegisteredResource | RegisteredResourceTemplate {
+        // The cache hint configures the encode-time cache fields of this
+        // resource's `resources/read` results (2026-07-28); it is not resource
+        // metadata and never appears on `resources/list` entries.
+        const cacheHint = config.cacheHint;
+        let metadata: ResourceMetadata = config;
+        if (cacheHint !== undefined) {
+            assertValidCacheHint(cacheHint, `resource ${name}`);
+            const rest = { ...config };
+            delete rest.cacheHint;
+            metadata = rest;
+        }
+
         if (typeof uriOrTemplate === 'string') {
             if (this._registeredResources[uriOrTemplate]) {
                 throw new Error(`Resource ${uriOrTemplate} is already registered`);
@@ -521,9 +544,12 @@ export class McpServer {
                 name,
                 (config as BaseMetadata).title,
                 uriOrTemplate,
-                config,
+                metadata,
                 readCallback as ReadResourceCallback
             );
+            if (cacheHint !== undefined) {
+                registeredResource.cacheHint = cacheHint;
+            }
 
             this.setResourceRequestHandlers();
             this.sendResourceListChanged();
@@ -537,9 +563,12 @@ export class McpServer {
                 name,
                 (config as BaseMetadata).title,
                 uriOrTemplate,
-                config,
+                metadata,
                 readCallback as ReadResourceTemplateCallback
             );
+            if (cacheHint !== undefined) {
+                registeredResourceTemplate.cacheHint = cacheHint;
+            }
 
             this.setResourceRequestHandlers();
             this.sendResourceListChanged();
@@ -1156,6 +1185,8 @@ export type RegisteredResource = {
     name: string;
     title?: string;
     metadata?: ResourceMetadata;
+    /** Cache hint applied to this resource's `resources/read` results on the 2026-07-28 revision. */
+    cacheHint?: CacheHint;
     readCallback: ReadResourceCallback;
     enabled: boolean;
     enable(): void;
@@ -1184,6 +1215,8 @@ export type RegisteredResourceTemplate = {
     resourceTemplate: ResourceTemplate;
     title?: string;
     metadata?: ResourceMetadata;
+    /** Cache hint applied to this template's `resources/read` results on the 2026-07-28 revision. */
+    cacheHint?: CacheHint;
     readCallback: ReadResourceTemplateCallback;
     enabled: boolean;
     enable(): void;

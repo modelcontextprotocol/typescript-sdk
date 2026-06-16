@@ -1,5 +1,6 @@
 import type {
     BaseContext,
+    CacheHint,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
@@ -37,6 +38,8 @@ import type {
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
+    assertValidCacheHint,
+    attachCacheHintFallback,
     classifyInboundMessage,
     codecForVersion,
     CreateMessageResultSchema,
@@ -136,6 +139,27 @@ export type ServerOptions = ProtocolOptions & {
      * @default 'legacy'
      */
     eraSupport?: 'legacy' | 'dual-era' | 'modern';
+
+    /**
+     * Cache hints for the cacheable results of the 2026-07-28 protocol
+     * revision (`ttlMs` / `cacheScope`), keyed by operation. The hint is used
+     * when the result for that operation does not provide its own cache
+     * fields — most useful for the list results and `server/discover`, which
+     * the SDK builds itself. A hint registered with an individual resource
+     * (`registerResource(..., { cacheHint })`) takes precedence for that
+     * resource's `resources/read` results.
+     *
+     * Absent hints (or omitting this option entirely) keep today's behavior:
+     * cacheable 2026-07-28 results are emitted with `ttlMs: 0` and
+     * `cacheScope: 'private'`. Responses to 2025-era requests are never
+     * affected. Invalid values throw a `RangeError` at construction time.
+     */
+    cacheHints?: Partial<
+        Record<
+            'tools/list' | 'prompts/list' | 'resources/list' | 'resources/templates/list' | 'resources/read' | 'server/discover',
+            CacheHint
+        >
+    >;
 };
 
 /**
@@ -258,6 +282,7 @@ export class Server extends Protocol<ServerContext> {
      * here only for the initialize-scoped accessor.
      */
     private _dualEraInitializeVersion?: string;
+    private _cacheHints?: ServerOptions['cacheHints'];
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
@@ -276,6 +301,17 @@ export class Server extends Protocol<ServerContext> {
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._eraSupport = options?.eraSupport ?? 'legacy';
+
+        // Configured cache hints fail loudly at construction time (before any
+        // handler registration consults them).
+        if (options?.cacheHints !== undefined) {
+            for (const [operation, hint] of Object.entries(options.cacheHints)) {
+                if (hint !== undefined) {
+                    assertValidCacheHint(hint, `cacheHints['${operation}']`);
+                }
+            }
+            this._cacheHints = options.cacheHints;
+        }
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
@@ -487,14 +523,21 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * Enforces server-side validation for `tools/call` results regardless of how the
-     * handler was registered.
+     * handler was registered, and attaches the configured per-operation cache hint
+     * (when one exists) so the 2026-07-28 encode seam can fill `ttlMs`/`cacheScope`
+     * for results that do not provide their own. The hint rides a symbol-keyed
+     * property that is never serialized, so 2025-era responses are unaffected.
      */
     protected override _wrapHandler(
         method: string,
         handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>
     ): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
         if (method !== 'tools/call') {
-            return handler;
+            const cacheHint = (this._cacheHints as Record<string, CacheHint | undefined> | undefined)?.[method];
+            if (cacheHint === undefined) {
+                return handler;
+            }
+            return async (request, ctx) => attachCacheHintFallback(await handler(request, ctx), cacheHint);
         }
         return async (request, ctx) => {
             // Era-exact validation: the request and result schemas come from
