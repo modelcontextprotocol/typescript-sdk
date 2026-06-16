@@ -26,6 +26,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'The client rejects calls to methods (e.g. resources/list) for capabilities the server did not advertise.'
     },
     'lifecycle:initialize:basic': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'asserts-legacy-handshake' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization',
         behavior:
             'Connecting sends initialize with the protocol version, client capabilities, and client info; the server responds with its own and the connection is established.'
@@ -35,24 +36,29 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'A server may include an instructions string in the initialize result; the client exposes it.'
     },
     'lifecycle:initialized-notification': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'asserts-legacy-handshake' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization',
         behavior: 'After successful initialization, the client sends exactly one initialized notification, before any non-ping request.'
     },
     'lifecycle:ping': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/ping#behavior-requirements',
         behavior: 'ping in either direction returns an empty result.'
     },
     'lifecycle:version:downgrade': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'asserts-legacy-handshake' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation',
         behavior:
             'When the server returns an older supported protocol version, the client downgrades to it and the connection succeeds at that version.'
     },
     'lifecycle:version:match': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'asserts-legacy-handshake' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation',
         behavior:
             'When the server supports the requested protocol version it echoes that version in the initialize result, and the connection proceeds at that version.'
     },
     'lifecycle:version:reject-unsupported': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'asserts-legacy-handshake' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation',
         behavior: 'When server returns a protocolVersion the client does not support, connect rejects and the transport is closed.',
         knownFailures: [
@@ -87,11 +93,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed.'
     },
     'lifecycle:version:server-fallback-latest': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'asserts-legacy-handshake' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#version-negotiation',
         behavior:
             'An initialize request carrying a protocol version the server does not support is answered with another version the server supports — the latest one — rather than an error.'
     },
     'lifecycle:pre-initialization-ordering': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'asserts-legacy-handshake' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#initialization',
         behavior:
             'Before initialization completes, the client sends no requests other than pings, and the server sends no requests other than pings and logging.'
@@ -150,6 +158,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         ]
     },
     'protocol:cancel:unknown-id-ignored': {
+        entryExclusions: [
+            {
+                arm: 'entryModern',
+                reason: 'method-not-in-modern-registry',
+                note: 'The body proves liveness after the ignored cancellation with ping, which the 2026-07-28 registry deletes; the ignored-cancellation behavior itself is still modern.'
+            }
+        ],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#error-handling',
         behavior:
             'The receiver silently ignores a cancellation notification referencing an unknown or already-completed request id; no error response is sent and no exception is raised.'
@@ -180,6 +195,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'A request with malformed params is answered with JSON-RPC error -32602 Invalid params.'
     },
     'protocol:error:method-not-found': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'modern-error-surface' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#responses',
         behavior: 'A request whose method has no registered handler is answered with a METHOD_NOT_FOUND error.'
     },
@@ -237,6 +253,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'When a request times out, the sender issues notifications/cancelled for that request before failing the local call.'
     },
     'mcpserver:onerror:reach-through': {
+        entryExclusions: [
+            {
+                arm: 'entryModern',
+                reason: 'requires-session',
+                note: 'The body delivers stray responses to a connected instance; on the modern path the entry classifier rejects posted responses before any per-request instance exists.'
+            }
+        ],
         source: 'sdk',
         behavior:
             'Setting mcpServer.server.onerror (or server.onerror on raw Server) receives both transport-level errors and protocol/handler errors (uncaught notification handler, failed-to-send-response, unknown-message-id). The reach-through via McpServer.server is the supported access path until McpServer exposes onerror directly.'
@@ -254,6 +277,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             "A user-defined request schema registered via server.setRequestHandler(CustomSchema, h) is dispatched when client.request({method:'x/custom', params}, CustomResultSchema) is called; the handler's return value is parsed by the result schema and resolved to the caller. Capability checks do not reject non-spec method names."
     },
     'protocol:custom-method:roundtrip': {
+        entryExclusions: [
+            {
+                arm: 'entryModern',
+                reason: 'modern-error-surface',
+                note: 'The custom-method round trip itself serves fine; the body also asserts the -32601 surface for a never-registered method, which differs on the modern path.'
+            }
+        ],
         source: 'sdk',
         behavior:
             "server.setRequestHandler with a schema whose method literal is NOT in the MCP spec registers a handler; client.request({method:'<custom>'}, ResultSchema) returns the handler's result, not -32601 MethodNotFound. Capability assertions on both sides pass through unknown methods."
@@ -281,6 +311,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed.'
     },
     'protocol:request-handler:override-builtin': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],
         source: 'sdk',
         behavior:
             'server.setRequestHandler() for a spec method that has a built-in handler (initialize, ping, logging/setLevel) replaces that handler; the user-supplied result is what the client receives. No throw on re-registration.'
@@ -358,6 +389,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'tools/call for a name the server does not recognise returns a JSON-RPC error.'
     },
     'tools:capability:declared': {
+        entryExclusions: [
+            {
+                arm: 'entryModern',
+                reason: 'legacy-only-vocabulary',
+                note: 'server/discover deliberately omits the listChanged capability flag this body asserts.'
+            }
+        ],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#capabilities',
         behavior: 'A server that exposes tools declares the tools capability (optionally with listChanged) in its InitializeResult.'
     },
@@ -389,6 +427,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'tools/list returns the registered tools with name, description, and inputSchema.'
     },
     'tools:list:metadata': {
+        entryExclusions: [
+            {
+                arm: 'entryModern',
+                reason: 'legacy-only-vocabulary',
+                note: 'The 2026-07-28 wire deletes tools[].execution (taskSupport), which this body asserts round-trips.'
+            }
+        ],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#tool',
         behavior:
             'tools/list includes title, annotations (readOnlyHint, destructiveHint, idempotentHint, openWorldHint), _meta, icons, and execution.taskSupport when set.'
@@ -498,6 +543,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'Resources, resource templates, and resource contents may carry annotations {audience, priority, lastModified}; these round-trip from server registration to the client list/read result.'
     },
     'resources:capability:declared': {
+        entryExclusions: [
+            {
+                arm: 'entryModern',
+                reason: 'legacy-only-vocabulary',
+                note: 'server/discover deliberately omits the listChanged capability flag this body asserts.'
+            }
+        ],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities',
         behavior:
             'A server with resource handlers advertises the resources capability, including the subscribe  sub-flag when a subscribe handler is registered.'
@@ -541,6 +593,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'resources/read for an unknown URI returns JSON-RPC error -32002 (resource not found).'
     },
     'resources:subscribe:capability-required': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#capabilities',
         behavior: 'resources/subscribe to a server that did not advertise the subscribe capability is rejected with an error.'
     },
@@ -605,6 +658,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     // Prompts
 
     'prompts:capability:declared': {
+        entryExclusions: [
+            {
+                arm: 'entryModern',
+                reason: 'legacy-only-vocabulary',
+                note: 'server/discover deliberately omits the listChanged capability flag this body asserts.'
+            }
+        ],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#capabilities',
         behavior: 'A server with a list_prompts handler advertises the prompts capability in its initialize result.'
     },
@@ -716,6 +776,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'The completion result carries values (at most 100), an optional total, and an optional hasMore flag.'
     },
     'completion:complete:not-supported': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'modern-error-surface' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/completion#capabilities',
         behavior:
             'A server with no completion handler does not advertise the completions capability and rejects completion/complete with METHOD_NOT_FOUND.'
@@ -733,6 +794,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'A server that emits log message notifications declares the logging capability in its initialize result.'
     },
     'logging:message:fields': {
+        entryExclusions: [
+            {
+                arm: 'entryModern',
+                reason: 'method-not-in-modern-registry',
+                note: 'The body scaffolds the exchange with logging/setLevel, which the 2026-07-28 registry deletes; notifications/message itself is still modern vocabulary.'
+            }
+        ],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#log-message-notifications',
         behavior:
             "A log message sent by a server handler is delivered to the client's logging callback with its severity level, logger name, and data."
@@ -750,6 +818,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Under stateless hosting each request is served by a new server instance, so state set up earlier in the session cannot be observed.'
     },
     'logging:set-level:invalid-level': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/logging#error-handling',
         behavior: 'logging/setLevel with an invalid level value returns JSON-RPC error -32602 (Invalid params).',
         knownFailures: [
@@ -1134,11 +1203,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: "_meta returned in a handler's result is delivered intact to the requesting client."
     },
     'protocol:request-id:unique': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#requests',
         behavior:
             'Every request sent on a session carries a unique, non-null string or integer id; ids are never reused within the session.'
     },
     'protocol:notifications:no-response': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic#notifications',
         behavior:
             'Notifications are never answered: every message the server delivers is either the response to a request the client sent or a notification carrying no id.'
@@ -2195,6 +2266,86 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. The allowed-host control asserts initialize semantics per spec version: a 2026-era request is answered with the latest legacy version, since 2026-era revisions are never negotiated via initialize.'
     },
+
+    // v2 features: dual-era serving (createMcpHandler entry, eraSupport stdio, result stamping)
+
+    'typescript:hosting:entry:dual-era-one-factory': {
+        source: 'sdk',
+        behavior:
+            'createMcpHandler serves one ctx-taking factory to both protocol eras on one endpoint: with the legacy "stateless" slot configured, a plain client is served per request via initialize, tools/list and tools/call on the 2025 era, and an auto-negotiating client reaches 2026-07-28 via server/discover (never initialize) and gets tools/call served with the per-request _meta envelope.',
+        transports: ['entryStateless', 'entryModern'],
+        note: 'Runs on the createMcpHandler entry arms (the same one-factory, legacy-stateless-slot handler shape on both): the entryStateless cell drives the 2025 leg through the slot and the entryModern cell drives the modern path, with the never-initialize/server-discover clauses asserted on the arm-recorded HTTP exchanges.'
+    },
+    'typescript:hosting:entry:pin-negotiation': {
+        source: 'sdk',
+        behavior:
+            'A client pinned to the 2026-07-28 revision (versionNegotiation mode pin) connects to a strict createMcpHandler endpoint without ever sending initialize — its first request is server/discover — and an enveloped tools/call round-trips.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryModern arm (modern-only strict is its default hosting); the body constructs the pinned client itself and asserts the never-initialize, discover-first and envelope clauses on the arm-recorded HTTP exchanges.'
+    },
+    'typescript:hosting:entry:strict-rejects-legacy': {
+        source: 'sdk',
+        behavior:
+            'A createMcpHandler endpoint with no legacy slot configured (modern-only strict) rejects a 2025-shaped initialize with the unsupported-protocol-version error carrying the supported modern revisions in error.data.supported; nothing is silently served on the 2025 era.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryModern arm (modern-only strict is its default hosting); the 2025-shaped initialize and the plain-client connect attempt are driven against the harness-hosted endpoint via wired.fetch/wired.url. The numeric error code is asserted by message and supported-list shape only, since it shares a code with the still-disputed header/body mismatch family.'
+    },
+    'typescript:hosting:entry:notification-202': {
+        source: 'sdk',
+        behavior:
+            'A POST carrying only a notification is answered 202 Accepted with an empty body by a createMcpHandler endpoint on both legs: an envelope-less notification through the legacy stateless slot and an envelope-carrying notification on the modern path.',
+        transports: ['entryStateless', 'entryModern'],
+        note: 'Runs on the createMcpHandler entry arms; each cell POSTs the raw notification through wired.fetch so the HTTP contract (status code and empty body) is observed directly, and the arm selects which leg the notification rides. Delivery of the notification to the per-request server instance is pinned at unit level.'
+    },
+    'typescript:hosting:entry:modern-cacheable-stamping': {
+        source: 'sdk',
+        behavior:
+            'Typed tools/list, resources/read and resources/list round trips negotiated on 2026-07-28 over a createMcpHandler endpoint succeed, and the wire results carry resultType "complete" plus the required ttlMs/cacheScope fields, with the configured-hint precedence observable on the wire: the per-resource cacheHint wins over the per-operation cacheHints entry (resources/read), a per-operation hint wins over the defaults (tools/list), and a result with no configured author is filled with the ttlMs 0 / cacheScope private defaults (resources/list).',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryModern arm; the typed round trips go through the wired negotiating client and the wire-level stamping is asserted on the arm-recorded response bytes. The top precedence rung — a handler-returned ttlMs/cacheScope value winning over every configured hint — is pinned at unit level and not exercised here.'
+    },
+    'typescript:hosting:entry:legacy-cacheable-suppression': {
+        source: 'sdk',
+        behavior:
+            'A factory with every cache-hint author configured (per-operation cacheHints and a per-resource cacheHint), served to a plain 2025 client through the legacy stateless slot of a createMcpHandler endpoint, answers tools/list and resources/read with no resultType, ttlMs, cacheScope or cacheHint vocabulary anywhere in the response bytes.',
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'The suppression invariant is a statement about 2025-era serving, so the requirement is bounded to the 2025-11-25 axis and runs on the entryStateless arm; the response bytes are asserted on the arm-recorded HTTP exchanges.'
+    },
+    'typescript:hosting:entry:byo-sessionful-legacy': {
+        source: 'sdk',
+        behavior:
+            'A real sessionful legacy wiring (per-session WebStandardStreamableHTTPServerTransport instances keyed by Mcp-Session-Id) passed as the createMcpHandler legacy slot value serves the full 2025-era session lifecycle through the entry: initialize issues an Mcp-Session-Id, a follow-up POST is served on that session, GET opens the standalone SSE stream, and DELETE tears the session down (a request carrying the dead session id answers 404).',
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        note: "The lifecycle is a statement about 2025-era serving through the bring-your-own legacy slot, so the requirement is bounded to the 2025-11-25 axis and runs on the entryStateless arm with the slot overridden via wire()'s entry.legacy option. It pins the entry routing of body-less GET and DELETE to the bring-your-own legacy slot, observed at the slot as method/status/content-type; byte-level forwarding fidelity is not asserted."
+    },
+    'typescript:hosting:entry:modern-lazy-sse-upgrade': {
+        source: 'sdk',
+        behavior:
+            'On the default response mode, a modern (2026-07-28) request exchange over a createMcpHandler endpoint is answered as a single JSON body when the handler emits nothing before its result, and upgrades to an SSE stream when the handler emits related notifications mid-call: the response content-type becomes text/event-stream and the frames carry the notifications in emission order with the terminal result as the last frame.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryModern arm; the typed calls go through the wired negotiating client and the response shape (status, content-type, SSE frame order) is asserted on the arm-recorded HTTP exchanges.'
+    },
+    'typescript:hosting:entry:modern-response-mode': {
+        source: 'sdk',
+        behavior:
+            'The createMcpHandler responseMode option shapes modern (2026-07-28) request exchanges end to end: "sse" answers over an SSE stream even when the handler emits nothing before its result, and "json" answers with a single JSON body whose only payload is the terminal result — mid-call notifications are dropped, not buffered.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: "Runs on the entryModern arm; the body wires one harness-hosted endpoint per responseMode value via wire()'s entry.responseMode option and asserts the response shape on the arm-recorded HTTP exchanges."
+    },
+    'typescript:transport:stdio:dual-era-serving': {
+        source: 'sdk',
+        behavior:
+            'A hand-constructed stdio server declaring eraSupport "dual-era" (transport line unchanged) serves a plain 2025 client via initialize and an auto-negotiating client on 2026-07-28 via server/discover, over a real child-process pipe.',
+        transports: ['stdio'],
+        note: 'Dual-era stdio serving is exercised against a real spawned child process (fixtures/dual-era-stdio-server.ts), so the matrix transport arg is ignored and the requirement lists stdio only; the spec-version axis selects which client drives the cell.'
+    },
     'custom-methods:server-handler:roundtrip': {
         source: 'sdk',
         behavior:
@@ -2220,6 +2371,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'typescript:method-string-handlers:result-type-inference': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],
         source: 'sdk',
         behavior:
             'client.request() called with a spec method string and no result schema resolves with the result already parsed and validated for that method (ResultTypeMap inference), e.g. tools/list yields a usable tools array without passing a schema.'
@@ -2323,11 +2475,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: "This exercises the HTTP client transport's reconnection path; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs."
     },
     'lifecycle:version:custom-supported-versions': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'asserts-legacy-handshake' }],
         source: 'sdk',
         behavior:
             'supportedProtocolVersions passed in Client/Server options overrides the negotiation list: a client requesting a version the server supports gets that version back, and both sides report the negotiated version after connect.'
     },
     'lifecycle:version:no-overlap-rejects': {
+        entryExclusions: [{ arm: 'entryModern', reason: 'asserts-legacy-handshake' }],
         source: 'sdk',
         behavior:
             "When the server's negotiated protocol version is not in the client's supportedProtocolVersions list, client.connect() rejects and the connection is not established."
@@ -2382,6 +2536,12 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the Streamable HTTP client transport directly; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'transport:standalone:raw-relay': {
+        entryExclusions: [
+            {
+                reason: 'drives-transport-directly',
+                note: 'The body builds and hosts its own raw transports per matrix arm; an entry cell would re-run the streamable HTTP relay without exercising the entry.'
+            }
+        ],
         source: 'sdk',
         behavior:
             'Client and server transports can be driven directly (start/send/onmessage/onclose/onerror) without wrapping them in a Client or Server, supporting message-relay proxies.',

@@ -58,6 +58,26 @@ note: 'stateless hosting has no server→client back-channel'
 `addedInSpecVersion` / `removedInSpecVersion` bound the spec versions a requirement applies to. A behavior changed by a spec release gets a sibling entry: the new entry lists every retired id it replaces in `supersedes` (an array, requires `addedInSpecVersion`), and each retired
 entry points back via `supersededBy` (requires `removedInSpecVersion`). A coverage gate enforces that the links resolve and are exactly symmetric.
 
+## The createMcpHandler entry arms (entryStateless / entryModern)
+
+Two transport arms host the dual-era HTTP entry (`createMcpHandler`) in process via an injected fetch, exactly like the other HTTP arms. They are era-fixed (`TRANSPORT_SPEC_VERSIONS`), so each registers cells on exactly one spec-version axis:
+
+- `entryStateless` — the entry with the `legacy: 'stateless'` slot; the scenario's plain client is served per request through the slot. Cells run on the 2025-11-25 axis only.
+- `entryModern` — the entry modern-only strict (no legacy slot); the scenario's client is put into pinned 2026-07-28 negotiation by the arm and the per-request `_meta` envelope is attached to every outgoing request/notification by the arm (a harness stop-gap until the client
+  emits it itself). Cells run on the 2026-07-28 axis only.
+
+Both arms are part of the default transport list, so unrestricted requirements run through the entry automatically. When a requirement cannot run on an entry arm, annotate it with a machine-readable reason instead of bending the test:
+
+```ts
+entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' /* optional note */ }];
+```
+
+Omitting `arm` excludes both arms. The reasons (`EntryExclusionReason` in types.ts) are the acceptance checklist for re-admitting cells when the corresponding entry feature lands; a coverage gate rejects annotations that would never have an effect. Requirement families that the
+per-request entry structurally cannot serve at all (server→client requests, sessions/resumability, standalone GET streams, subscriptions) are already expressed through their `transports` restrictions and need no annotation.
+
+Arm-specific helpers: `wire()`'s fourth argument also accepts `entry` (createMcpHandler hosting overrides — e.g. a `responseMode` or a bring-your-own `legacy` slot value), the returned `Wired.httpLog` records every HTTP exchange (request body, status, content-type, a readable
+response clone) for raw wire assertions, factories may accept the optional per-request context (`EntryServerFactory`), and `modernEnvelopeMeta()` builds the envelope for bodies that POST raw 2026-era requests through `wired.fetch`.
+
 ## Running
 
 From the repo root (the suite is the `@modelcontextprotocol/test-e2e` workspace package):
