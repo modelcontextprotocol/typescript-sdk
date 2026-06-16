@@ -20,12 +20,7 @@ import {
     modernOnlyStrictRejection,
     PROVISIONAL_CROSS_CHECK_MISMATCH_CODE
 } from '../../src/shared/inboundClassification.js';
-import {
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
-    LATEST_PROTOCOL_VERSION,
-    PROTOCOL_VERSION_META_KEY
-} from '../../src/types/constants.js';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants.js';
 
 const MODERN_REVISION = '2026-07-28';
 const MISMATCH_CODE_CANDIDATES = [-32_001, -32_602, -32_004];
@@ -265,6 +260,37 @@ describe('notification routing (header determinative when the body carries no cl
         const conflicting = classifyInboundRequest(post(notification('notifications/progress', meta), { protocolVersion: '2025-06-18' }));
         expectMismatch(conflicting, 'notification-header-body-version-mismatch');
     });
+
+    test('a notification claim with a malformed value is rejected, naming the offending key', () => {
+        // Validated exactly like a request claim: invalid params naming the
+        // key — never silently losing to (or overriding) a disagreeing header.
+        const meta = { [PROTOCOL_VERSION_META_KEY]: 42 };
+        const outcome = classifyInboundRequest(post(notification('notifications/progress', meta)));
+        expect(outcome).toMatchObject({
+            kind: 'reject',
+            rung: 'envelope',
+            cell: 'notification-envelope-invalid',
+            httpStatus: 400,
+            code: -32_602,
+            settled: true
+        });
+        if (outcome.kind !== 'reject') return;
+        const data = outcome.data as { envelope: { key: string } };
+        expect(data.envelope.key).toBe(PROTOCOL_VERSION_META_KEY);
+    });
+
+    test('a notification claim with a malformed value is rejected the same way when a legacy header disagrees', () => {
+        const meta = { [PROTOCOL_VERSION_META_KEY]: 42 };
+        const outcome = classifyInboundRequest(post(notification('notifications/progress', meta), { protocolVersion: '2025-06-18' }));
+        expect(outcome).toMatchObject({ kind: 'reject', rung: 'envelope', cell: 'notification-envelope-invalid', code: -32_602 });
+    });
+
+    test('a notification with no claim at all keeps header-determinative routing (not envelope-validated)', () => {
+        // Only a present claim is validated; claim-less notifications keep the
+        // header-determinative routing above unchanged.
+        expect(classifyInboundRequest(post(notification(), { protocolVersion: MODERN_REVISION }))).toMatchObject({ kind: 'modern' });
+        expect(classifyInboundRequest(post(notification()))).toMatchObject({ kind: 'legacy', reason: 'notification' });
+    });
 });
 
 describe('element-wise batch classification', () => {
@@ -329,15 +355,17 @@ describe('modern-only (strict) rejection mapping', () => {
         return outcome as InboundLegacyRoute;
     };
 
-    test('an envelope-less request answers the unsupported-protocol-version error with the supported list', () => {
+    test('an envelope-less request that named no version omits `requested` rather than fabricating one', () => {
         const rejectionOutcome = modernOnlyStrictRejection(legacyRoute(legacyToolsList()), SUPPORTED);
         expect(rejectionOutcome).toMatchObject({
             cell: 'modern-only-missing-envelope',
             httpStatus: 400,
             code: -32_004,
             settled: true,
-            data: { supported: SUPPORTED, requested: LATEST_PROTOCOL_VERSION }
+            data: { supported: SUPPORTED }
         });
+        expect((rejectionOutcome?.data as { requested?: unknown })?.requested).toBeUndefined();
+        expect(Object.keys(rejectionOutcome?.data as Record<string, unknown>)).not.toContain('requested');
         expect(rejectionOutcome?.message).toContain('Unsupported protocol version');
     });
 

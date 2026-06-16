@@ -20,6 +20,9 @@
  *   spec, so for notification POSTs without a body claim the modern header is
  *   determinative; the `Mcp-Method` header is validated against the body when
  *   the message classifies modern and is never enforced on legacy traffic.
+ *   A notification that does carry a claim is treated body-primary like a
+ *   request, and a malformed claim is rejected the same way a request's
+ *   malformed claim is — never silently resolved against the header.
  * - `GET`/`DELETE` (and any other non-`POST` method) are body-less 2025-era
  *   session operations: the modern era is `POST`-only, so they are routed to
  *   legacy serving when it is configured and rejected otherwise.
@@ -41,7 +44,7 @@
  * `settled: false` so tests and consumers can treat them as parameterized
  * rather than pinned.
  */
-import { LATEST_PROTOCOL_VERSION } from '../types/constants.js';
+import { PROTOCOL_VERSION_META_KEY } from '../types/constants.js';
 import { ProtocolErrorCode } from '../types/enums.js';
 import { ProtocolError, UnsupportedProtocolVersionError } from '../types/errors.js';
 import { isJSONRPCErrorResponse, isJSONRPCNotification, isJSONRPCRequest, isJSONRPCResultResponse } from '../types/guards.js';
@@ -478,7 +481,30 @@ function classifyNotificationBody(request: InboundHttpRequest, body: Record<stri
         // header, and a disagreement between them is rejected rather than
         // letting either signal silently pick the serving path.
         const claimedVersion = envelopeClaimVersion(params);
-        if (headerVersion !== undefined && claimedVersion !== undefined && headerVersion !== claimedVersion) {
+        if (claimedVersion === undefined) {
+            // The claim key is present but its value is malformed (not a
+            // string). Validated exactly like a request claim: an
+            // invalid-params rejection naming the offending key — never a
+            // silent win against (or loss to) a disagreeing header.
+            const meta = requestMetaOf(params);
+            const issues = meta === undefined ? [] : validateEnvelopeMeta(meta);
+            const claimIssue = issues.find(issue => issue.key === PROTOCOL_VERSION_META_KEY) ?? {
+                key: PROTOCOL_VERSION_META_KEY,
+                problem: 'expected a protocol version string'
+            };
+            return rejection(
+                'envelope',
+                'notification-envelope-invalid',
+                400,
+                new ProtocolError(
+                    ProtocolErrorCode.InvalidParams,
+                    `Invalid _meta envelope for protocol revision 2026-07-28: ${claimIssue.key}: ${claimIssue.problem}`,
+                    { envelope: claimIssue }
+                ),
+                true
+            );
+        }
+        if (headerVersion !== undefined && headerVersion !== claimedVersion) {
             return crossCheckMismatch(
                 'notification-header-body-version-mismatch',
                 headerVersion,
@@ -568,10 +594,11 @@ export function classifyInboundRequest(request: InboundHttpRequest): InboundClas
  *
  * - Envelope-less requests (including `initialize`) are answered with the
  *   unsupported-protocol-version error carrying the endpoint's supported
- *   versions and echoing the version the request named, so a legacy client
- *   can discover what the endpoint serves from the error alone. (This cell
- *   shares its numeric code with the still-disputed mismatch cells above,
- *   but its own outcome is settled.)
+ *   versions and echoing the version the request named (when it named one —
+ *   `requested` is omitted rather than fabricated when the request named no
+ *   version at all), so a legacy client can discover what the endpoint serves
+ *   from the error alone. (This cell shares its numeric code with the
+ *   still-disputed mismatch cells above, but its own outcome is settled.)
  * - Posted responses and batch arrays are invalid requests on the modern era.
  * - Non-`POST` methods are not allowed.
  * - Legacy-classified notifications return `undefined`: the caller answers
@@ -608,14 +635,20 @@ export function modernOnlyStrictRejection(
         }
         case 'initialize':
         case 'no-claim': {
-            const requested = route.requestedVersion ?? LATEST_PROTOCOL_VERSION;
-            return rejection(
-                'era-classification',
-                'modern-only-missing-envelope',
-                400,
-                new UnsupportedProtocolVersionError({ supported: [...supportedVersions], requested }),
-                true
-            );
+            // `requested` reflects what the request actually named (an
+            // initialize body's `protocolVersion` or the protocol-version
+            // header); when the request named no version at all the field is
+            // omitted rather than fabricated.
+            const requested = route.requestedVersion;
+            const error =
+                requested === undefined
+                    ? new ProtocolError(
+                          ProtocolErrorCode.UnsupportedProtocolVersion,
+                          'Unsupported protocol version: the request did not name a protocol version',
+                          { supported: [...supportedVersions] }
+                      )
+                    : new UnsupportedProtocolVersionError({ supported: [...supportedVersions], requested });
+            return rejection('era-classification', 'modern-only-missing-envelope', 400, error, true);
         }
     }
 }

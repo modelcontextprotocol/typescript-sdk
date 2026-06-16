@@ -177,7 +177,31 @@ const SHEET: readonly SheetRow[] = [
         conformance: [],
         input: post({ hello: 'world' }),
         reject: { rung: 'jsonrpc-shape', httpStatus: 400, code: -32_600, settled: true },
-        rationale: 'A POST body that is not a JSON-RPC message is an invalid request.'
+        rationale:
+            'A POST body that is not a JSON-RPC message is an invalid request (-32600, the JSON-RPC-correct code). Deliberate ' +
+            'divergence from the deployed 2025-era transport, which answers -32700 for the same parsed body; enumerated and ' +
+            'exercised on both legs in the era-parity suite (server package).'
+    },
+    {
+        cell: 'empty-batch',
+        status: 'pinned',
+        conformance: [],
+        input: post([]),
+        reject: { rung: 'jsonrpc-shape', httpStatus: 400, code: -32_600, settled: true },
+        rationale:
+            'An empty JSON-RPC batch is an invalid request at the modern edge. Deliberate divergence from the deployed 2025-era ' +
+            'transport, which accepts an empty array as containing only notifications (202, no body); enumerated and exercised on ' +
+            'both legs in the era-parity suite (server package).'
+    },
+    {
+        cell: 'notification-envelope-invalid',
+        status: 'pinned',
+        conformance: [],
+        input: post({ jsonrpc: '2.0', method: 'notifications/progress', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: 42 } } }),
+        reject: { rung: 'envelope', httpStatus: 400, code: -32_602, settled: true },
+        rationale:
+            'A notification claim with a malformed protocol-version value is invalid params naming the key — exactly like the ' +
+            'request path, never a silent win against (or loss to) a disagreeing header.'
     },
 
     /* --- Modern-only (strict) cells (pinned) --------------------------------------- */
@@ -266,6 +290,32 @@ const SHEET: readonly SheetRow[] = [
         }),
         reject: { rung: 'era-classification', httpStatus: 400, settled: false },
         rationale: 'The Mcp-Method header must describe the body it accompanies; the rejection code is pending upstream settlement.'
+    },
+    {
+        cell: 'notification-header-body-version-mismatch',
+        status: 'parameterized',
+        conformance: [],
+        input: post(
+            { jsonrpc: '2.0', method: 'notifications/progress', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION } } },
+            { protocolVersion: '2025-06-18' }
+        ),
+        reject: { rung: 'era-classification', httpStatus: 400, settled: false },
+        rationale:
+            'A notification body claim disagreeing with the protocol-version header is the same disagreement family as the request ' +
+            'cells above; the exact code is still under discussion upstream.'
+    },
+    {
+        cell: 'notification-method-header-mismatch',
+        status: 'parameterized',
+        conformance: [],
+        input: post(
+            { jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 1, progress: 1 } },
+            { protocolVersion: MODERN_REVISION, mcpMethod: 'notifications/cancelled' }
+        ),
+        reject: { rung: 'era-classification', httpStatus: 400, settled: false },
+        rationale:
+            'The Mcp-Method header must describe the notification body it accompanies (validated only when the notification ' +
+            'classifies modern); the rejection code is pending upstream settlement.'
     },
     {
         cell: 'multi-fault-mismatched-claim-and-malformed-envelope',
