@@ -41,6 +41,7 @@ import {
     codecForVersion,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    FIRST_MODERN_PROTOCOL_VERSION,
     LATEST_PROTOCOL_VERSION,
     legacyProtocolVersions,
     LoggingLevelSchema,
@@ -331,19 +332,76 @@ export class Server extends Protocol<ServerContext> {
         });
     }
 
+    /**
+     * Era gate for context-related server→client requests, keyed off the era
+     * of the request currently being served (its classification).
+     *
+     * A long-lived dual-era instance is never bound to a single era, so the
+     * instance-level outbound era gate alone would let a handler that is
+     * serving a 2026-era request push a server→client wire request
+     * (sampling, elicitation, roots) onto the connection. The 2026-07-28
+     * revision has no server→client JSON-RPC request channel, so the client
+     * drops the request and the call hangs until timeout. The request
+     * context therefore applies the same typed local error a strict
+     * `'modern'` instance raises, per request: spec methods absent from the
+     * served era's registry fail fast before anything reaches the transport.
+     *
+     * Scope: the context request path only (`ctx.mcpReq.send`,
+     * `ctx.mcpReq.elicitInput`, `ctx.mcpReq.requestSampling`). Related
+     * notifications, requests served on the legacy era, and instance-level
+     * senders used outside a request context are unaffected.
+     */
+    private _assertContextRequestInServedEra(classification: MessageClassification | undefined, method: string): void {
+        if (classification === undefined) {
+            return;
+        }
+        const servedCodec = codecForVersion(
+            classification.revision ?? (classification.era === 'modern' ? FIRST_MODERN_PROTOCOL_VERSION : undefined)
+        );
+        // Mirrors the outbound era gate: only spec methods missing from the
+        // served era are gated; methods the served era defines (and
+        // consumer-owned extension methods) resolve exactly as before.
+        if (servedCodec.hasRequestMethod(method) || !codecForVersion(undefined).hasRequestMethod(method)) {
+            return;
+        }
+        throw new SdkError(
+            SdkErrorCode.MethodNotSupportedByProtocolVersion,
+            `Server-to-client requests are not available on protocol revision ${servedCodec.era}: ` +
+                `'${method}' cannot be sent while serving a request on that revision. ` +
+                `Servers obtain client input through request results once multi-round-trip support is available.`,
+            { method, era: servedCodec.era }
+        );
+    }
+
     protected override buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ServerContext {
         // Only create http when there's actual HTTP transport info or auth info
         const hasHttpInfo = ctx.http || transportInfo?.request || transportInfo?.closeSSEStream || transportInfo?.closeStandaloneSSEStream;
+        const classification = transportInfo?.classification;
+        // Context-related server→client requests are gated by the era of the
+        // request being served (see _assertContextRequestInServedEra);
+        // related notifications (`notify`, `log`) are unaffected.
+        const baseSend = ctx.mcpReq.send as (request: { method: string }, ...rest: unknown[]) => Promise<unknown>;
+        const send = ((request: { method: string }, ...rest: unknown[]) => {
+            this._assertContextRequestInServedEra(classification, request.method);
+            return baseSend(request, ...rest);
+        }) as BaseContext['mcpReq']['send'];
         return {
             ...ctx,
             mcpReq: {
                 ...ctx.mcpReq,
+                send,
                 // Deprecated as of protocol version 2026-07-28 (SEP-2577): `log` and
                 // `requestSampling` remain functional during the deprecation window
                 // (at least twelve months). See ServerContext for migration guidance.
                 log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
-                elicitInput: (params, options) => this.elicitInput(params, options),
-                requestSampling: (params, options) => this.createMessage(params, options)
+                elicitInput: async (params, options) => {
+                    this._assertContextRequestInServedEra(classification, 'elicitation/create');
+                    return this.elicitInput(params, options);
+                },
+                requestSampling: async (params, options) => {
+                    this._assertContextRequestInServedEra(classification, 'sampling/createMessage');
+                    return this.createMessage(params, options);
+                }
             },
             http: hasHttpInfo
                 ? {

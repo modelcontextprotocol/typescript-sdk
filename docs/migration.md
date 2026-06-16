@@ -1095,7 +1095,8 @@ What the values mean:
 Declaring `'dual-era'` or `'modern'` automatically adds the SDK's supported modern revisions to `supportedProtocolVersions`, and `'modern'` serves only those: a strict instance's supported list (what `server/discover` advertises and version-mismatch errors name) is modern-only.
 
 Directionality follows the era of the traffic: the 2026-07-28 revision has no server→client JSON-RPC request channel, so a `'modern'` instance cannot emit `sampling`/`elicitation`/`roots` wire requests (they fail locally with a typed error), while a `'dual-era'` instance
-can still send them to the 2025-era clients it serves via `initialize`. Symmetrically, a client whose connection negotiated a modern era drops inbound JSON-RPC requests instead of answering them.
+can still send them to the 2025-era clients it serves via `initialize`. On a `'dual-era'` instance the same local typed error applies per request: a handler that is serving a 2026-era request cannot send server→client requests through its request context
+(`ctx.mcpReq.send`, `ctx.mcpReq.elicitInput`, `ctx.mcpReq.requestSampling`) — only handlers serving 2025-era requests can. Symmetrically, a client whose connection negotiated a modern era drops inbound JSON-RPC requests instead of answering them.
 
 Declaring `eraSupport: 'dual-era'` is also an assertion that your handlers are ready to serve modern-era requests (for example, that they read per-request client identity from `ctx.mcpReq.envelope` rather than the connection-scoped accessors — see the next section). A
 future release may add per-handler era declarations as the basis for a safe automatic default; for now the connection-level `eraSupport` option is the whole opt-in surface.

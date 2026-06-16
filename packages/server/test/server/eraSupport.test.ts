@@ -12,7 +12,8 @@
  *   supported list; legacy-classified notifications are dropped.
  * - TS-01 directionality: a modern-bound instance cannot emit server→client
  *   wire requests (typed local error); a dual-era instance serving the legacy
- *   leg still can.
+ *   leg still can, while a handler serving a 2026-classified request gets the
+ *   same typed error from the ctx-related request path.
  */
 import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core';
 import {
@@ -23,6 +24,8 @@ import {
     isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY,
+    SdkError,
+    SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 import { describe, expect, it } from 'vitest';
@@ -258,6 +261,79 @@ describe('TS-01 directionality (era-keyed direction enforcement)', () => {
             // The peer never answers; the request is torn down with the connection below.
         });
         await flush();
+        expect(inbound.some(message => (message as JSONRPCRequest).method === 'sampling/createMessage')).toBe(true);
+        await close();
+    });
+
+    it('a handler serving a modern-classified request gets the typed error from the ctx sampling helper; nothing reaches the transport', async () => {
+        const server = new Server({ name: 'dual', version: '1' }, { capabilities: { tools: {} }, eraSupport: 'dual-era' });
+        let captured: unknown;
+        server.setRequestHandler('tools/list', async (_request, ctx) => {
+            try {
+                await ctx.mcpReq.requestSampling({ messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }], maxTokens: 1 });
+            } catch (error) {
+                captured = error;
+            }
+            return { tools: [] };
+        });
+        const { request, inbound, flush, close } = await wireServer(server);
+
+        const response = await request({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(response)).toBe(true);
+        await flush();
+
+        expect(captured).toBeInstanceOf(SdkError);
+        expect((captured as SdkError).code).toBe(SdkErrorCode.MethodNotSupportedByProtocolVersion);
+        expect((captured as SdkError).message).toMatch(/not available on protocol revision 2026-07-28/);
+        expect(inbound.some(message => (message as JSONRPCRequest).method === 'sampling/createMessage')).toBe(false);
+        await close();
+    });
+
+    it('a raw ctx server→client request send while serving a modern-classified request is rejected the same way', async () => {
+        const server = new Server({ name: 'dual', version: '1' }, { capabilities: { tools: {} }, eraSupport: 'dual-era' });
+        let captured: unknown;
+        server.setRequestHandler('tools/list', async (_request, ctx) => {
+            try {
+                await ctx.mcpReq.send({ method: 'roots/list' });
+            } catch (error) {
+                captured = error;
+            }
+            return { tools: [] };
+        });
+        const { request, inbound, flush, close } = await wireServer(server);
+
+        const response = await request({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(response)).toBe(true);
+        await flush();
+
+        expect(captured).toBeInstanceOf(SdkError);
+        expect((captured as SdkError).code).toBe(SdkErrorCode.MethodNotSupportedByProtocolVersion);
+        expect(inbound.some(message => (message as JSONRPCRequest).method === 'roots/list')).toBe(false);
+        await close();
+    });
+
+    it('the same ctx sampling helper on a legacy-classified request still reaches the wire (permitted per the message era)', async () => {
+        const server = new Server({ name: 'dual', version: '1' }, { capabilities: { tools: {} }, eraSupport: 'dual-era' });
+        server.setRequestHandler('tools/list', (_request, ctx) => {
+            const pending = ctx.mcpReq.requestSampling({
+                messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }],
+                maxTokens: 1
+            });
+            pending.catch(() => {
+                // The peer never answers; the request is torn down with the connection below.
+            });
+            return { tools: [] };
+        });
+        const { request, inbound, flush, close } = await wireServer(server);
+
+        // Legacy leg: the 2025 client initializes and declares sampling support.
+        const init = await request(initializeRequest(1));
+        expect(isJSONRPCResultResponse(init)).toBe(true);
+
+        const response = await request({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
+        expect(isJSONRPCResultResponse(response)).toBe(true);
+        await flush();
+
         expect(inbound.some(message => (message as JSONRPCRequest).method === 'sampling/createMessage')).toBe(true);
         await close();
     });
