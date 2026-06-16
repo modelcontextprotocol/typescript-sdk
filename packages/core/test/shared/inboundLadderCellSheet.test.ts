@@ -432,8 +432,14 @@ describe('the validation ladder as data', () => {
 
 describe('HTTP status mapping for ladder-originated errors (origin-keyed)', () => {
     test('the table maps exactly the ladder-originated codes', () => {
+        // The parse-error and invalid-request rows joined the table when the
+        // status matrix was completed alongside the cache fill / capability
+        // gate work; they were previously carried only by the classifier's own
+        // httpStatus on the rejection outcomes (same 400, now table-visible).
         expect(LADDER_ERROR_HTTP_STATUS).toEqual({
+            [-32_700]: 400,
             [-32_601]: 404,
+            [-32_600]: 400,
             [-32_004]: 400,
             [-32_003]: 400,
             [-32_001]: 400

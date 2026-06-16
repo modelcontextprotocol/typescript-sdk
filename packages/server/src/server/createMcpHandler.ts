@@ -34,8 +34,12 @@ import {
     classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
+    httpStatusForErrorCode,
+    missingClientCapabilities,
+    MissingRequiredClientCapabilityError,
     modernOnlyStrictRejection,
     requestMetaOf,
+    requiredClientCapabilitiesForRequest,
     SdkError,
     SdkErrorCode,
     setNegotiatedProtocolVersion,
@@ -420,6 +424,33 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             return jsonRpcErrorResponse(400, error.code, error.message, error.data, echoableRequestId(message));
         }
 
+        const meta = route.messageKind === 'request' ? requestMetaOf((message as JSONRPCRequest).params) : undefined;
+        const declaredClientCapabilities = meta?.[CLIENT_CAPABILITIES_META_KEY] as ClientCapabilities | undefined;
+
+        // Pre-dispatch capability gate: a request to a method whose processing
+        // structurally requires a client capability the request's validated
+        // envelope did not declare is refused here, before any instance is
+        // constructed or dispatched. Answering at the entry pins the
+        // spec-mandated HTTP 400 for this error; a handler-time emission would
+        // surface in-band on HTTP 200.
+        if (route.messageKind === 'request') {
+            const required = requiredClientCapabilitiesForRequest((message as JSONRPCRequest).method);
+            if (required !== undefined) {
+                const missing = missingClientCapabilities(required, declaredClientCapabilities);
+                if (missing !== undefined) {
+                    const error = new MissingRequiredClientCapabilityError({ requiredCapabilities: missing });
+                    reportError(error);
+                    return jsonRpcErrorResponse(
+                        httpStatusForErrorCode(error.code, 'ladder'),
+                        error.code,
+                        error.message,
+                        error.data,
+                        (message as JSONRPCRequest).id
+                    );
+                }
+            }
+        }
+
         const product = await factory({
             era: 'modern',
             ...(authInfo !== undefined && { authInfo }),
@@ -432,14 +463,11 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         setNegotiatedProtocolVersion(server, claimedRevision);
         installModernOnlyHandlers(server, SUPPORTED_MODERN_PROTOCOL_VERSIONS);
 
-        if (route.messageKind === 'request') {
-            const meta = requestMetaOf((message as JSONRPCRequest).params);
-            if (meta !== undefined) {
-                seedClientIdentityFromEnvelope(server, {
-                    clientInfo: meta[CLIENT_INFO_META_KEY] as Implementation | undefined,
-                    clientCapabilities: meta[CLIENT_CAPABILITIES_META_KEY] as ClientCapabilities | undefined
-                });
-            }
+        if (meta !== undefined) {
+            seedClientIdentityFromEnvelope(server, {
+                clientInfo: meta[CLIENT_INFO_META_KEY] as Implementation | undefined,
+                clientCapabilities: declaredClientCapabilities
+            });
         }
 
         if (responseMode === 'json' && !warnedJsonModeSubscriptions && hasConfiguredSubscriptions(product)) {
