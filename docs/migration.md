@@ -1025,9 +1025,9 @@ versionNegotiation: {
 }
 ```
 
-On the server side, a `Server`/`McpServer` whose `supportedProtocolVersions` list includes a 2026-era revision installs a `server/discover` handler, advertising only its modern revisions; servers with the default version list are byte-identical to before (they keep
+On the server side, a `Server`/`McpServer` serves `server/discover` (advertising only its modern revisions) when it declares modern-era support via the `eraSupport` option (see the stdio section below); servers constructed without it are byte-identical to before (they keep
 answering `-32601`, and the `initialize` handshake only ever negotiates 2025-era versions — a 2026-era revision is never accepted or counter-offered there). Serving the 2026 revision to ordinary HTTP traffic is done with the `createMcpHandler` entry point described in the
-next section; serving it over stdio arrives with a later release. The client can also issue the request directly via `client.discover()` on a 2026-era connection — a full typed round trip needs each request to carry the per-request `_meta` envelope (the negotiation probe
+next section; serving it on stdio (and other long-lived connections) is the `eraSupport` server option described after that. The client can also issue the request directly via `client.discover()` on a 2026-era connection — a full typed round trip needs each request to carry the per-request `_meta` envelope (the negotiation probe
 already does; automatic envelope emission for every request is a client-side follow-up) — while on a 2025-era connection the method is rejected locally with a typed error, since it does not exist on that protocol revision.
 
 ### Serving the 2026-07-28 draft revision over HTTP: `createMcpHandler`
@@ -1068,11 +1068,47 @@ The entry performs no Origin/Host validation (see the origin-validation middlewa
 request headers. Power users who want to compose routing themselves can use the exported `classifyInboundRequest` and `PerRequestHTTPServerTransport` building blocks directly; the handler faces are bound properties, so they can be detached and passed around
 (`const { fetch } = handler`).
 
+### Serving the 2026-07-28 draft revision on stdio: `eraSupport`
+
+A hand-constructed `Server`/`McpServer` — the shape every stdio server has — now takes an `eraSupport` option declaring which protocol eras it serves on its long-lived connection. **The default is `'legacy'`: if you do nothing, your server keeps speaking exactly the
+2025-era protocol it was written for** — the `initialize` handshake, the same wire bytes, no `server/discover`, nothing new advertised — and upgrading the SDK changes nothing about what it puts on the wire.
+
+Serving the 2026-07-28 draft revision is one explicit option; the transport stays unchanged:
+
+```typescript
+import { McpServer } from '@modelcontextprotocol/server';
+import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+
+const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { eraSupport: 'dual-era' });
+await server.connect(new StdioServerTransport());
+```
+
+What the values mean:
+
+- **`'legacy'` (default)** — today's behavior, unchanged: 2025-era serving negotiated via `initialize`. `server/discover` is not registered or advertised. Declaring a 2026-era revision in `supportedProtocolVersions` without changing `eraSupport` is now a construction-time
+  `TypeError` (previously it silently installed the discover handler) — serving the new revision is always an explicit declaration, never a side effect of a version list.
+- **`'dual-era'`** — both eras on the same connection, selected per message: plain 2025 clients keep using `initialize` and are served exactly as before, while 2026-capable clients negotiate via `server/discover` on the same pipe and every request carrying the per-request
+  `_meta` envelope is served on the modern era. Methods that exist in only one era stay invisible to the other: a 2025-era client asking for a 2026-only method (such as `server/discover` without an envelope) gets the same plain `-32601` a 2025 server would send, and a
+  2026-era request for a removed method (such as `logging/setLevel`) gets `-32601` too.
+- **`'modern'`** — strict 2026-only: requests without the per-request envelope (including `initialize`) are answered with the unsupported-protocol-version error naming the supported revisions; legacy-era notifications are dropped.
+
+Declaring `'dual-era'` or `'modern'` automatically adds the SDK's supported modern revisions to `supportedProtocolVersions`, and `'modern'` serves only those: a strict instance's supported list (what `server/discover` advertises and version-mismatch errors name) is modern-only.
+
+Directionality follows the era of the traffic: the 2026-07-28 revision has no server→client JSON-RPC request channel, so a `'modern'` instance cannot emit `sampling`/`elicitation`/`roots` wire requests (they fail locally with a typed error), while a `'dual-era'` instance
+can still send them to the 2025-era clients it serves via `initialize`. On a `'dual-era'` instance the same local typed error applies per request: a handler that is serving a 2026-era request cannot send server→client requests through its request context
+(`ctx.mcpReq.send`, `ctx.mcpReq.elicitInput`, `ctx.mcpReq.requestSampling`) — only handlers serving 2025-era requests can. Symmetrically, a client whose connection negotiated a modern era drops inbound JSON-RPC requests instead of answering them.
+
+Declaring `eraSupport: 'dual-era'` is also an assertion that your handlers are ready to serve modern-era requests (for example, that they read per-request client identity from `ctx.mcpReq.envelope` rather than the connection-scoped accessors — see the next section). A
+future release may add per-handler era declarations as the basis for a safe automatic default; for now the connection-level `eraSupport` option is the whole opt-in surface.
+
 ### Client identity accessors deprecated in favor of per-request context
 
 `Server.getClientCapabilities()`, `Server.getClientVersion()` and `Server.getNegotiatedProtocolVersion()` are deprecated (they remain functional). On 2026-07-28 requests the client's identity travels with each request in the validated `_meta` envelope and is available to
 handlers as `ctx.mcpReq.envelope`; instances serving that revision through `createMcpHandler` are backfilled per request, so existing code that calls the accessors keeps working on both eras. On 2025-era connections the accessors keep returning the `initialize`-scoped
 values, as before.
+
+On a long-lived dual-era instance (`eraSupport: 'dual-era'`, e.g. a stdio server) the accessors are **not** backfilled from modern requests: 2025-era and 2026-era messages interleave on one connection, so instance-level backfill would race. There the accessors keep their
+`initialize`-scoped semantics — they reflect what the legacy handshake negotiated (or `undefined` when none ran) — and handlers serving 2026-era requests read the per-request identity from `ctx.mcpReq.envelope`.
 
 ### Origin validation middleware and default arming
 

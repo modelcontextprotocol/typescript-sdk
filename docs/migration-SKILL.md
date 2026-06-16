@@ -550,6 +550,15 @@ These can require code changes:
 - `Server.getClientCapabilities()`, `getClientVersion()` and `getNegotiatedProtocolVersion()` are deprecated but functional: prefer the per-request context (`ctx.mcpReq.envelope`) on 2026-07-28 requests. No mechanical change required yet; plan the move before the deprecations are removed.
 - `createMcpExpressApp()` / `createMcpHonoApp()` / `createMcpFastifyApp()` with a localhost-class `host` now also validate the `Origin` header by default (requests without an `Origin` header are unaffected). Browser-served clients on a non-localhost origin need `allowedOrigins: [...]`, which replaces the default localhost allowlist — Origin validation cannot be disabled for localhost-class binds.
 
+### Server (stdio / long-lived connections)
+
+- `ServerOptions.eraSupport?: 'legacy' | 'dual-era' | 'modern'` declares which protocol eras a hand-constructed `Server`/`McpServer` serves on its long-lived connection. Default `'legacy'` = today's behavior, byte-identical: do not add the option during a mechanical migration.
+- Serving the 2026-07-28 draft revision on stdio is the explicit opt-in `new McpServer(info, { eraSupport: 'dual-era' })` with an unchanged `connect(new StdioServerTransport())`. `'modern'` is strict 2026-only (envelope-less requests, including `initialize`, get the
+  unsupported-protocol-version error).
+- A 2026-era revision in `supportedProtocolVersions` now requires `eraSupport: 'dual-era' | 'modern'`; on a default (`'legacy'`) instance it throws a `TypeError` at construction (previously it silently installed the `server/discover` handler).
+- On dual-era instances `getClientCapabilities()` / `getClientVersion()` / `getNegotiatedProtocolVersion()` keep `initialize`-scoped semantics and are never backfilled from 2026-era requests; handlers read per-request identity from `ctx.mcpReq.envelope`.
+- A client whose connection negotiated a modern era drops inbound server→client JSON-RPC requests (the 2026 era has no such channel) instead of answering them; legacy-era connections are unchanged.
+
 ## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
 The SDK now auto-selects the appropriate JSON Schema validator based on runtime:
