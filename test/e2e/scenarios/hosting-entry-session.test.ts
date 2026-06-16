@@ -9,9 +9,10 @@
  * lifecycle through `createMcpHandler` over a real socket: initialize issues a
  * session id, a follow-up POST is served on that session, the body-less GET
  * opens the standalone SSE stream, and DELETE tears the session down. Every
- * exchange the slot serves is recorded as it leaves the wiring, so the entry's
- * routing of GET/DELETE (no envelope, no body → legacy slot) and its
- * byte-untouched forwarding to the bring-your-own handler are pinned directly.
+ * exchange the slot serves is recorded as it leaves the wiring (method, status,
+ * content-type), so the entry's routing of GET/DELETE (no envelope, no body →
+ * legacy slot) to the bring-your-own handler is pinned directly; byte-level
+ * forwarding fidelity is not asserted here.
  *
  * Like hosting-entry.test.ts these bodies host the handler's node face on a
  * real node:http listener and do not use `wire()`.
@@ -146,6 +147,9 @@ verifies('typescript:hosting:entry:byo-sessionful-legacy', async (_args: TestArg
         });
         expect(stale.status).toBe(404);
         await stale.text();
+        // ...and that 404 was produced by the bring-your-own wiring (the probe
+        // reached the slot), not synthesized by the entry or anything in front of it.
+        expect(slotExchanges.some(exchange => exchange.method === 'POST' && exchange.status === 404)).toBe(true);
     } finally {
         await client.close().catch(() => {});
         for (const server of sessionServers) await server.close().catch(() => {});

@@ -111,6 +111,9 @@ verifies('typescript:hosting:entry:dual-era-one-factory', async ({ protocolVersi
             params: { name: 'greet', arguments: { name: 'new friend' }, _meta: modernEnvelope('auto-client') }
         })) as CallToolResult;
         expect(result.content).toEqual([{ type: 'text', text: 'hello new friend (modern)' }]);
+        // ...and still no initialize anywhere on the wire after the tool call —
+        // the whole conversation rode the modern handshake.
+        expect(requestBodies.some(body => body.includes('"initialize"'))).toBe(false);
     } finally {
         await client.close();
     }
@@ -139,6 +142,8 @@ verifies('typescript:hosting:entry:pin-negotiation', async (_args: TestArgs) => 
             params: { name: 'greet', arguments: { name: 'pinned' }, _meta: modernEnvelope('pin-client') }
         })) as CallToolResult;
         expect(result.content).toEqual([{ type: 'text', text: 'hello pinned (modern)' }]);
+        // ...and still no initialize anywhere on the wire after the tool call.
+        expect(bodies.some(body => body.includes('"initialize"'))).toBe(false);
     } finally {
         await client.close();
     }

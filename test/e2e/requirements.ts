@@ -2250,7 +2250,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'A real sessionful legacy wiring (per-session WebStandardStreamableHTTPServerTransport instances keyed by Mcp-Session-Id) passed as the createMcpHandler legacy slot value serves the full 2025-era session lifecycle through the entry: initialize issues an Mcp-Session-Id, a follow-up POST is served on that session, GET opens the standalone SSE stream, and DELETE tears the session down (a request carrying the dead session id answers 404).',
         transports: ['streamableHttp'],
         removedInSpecVersion: '2026-07-28',
-        note: 'The lifecycle is a statement about 2025-era serving through the bring-your-own legacy slot, so the requirement is bounded to the 2025-11-25 axis; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and fixed to a single streamableHttp-labelled cell. It pins the entry routing of body-less GET and DELETE to the legacy slot and byte-untouched forwarding to the bring-your-own handler.'
+        note: 'The lifecycle is a statement about 2025-era serving through the bring-your-own legacy slot, so the requirement is bounded to the 2025-11-25 axis; the cell hosts the handler node face on a real node:http listener, so the matrix transport arg is ignored and fixed to a single streamableHttp-labelled cell. It pins the entry routing of body-less GET and DELETE to the bring-your-own legacy slot, observed at the slot as method/status/content-type; byte-level forwarding fidelity is not asserted.'
     },
     'typescript:hosting:entry:modern-lazy-sse-upgrade': {
         source: 'sdk',
