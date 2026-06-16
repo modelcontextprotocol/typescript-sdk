@@ -7,6 +7,7 @@
  */
 import type { CallToolResult, JSONRPCRequest, MessageClassification } from '@modelcontextprotocol/core';
 import {
+    classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
@@ -36,11 +37,53 @@ const ENVELOPE = {
  * - HTTP status: pre-handler rejections are status-mapped on the modern
  *   per-request path (e.g. method-not-found answers HTTP 404), while the
  *   2025-era transport always carries dispatch errors in-band on HTTP 200.
+ *   Asserted literally on both legs by the unknown-method test below.
  * - The modern era requires the per-request `_meta` envelope on every
  *   request; the inputs below carry it on the modern leg only, where it is
  *   wire-level bookkeeping that never reaches handlers.
+ * - The malformed-body divergences enumerated in {@link KNOWN_EDGE_DIVERGENCES},
+ *   asserted literally on both legs by the divergence-table test below.
  */
-const ERA_MANDATED_DIFFERENCES = ['http-status-mapping', 'per-request-envelope'] as const;
+
+/**
+ * Known, deliberate divergences between what the deployed 2025-era streamable
+ * HTTP transport answers for a malformed POST body and what the modern edge
+ * (the inbound classifier) answers for the same body.
+ *
+ * These are hand-written literals — NOT derived from the observed behavior of
+ * either leg — so a behavior change on EITHER side fails the assertions below
+ * and forces this enumeration (and the matching cell-sheet rationales in the
+ * core package) to be revisited.
+ */
+const KNOWN_EDGE_DIVERGENCES: ReadonlyArray<{
+    divergence: string;
+    /** The parsed POST body both legs receive. */
+    body: unknown;
+    /** What the deployed 2025-era transport answers today. */
+    legacy: { httpStatus: number; code?: number };
+    /** What the modern edge (the inbound classifier) answers. */
+    modernEdge: { httpStatus: number; code: number };
+    rationale: string;
+}> = [
+    {
+        divergence: 'parsed-but-not-json-rpc-single-object',
+        body: { hello: 'world' },
+        legacy: { httpStatus: 400, code: -32_700 },
+        modernEdge: { httpStatus: 400, code: -32_600 },
+        rationale:
+            'The deployed transport answers a parse error (-32700) for a parsed body that is not a JSON-RPC message; the modern ' +
+            'edge answers the JSON-RPC-correct invalid request (-32600).'
+    },
+    {
+        divergence: 'empty-batch',
+        body: [],
+        legacy: { httpStatus: 202 },
+        modernEdge: { httpStatus: 400, code: -32_600 },
+        rationale:
+            'The deployed transport accepts an empty batch as containing only notifications (202, no body); the modern edge ' +
+            'rejects it as an invalid request.'
+    }
+];
 
 interface LegError {
     status: number;
@@ -54,6 +97,30 @@ function buildServer(): Server {
         throw new ProtocolError(-32_002, 'resource missing');
     });
     return server;
+}
+
+/**
+ * Posts an arbitrary (possibly malformed) body to the deployed 2025-era
+ * transport and returns the raw HTTP outcome — unlike {@link legacyLeg}, it
+ * does not assume the response carries a JSON error body (a 202 has none).
+ */
+async function legacyRawLeg(body: unknown): Promise<{ status: number; error?: LegError['error'] }> {
+    const server = buildServer();
+    const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+    await server.connect(transport);
+    const response = await transport.handleRequest(
+        new Request('http://localhost/mcp', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+            body: JSON.stringify(body)
+        })
+    );
+    const text = await response.text();
+    await server.close();
+    return {
+        status: response.status,
+        ...(text.length > 0 && { error: (JSON.parse(text) as { error: LegError['error'] }).error })
+    };
 }
 
 async function legacyLeg(body: Record<string, unknown>): Promise<LegError> {
@@ -88,9 +155,27 @@ async function modernLeg(body: Record<string, unknown>): Promise<LegError> {
 }
 
 describe('era-parity error shapes', () => {
-    it('enumerates the era-mandated differences it tolerates', () => {
-        expect(ERA_MANDATED_DIFFERENCES).toEqual(['http-status-mapping', 'per-request-envelope']);
-    });
+    it.each(KNOWN_EDGE_DIVERGENCES)(
+        'known divergence "$divergence": both legs answer exactly what the table enumerates',
+        async ({ body, legacy, modernEdge }) => {
+            // Legacy leg: the deployed 2025-era transport, exercised over HTTP.
+            const legacyActual = await legacyRawLeg(body);
+            expect(legacyActual.status).toBe(legacy.httpStatus);
+            if (legacy.code !== undefined) {
+                expect(legacyActual.error?.code).toBe(legacy.code);
+            } else {
+                expect(legacyActual.error).toBeUndefined();
+            }
+
+            // Modern leg: the per-request path answers these bodies at the
+            // edge (the inbound classifier) — they never reach a transport.
+            const modernActual = classifyInboundRequest({ httpMethod: 'POST', body });
+            expect(modernActual.kind).toBe('reject');
+            if (modernActual.kind !== 'reject') return;
+            expect(modernActual.httpStatus).toBe(modernEdge.httpStatus);
+            expect(modernActual.code).toBe(modernEdge.code);
+        }
+    );
 
     it('an unknown method produces the same JSON-RPC error on both legs (status mapping is the enumerated difference)', async () => {
         const input = { jsonrpc: '2.0', id: 11, method: 'definitely/unknown', params: {} };

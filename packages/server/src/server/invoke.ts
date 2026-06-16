@@ -45,8 +45,11 @@ export interface InvokeContext {
  * is injected through the normal transport message path, and whatever the
  * dispatch layer produces (the handler result, a protocol-level rejection, or
  * streamed related messages followed by the result) is captured as the
- * returned `Response`. Exchange teardown rides the transport's close chain;
- * dropping the per-request instance afterwards is the caller's choice.
+ * returned `Response`. For request exchanges, teardown rides the transport's
+ * close chain once the terminal response has been delivered; notification
+ * exchanges resolve with the 202 response immediately and do NOT run the
+ * close chain — the transport stays connected until the caller closes it or
+ * drops the per-request instance, which is the caller's choice either way.
  */
 export async function invoke(
     server: Server | McpServer,
