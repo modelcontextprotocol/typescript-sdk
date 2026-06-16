@@ -21,15 +21,6 @@
 # milestone.
 
 client:
-    # --- Blocked by the referee's mock servers ---
-    # The alpha.3 mock servers omit resultType from results and the SDK 2026
-    # decode rejects them ("servers implementing protocol revision 2026-07-28
-    # MUST include it"), so the client errors on tools/list before the tool
-    # call under test. The mock fix is already merged upstream in the
-    # conformance repo; this entry unblocks at the next published conformance
-    # release + pin bump.
-    - tools_call
-
     # --- SEP-837 (application_type during DCR) ---
     # The sep-837-application-type-present check only fires on draft-version
     # runs; the client omits application_type during Dynamic Client
@@ -90,16 +81,10 @@ server:
     - sep-2164-resource-not-found
 
     # --- Draft scenarios (same failures and reasons as the `--suite draft` leg) ---
-    # SEP-2575 (stateless HTTP / _meta envelope): only the envelope/header
-    # error-code cells fail - missing _meta and missing protocolVersion expect
-    # -32602 and the header/body mismatch cell expects -32001 HeaderMismatch,
-    # while the SDK emits the provisional -32004 (parameterized pending
-    # conformance #336, see header note).
-    - server-stateless
-    # SEP-2243 (HTTP header standardization): some header cross-check cells
-    # (Mcp-Name mismatch, case/whitespace handling) are not rejected yet, and
-    # the rejection error code is the disputed cell family.
-    # (Error-code cells parameterized pending conformance #336 - see header note.)
+    # SEP-2243 (HTTP header standardization): the reject cells the SDK does
+    # answer now use -32001 (HeaderMismatch), but missing-header enforcement
+    # (Mcp-Method, Mcp-Name) and the Mcp-Name cross-check are not implemented,
+    # so those reject cells are still accepted with 200.
     - http-header-validation
     # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented
     # in the SDK, so the fixture does not register the scenarios' diagnostic

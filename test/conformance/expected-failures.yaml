@@ -2,13 +2,9 @@
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.3). Newer conformance releases
+# release pinned in package.json (0.2.0-alpha.4). Newer conformance releases
 # are adopted by deliberately bumping the package.json pin and reconciling
-# this file in the same change. 0.2.0-alpha.3 fixes the draft wire version
-# (2026-07-28). Several auth scenarios in this baseline (auth/iss-*,
-# auth/authorization-server-migration, auth/enterprise-managed-authorization)
-# are still not shipped in the published release — the runner reports them
-# unknown/failed; their entries below cover them either way.
+# this file in the same change.
 #
 # NOTE: the SDK's modern-path rejection codes are aligned with what this
 # referee asserts: header/body mismatches answer -32001 (HeaderMismatch) and a
@@ -56,15 +52,6 @@ client:
 
 server:
     # --- Draft-spec scenarios (in `--suite draft`; the default `active` suite is green) ---
-    # SEP-2575 (stateless HTTP / _meta envelope): the fixture serves the
-    # 2026-07-28 path; error responses now echo the request JSON-RPC id and
-    # `initialize` gets removed-method handling (404/-32601), so the only
-    # remaining failures are the envelope/header error-code cells that are
-    # parameterized pending conformance #336 (see header note): missing _meta
-    # and missing protocolVersion expect -32602 and the header/body mismatch
-    # cell expects -32001 HeaderMismatch, while the SDK emits the provisional
-    # -32004.
-    - server-stateless
     # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented
     # in the SDK, so the fixture does not register the scenarios' diagnostic
     # test_input_required_result_* tools.
