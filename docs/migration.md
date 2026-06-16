@@ -1122,8 +1122,9 @@ server.registerResource('config', 'config://app', { cacheHint: { ttlMs: 5_000 } 
 }));
 ```
 
-Resolution is most specific first: cache fields returned by the handler itself (when valid) win over the per-resource `cacheHint`, which wins over `ServerOptions.cacheHints[operation]`, which wins over the defaults. Configured hints are validated when they are configured —
-an invalid `ttlMs` (negative or non-integer) or `cacheScope` throws a `RangeError`. Responses on 2025-era connections never carry these fields, with or without configuration.
+Resolution is per field, most specific author first: for each of `ttlMs` and `cacheScope`, a value returned by the handler itself (when valid) wins over the per-resource `cacheHint`, which wins over `ServerOptions.cacheHints[operation]`, which wins over the default — so a
+per-resource hint that sets only one field never suppresses the other field configured at the operation level. Configured hints are validated when they are configured — an invalid `ttlMs` (negative or non-integer) or `cacheScope` throws a `RangeError`. Responses on
+2025-era connections never carry these fields, with or without configuration.
 
 ### Typed `-32003` missing-client-capability error
 

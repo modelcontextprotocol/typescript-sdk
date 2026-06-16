@@ -150,7 +150,9 @@ export type ServerOptions = ProtocolOptions & {
      * cache fields — most useful for the list results and `server/discover`,
      * which the SDK builds itself. A hint registered with an individual
      * resource (`registerResource(..., { cacheHint })`) takes precedence for
-     * that resource's `resources/read` results.
+     * that resource's `resources/read` results, field by field: a field the
+     * per-resource hint leaves unset still falls back to the per-operation
+     * hint configured here.
      *
      * Absent hints (or omitting this option entirely) keep today's behavior:
      * cacheable 2026-07-28 results are emitted with `ttlMs: 0` and

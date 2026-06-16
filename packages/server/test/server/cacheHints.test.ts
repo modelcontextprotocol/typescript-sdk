@@ -4,8 +4,8 @@
  *  - `ServerOptions.cacheHints` (per-operation hints for SDK-built results),
  *  - `registerResource(..., { cacheHint })` (per-resource hints),
  *  - configuration-time validation (`RangeError`),
- *  - precedence: handler-returned values (when valid) over the per-resource
- *    hint over the per-operation hint over the defaults
+ *  - precedence, resolved per field: handler-returned values (when valid)
+ *    over the per-resource hint over the per-operation hint over the defaults
  *    `{ ttlMs: 0, cacheScope: 'private' }`,
  *  - and the era boundary: 2025-era responses never gain any of it.
  */
@@ -151,6 +151,51 @@ describe('modern (2026-07-28) responses', () => {
         }));
         const result = await modernResult(mcpServer, modernRequest('resources/read', { uri: 'test://plain' }));
         expect(result).toMatchObject({ ttlMs: 1_000, cacheScope: 'private' });
+    });
+
+    it('a per-resource hint setting only cacheScope still takes ttlMs from the per-operation hint (per-field resolution)', async () => {
+        const mcpServer = buildMcpServer({ cacheHints: { 'resources/read': { ttlMs: 1_000 } } });
+        mcpServer.registerResource('scoped', 'test://scoped', { cacheHint: { cacheScope: 'public' } }, async uri => ({
+            contents: [{ uri: uri.href, text: 'scoped' }]
+        }));
+        const result = await modernResult(mcpServer, modernRequest('resources/read', { uri: 'test://scoped' }));
+        expect(result).toMatchObject({ ttlMs: 1_000, cacheScope: 'public' });
+    });
+
+    it('a per-resource hint setting only ttlMs still takes cacheScope from the per-operation hint (per-field resolution)', async () => {
+        const mcpServer = buildMcpServer({ cacheHints: { 'resources/read': { cacheScope: 'public' } } });
+        mcpServer.registerResource('timed', 'test://timed', { cacheHint: { ttlMs: 2_000 } }, async uri => ({
+            contents: [{ uri: uri.href, text: 'timed' }]
+        }));
+        const result = await modernResult(mcpServer, modernRequest('resources/read', { uri: 'test://timed' }));
+        expect(result).toMatchObject({ ttlMs: 2_000, cacheScope: 'public' });
+    });
+
+    it('when both configured hints set the same fields, the per-resource values win for every field', async () => {
+        const mcpServer = buildMcpServer({ cacheHints: { 'resources/read': { ttlMs: 1_000, cacheScope: 'private' } } });
+        mcpServer.registerResource('full', 'test://full', { cacheHint: { ttlMs: 2_000, cacheScope: 'public' } }, async uri => ({
+            contents: [{ uri: uri.href, text: 'full' }]
+        }));
+        const result = await modernResult(mcpServer, modernRequest('resources/read', { uri: 'test://full' }));
+        expect(result).toMatchObject({ ttlMs: 2_000, cacheScope: 'public' });
+    });
+
+    it('a field neither configured author sets falls back to the default', async () => {
+        const mcpServer = buildMcpServer({ cacheHints: { 'resources/read': { ttlMs: 1_000 } } });
+        mcpServer.registerResource('partial', 'test://partial', { cacheHint: { ttlMs: 2_000 } }, async uri => ({
+            contents: [{ uri: uri.href, text: 'partial' }]
+        }));
+        const result = await modernResult(mcpServer, modernRequest('resources/read', { uri: 'test://partial' }));
+        expect(result).toMatchObject({ ttlMs: 2_000, cacheScope: 'private' });
+    });
+
+    it('fills the defaults for resources/read when neither configured author provides a hint', async () => {
+        const mcpServer = buildMcpServer();
+        mcpServer.registerResource('bare', 'test://bare', {}, async uri => ({
+            contents: [{ uri: uri.href, text: 'bare' }]
+        }));
+        const result = await modernResult(mcpServer, modernRequest('resources/read', { uri: 'test://bare' }));
+        expect(result).toMatchObject({ ttlMs: 0, cacheScope: 'private' });
     });
 
     it('valid handler-returned cache fields win over every configured hint', async () => {

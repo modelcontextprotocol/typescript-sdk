@@ -8,7 +8,8 @@
  *
  *   1. fields the handler returned on the result itself (when valid),
  *   2. a configured cache hint attached by the server layer
- *      (per-registration hint, then the server-level per-operation hint),
+ *      (per-registration hint, then the server-level per-operation hint,
+ *      combined per field — see {@linkcode attachCacheHintFallback}),
  *   3. the conservative defaults `{ ttlMs: 0, cacheScope: 'private' }`.
  *
  * The configured hint travels from the (era-blind) server configuration to the
@@ -72,19 +73,31 @@ interface CacheHintCarrier {
 
 /**
  * Attaches a configured cache hint to a result as the encode-time fallback.
- * Returns the result unchanged when there is nothing to attach or when a more
- * specific hint is already attached (most-specific-author-wins: a
- * per-registration hint attached by the feature layer is never overwritten by
- * the server-level per-operation hint).
+ * Returns the result unchanged when there is nothing to attach. When a more
+ * specific hint is already attached, the two hints are combined per field
+ * (most-specific-author-wins for each of `ttlMs` and `cacheScope`): the
+ * per-registration hint attached by the feature layer keeps every field it
+ * sets, and the server-level per-operation hint only fills the fields the
+ * more specific hint leaves unset.
  */
 export function attachCacheHintFallback<T extends object>(result: T, hint: CacheHint | undefined): T {
     if (hint === undefined) {
         return result;
     }
-    if ((result as CacheHintCarrier)[RESULT_CACHE_HINT_FALLBACK] !== undefined) {
-        return result;
+    const attached = (result as CacheHintCarrier)[RESULT_CACHE_HINT_FALLBACK];
+    if (attached === undefined) {
+        return { ...result, [RESULT_CACHE_HINT_FALLBACK]: hint };
     }
-    return { ...result, [RESULT_CACHE_HINT_FALLBACK]: hint };
+    const merged: CacheHint = {};
+    const ttlMs = attached.ttlMs ?? hint.ttlMs;
+    if (ttlMs !== undefined) {
+        merged.ttlMs = ttlMs;
+    }
+    const cacheScope = attached.cacheScope ?? hint.cacheScope;
+    if (cacheScope !== undefined) {
+        merged.cacheScope = cacheScope;
+    }
+    return { ...result, [RESULT_CACHE_HINT_FALLBACK]: merged };
 }
 
 /** Reads the configured cache-hint fallback attached to a result, if any. */

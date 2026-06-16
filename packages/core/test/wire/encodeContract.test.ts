@@ -161,6 +161,12 @@ describe('step 2 — the cache fill', () => {
         const withBoth = attachCacheHintFallback(withSpecific, { ttlMs: 50 });
         expect(cacheHintFallbackOf(withBoth)).toEqual({ ttlMs: 2_000 });
     });
+
+    test('attachCacheHintFallback combines hints per field: a less specific hint fills only the fields the attached hint leaves unset', () => {
+        const withSpecific = attachCacheHintFallback(asResult({}), { cacheScope: 'public' });
+        const withBoth = attachCacheHintFallback(withSpecific, { ttlMs: 50, cacheScope: 'private' });
+        expect(cacheHintFallbackOf(withBoth)).toEqual({ ttlMs: 50, cacheScope: 'public' });
+    });
 });
 
 describe('the codec integration (encodeResult applies the contract in pinned order)', () => {
