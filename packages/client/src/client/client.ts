@@ -14,6 +14,7 @@ import type {
     GetPromptRequest,
     GetPromptResult,
     Implementation,
+    JSONRPCNotification,
     JSONRPCRequest,
     JsonSchemaType,
     JsonSchemaValidator,
@@ -49,6 +50,8 @@ import {
     CreateMessageResultWithToolsSchema,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
+    isJSONRPCRequest,
+    isModernProtocolVersion,
     legacyProtocolVersions,
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
@@ -273,6 +276,27 @@ export class Client extends Protocol<ClientContext> {
 
     protected override buildContext(ctx: BaseContext, _transportInfo?: MessageExtraInfo): ClientContext {
         return ctx;
+    }
+
+    /**
+     * Era-keyed direction enforcement for inbound traffic on channels whose
+     * transport does not classify (e.g. stdio): the 2026-07-28 era has no
+     * server→client JSON-RPC request channel — server-to-client interactions
+     * are carried in-band in `input_required` results — and on stdio the
+     * client must never write JSON-RPC responses. An inbound request arriving
+     * on a connection that negotiated a modern era is therefore dropped
+     * (surfaced via `onerror`) rather than answered. Connections on a legacy
+     * era — and all responses and notifications — keep today's dispatch path.
+     */
+    protected override _classifyInbound(message: JSONRPCRequest | JSONRPCNotification): 'drop' | undefined {
+        if (
+            this._negotiatedProtocolVersion !== undefined &&
+            isModernProtocolVersion(this._negotiatedProtocolVersion) &&
+            isJSONRPCRequest(message)
+        ) {
+            return 'drop';
+        }
+        return undefined;
     }
 
     /**

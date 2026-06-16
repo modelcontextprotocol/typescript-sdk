@@ -62,6 +62,20 @@ const transport = new StdioServerTransport();
 await server.connect(transport);
 ```
 
+#### Serving the 2026-07-28 draft revision on stdio
+
+By default a stdio server speaks the 2025-era protocol it was written for (`eraSupport: 'legacy'`): nothing about its wire behavior changes when you upgrade the SDK. Serving the 2026-07-28 draft revision is one explicit option — the transport stays unchanged:
+
+```typescript
+const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { eraSupport: 'dual-era' });
+await server.connect(new StdioServerTransport());
+```
+
+With `eraSupport: 'dual-era'` the same long-lived connection serves both eras, selected per message: plain 2025 clients keep using `initialize` and are served exactly as before, while 2026-capable clients negotiate via `server/discover` and send each request with the
+per-request `_meta` envelope. Methods that exist in only one era stay invisible to the other (a 2025-era client asking for a 2026-only method gets a plain `-32601`). `eraSupport: 'modern'` is strict 2026-only. On dual-era instances, read per-request client identity from
+`ctx.mcpReq.envelope` in your handlers rather than the connection-scoped accessors (see the [migration guide](./migration.md) for details). A runnable example lives at `examples/server/src/dualEraStdio.ts`, with a two-legged client at
+`examples/client/src/dualEraStdioClient.ts`.
+
 ## Server instructions
 
 Instructions describe how to use the server and its features — cross-tool relationships, workflow patterns, and constraints (see [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP specification). Clients may add them to the system prompt. Instructions should not duplicate information already in tool descriptions.

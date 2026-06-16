@@ -15,6 +15,7 @@ import type {
     JSONRPCResponse,
     JSONRPCResultResponse,
     LoggingLevel,
+    MessageClassification,
     MessageExtraInfo,
     Notification,
     NotificationMethod,
@@ -488,6 +489,28 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     protected abstract buildContext(ctx: BaseContext, transportInfo?: MessageExtraInfo): ContextT;
 
+    /**
+     * Classification consult for inbound messages whose transport did not
+     * classify them at the edge — long-lived dual-era channels such as stdio,
+     * where the protocol era is decided per message rather than per request
+     * at an HTTP edge.
+     *
+     * Consulted ONLY when the transport supplied no
+     * {@linkcode MessageExtraInfo.classification}: an edge classification
+     * always wins and the hook is never reached for it. The returned
+     * classification populates the carrier; on an instance with no negotiated
+     * protocol version it also selects the wire era for this one message,
+     * while an instance bound to a negotiated version validates it exactly
+     * like an edge classification (a mismatch is the typed
+     * unsupported-protocol-version answer for requests, a drop for
+     * notifications). Returning `'drop'` discards the message without writing
+     * any response. The base implementation returns `undefined`: unclassified
+     * traffic keeps today's dispatch path unchanged.
+     */
+    protected _classifyInbound(_message: JSONRPCRequest | JSONRPCNotification): MessageClassification | 'drop' | undefined {
+        return undefined;
+    }
+
     private async _oncancel(notification: CancelledNotification): Promise<void> {
         if (!notification.params.requestId) {
             return;
@@ -627,9 +650,27 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         // Era is instance state: the negotiated protocol version selects the
         // codec for everything this connection receives (legacy until
-        // negotiated). Classification is no longer a per-message era switch —
-        // it is validated against the instance era below.
-        const codec = this._negotiatedWireCodec();
+        // negotiated). An edge classification is never a per-message era
+        // switch — it is validated against the instance era below.
+        let codec = this._negotiatedWireCodec();
+
+        // Classification consult (only when the transport did not classify;
+        // an edge classification always wins and never reaches the hook). On
+        // an unbound instance the hook's classification selects the era for
+        // this one message (long-lived dual-era channels); a bound instance
+        // validates it below exactly like an edge classification.
+        if (extra?.classification === undefined) {
+            const consulted = this._classifyInbound(rawNotification);
+            if (consulted === 'drop') {
+                return;
+            }
+            if (consulted !== undefined) {
+                extra = { ...extra, classification: consulted };
+                if (this._negotiatedProtocolVersion === undefined) {
+                    codec = codecForVersion(classifiedWireEra(consulted));
+                }
+            }
+        }
 
         // Edge→instance handoff check: a classification that disagrees with
         // the instance era means the entry routed another era's traffic onto
@@ -679,11 +720,30 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         // Era is instance state: the negotiated protocol version selects the
         // codec for everything this connection receives (legacy until
-        // negotiated). Classification (Q2; this layer only CONSUMES
-        // MessageExtraInfo.classification) is no longer a per-message era
-        // switch — it is validated against the instance era below. Hand-wired
-        // legacy transports never classify, so their behavior is untouched.
-        const codec = this._negotiatedWireCodec();
+        // negotiated). An edge classification (Q2; produced at the HTTP
+        // entry) is never a per-message era switch — it is validated against
+        // the instance era below. Hand-wired legacy transports never
+        // classify, so their behavior is untouched.
+        let codec = this._negotiatedWireCodec();
+
+        // Classification consult (only when the transport did not classify;
+        // an edge classification always wins and never reaches the hook). On
+        // an unbound instance the hook's classification selects the era for
+        // this one message (long-lived dual-era channels); a bound instance
+        // validates it below exactly like an edge classification.
+        if (extra?.classification === undefined) {
+            const consulted = this._classifyInbound(rawRequest);
+            if (consulted === 'drop') {
+                this._onerror(new Error(`Dropped inbound request '${rawRequest.method}': not servable on this connection's protocol era`));
+                return;
+            }
+            if (consulted !== undefined) {
+                extra = { ...extra, classification: consulted };
+                if (this._negotiatedProtocolVersion === undefined) {
+                    codec = codecForVersion(classifiedWireEra(consulted));
+                }
+            }
+        }
 
         // Capture the current transport at request time to ensure responses go to the correct client
         const capturedTransport = this._transport;
