@@ -550,6 +550,15 @@ These can require code changes:
 - `Server.getClientCapabilities()`, `getClientVersion()` and `getNegotiatedProtocolVersion()` are deprecated but functional: prefer the per-request context (`ctx.mcpReq.envelope`) on 2026-07-28 requests. No mechanical change required yet; plan the move before the deprecations are removed.
 - `createMcpExpressApp()` / `createMcpHonoApp()` / `createMcpFastifyApp()` with a localhost-class `host` now also validate the `Origin` header by default (requests without an `Origin` header are unaffected). Browser-served clients on a non-localhost origin need `allowedOrigins: [...]`, which replaces the default localhost allowlist — Origin validation cannot be disabled for localhost-class binds.
 
+### Server (HTTP entry: createMcpHandler — serving the 2026-07-28 draft revision)
+
+These apply only to code already written against an earlier 2.0 alpha's `createMcpHandler`; v1 has no equivalent API:
+
+- DEFAULT FLIP: `createMcpHandler(factory)` now serves 2025-era (non-envelope) traffic by default through per-request stateless serving (`legacy: 'stateless'`, the default). The earlier 2.0 alpha default was modern-only strict. Pass `legacy: 'reject'` explicitly to keep a strict, modern-only endpoint.
+- REMOVED: the handler-valued `legacy` option (`legacy: <fetch-shaped handler>`). The option type is now `legacy?: 'stateless' | 'reject'`. Replace `createMcpHandler(factory, { legacy: myLegacyHandler })` with explicit user-land routing: `if (await isLegacyRequest(request)) return myLegacyHandler(request); return strictHandler.fetch(request)` where `strictHandler = createMcpHandler(factory, { legacy: 'reject' })`.
+- NEW EXPORT: `isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean>` from `@modelcontextprotocol/server` — the entry's own classification step. Returns `true` only for requests with no per-request `_meta` envelope claim (claim-less POSTs including `initialize`, GET/DELETE session operations, all-legacy batches, posted responses, non-JSON bodies). Returns `false` for envelope-claiming requests AND for malformed/incomplete modern claims (the modern path answers those with `-32602`/`-32001`) — route `false` traffic to the modern handler, never to a legacy handler. The predicate classifies a clone (the body stays readable); pass the parsed body as the second argument when the stream was already consumed.
+- `legacyStatelessFallback(factory)` remains exported as a standalone fetch-shaped handler producing the same stateless legacy serving as the default.
+
 ### Server (stdio / long-lived connections)
 
 - A hand-constructed `Server`/`McpServer` connected to a `StdioServerTransport` serves only the 2025-era protocol it was written for: today's behavior, byte-identical — no change required during a mechanical migration.
