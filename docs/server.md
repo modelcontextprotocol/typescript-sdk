@@ -64,17 +64,22 @@ await server.connect(transport);
 
 #### Serving the 2026-07-28 draft revision on stdio
 
-By default a stdio server speaks the 2025-era protocol it was written for (`eraSupport: 'legacy'`): nothing about its wire behavior changes when you upgrade the SDK. Serving the 2026-07-28 draft revision is one explicit option — the transport stays unchanged:
+A hand-constructed stdio server speaks the 2025-era protocol it was written for: nothing about its wire behavior changes when you upgrade the SDK. Serving the 2026-07-28 draft revision goes through the connection-pinned `serveStdio` entry, which mirrors `createMcpHandler`
+for long-lived connections — the entry owns the transport and the era decision, and one instance from your factory serves the era the client opened the connection with:
 
 ```typescript
-const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { eraSupport: 'dual-era' });
-await server.connect(new StdioServerTransport());
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
+
+serveStdio(() => {
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+    // register tools/resources/prompts once — the same factory serves both eras
+    return server;
+});
 ```
 
-With `eraSupport: 'dual-era'` the same long-lived connection serves both eras, selected per message: plain 2025 clients keep using `initialize` and are served exactly as before, while 2026-capable clients negotiate via `server/discover` and send each request with the
-per-request `_meta` envelope. Methods that exist in only one era stay invisible to the other (a 2025-era client asking for a 2026-only method gets a plain `-32601`). `eraSupport: 'modern'` is strict 2026-only. On dual-era instances, read per-request client identity from
-`ctx.mcpReq.envelope` in your handlers rather than the connection-scoped accessors (see the [migration guide](./migration.md) for details). A runnable example lives at `examples/server/src/dualEraStdio.ts`, with a two-legged client at
-`examples/client/src/dualEraStdioClient.ts`.
+Plain 2025 clients open with `initialize` and are served exactly as before; 2026-capable clients negotiate via `server/discover` and send each request with the per-request `_meta` envelope, and their connection is pinned to a 2026-era instance. Pass `legacy: 'reject'` to
+refuse 2025-era openings with the unsupported-protocol-version error. On 2026-pinned connections, read per-request client identity from `ctx.mcpReq.envelope` in your handlers rather than the connection-scoped accessors (see the [migration guide](./migration.md) for
+details). A runnable example lives at `examples/server/src/dualEraStdio.ts`, with a two-legged client at `examples/client/src/dualEraStdioClient.ts`.
 
 ## Server instructions
 
