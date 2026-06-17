@@ -33,6 +33,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
+import type { McpServerFactory } from '../../src/server/createMcpHandler.js';
 import { McpServer } from '../../src/server/mcp.js';
 import type { ServeStdioOptions } from '../../src/server/serveStdio.js';
 import { serveStdio } from '../../src/server/serveStdio.js';
@@ -83,9 +84,8 @@ function trackingFactory() {
     return { factory, eras, closed };
 }
 
-/** Boots the entry on one side of an in-memory pair and returns raw drivers for the peer side. */
-async function startEntry(options?: Omit<ServeStdioOptions, 'transport'>) {
-    const { factory, eras, closed } = trackingFactory();
+/** Boots the entry on one side of an in-memory pair with the given factory and returns raw drivers for the peer side. */
+async function startEntryWith(factory: McpServerFactory, options?: Omit<ServeStdioOptions, 'transport'>) {
     const [peerTx, wireTx] = InMemoryTransport.createLinkedPair();
 
     const inbound: JSONRPCMessage[] = [];
@@ -112,7 +112,13 @@ async function startEntry(options?: Omit<ServeStdioOptions, 'transport'>) {
     const notify = (message: JSONRPCNotification): Promise<void> => peerTx.send(message);
     const flush = () => new Promise(resolve => setTimeout(resolve, 20));
 
-    return { handle, request, notify, flush, inbound, errors, eras, closed, peerTx };
+    return { handle, request, notify, flush, inbound, errors, peerTx };
+}
+
+/** Boots the entry with a fresh tracking factory (the default harness for most tests). */
+async function startEntry(options?: Omit<ServeStdioOptions, 'transport'>) {
+    const { factory, eras, closed } = trackingFactory();
+    return { ...(await startEntryWith(factory, options)), eras, closed };
 }
 
 describe('legacy opening (default legacy: serve)', () => {
@@ -374,6 +380,102 @@ describe('malformed and unsupported envelope claims (entry-answered, never pinne
             expect(data.requested).toBe('2099-01-01');
         }
         expect(eras).toEqual([]);
+
+        await handle.close();
+    });
+});
+
+describe('factory or connect failure during the opening exchange (entry-answered, never pinned)', () => {
+    it('answers a legacy opening with -32603 when the factory throws, reports the error, and leaves the connection unpinned', async () => {
+        const { factory: workingFactory, eras } = trackingFactory();
+        let failures = 1;
+        const factory: McpServerFactory = ctx => {
+            if (failures > 0) {
+                failures -= 1;
+                throw new Error('factory failed to build an instance');
+            }
+            return workingFactory(ctx);
+        };
+        const { handle, request, flush, errors } = await startEntryWith(factory);
+
+        const init = await request(initializeRequest(1));
+        expect(isJSONRPCErrorResponse(init)).toBe(true);
+        if (isJSONRPCErrorResponse(init)) {
+            expect(init.error.code).toBe(-32_603);
+            expect(init.error.message).toBe('Internal server error');
+        }
+        await flush();
+        expect(errors.some(error => error.message.includes('factory failed to build an instance'))).toBe(true);
+        expect(eras).toEqual([]);
+
+        // The failed opening did not pin the connection: a retried handshake
+        // on the same connection is served by a fresh legacy instance.
+        const retry = await request(initializeRequest(2));
+        expect(isJSONRPCResultResponse(retry)).toBe(true);
+        expect(eras).toEqual(['legacy']);
+
+        await handle.close();
+    });
+
+    it('answers a modern opening with -32603 when connecting the instance fails and leaves the connection unpinned', async () => {
+        const { factory: workingFactory, eras } = trackingFactory();
+        let failures = 1;
+        const factory: McpServerFactory = ctx => {
+            const product = workingFactory(ctx);
+            if (failures > 0) {
+                failures -= 1;
+                product.connect = () => Promise.reject(new Error('instance connect failed'));
+            }
+            return product;
+        };
+        const { handle, request, flush, errors } = await startEntryWith(factory);
+
+        const list = await request({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: envelope() } });
+        expect(isJSONRPCErrorResponse(list)).toBe(true);
+        if (isJSONRPCErrorResponse(list)) {
+            expect(list.error.code).toBe(-32_603);
+            expect(list.error.message).toBe('Internal server error');
+        }
+        await flush();
+        expect(errors.some(error => error.message.includes('instance connect failed'))).toBe(true);
+        // The factory ran but nothing was pinned: the next modern opening is
+        // served by a freshly connected instance.
+        expect(eras).toEqual(['modern']);
+
+        const retry = await request({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(retry)).toBe(true);
+        expect(eras).toEqual(['modern', 'modern']);
+
+        await handle.close();
+    });
+
+    it('answers a server/discover probe with -32603 when the factory rejects and keeps the negotiation window open', async () => {
+        const { factory: workingFactory, eras } = trackingFactory();
+        let failures = 1;
+        const factory: McpServerFactory = ctx => {
+            if (failures > 0) {
+                failures -= 1;
+                return Promise.reject(new Error('factory failed to build an instance'));
+            }
+            return workingFactory(ctx);
+        };
+        const { handle, request, flush, errors } = await startEntryWith(factory);
+
+        const discover = await request({ jsonrpc: '2.0', id: 'probe-1', method: 'server/discover', params: { _meta: envelope() } });
+        expect(isJSONRPCErrorResponse(discover)).toBe(true);
+        if (isJSONRPCErrorResponse(discover)) {
+            expect(discover.error.code).toBe(-32_603);
+            expect(discover.error.message).toBe('Internal server error');
+        }
+        await flush();
+        expect(errors.some(error => error.message.includes('factory failed to build an instance'))).toBe(true);
+        expect(eras).toEqual([]);
+
+        // The failed probe did not pin anything: the connection is still in
+        // the negotiation window and a fallback handshake is served normally.
+        const init = await request(initializeRequest(2));
+        expect(isJSONRPCResultResponse(init)).toBe(true);
+        expect(eras).toEqual(['legacy']);
 
         await handle.close();
     });

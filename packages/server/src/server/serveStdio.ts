@@ -474,6 +474,18 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                 try {
                     await processMessage(message);
                 } catch (error) {
+                    // Every arm of processMessage that answers a request does
+                    // so through writeErrorResponse (which never throws — wire
+                    // failures are routed to onerror) and returns right after,
+                    // so an error escaping to here means the request was never
+                    // answered. Answer it now: a throwing factory or a failed
+                    // connect during the opening exchange must not leave the
+                    // client's request hanging (the stdio analog of the HTTP
+                    // entry's internal-server-error response). Notifications
+                    // carry no id to answer and are only reported.
+                    if (isJSONRPCRequest(message)) {
+                        await writeErrorResponse(message.id, ProtocolErrorCode.InternalError, 'Internal server error');
+                    }
                     reportError(toError(error));
                 }
             }
