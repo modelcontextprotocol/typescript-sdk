@@ -409,7 +409,17 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                 return;
             }
             case 'modern': {
-                if (isJSONRPCRequest(message) && message.method === 'server/discover' && state.phase === 'opening') {
+                if (isJSONRPCRequest(message) && message.method === 'server/discover') {
+                    if (state.phase === 'probe') {
+                        // A repeated probe is answered by the same optimistic
+                        // instance and the negotiation window stays open: only
+                        // a non-discover enveloped request commits the
+                        // connection to the modern era, so a later fallback
+                        // `initialize` is still served by a fresh legacy
+                        // instance.
+                        state.instance.channel.deliver(message, { classification: opening.classification });
+                        return;
+                    }
                     // Probe: answer from an optimistically built modern
                     // instance so the advertisement reflects the real server
                     // definition, but do not pin the connection yet — the

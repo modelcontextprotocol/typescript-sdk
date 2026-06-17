@@ -300,6 +300,61 @@ describe('server/discover probe window', () => {
 
         await handle.close();
     });
+
+    it('a repeated server/discover probe is answered by the same probe instance and a later initialize still falls back to legacy', async () => {
+        const { handle, request, eras, closed } = await startEntry();
+
+        const first = await request({ jsonrpc: '2.0', id: 'probe-1', method: 'server/discover', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(first)).toBe(true);
+
+        const second = await request({ jsonrpc: '2.0', id: 'probe-2', method: 'server/discover', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(second)).toBe(true);
+        if (isJSONRPCResultResponse(second)) {
+            expect((second.result as { supportedVersions?: string[] }).supportedVersions).toEqual([MODERN]);
+        }
+
+        // Both probes were answered by the single optimistic instance; the
+        // connection is still inside the negotiation window.
+        expect(eras).toEqual(['modern']);
+
+        // The fallback handshake is still served by a fresh legacy instance.
+        const init = await request(initializeRequest(3));
+        expect(isJSONRPCResultResponse(init)).toBe(true);
+        if (isJSONRPCResultResponse(init)) {
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+        }
+        expect(eras).toEqual(['modern', 'legacy']);
+        expect(closed[0]).toBe(true);
+        expect(closed[1]).toBe(false);
+
+        await handle.close();
+    });
+
+    it('a repeated server/discover probe followed by an enveloped request pins the modern era', async () => {
+        const { handle, request, eras } = await startEntry();
+
+        const first = await request({ jsonrpc: '2.0', id: 'probe-1', method: 'server/discover', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(first)).toBe(true);
+
+        const second = await request({ jsonrpc: '2.0', id: 'probe-2', method: 'server/discover', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(second)).toBe(true);
+
+        const call = await request({
+            jsonrpc: '2.0',
+            id: 3,
+            method: 'tools/call',
+            params: { name: 'echo', arguments: { text: 'after repeated probe' }, _meta: envelope() }
+        });
+        expect(isJSONRPCResultResponse(call)).toBe(true);
+        if (isJSONRPCResultResponse(call)) {
+            expect((call.result as { content: unknown[] }).content).toEqual([{ type: 'text', text: 'after repeated probe' }]);
+        }
+
+        // The probe instance is the pinned instance: the factory ran exactly once.
+        expect(eras).toEqual(['modern']);
+
+        await handle.close();
+    });
 });
 
 describe("legacy: 'reject'", () => {
