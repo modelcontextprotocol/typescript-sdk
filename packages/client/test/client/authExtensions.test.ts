@@ -247,6 +247,53 @@ describe('auth-extensions providers (end-to-end with auth())', () => {
     });
 });
 
+describe('auth-extensions token expiration tracking', () => {
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    it('returns expires_in relative to when tokens were saved', () => {
+        vi.useFakeTimers();
+        vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));
+
+        const provider = new ClientCredentialsProvider({
+            clientId: 'my-client',
+            clientSecret: 'my-secret'
+        });
+
+        provider.saveTokens({
+            access_token: 'access-token',
+            token_type: 'Bearer',
+            expires_in: 120
+        });
+
+        expect(provider.tokens()?.expires_in).toBe(120);
+
+        vi.advanceTimersByTime(61_000);
+        expect(provider.tokens()?.expires_in).toBe(59);
+
+        vi.advanceTimersByTime(60_000);
+        expect(provider.tokens()?.expires_in).toBe(0);
+    });
+
+    it('preserves tokens without expiration metadata', () => {
+        const provider = new ClientCredentialsProvider({
+            clientId: 'my-client',
+            clientSecret: 'my-secret'
+        });
+
+        provider.saveTokens({
+            access_token: 'access-token',
+            token_type: 'Bearer'
+        });
+
+        expect(provider.tokens()).toEqual({
+            access_token: 'access-token',
+            token_type: 'Bearer'
+        });
+    });
+});
+
 describe('createPrivateKeyJwtAuth', () => {
     const baseOptions = {
         issuer: 'client-id',
