@@ -28,7 +28,9 @@ import {
     isJSONRPCErrorResponse,
     isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
-    PROTOCOL_VERSION_META_KEY
+    PROTOCOL_VERSION_META_KEY,
+    SdkError,
+    SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
@@ -562,6 +564,45 @@ describe('factory or connect failure during the opening exchange (entry-answered
         const init = await request(initializeRequest(2));
         expect(isJSONRPCResultResponse(init)).toBe(true);
         expect(eras).toEqual(['legacy']);
+
+        await handle.close();
+    });
+});
+
+describe('outbound era gate on a modern-pinned connection', () => {
+    it('a handler calling ctx.mcpReq.requestSampling gets the typed era error locally, with zero sampling wire traffic', async () => {
+        let observed: unknown;
+        const factory: McpServerFactory = () => {
+            const server = new McpServer({ name: 'serve-stdio-test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+            server.registerTool('sample', { description: 'Tries to request sampling', inputSchema: z.object({}) }, async (_args, ctx) => {
+                try {
+                    await ctx.mcpReq.requestSampling({ messages: [], maxTokens: 1 });
+                } catch (error) {
+                    observed = error;
+                }
+                return { content: [{ type: 'text', text: 'handled locally' }] };
+            });
+            return server;
+        };
+        const { handle, request, inbound } = await startEntryWith(factory);
+
+        const call = await request({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: 'sample', arguments: {}, _meta: envelope() }
+        });
+        expect(isJSONRPCResultResponse(call)).toBe(true);
+        if (isJSONRPCResultResponse(call)) {
+            expect((call.result as { content: unknown[] }).content).toEqual([{ type: 'text', text: 'handled locally' }]);
+        }
+
+        // The outbound era gate fired locally with the typed error…
+        expect(observed).toBeInstanceOf(SdkError);
+        expect((observed as SdkError).code).toBe(SdkErrorCode.MethodNotSupportedByProtocolVersion);
+        // …and nothing beyond the tool-call answer ever reached the wire: no
+        // sampling/createMessage request was written to the client.
+        expect(inbound).toEqual([call]);
 
         await handle.close();
     });
