@@ -505,7 +505,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * instance state, owned by the serving entry that constructed and
      * connected the instance.
      */
-    protected _classifyInbound(_message: JSONRPCRequest | JSONRPCNotification): 'drop' | undefined {
+    protected _shouldDropInbound(_message: JSONRPCRequest | JSONRPCNotification): 'drop' | undefined {
         return undefined;
     }
 
@@ -655,7 +655,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Drop consult (only when the transport did not classify; edge-
         // classified traffic never reaches the hook): a role class may decline
         // unclassified inbound traffic the negotiated era has no answer for.
-        if (extra?.classification === undefined && this._classifyInbound(rawNotification) === 'drop') {
+        if (extra?.classification === undefined && this._shouldDropInbound(rawNotification) === 'drop') {
             return;
         }
 
@@ -717,7 +717,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Drop consult (only when the transport did not classify; edge-
         // classified traffic never reaches the hook): a role class may decline
         // unclassified inbound traffic the negotiated era has no answer for.
-        if (extra?.classification === undefined && this._classifyInbound(rawRequest) === 'drop') {
+        if (extra?.classification === undefined && this._shouldDropInbound(rawRequest) === 'drop') {
             this._onerror(new Error(`Dropped inbound request '${rawRequest.method}': not servable on this connection's protocol era`));
             return;
         }

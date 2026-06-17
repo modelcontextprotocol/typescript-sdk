@@ -1,5 +1,5 @@
 /**
- * The protocol-layer drop consult (`Protocol._classifyInbound`):
+ * The protocol-layer drop consult (`Protocol._shouldDropInbound`):
  *
  * - B-2 pin: when the transport supplied an edge classification, the hook is
  *   NEVER consulted — the edge classification always wins.
@@ -38,7 +38,7 @@ class HookedProtocol extends Protocol<BaseContext> {
         return ctx;
     }
 
-    protected override _classifyInbound(message: JSONRPCRequest | JSONRPCNotification): 'drop' | undefined {
+    protected override _shouldDropInbound(message: JSONRPCRequest | JSONRPCNotification): 'drop' | undefined {
         this.consulted.push(message);
         return this.verdict?.(message);
     }
