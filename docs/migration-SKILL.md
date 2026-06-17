@@ -557,8 +557,8 @@ These can require code changes:
   envelope, with `server/discover` answered as a probe); one factory instance is pinned per connection. `serveStdio(factory, { legacy: 'reject' })` refuses 2025-era openings with the unsupported-protocol-version error.
 - REMOVED (was only in earlier 2.0 alphas): `ServerOptions.eraSupport`. Replace `new McpServer(info, { eraSupport: 'dual-era' })` + `connect(new StdioServerTransport())` with `serveStdio(() => new McpServer(info))`; replace `eraSupport: 'modern'` with
   `serveStdio(factory, { legacy: 'reject' })`.
-- On 2026-pinned stdio connections `getClientCapabilities()` / `getClientVersion()` / `getNegotiatedProtocolVersion()` return `undefined` (no `initialize` ever runs there); handlers read per-request identity from `ctx.mcpReq.envelope`. 2025-pinned connections keep the
-  `initialize`-scoped semantics.
+- On 2026-pinned stdio connections `getClientCapabilities()` / `getClientVersion()` return `undefined` (no `initialize` ever runs there) and handlers read per-request identity from `ctx.mcpReq.envelope`; `getNegotiatedProtocolVersion()` reports the pinned revision
+  (`2026-07-28`), as on instances served through `createMcpHandler`. 2025-pinned connections keep the `initialize`-scoped semantics for all three accessors.
 - A client whose connection negotiated a modern era drops inbound server→client JSON-RPC requests (the 2026 era has no such channel) instead of answering them; legacy-era connections are unchanged.
 
 ## 14. Runtime-Specific JSON Schema Validators (Enhancement)

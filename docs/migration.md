@@ -1139,8 +1139,9 @@ capabilities, and `ProtocolError.fromError` recognizes the code/data shape (reco
 handlers as `ctx.mcpReq.envelope`; instances serving that revision through `createMcpHandler` are backfilled per request, so existing code that calls the accessors keeps working on both eras. On 2025-era connections the accessors keep returning the `initialize`-scoped
 values, as before.
 
-On a connection pinned to the 2026-07-28 era by `serveStdio` the accessors are **not** backfilled: the modern era carries client identity per request, so connection-scoped accessors have nothing stable to report there. They return `undefined` (no `initialize` handshake
-ever ran on such a connection), and handlers read the per-request identity from `ctx.mcpReq.envelope`. On 2025-pinned connections the accessors keep their `initialize`-scoped semantics, as before.
+On a connection pinned to the 2026-07-28 era by `serveStdio` the identity accessors are **not** backfilled: the modern era carries client identity per request, so connection-scoped identity has nothing stable to report there.
+`getClientCapabilities()` and `getClientVersion()` return `undefined` (no `initialize` handshake ever ran on such a connection) and handlers read the per-request identity from `ctx.mcpReq.envelope`. `getNegotiatedProtocolVersion()` reports the pinned revision
+(`2026-07-28`) — the entry era-marks the instance when it binds it, so the accessor reports the same value as on instances serving that revision through `createMcpHandler`. On 2025-pinned connections the accessors keep their `initialize`-scoped semantics, as before.
 
 ### Origin validation middleware and default arming
 
