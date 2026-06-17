@@ -1,5 +1,5 @@
 /**
- * legacyStatelessFallback — the canonical `legacy` slot value, tested
+ * legacyStatelessFallback — the entry's default legacy serving, tested
  * independently of createMcpHandler: per-request stateless serving via the
  * frozen idiom (fresh instance + sessionIdGenerator: undefined + handleRequest).
  */
