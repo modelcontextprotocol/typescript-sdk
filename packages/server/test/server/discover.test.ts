@@ -1,11 +1,9 @@
 /**
  * `server/discover` machinery + era-aware supported-version list semantics:
  *
- * - the handler is installed ONLY on servers that declare modern-era support
- *   (`eraSupport: 'dual-era' | 'modern'`); default servers keep answering
- *   -32601 byte-identically to the deployed fleet, and a modern (2026-07-28+)
- *   revision in the supported-versions list without that declaration is a
- *   construction-time TypeError
+ * - the handler is installed ONLY when the server's supported-versions list
+ *   carries a modern (2026-07-28+) revision; default servers keep answering
+ *   -32601 byte-identically to the deployed fleet
  * - the advertisement is modern-only (DV-30) and excludes the
  *   listChanged/subscribe-class capabilities (A11 rider — until the
  *   subscriptions/listen milestone lands)
@@ -14,10 +12,12 @@
  *   site, even when the supported list carries one — the guard that must hold
  *   BEFORE any LATEST/SUPPORTED constant bump.
  *
- * The HTTP per-request entry still binds its instances to the modern era
- * through the package-internal hook; the `markModern` arm of the harness
- * stands in for that path, and the modern-era request shape carries the
- * required per-request `_meta` envelope.
+ * Era is instance state: an inbound `server/discover` is served only by a
+ * modern-era instance (the method is physically absent from the legacy
+ * registry). Production marking of modern instances is owned by the
+ * server-entry milestone; these tests mark instances through the
+ * package-internal hook the entry will use, and the modern-era request shape
+ * carries the required per-request `_meta` envelope.
  */
 import type { DiscoverResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
 import {
@@ -92,7 +92,7 @@ describe('server/discover handler gating', () => {
     it('a server with a modern revision in its supported list serves discover on a modern-era instance', async () => {
         const server = new Server(
             { name: 'modern-server', version: '2.0.0' },
-            { capabilities: { tools: {} }, supportedProtocolVersions: DUAL_ERA_VERSIONS, eraSupport: 'dual-era', instructions: 'hello' }
+            { capabilities: { tools: {} }, supportedProtocolVersions: DUAL_ERA_VERSIONS, instructions: 'hello' }
         );
         const response = await sendRaw(server, discoverRequest, { markModern: true });
         expect(isJSONRPCResultResponse(response)).toBe(true);
@@ -118,10 +118,7 @@ describe('server/discover handler gating', () => {
 
 describe('discover advertisement constraints', () => {
     it('advertises modern-only versions (DV-30): no 2025-era string ever appears in supportedVersions', async () => {
-        const server = new Server(
-            { name: 'test', version: '1.0.0' },
-            { capabilities: {}, supportedProtocolVersions: DUAL_ERA_VERSIONS, eraSupport: 'dual-era' }
-        );
+        const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {}, supportedProtocolVersions: DUAL_ERA_VERSIONS });
         const response = await sendRaw(server, discoverRequest, { markModern: true });
         if (!isJSONRPCResultResponse(response)) throw new Error('expected result');
         const result = DiscoverResultSchema.parse(response.result);
@@ -143,8 +140,7 @@ describe('discover advertisement constraints', () => {
                     logging: {},
                     completions: {}
                 },
-                supportedProtocolVersions: DUAL_ERA_VERSIONS,
-                eraSupport: 'dual-era'
+                supportedProtocolVersions: DUAL_ERA_VERSIONS
             }
         );
         const response = await sendRaw(server, discoverRequest, { markModern: true });
@@ -170,10 +166,7 @@ describe('discover advertisement constraints', () => {
         expect(capabilities).toEqual({ tools: { listChanged: true }, resources: { subscribe: true, listChanged: true } });
 
         // The legacy initialize advertisement still carries the full capability set.
-        const server = new Server(
-            { name: 'test', version: '1.0.0' },
-            { capabilities, supportedProtocolVersions: DUAL_ERA_VERSIONS, eraSupport: 'dual-era' }
-        );
+        const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities, supportedProtocolVersions: DUAL_ERA_VERSIONS });
         const response = await sendRaw(server, initializeRequest(LATEST_PROTOCOL_VERSION));
         if (!isJSONRPCResultResponse(response)) throw new Error('expected result');
         const result = InitializeResultSchema.parse(response.result);
@@ -185,10 +178,7 @@ describe('discover advertisement constraints', () => {
 
 describe('era-aware counter-offer ordering (the guard that precedes any constant bump)', () => {
     it('an unknown requested version is countered with the latest LEGACY version even when the list carries a modern one', async () => {
-        const server = new Server(
-            { name: 'test', version: '1.0.0' },
-            { capabilities: {}, supportedProtocolVersions: DUAL_ERA_VERSIONS, eraSupport: 'dual-era' }
-        );
+        const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {}, supportedProtocolVersions: DUAL_ERA_VERSIONS });
         const response = await sendRaw(server, initializeRequest('1999-01-01'));
         if (!isJSONRPCResultResponse(response)) throw new Error('expected result');
         const result = InitializeResultSchema.parse(response.result);
@@ -201,10 +191,7 @@ describe('era-aware counter-offer ordering (the guard that precedes any constant
     });
 
     it('an initialize REQUESTING the modern revision is also answered with the latest legacy version (initialize never negotiates a modern era)', async () => {
-        const server = new Server(
-            { name: 'test', version: '1.0.0' },
-            { capabilities: {}, supportedProtocolVersions: DUAL_ERA_VERSIONS, eraSupport: 'dual-era' }
-        );
+        const server = new Server({ name: 'test', version: '1.0.0' }, { capabilities: {}, supportedProtocolVersions: DUAL_ERA_VERSIONS });
         const response = await sendRaw(server, initializeRequest(MODERN));
         if (!isJSONRPCResultResponse(response)) throw new Error('expected result');
         const result = InitializeResultSchema.parse(response.result);
