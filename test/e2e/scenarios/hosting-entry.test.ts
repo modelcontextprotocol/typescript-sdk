@@ -1,11 +1,12 @@
 /**
  * Core cells for the dual-era HTTP entry (`createMcpHandler`), exercised
- * through the wire() entry arms: `entryStateless` hosts the entry's
- * `legacy: 'stateless'` slot for plain 2025-era clients (2025-11-25 axis) and
- * `entryModern` hosts the modern-only strict endpoint for negotiating clients
- * (2026-07-28 axis). Raw wire facts (request bodies, statuses, response bytes)
- * are asserted on the arm-recorded `wired.httpLog`; raw HTTP probes go through
- * `wired.fetch` so every exchange still rides the harness-hosted entry.
+ * through the wire() entry arms: `entryStateless` hosts the entry's stateless
+ * legacy fallback (the default posture) for plain 2025-era clients (2025-11-25
+ * axis) and `entryModern` hosts the modern-only strict (`legacy: 'reject'`)
+ * endpoint for negotiating clients (2026-07-28 axis). Raw wire facts (request
+ * bodies, statuses, response bytes) are asserted on the arm-recorded
+ * `wired.httpLog`; raw HTTP probes go through `wired.fetch` so every exchange
+ * still rides the harness-hosted entry.
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
@@ -31,8 +32,8 @@ function greetFactory(ctx?: McpRequestContext): McpServer {
 }
 
 verifies('typescript:hosting:entry:dual-era-one-factory', async ({ transport }: TestArgs) => {
-    // Both cells host the same handler shape — one ctx-taking factory, legacy
-    // 'stateless' slot configured — and differ only in the client driving it.
+    // Both cells host the same handler shape — one ctx-taking factory, the
+    // 'stateless' legacy posture — and differ only in the client driving it.
     const client =
         transport === 'entryModern'
             ? new Client({ name: 'auto-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } })
@@ -41,7 +42,7 @@ verifies('typescript:hosting:entry:dual-era-one-factory', async ({ transport }: 
 
     if (transport === 'entryStateless') {
         // 2025-era leg: a plain client is served per request through the
-        // legacy 'stateless' slot — initialize → tools/list → tools/call.
+        // stateless legacy fallback — initialize → tools/list → tools/call.
         expect(client.getNegotiatedProtocolVersion()).toBe(LEGACY);
         const tools = await client.listTools();
         expect(tools.tools.map(tool => tool.name)).toEqual(['greet']);
@@ -68,7 +69,7 @@ verifies('typescript:hosting:entry:dual-era-one-factory', async ({ transport }: 
 });
 
 verifies('typescript:hosting:entry:pin-negotiation', async ({ transport }: TestArgs) => {
-    // Strict endpoint (no legacy slot — the entryModern arm default): the pinned client never needs one.
+    // Strict endpoint (legacy: 'reject' — the entryModern arm hosting): the pinned client never needs the legacy leg.
     const client = new Client({ name: 'pin-client', version: '1.0.0' }, { versionNegotiation: { mode: { pin: MODERN } } });
     await using wired = await wire(transport, greetFactory, client);
 
@@ -89,7 +90,7 @@ verifies('typescript:hosting:entry:pin-negotiation', async ({ transport }: TestA
 });
 
 verifies('typescript:hosting:entry:strict-rejects-legacy', async ({ transport }: TestArgs) => {
-    // legacy omitted → modern-only strict (the entryModern arm default): no silent 2025 serving.
+    // legacy: 'reject' → modern-only strict (the entryModern arm hosting): no silent 2025 serving.
     const modernClient = new Client({ name: 'strict-modern-client', version: '1.0.0' }, { versionNegotiation: { mode: { pin: MODERN } } });
     await using wired = await wire(transport, greetFactory, modernClient);
 
