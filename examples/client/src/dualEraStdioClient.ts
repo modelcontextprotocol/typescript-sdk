@@ -1,6 +1,7 @@
 /**
- * Drives the dual-era stdio server example (`examples/server/src/dualEraStdio.ts`)
- * with both kinds of client over a real child-process pipe:
+ * Drives the dual-era stdio server example (`examples/server/src/dualEraStdio.ts`,
+ * a `serveStdio` server) with both kinds of client, each over its own real
+ * child-process pipe:
  *
  * 1. a plain 2025 client — the `initialize` handshake, served exactly as today;
  * 2. a 2026-capable client (`versionNegotiation: { mode: 'auto' }`) — the
@@ -65,4 +66,4 @@ async function modernLeg(): Promise<void> {
 
 await legacyLeg();
 await modernLeg();
-console.log('both legs served by the same dual-era stdio server.');
+console.log('both legs served by the same dual-era stdio server factory.');
