@@ -1,0 +1,537 @@
+/**
+ * `serveStdio` — the stdio entry point for serving the 2026-07-28 protocol
+ * revision on a long-lived connection, with 2025-era serving as the default
+ * for clients that open with the `initialize` handshake.
+ *
+ * The entry owns the stdio transport and the era decision for the connection.
+ * It classifies the connection's opening exchange exactly once (using the
+ * same body-primary rules as the HTTP entry), constructs ONE server instance
+ * from the consumer's factory for the era the client opened with, pins that
+ * instance for the lifetime of the connection, and passes every later message
+ * straight through to it. No per-message era classification ever runs after
+ * the connection is pinned — exactly mirroring how `createMcpHandler`
+ * classifies an HTTP request before any instance exists.
+ *
+ * The opening exchange:
+ *
+ * - An `initialize` request (or any claim-less message) opens a 2025-era
+ *   session: the factory builds a legacy instance and the connection is
+ *   pinned to it (`legacy: 'serve'`, the default). With `legacy: 'reject'`
+ *   the opening is answered with the unsupported-protocol-version error
+ *   naming the supported modern revisions instead.
+ * - A request carrying a valid per-request `_meta` envelope naming a
+ *   supported modern revision pins the connection to a modern instance
+ *   (era-marked and given the modern-only handlers, exactly like the HTTP
+ *   entry's modern path).
+ * - A `server/discover` probe is answered by an optimistically built modern
+ *   instance but does NOT pin the connection yet: the spec's stdio
+ *   backward-compatibility flow lets a client probe first and then either
+ *   continue with modern requests (which pins the connection modern) or fall
+ *   back to the `initialize` handshake when no mutually supported modern
+ *   revision exists — in which case the probe instance is discarded and a
+ *   fresh legacy instance serves the handshake.
+ * - Once the modern era is pinned, a later claim-less `initialize` is
+ *   rejected with the unsupported-protocol-version error naming the supported
+ *   revisions (the spec recommends naming them in any error returned to
+ *   `initialize`, and forbids falling back once the modern era is confirmed).
+ *
+ * Every instance the factory produces serves exactly one era; the ambiguity
+ * of the opening exchange lives entirely in this entry. In the probe-fallback
+ * case the factory is called twice (once for the discarded probe instance,
+ * once for the legacy instance), so factories should be cheap and
+ * side-effect-free to construct — the same expectation `createMcpHandler`
+ * already sets for per-request construction.
+ *
+ * Hand-constructed servers connected directly to a `StdioServerTransport`
+ * are unaffected by this entry: they keep serving the 2025-era protocol they
+ * were written for.
+ */
+import type {
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    MessageClassification,
+    MessageExtraInfo,
+    RequestId,
+    Transport,
+    TransportSendOptions
+} from '@modelcontextprotocol/core';
+import {
+    carriesValidModernEnvelopeClaim,
+    envelopeClaimVersion,
+    hasEnvelopeClaim,
+    isJSONRPCNotification,
+    isJSONRPCRequest,
+    modernOnlyStrictRejection,
+    ProtocolErrorCode,
+    requestMetaOf,
+    setNegotiatedProtocolVersion,
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS,
+    UnsupportedProtocolVersionError,
+    validateEnvelopeMeta
+} from '@modelcontextprotocol/core';
+
+import type { McpServerFactory } from './createMcpHandler.js';
+import { McpServer } from './mcp.js';
+import type { Server } from './server.js';
+import { installModernOnlyHandlers } from './server.js';
+import { StdioServerTransport } from './stdio.js';
+
+/** Options for {@linkcode serveStdio}. */
+export interface ServeStdioOptions {
+    /**
+     * How a 2025-era opening (an `initialize` request, or any claim-less
+     * message) is handled:
+     *
+     * - `'serve'` (default) — the connection is pinned to a 2025-era instance
+     *   from the same factory and served exactly as a hand-wired stdio server
+     *   serves it today.
+     * - `'reject'` — the opening request is answered with the
+     *   unsupported-protocol-version error naming the supported modern
+     *   revisions (claim-less notifications are dropped); the connection
+     *   stays open for a modern opening.
+     */
+    legacy?: 'serve' | 'reject';
+    /**
+     * Bring your own transport (for example a `StdioServerTransport`
+     * constructed over a Unix domain socket or TCP stream, per the stdio
+     * binding's custom-transport guidance). Defaults to a
+     * {@linkcode StdioServerTransport} over the current process's stdio. The
+     * entry owns the transport: it starts it, receives every inbound message,
+     * and closes it when the connection ends.
+     */
+    transport?: Transport;
+    /** Callback for out-of-band errors (reporting only; it never alters what is written to the wire). */
+    onerror?: (error: Error) => void;
+}
+
+/** The handle returned by {@linkcode serveStdio}. */
+export interface StdioServerHandle {
+    /** Tears the connection down: closes the pinned instance (if any) and the underlying transport. */
+    close(): Promise<void>;
+}
+
+/* ------------------------------------------------------------------------ *
+ * Per-instance channel
+ * ------------------------------------------------------------------------ */
+
+/**
+ * The transport a pinned instance is connected to: a thin channel that writes
+ * through to the entry-owned wire transport and receives the messages the
+ * entry forwards. The wire transport itself is never handed to an instance —
+ * that is what lets the entry discard an optimistic probe instance (close the
+ * channel) without tearing down the connection.
+ */
+class StdioConnectionChannel implements Transport {
+    onclose?: () => void;
+    onerror?: (error: Error) => void;
+    onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
+
+    private _closed = false;
+
+    constructor(
+        private readonly _wire: Transport,
+        private readonly _onInstanceClose: () => void
+    ) {}
+
+    async start(): Promise<void> {
+        // The entry already started the wire transport; connecting an
+        // instance to its channel must not start anything again.
+    }
+
+    async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+        if (this._closed) {
+            // A discarded or torn-down instance has nowhere to write; late
+            // sends are dropped.
+            return;
+        }
+        return this._wire.send(message, options);
+    }
+
+    setProtocolVersion = (version: string): void => {
+        this._wire.setProtocolVersion?.(version);
+    };
+
+    /** Forwards one inbound message to the connected instance. */
+    deliver(message: JSONRPCMessage, extra?: MessageExtraInfo): void {
+        if (this._closed) {
+            return;
+        }
+        this.onmessage?.(message, extra);
+    }
+
+    async close(): Promise<void> {
+        if (this._closed) {
+            return;
+        }
+        this._closed = true;
+        try {
+            this._onInstanceClose();
+        } finally {
+            this.onclose?.();
+        }
+    }
+}
+
+/* ------------------------------------------------------------------------ *
+ * Opening-exchange classification
+ * ------------------------------------------------------------------------ */
+
+interface EnvelopeIssue {
+    key: string;
+    problem: string;
+}
+
+type OpeningClassification =
+    /** A 2025-era opening: `initialize`, or any message without an envelope claim. */
+    | { kind: 'legacy'; reason: 'initialize' | 'no-claim'; requestedVersion?: string }
+    /** A valid envelope claim naming a modern revision this entry serves. */
+    | { kind: 'modern'; revision: string; classification: MessageClassification }
+    /** A present envelope claim whose envelope is malformed. */
+    | { kind: 'invalid-envelope'; issue: EnvelopeIssue }
+    /** A valid envelope claim naming a revision this entry does not serve (unknown future or 2025-era). */
+    | { kind: 'unsupported-revision'; requested: string };
+
+/**
+ * Classifies one message of the opening exchange with the same body-primary
+ * rules the HTTP entry applies per request: `initialize` is the legacy
+ * handshake unless it carries a valid modern envelope claim; a present claim
+ * is validated (never silently ignored); a claim-less message is 2025-era
+ * traffic. There is no header layer on stdio, so the body is the only signal.
+ */
+function classifyOpeningMessage(message: JSONRPCRequest | JSONRPCNotification): OpeningClassification {
+    const params = message.params;
+
+    if (message.method === 'initialize' && !carriesValidModernEnvelopeClaim(params)) {
+        const requestedVersion =
+            params !== null && typeof params === 'object' && typeof (params as { protocolVersion?: unknown }).protocolVersion === 'string'
+                ? ((params as { protocolVersion: string }).protocolVersion as string)
+                : undefined;
+        return { kind: 'legacy', reason: 'initialize', ...(requestedVersion !== undefined && { requestedVersion }) };
+    }
+
+    if (!hasEnvelopeClaim(params)) {
+        return { kind: 'legacy', reason: 'no-claim' };
+    }
+
+    // A present claim is validated, never silently ignored — a malformed
+    // envelope behind the claim is an invalid-params answer, not a fall back
+    // to legacy serving (mirrors the HTTP entry's envelope rung).
+    const meta = requestMetaOf(params);
+    const issues = meta === undefined ? [] : validateEnvelopeMeta(meta);
+    const firstIssue = issues[0];
+    if (firstIssue !== undefined) {
+        return { kind: 'invalid-envelope', issue: firstIssue };
+    }
+
+    const claimedVersion = envelopeClaimVersion(params);
+    if (claimedVersion === undefined || !SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedVersion)) {
+        // The claim names a revision this entry does not serve (an unknown
+        // future revision, or a 2025-era revision delivered via the envelope
+        // mechanism) — answered like the HTTP entry's modern path.
+        return { kind: 'unsupported-revision', requested: claimedVersion ?? 'unknown' };
+    }
+
+    return { kind: 'modern', revision: claimedVersion, classification: { era: 'modern', revision: claimedVersion } };
+}
+
+/* ------------------------------------------------------------------------ *
+ * The entry
+ * ------------------------------------------------------------------------ */
+
+interface ConnectedInstance {
+    product: McpServer | Server;
+    channel: StdioConnectionChannel;
+}
+
+type EntryState =
+    /** Waiting for the connection's opening message. */
+    | { phase: 'opening' }
+    /** A `server/discover` probe was answered; the era is not pinned yet. */
+    | { phase: 'probe'; instance: ConnectedInstance }
+    /** The connection is pinned to one instance serving one era. */
+    | { phase: 'pinned'; era: 'legacy' | 'modern'; instance: ConnectedInstance }
+    | { phase: 'closed' };
+
+/**
+ * Serves MCP over stdio from a server factory, owning the era decision for
+ * the connection: the opening exchange selects the era, ONE instance from the
+ * factory is pinned for the connection lifetime, and everything after passes
+ * straight through to it. See the module documentation for the opening rules.
+ *
+ * ```ts
+ * import { serveStdio } from '@modelcontextprotocol/server/stdio';
+ *
+ * serveStdio(() => {
+ *     const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+ *     // register tools/resources/prompts once — the same factory serves both eras
+ *     return server;
+ * });
+ * ```
+ */
+export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions = {}): StdioServerHandle {
+    const legacyMode = options.legacy ?? 'serve';
+    const wire = options.transport ?? new StdioServerTransport();
+
+    let state: EntryState = { phase: 'opening' };
+    /** Channel currently being discarded (its close must not tear the connection down). */
+    let discarding: StdioConnectionChannel | undefined;
+    let closing = false;
+
+    const reportError = (error: Error) => {
+        try {
+            options.onerror?.(error);
+        } catch {
+            // Reporting must never affect the wire.
+        }
+    };
+
+    const writeErrorResponse = (id: RequestId, code: number, message: string, data?: unknown): Promise<void> =>
+        wire
+            .send({ jsonrpc: '2.0', id, error: { code, message, ...(data !== undefined && { data }) } })
+            .catch(error => reportError(toError(error)));
+
+    /** Answers a 2025-era request the entry will not serve (the modern-only rejection cells). */
+    const answerLegacyRejection = (
+        request: JSONRPCRequest,
+        reason: 'initialize' | 'no-claim',
+        requestedVersion?: string
+    ): Promise<void> => {
+        const rejection = modernOnlyStrictRejection(
+            { kind: 'legacy', reason, ...(requestedVersion !== undefined && { requestedVersion }) },
+            SUPPORTED_MODERN_PROTOCOL_VERSIONS
+        );
+        if (rejection === undefined) {
+            return Promise.resolve();
+        }
+        reportError(new Error(`Rejected 2025-era request on a modern-only stdio connection (${rejection.cell}): ${rejection.message}`));
+        return writeErrorResponse(request.id, rejection.code, rejection.message, rejection.data);
+    };
+
+    const onInstanceClosed = (channel: StdioConnectionChannel) => {
+        if (closing || channel === discarding) {
+            return;
+        }
+        // The pinned (or probe) instance was closed from the instance side:
+        // the connection is over.
+        void closeAll();
+    };
+
+    const connectInstance = async (era: 'legacy' | 'modern', revision?: string): Promise<ConnectedInstance> => {
+        const product = await factory({ era });
+        const server = product instanceof McpServer ? product.server : product;
+        if (era === 'modern') {
+            // Era-write at instance binding, then modern-only handler
+            // installation — the same helpers the HTTP entry's modern path
+            // uses, before the instance is connected.
+            setNegotiatedProtocolVersion(server, revision);
+            installModernOnlyHandlers(server, SUPPORTED_MODERN_PROTOCOL_VERSIONS);
+        }
+        const channel: StdioConnectionChannel = new StdioConnectionChannel(wire, () => onInstanceClosed(channel));
+        await product.connect(channel);
+        return { product, channel };
+    };
+
+    const discardProbeInstance = async (instance: ConnectedInstance): Promise<void> => {
+        // The probe instance served only the discover exchange; closing its
+        // channel must not tear down the connection the fallback is about to
+        // continue on.
+        discarding = instance.channel;
+        try {
+            await instance.product.close();
+        } catch (error) {
+            reportError(toError(error));
+        } finally {
+            discarding = undefined;
+        }
+    };
+
+    const processMessage = async (message: JSONRPCMessage): Promise<void> => {
+        if (state.phase === 'closed') {
+            return;
+        }
+
+        if (state.phase === 'pinned') {
+            if (
+                state.era === 'modern' &&
+                isJSONRPCRequest(message) &&
+                message.method === 'initialize' &&
+                !carriesValidModernEnvelopeClaim(message.params)
+            ) {
+                // The modern era is confirmed for this connection; a late
+                // legacy handshake is answered with the version error naming
+                // the supported revisions (the specification recommends
+                // naming them in any error returned to `initialize`, and
+                // rules out falling back once the modern era is confirmed).
+                const requestedVersion =
+                    message.params !== null &&
+                    typeof message.params === 'object' &&
+                    typeof (message.params as { protocolVersion?: unknown }).protocolVersion === 'string'
+                        ? ((message.params as { protocolVersion: string }).protocolVersion as string)
+                        : undefined;
+                await answerLegacyRejection(message, 'initialize', requestedVersion);
+                return;
+            }
+            state.instance.channel.deliver(message);
+            return;
+        }
+
+        // Negotiation window ('opening' | 'probe').
+        if (!isJSONRPCRequest(message) && !isJSONRPCNotification(message)) {
+            // A JSON-RPC response before any era is pinned: nothing has been
+            // asked of the client yet, so there is nothing it can answer.
+            reportError(new Error('Discarded a JSON-RPC response received before the connection negotiated an era'));
+            return;
+        }
+
+        const opening = classifyOpeningMessage(message);
+        switch (opening.kind) {
+            case 'invalid-envelope': {
+                const detail = `Invalid _meta envelope for protocol revision 2026-07-28: ${opening.issue.key}: ${opening.issue.problem}`;
+                if (isJSONRPCRequest(message)) {
+                    await writeErrorResponse(message.id, ProtocolErrorCode.InvalidParams, detail, { envelope: opening.issue });
+                } else {
+                    reportError(new Error(`Discarded a notification with a malformed envelope: ${detail}`));
+                }
+                return;
+            }
+            case 'unsupported-revision': {
+                if (isJSONRPCRequest(message)) {
+                    const error = new UnsupportedProtocolVersionError({
+                        supported: [...SUPPORTED_MODERN_PROTOCOL_VERSIONS],
+                        requested: opening.requested
+                    });
+                    reportError(error);
+                    await writeErrorResponse(message.id, error.code, error.message, error.data);
+                } else {
+                    reportError(new Error(`Discarded a notification claiming unsupported protocol revision ${opening.requested}`));
+                }
+                return;
+            }
+            case 'modern': {
+                if (isJSONRPCRequest(message) && message.method === 'server/discover' && state.phase === 'opening') {
+                    // Probe: answer from an optimistically built modern
+                    // instance so the advertisement reflects the real server
+                    // definition, but do not pin the connection yet — the
+                    // client may still fall back to `initialize` when it
+                    // shares no modern revision with the advertisement.
+                    const instance = await connectInstance('modern', opening.revision);
+                    state = { phase: 'probe', instance };
+                    instance.channel.deliver(message, { classification: opening.classification });
+                    return;
+                }
+                if (state.phase === 'probe') {
+                    // The probe was followed by a modern message: the client
+                    // committed to the modern era — pin the probe instance.
+                    state = { phase: 'pinned', era: 'modern', instance: state.instance };
+                } else {
+                    const instance = await connectInstance('modern', opening.revision);
+                    state = { phase: 'pinned', era: 'modern', instance };
+                }
+                state.instance.channel.deliver(message, { classification: opening.classification });
+                return;
+            }
+            case 'legacy': {
+                if (legacyMode === 'reject') {
+                    if (isJSONRPCRequest(message)) {
+                        await answerLegacyRejection(message, opening.reason, opening.requestedVersion);
+                    }
+                    // Claim-less notifications are accepted and dropped (the
+                    // stdio analog of the HTTP entry's 202-and-drop); the
+                    // connection stays open for a modern opening.
+                    return;
+                }
+                if (state.phase === 'probe') {
+                    // Probe-then-fallback: the client probed, found no
+                    // mutually supported modern revision, and fell back to
+                    // the 2025 handshake on the same connection. The probe
+                    // instance is discarded; a fresh legacy instance serves
+                    // the handshake.
+                    await discardProbeInstance(state.instance);
+                    state = { phase: 'opening' };
+                }
+                const instance = await connectInstance('legacy');
+                state = { phase: 'pinned', era: 'legacy', instance };
+                state.instance.channel.deliver(message);
+                return;
+            }
+        }
+    };
+
+    // Inbound messages are processed strictly in arrival order: the queue
+    // absorbs anything that arrives while the opening exchange is still being
+    // decided (factory construction and instance connection are async).
+    const queue: JSONRPCMessage[] = [];
+    let pumping = false;
+    const pump = async (): Promise<void> => {
+        if (pumping) {
+            return;
+        }
+        pumping = true;
+        try {
+            while (queue.length > 0) {
+                const message = queue.shift()!;
+                try {
+                    await processMessage(message);
+                } catch (error) {
+                    reportError(toError(error));
+                }
+            }
+        } finally {
+            pumping = false;
+        }
+    };
+
+    const closeAll = async (): Promise<void> => {
+        if (closing || state.phase === 'closed') {
+            return;
+        }
+        closing = true;
+        const current = state;
+        state = { phase: 'closed' };
+        if (current.phase === 'probe' || current.phase === 'pinned') {
+            await current.instance.product.close().catch(error => reportError(toError(error)));
+        }
+        await wire.close().catch(error => reportError(toError(error)));
+    };
+
+    wire.onmessage = (message: JSONRPCMessage) => {
+        queue.push(message);
+        void pump();
+    };
+    wire.onerror = error => {
+        reportError(error);
+        if (state.phase === 'probe' || state.phase === 'pinned') {
+            state.instance.channel.onerror?.(error);
+        }
+    };
+    wire.onclose = () => {
+        if (closing || state.phase === 'closed') {
+            return;
+        }
+        closing = true;
+        const current = state;
+        state = { phase: 'closed' };
+        if (current.phase === 'probe' || current.phase === 'pinned') {
+            void current.instance.product.close().catch(error => reportError(toError(error)));
+        }
+    };
+
+    const started = wire.start().catch(error => {
+        reportError(toError(error));
+        throw error;
+    });
+    // Surface a failed start through onerror (above); close() still resolves.
+    started.catch(() => {});
+
+    return {
+        close: async () => {
+            await started.catch(() => {});
+            await closeAll();
+        }
+    };
+}
+
+function toError(value: unknown): Error {
+    return value instanceof Error ? value : new Error(String(value));
+}
