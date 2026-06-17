@@ -1020,7 +1020,14 @@ app.delete('/mcp', async (req: Request, res: Response) => {
 
 // Start server
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+const httpServer = app.listen(PORT, () => {
     console.log(`MCP Conformance Test Server running on http://localhost:${PORT}`);
     console.log(`  - MCP endpoint: http://localhost:${PORT}/mcp`);
+});
+httpServer.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code !== 'EADDRINUSE') {
+        throw error;
+    }
+    console.error(`Port ${PORT} is already in use — is a stale conformance server still running?`);
+    process.exit(1);
 });

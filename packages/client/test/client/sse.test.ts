@@ -1590,6 +1590,7 @@ describe('SSEClientTransport', () => {
             expect(error).toBeInstanceOf(SdkHttpError);
             expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
             expect((error as SdkHttpError).status).toBe(401);
+            expect((error as SdkHttpError).statusText).toBe('Unauthorized');
             expect(authProvider.onUnauthorized).toHaveBeenCalledTimes(1);
             expect(postCount).toBe(2);
         });

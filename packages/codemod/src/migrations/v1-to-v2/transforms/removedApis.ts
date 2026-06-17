@@ -148,13 +148,14 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
             warning(
                 sourceFile.getFilePath(),
                 node.getStartLineNumber(),
-                'new StreamableHTTPError(statusCode, statusText, body?) → new SdkError(code, message, data?). ' +
-                    'Constructor arguments differ — manual review required. Map HTTP status to SdkErrorCode enum value.'
+                'new StreamableHTTPError(statusCode, statusText, body?) → new SdkHttpError(code, message, data). ' +
+                    'Constructor arguments differ — manual review required. Map the HTTP status to a SdkErrorCode enum value ' +
+                    'and pass the HTTP status via the data argument, e.g. { status, statusText }.'
             )
         );
     }
 
-    renameAllReferences(sourceFile, localName, 'SdkError');
+    renameAllReferences(sourceFile, localName, 'SdkHttpError');
     changesCount++;
 
     foundImport.remove();
@@ -164,7 +165,7 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
 
     const targetModule = resolveTargetModule(sourceFile, moduleSpec);
     const insertIndex = sourceFile.getImportDeclarations().length;
-    const importsToAdd = hasConstructorCalls ? ['SdkError', 'SdkErrorCode'] : ['SdkError'];
+    const importsToAdd = hasConstructorCalls ? ['SdkHttpError', 'SdkErrorCode'] : ['SdkHttpError'];
     addOrMergeImport(sourceFile, targetModule, importsToAdd, false, insertIndex);
     changesCount++;
 
@@ -172,8 +173,10 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
         warning(
             sourceFile.getFilePath(),
             line,
-            'StreamableHTTPError replaced with SdkError. Constructor arguments differ — manual review required. ' +
-                'HTTP status is now in error.data?.status.'
+            'StreamableHTTPError replaced with SdkHttpError (a subclass of SdkError). ' +
+                'HTTP status and status text are now available via error.status and error.statusText. ' +
+                'Note: unexpected-content-type responses (HTTP 200 with the wrong content type) are thrown as the ' +
+                'base SdkError, not SdkHttpError, so a catch-all check should use `instanceof SdkError`.'
         )
     );
 

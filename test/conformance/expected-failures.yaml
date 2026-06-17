@@ -1,10 +1,20 @@
 # Conformance scenarios not yet implemented in the v2 TypeScript SDK.
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
-# Baseline established against @modelcontextprotocol/conformance 0.2.0-alpha.1,
-# which adds the draft-spec scenario suite (SEP-2575, SEP-2322, SEP-2243, SEP-2549,
-# SEP-2468, ...) plus new checks on existing scenarios (SEP-837 application_type
-# during DCR).
+# Baseline established against the published @modelcontextprotocol/conformance
+# release pinned in package.json (0.2.0-alpha.3). Newer conformance releases
+# are adopted by deliberately bumping the package.json pin and reconciling
+# this file in the same change. 0.2.0-alpha.3 fixes the draft wire version
+# (2026-07-28). Several auth scenarios in this baseline (auth/iss-*,
+# auth/authorization-server-migration, auth/enterprise-managed-authorization)
+# are still not shipped in the published release — the runner reports them
+# unknown/failed; their entries below cover them either way.
+#
+# NOTE: the draft error-code assignments exercised by the SEP-2243 server
+# scenarios (-32001 HeaderMismatch) and their neighbours (-32602, -32004) are
+# still under discussion upstream (pending conformance #336). Those cells are
+# treated as parameterized, not settled: the entries below record today's
+# referee behavior and are re-derived when a #336-containing referee is pinned.
 #
 # Entries are grouped by SEP. As each SEP/milestone is implemented in the SDK the
 # corresponding scenarios start passing and MUST be removed from this list (the
@@ -34,26 +44,15 @@ client:
     # SEP-2352 (authorization server migration): client does not re-register when
     # PRM authorization_servers changes.
     - auth/authorization-server-migration
-    # SEP-2207 (offline_access scope) scenario, currently failing only on the new
-    # SEP-837 application_type check (see the SEP-837 group below).
+    # SEP-837 (application_type during DCR): the check only fires on draft-version
+    # runs; this draft scenario is the one place the client still hits it.
     - auth/offline-access-not-supported
 
     # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
-    # SEP-837: client MUST send application_type during Dynamic Client Registration.
-    # Single new check; everything else in these scenarios passes.
-    - auth/metadata-default
-    - auth/metadata-var1
-    - auth/metadata-var2
-    - auth/metadata-var3
-    - auth/scope-from-www-authenticate
-    - auth/scope-from-scopes-supported
-    - auth/scope-omitted-when-undefined
+    # SEP-2350 (scope step-up): WARNING-only — client does not compute the union of
+    # previously requested and newly challenged scopes on re-authorization; the
+    # expected-failures evaluator counts WARNINGs as failures.
     - auth/scope-step-up
-    - auth/scope-retry-limit
-    - auth/token-endpoint-auth-basic
-    - auth/token-endpoint-auth-post
-    - auth/token-endpoint-auth-none
-    - auth/2025-03-26-oauth-metadata-backcompat
     # SEP-990 (enterprise-managed authorization extension): no fixture handler /
     # client support for the token-exchange + JWT bearer flow.
     - auth/enterprise-managed-authorization
@@ -81,6 +80,7 @@ server:
     - caching
     # SEP-2243 (HTTP header standardization): -32001 HeaderMismatch handling and
     # case-insensitive/whitespace-trimmed header validation not implemented.
+    # (Error-code cells parameterized pending conformance #336 — see header note.)
     - http-header-validation
     - http-custom-header-server-validation
     # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level

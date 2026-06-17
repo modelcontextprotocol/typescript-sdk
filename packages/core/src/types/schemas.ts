@@ -1,6 +1,13 @@
 import * as z from 'zod/v4';
 
-import { JSONRPC_VERSION, RELATED_TASK_META_KEY } from './constants.js';
+import {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    JSONRPC_VERSION,
+    LOG_LEVEL_META_KEY,
+    PROTOCOL_VERSION_META_KEY,
+    RELATED_TASK_META_KEY
+} from './constants.js';
 import type {
     JSONArray,
     JSONObject,
@@ -113,7 +120,14 @@ export const ResultSchema = z.looseObject({
      * See [MCP specification](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/47339c03c143bb4ec01a26e721a1b8fe66634ebe/docs/specification/draft/basic/index.mdx#general-fields)
      * for notes on `_meta` usage.
      */
-    _meta: RequestMetaSchema.optional()
+    _meta: RequestMetaSchema.optional(),
+    /**
+     * Indicates the type of the result, allowing the receiver to determine how to
+     * parse the result object. Servers implementing protocol revision 2026-07-28 or
+     * later always include this field; results from earlier revisions omit it, and
+     * an absent value must be treated as `"complete"`.
+     */
+    resultType: z.string().optional()
 });
 
 /**
@@ -407,6 +421,10 @@ export const ClientCapabilitiesSchema = z.object({
     experimental: z.record(z.string(), JSONObjectSchema).optional(),
     /**
      * Present if the client supports sampling from an LLM.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+     * in the specification for at least twelve months. Migrate to calling LLM
+     * provider APIs directly.
      */
     sampling: z
         .object({
@@ -427,6 +445,10 @@ export const ClientCapabilitiesSchema = z.object({
     elicitation: ElicitationCapabilitySchema.optional(),
     /**
      * Present if the client supports listing roots.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+     * in the specification for at least twelve months. Migrate to passing paths via
+     * tool parameters, resource URIs, or configuration.
      */
     roots: z
         .object({
@@ -472,6 +494,10 @@ export const ServerCapabilitiesSchema = z.object({
     experimental: z.record(z.string(), JSONObjectSchema).optional(),
     /**
      * Present if the server supports sending log messages to the client.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+     * in the specification for at least twelve months. Migrate to stderr logging
+     * (STDIO servers) or OpenTelemetry.
      */
     logging: JSONObjectSchema.optional(),
     /**
@@ -550,6 +576,43 @@ export const InitializeResultSchema = ResultSchema.extend({
 export const InitializedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/initialized'),
     params: NotificationsParamsSchema.optional()
+});
+
+/* Discovery */
+/**
+ * A request from the client asking the server to advertise its supported protocol
+ * versions, capabilities, and other metadata (protocol revision 2026-07-28). Servers
+ * MUST implement `server/discover`. Clients MAY call it but are not required to —
+ * version negotiation can also happen inline via the per-request `_meta` envelope.
+ */
+export const DiscoverRequestSchema = RequestSchema.extend({
+    method: z.literal('server/discover'),
+    params: BaseRequestParamsSchema.optional()
+});
+
+/**
+ * The result returned by the server for a `server/discover` request.
+ */
+export const DiscoverResultSchema = ResultSchema.extend({
+    /**
+     * MCP protocol versions this server supports. The client should choose a
+     * version from this list for use in subsequent requests.
+     */
+    supportedVersions: z.array(z.string()),
+    /**
+     * The capabilities of the server.
+     */
+    capabilities: ServerCapabilitiesSchema,
+    /**
+     * Information about the server software implementation.
+     */
+    serverInfo: ImplementationSchema,
+    /**
+     * Instructions describing how to use the server and its features.
+     *
+     * This can be used by clients to improve the LLM's understanding of available tools, resources, etc. It can be thought of like a "hint" to the model. For example, this information MAY be added to the system prompt.
+     */
+    instructions: z.string().optional()
 });
 
 /* Ping */
@@ -1507,6 +1570,48 @@ export const LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.
 export const LoggingMessageNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/message'),
     params: LoggingMessageNotificationParamsSchema
+});
+
+/* Per-request `_meta` envelope */
+/**
+ * The per-request `_meta` envelope carried by every request under protocol revision
+ * 2026-07-28: the protocol version governing the request, the client implementation
+ * info, and the client's capabilities — declared per request rather than once at
+ * initialization — plus the optional log-level opt-in.
+ *
+ * This schema models the complete envelope on its own. The base request schemas
+ * ({@linkcode RequestMetaSchema}) deliberately stay lenient so the same wire schemas
+ * parse requests from earlier protocol revisions (no envelope) as well; envelope
+ * requiredness is enforced per request at dispatch time, not here.
+ */
+export const RequestMetaEnvelopeSchema = z.looseObject({
+    /**
+     * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+     */
+    progressToken: ProgressTokenSchema.optional(),
+    /**
+     * The MCP protocol version being used for this request. For the HTTP transport,
+     * the value must match the `MCP-Protocol-Version` header.
+     */
+    [PROTOCOL_VERSION_META_KEY]: z.string(),
+    /**
+     * Identifies the client software making the request.
+     */
+    [CLIENT_INFO_META_KEY]: ImplementationSchema,
+    /**
+     * The client's capabilities for this specific request. An empty object means the
+     * client supports no optional capabilities. Servers must not infer capabilities
+     * from prior requests.
+     */
+    [CLIENT_CAPABILITIES_META_KEY]: ClientCapabilitiesSchema,
+    /**
+     * The desired log level for this request. When absent, the server must not send
+     * `notifications/message` notifications for the request.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+     * in the specification for at least twelve months.
+     */
+    [LOG_LEVEL_META_KEY]: LoggingLevelSchema.optional()
 });
 
 /* Sampling */

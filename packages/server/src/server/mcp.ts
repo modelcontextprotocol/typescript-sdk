@@ -70,6 +70,21 @@ export class McpServer {
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
+
+        // Per the MCP spec, a server that declares a primitive capability MUST respond to its
+        // list method (potentially with an empty result) rather than "Method not found" — even
+        // if nothing has been registered yet. Handlers are normally installed lazily on first
+        // registration, so eagerly install them here for any capability declared up front.
+        // (Users of the low-level `Server` class remain responsible for their own handlers.)
+        if (options?.capabilities?.tools) {
+            this.setToolRequestHandlers();
+        }
+        if (options?.capabilities?.resources) {
+            this.setResourceRequestHandlers();
+        }
+        if (options?.capabilities?.prompts) {
+            this.setPromptRequestHandlers();
+        }
     }
 
     /**
@@ -111,6 +126,9 @@ export class McpServer {
             }
         });
 
+        // Note: tools are listed in registration (insertion) order, which keeps the ordering
+        // deterministic across requests when the underlying tool set has not changed, as
+        // recommended by the spec.
         this.server.setRequestHandler(
             'tools/list',
             (): ListToolsResult => ({
@@ -926,6 +944,10 @@ export class McpServer {
      *     data: 'Processing complete'
      * });
      * ```
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         return this.server.sendLoggingMessage(params, sessionId);

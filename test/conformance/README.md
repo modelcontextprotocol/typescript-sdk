@@ -60,6 +60,8 @@ npx @modelcontextprotocol/conformance server \
   --scenario server-initialize
 ```
 
+Note: `pnpm run test:conformance:server` always starts (and tests) its own server, and refuses to run while anything is still listening on its port. Stop the manually started server first, or keep using the direct `--url` invocation above against it.
+
 ## Files
 
 - `src/everythingClient.ts` - Client that handles all client conformance scenarios
