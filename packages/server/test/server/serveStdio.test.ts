@@ -301,6 +301,37 @@ describe('server/discover probe window', () => {
         await handle.close();
     });
 
+    it('answers the probe even when the fallback initialize is pipelined immediately behind it', async () => {
+        const { handle, request, flush, inbound, errors, eras } = await startEntry();
+
+        // The client does not wait for the DiscoverResult before falling back:
+        // both messages are on the wire back to back. The probe must still be
+        // answered (never silently dropped) and the legacy session served.
+        const discoverPromise = request({ jsonrpc: '2.0', id: 'probe-1', method: 'server/discover', params: { _meta: envelope() } });
+        const initPromise = request(initializeRequest(2));
+
+        const [discover, init] = await Promise.all([discoverPromise, initPromise]);
+        expect(isJSONRPCResultResponse(discover)).toBe(true);
+        if (isJSONRPCResultResponse(discover)) {
+            expect((discover.result as { supportedVersions?: string[] }).supportedVersions).toEqual([MODERN]);
+        }
+        expect(isJSONRPCResultResponse(init)).toBe(true);
+        if (isJSONRPCResultResponse(init)) {
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+        }
+        // The probe answer reached the wire before the fallback's handshake answer.
+        expect(inbound.indexOf(discover)).toBeLessThan(inbound.indexOf(init));
+        expect(eras).toEqual(['modern', 'legacy']);
+
+        // The legacy session continues normally and nothing was dropped or reported.
+        const list = await request({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} });
+        expect(isJSONRPCResultResponse(list)).toBe(true);
+        await flush();
+        expect(errors).toEqual([]);
+
+        await handle.close();
+    });
+
     it('a repeated server/discover probe is answered by the same probe instance and a later initialize still falls back to legacy', async () => {
         const { handle, request, eras, closed } = await startEntry();
 

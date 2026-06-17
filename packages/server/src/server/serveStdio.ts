@@ -60,8 +60,10 @@ import {
     carriesValidModernEnvelopeClaim,
     envelopeClaimVersion,
     hasEnvelopeClaim,
+    isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
+    isJSONRPCResultResponse,
     modernOnlyStrictRejection,
     ProtocolErrorCode,
     requestMetaOf,
@@ -128,6 +130,9 @@ class StdioConnectionChannel implements Transport {
     onmessage?: <T extends JSONRPCMessage>(message: T, extra?: MessageExtraInfo) => void;
 
     private _closed = false;
+    /** Request ids the entry delivered to the instance that the instance has not yet answered. */
+    private readonly _pendingRequests = new Set<RequestId>();
+    private _drainWaiters: Array<() => void> = [];
 
     constructor(
         private readonly _wire: Transport,
@@ -140,6 +145,15 @@ class StdioConnectionChannel implements Transport {
     }
 
     async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+        if (isJSONRPCResultResponse(message) || isJSONRPCErrorResponse(message)) {
+            // The instance answered a delivered request: settle it whether or
+            // not the wire write below succeeds (write failures surface
+            // through the wire's own error reporting).
+            const { id } = message;
+            if (id !== undefined) {
+                this._settle(id);
+            }
+        }
         if (this._closed) {
             // A discarded or torn-down instance has nowhere to write; late
             // sends are dropped.
@@ -157,7 +171,23 @@ class StdioConnectionChannel implements Transport {
         if (this._closed) {
             return;
         }
+        if (isJSONRPCRequest(message)) {
+            this._pendingRequests.add(message.id);
+        }
         this.onmessage?.(message, extra);
+    }
+
+    /**
+     * Resolves once every request delivered to the instance has been answered
+     * through {@linkcode send} (or the channel has been closed and nothing
+     * further can be answered). Used by the probe-discard path so a probe
+     * request the entry accepted is never silently dropped.
+     */
+    async whenRequestsAnswered(): Promise<void> {
+        if (this._closed || this._pendingRequests.size === 0) {
+            return;
+        }
+        await new Promise<void>(resolve => this._drainWaiters.push(resolve));
     }
 
     async close(): Promise<void> {
@@ -165,10 +195,29 @@ class StdioConnectionChannel implements Transport {
             return;
         }
         this._closed = true;
+        // Nothing further can be answered through a closed channel; release
+        // anyone waiting on in-flight answers.
+        this._pendingRequests.clear();
+        this._releaseDrainWaiters();
         try {
             this._onInstanceClose();
         } finally {
             this.onclose?.();
+        }
+    }
+
+    private _settle(id: RequestId): void {
+        this._pendingRequests.delete(id);
+        if (this._pendingRequests.size === 0) {
+            this._releaseDrainWaiters();
+        }
+    }
+
+    private _releaseDrainWaiters(): void {
+        const waiters = this._drainWaiters;
+        this._drainWaiters = [];
+        for (const waiter of waiters) {
+            waiter();
         }
     }
 }
@@ -338,6 +387,14 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
         // continue on.
         discarding = instance.channel;
         try {
+            // A probe request the entry accepted must never go silently
+            // unanswered: a client may pipeline its fallback `initialize`
+            // straight behind `server/discover` without waiting, and closing
+            // the instance aborts whatever it still has in flight. Let the
+            // in-flight DiscoverResult reach the wire before the instance is
+            // closed; the probe instance only ever receives `server/discover`,
+            // whose entry-installed handler always answers promptly.
+            await instance.channel.whenRequestsAnswered();
             await instance.product.close();
         } catch (error) {
             reportError(toError(error));
