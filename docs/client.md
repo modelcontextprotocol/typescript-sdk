@@ -88,6 +88,29 @@ try {
 
 For a complete example with error reporting, see [`streamableHttpWithSseFallbackClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/streamableHttpWithSseFallbackClient.ts).
 
+### Protocol version negotiation (2026-07-28 revision)
+
+By default the client negotiates a 2025-era protocol version via the `initialize` handshake — exactly the v1.x behavior, byte for byte. To talk to a server on the 2026-07-28 revision, opt into version negotiation via `ClientOptions.versionNegotiation`:
+
+```ts
+// Auto-negotiate: probe with server/discover, fall back to the 2025 handshake
+// against a 2025-only server.
+const client = new Client(
+    { name: 'my-client', version: '1.0.0' },
+    { versionNegotiation: { mode: 'auto' } }
+);
+await client.connect(transport);
+
+client.getProtocolEra(); // 'modern' or 'legacy'
+client.getNegotiatedProtocolVersion(); // '2026-07-28' or '2025-11-25'
+```
+
+- **absent / `mode: 'legacy'` (the default)** — today's 2025 connect sequence; no probe, no new headers.
+- **`mode: 'auto'`** — `connect()` probes with `server/discover`; a 2025-only server rejects the probe and the client falls back to the plain `initialize` handshake on the same connection, byte-equivalent to a 2025 client. The probe costs one round trip against an old server.
+- **`mode: { pin: '2026-07-28' }`** — modern era at exactly that revision; no fallback. Against a 2025-only server `connect()` rejects with a typed error. Use `pin` where a silent downgrade would be worse than an error (tests, CI, servers you control).
+
+Once a modern era is negotiated, the client automatically attaches the per-request `_meta` envelope (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification. You can also configure negotiation pre-connect on an already-constructed instance via {@linkcode @modelcontextprotocol/client!client/client.Client#setVersionNegotiation | client.setVersionNegotiation()}. See the [migration guide](./migration.md#opt-in-protocol-version-negotiation-2026-07-28-draft) for the full failure semantics, probe policy, and the `'auto'`-mode compatibility table.
+
 ### Disconnecting
 
 Call {@linkcode @modelcontextprotocol/client!client/client.Client#close | await client.close() } to disconnect. Pending requests are rejected with a {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.ConnectionClosed | CONNECTION_CLOSED} error.

@@ -1024,15 +1024,22 @@ Probe policy is configured under `versionNegotiation.probe`:
 versionNegotiation: {
     mode: 'auto',
     probe: {
-        timeoutMs: 10_000 // default: the standard request timeout
+        timeoutMs: 10_000, // default: the standard request timeout
+        maxRetries: 0 // default: no retries — governs timeout re-sends only
     }
 }
 ```
 
+`maxRetries` governs timeout re-sends only (the spec-mandated `-32004` corrective continuation — select-and-continue with a mutual version — is a separate negotiation step and is never counted against it). Negotiation can also be configured pre-connect on an
+already-constructed instance via `client.setVersionNegotiation(options)` (equivalent to the constructor option; throws after connecting).
+
+Once a modern era is negotiated, the client **automatically attaches the per-request `_meta` envelope** (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification — you never set it by hand. Any `_meta` keys you pass
+in a request are preserved over the auto-attached ones. After connect, `client.getProtocolEra()` returns `'legacy'` or `'modern'` and `client.getNegotiatedProtocolVersion()` the exact revision.
+
 On the server side, `server/discover` (advertising only the modern revisions) is served by instances hosted through one of the 2026-era serving entries; a hand-constructed `Server`/`McpServer` is byte-identical to before (it keeps answering `-32601`, and the `initialize`
-handshake only ever negotiates 2025-era versions — a 2026-era revision is never accepted or counter-offered there). Serving the 2026 revision to ordinary HTTP traffic is done with the `createMcpHandler` entry point described in the next section; serving it on stdio (and other
-long-lived connections) is the `serveStdio` entry point described after that. The client can also issue the request directly via `client.discover()` on a 2026-era connection — a full typed round trip needs each request to carry the per-request `_meta` envelope (the negotiation
-probe already does; automatic envelope emission for every request is a client-side follow-up) — while on a 2025-era connection the method is rejected locally with a typed error, since it does not exist on that protocol revision.
+handshake only ever negotiates 2025-era versions — a 2026-era revision is never accepted or counter-offered there). Serving the 2026 revision to ordinary HTTP traffic is done with the `createMcpHandler` entry point described in the next section; serving it on stdio (and
+other long-lived connections) is the `serveStdio` entry point described after that. The client can also issue `client.discover()` directly on a 2026-era connection; on a 2025-era connection the method is rejected locally with a typed error, since it does not exist on that
+protocol revision.
 
 ### Serving the 2026-07-28 draft revision over HTTP: `createMcpHandler`
 
