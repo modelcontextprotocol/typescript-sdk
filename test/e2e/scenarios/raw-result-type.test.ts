@@ -129,11 +129,13 @@ verifies('typescript:client:raw-result-type-first', async ({ transport }: TestAr
 
     // ---- Modern negotiation: the client pins the draft revision, the relay
     // advertises it via server/discover → 2026 era → V-1 discrimination in
-    // the codec. ----
+    // the codec. Auto-fulfilment is disabled here so this requirement keeps
+    // proving the discrimination surface itself (the typed local error); the
+    // multi-round-trip driver has its own requirements (typescript:mrtr:*). ----
     {
         const client = new Client(
             { name: 'raw-result-type-client', version: '0' },
-            { versionNegotiation: { mode: { pin: '2026-07-28' } } }
+            { versionNegotiation: { mode: { pin: '2026-07-28' } }, inputRequired: { autoFulfill: false } }
         );
         await (transport === 'inMemory'
             ? connectInMemory(client, INPUT_REQUIRED_BODY)

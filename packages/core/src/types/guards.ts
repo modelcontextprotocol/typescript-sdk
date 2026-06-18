@@ -17,6 +17,7 @@ import type {
     CompleteRequestResourceTemplate,
     InitializedNotification,
     InitializeRequest,
+    InputRequiredResult,
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -86,6 +87,24 @@ export const isCallToolResult = (value: unknown): value is CallToolResult => {
     if (typeof value !== 'object' || value === null || !('content' in value)) return false;
     return CallToolResultSchema.safeParse(value).success;
 };
+
+/**
+ * Checks whether a value is an input-required result (protocol revision
+ * 2026-07-28): the multi-round-trip return shape discriminated by
+ * `resultType: 'input_required'`.
+ *
+ * This is a discriminator check, not a full validator — the at-least-one rule
+ * (`inputRequests` or `requestState`) is enforced by the `inputRequired()`
+ * builder and re-checked by the server seam for hand-built values.
+ *
+ * @param value - The value to check.
+ * @returns True if the value carries the `input_required` discriminator.
+ */
+export const isInputRequiredResult = (value: unknown): value is InputRequiredResult =>
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as { resultType?: unknown }).resultType === 'input_required';
 
 /**
  * Checks if a value is a valid {@linkcode TaskAugmentedRequestParams}.

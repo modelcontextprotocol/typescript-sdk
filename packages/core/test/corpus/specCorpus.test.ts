@@ -65,9 +65,6 @@ const ERROR_OBJECT_DIRS = new Set([
  * fails loudly. These burn down as the corresponding features land.
  */
 const PENDING_2026: Record<string, string> = {
-    InputRequests: 'multi-round-trip request vocabulary (SEP-2322) is not modeled yet',
-    InputRequiredResult: 'multi-round-trip request vocabulary (SEP-2322) is not modeled yet',
-    InputResponses: 'multi-round-trip request vocabulary (SEP-2322) is not modeled yet',
     SubscriptionsAcknowledgedNotification: 'subscriptions/listen vocabulary (SEP-1865) is not modeled yet',
     SubscriptionsListenRequest: 'subscriptions/listen vocabulary (SEP-1865) is not modeled yet'
 };
@@ -79,13 +76,9 @@ const PENDING_2026: Record<string, string> = {
  * parse, so the entry is removed the moment the widening lands.
  */
 const PENDING_2026_FILES: Record<string, string> = {
-    // The draft removed elicitationId from ElicitRequestURLParams; the SDK's
-    // shared schema keeps it (it is required on the frozen 2025-11-25
-    // revision), and the 2026-era in-band elicitation surface that will model
-    // the new shape is MRTR scope (#13). Until then the upstream example
-    // (which carries no elicitationId) does not parse.
-    'ElicitRequestURLParams/elicit-sensitive-data.json':
-        'URL-mode elicitation without elicitationId is modeled with the MRTR in-band surface (SEP-2322, #13)'
+    // (empty — the elicitationId-less ElicitRequestURLParams example burned
+    // when the 2026-era wire module landed the URL-mode elicitation fork as
+    // part of the multi-round-trip in-band vocabulary.)
 };
 
 type AnyZod = z.ZodType;

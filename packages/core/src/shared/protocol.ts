@@ -9,6 +9,7 @@ import type {
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
+    HandlerResultTypeMap,
     JSONRPCErrorResponse,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -49,6 +50,7 @@ import { isStandardSchema, validateStandardSchema } from '../util/standardSchema
 import { bootstrapOutboundCodec } from '../wire/bootstrap.js';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec.js';
 import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod } from '../wire/codec.js';
+import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
 /**
@@ -124,9 +126,45 @@ export type RequestOptions = {
      * Maximum total time (in milliseconds) to wait for a response.
      * If exceeded, an {@linkcode SdkError} with code {@linkcode SdkErrorCode.RequestTimeout} will be raised, regardless of progress notifications.
      * If not specified, there is no maximum total timeout.
+     *
+     * For multi-round-trip requests fulfilled by the auto-fulfilment driver
+     * (protocol revision 2026-07-28), the budget bounds the WHOLE flow: every
+     * retry leg is given only the time remaining.
      */
     maxTotalTimeout?: number;
+
+    /**
+     * Manual multi-round-trip mode for this call (protocol revision
+     * 2026-07-28): when the response is an `input_required` result, hand it
+     * back to the caller instead of auto-fulfilling it (or raising a typed
+     * error). The resolved value is the neutral input-required shape
+     * (`resultType: 'input_required'`, `inputRequests?`, `requestState?`);
+     * wrap the result schema with `withInputRequired()` on the explicit
+     * schema path to type both outcomes. The caller is then responsible for
+     * gathering the requested input and retrying the original request with
+     * `inputResponses` / `requestState` params and a fresh request.
+     *
+     * Default: `false`.
+     */
+    allowInputRequired?: boolean;
 } & TransportSendOptions;
+
+/**
+ * Flow context handed to {@linkcode Protocol._resolveNonCompleteResult}: the
+ * originating request, its options, the wire codec that decoded the response,
+ * the timestamp the originating leg was issued at (for whole-flow timeout
+ * accounting), and a `retry` closure that re-enters the request funnel with
+ * fresh params on a fresh request id.
+ */
+export interface NonCompleteResultFlow<T extends StandardSchemaV1 = StandardSchemaV1> {
+    codec: WireCodec;
+    request: Request;
+    resultSchema: T;
+    options: RequestOptions | undefined;
+    flowStartedAt: number;
+    /** Re-issue the originating request with the given params and per-leg options. */
+    retry(params: Record<string, unknown> | undefined, legOptions: RequestOptions): Promise<unknown>;
+}
 
 /**
  * Options that can be given per notification.
@@ -255,14 +293,36 @@ export type BaseContext = {
         /**
          * Multi-round-trip input responses carried by a retried request
          * (protocol revision 2026-07-28), lifted out of the params the
-         * handler sees. Driver material — present verbatim when sent.
+         * handler sees. Entries are the BARE response objects keyed by the
+         * identifiers the server assigned in `inputRequests`; entries that do
+         * not look like bare responses (e.g. a `{method, result}` wrapper)
+         * are dropped and their keys recorded in `droppedInputResponseKeys`.
+         *
+         * The values arrive from the client and are NOT validated by the SDK
+         * — treat them as untrusted input.
          */
         inputResponses?: Record<string, unknown>;
+
+        /**
+         * Keys of `inputResponses` entries the SDK dropped because they were
+         * not bare response objects (for example the wrapped `{method,
+         * result}` shape some peers emit). Surfaced so a handler can re-issue
+         * the corresponding input request rather than hard-fail.
+         */
+        droppedInputResponseKeys?: string[];
 
         /**
          * Multi-round-trip request state echoed by a retried request
          * (protocol revision 2026-07-28), lifted out of the params the
          * handler sees. Driver material — present verbatim when sent.
+         *
+         * SECURITY: `requestState` round-trips through the client and MUST be
+         * treated as attacker-controlled input. The SDK applies no integrity
+         * protection: if this value influences authorization, resource
+         * access, or business logic, the server MUST integrity-protect it
+         * (e.g. HMAC or AEAD) when minting it and MUST verify it here,
+         * rejecting state that fails verification (spec:
+         * basic/patterns/mrtr, server requirements 4–5).
          */
         requestState?: string;
 
@@ -507,6 +567,45 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     protected _shouldDropInbound(_message: JSONRPCRequest | JSONRPCNotification): 'drop' | undefined {
         return undefined;
+    }
+
+    /**
+     * Extension point for non-`complete` decoded results in the response
+     * funnel: a result the wire codec discriminated into a kind other than
+     * `'complete'` or `'invalid'` is handed here for the role class to
+     * resolve. The base default surfaces it as a typed
+     * {@linkcode SdkErrorCode.UnsupportedResultType} error (no retry).
+     *
+     * Intended consumers (named so the seam stays accountable):
+     * - the `Client`'s multi-round-trip auto-fulfilment engine, which fulfils
+     *   `'input_required'` results through the registered
+     *   elicitation/sampling/roots handlers and retries via `flow.retry`;
+     * - a future client-side terminal-result handler for
+     *   `subscriptions/listen`, when the spec defines one.
+     *
+     * `Server` instances never receive `input_required` responses on their
+     * outbound legs and leave the base behavior in place.
+     */
+    protected _resolveNonCompleteResult<T extends StandardSchemaV1>(
+        decoded: ReturnType<WireCodec['decodeResult']> & { kind: 'input_required' },
+        flow: NonCompleteResultFlow<T>
+    ): Promise<unknown> {
+        return Promise.reject(
+            new SdkError(SdkErrorCode.UnsupportedResultType, `Unsupported result type '${decoded.kind}' for ${flow.request.method}`, {
+                resultType: decoded.kind,
+                method: flow.request.method
+            })
+        );
+    }
+
+    /**
+     * Protected accessor for a registered request handler. Used by role
+     * classes that dispatch synthesized requests through the same stored
+     * handler chain (e.g. the `Client` fulfilling an embedded multi-round-trip
+     * input request).
+     */
+    protected _getRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
+        return this._requestHandlers.get(method);
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
@@ -817,6 +916,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const abortController = new AbortController();
         this._requestHandlerAbortControllers.set(request.id, abortController);
 
+        // Multi-round-trip retry material: only BARE response objects are
+        // surfaced to the handler; entries that look like a wrapped
+        // `{method, result}` shape (or are not objects at all) are dropped
+        // and their keys recorded so the handler can re-issue the input
+        // request instead of hard-failing (D-059 posture).
+        const partitionedInputResponses = lifted.inputResponses === undefined ? undefined : partitionInputResponses(lifted.inputResponses);
+
         const baseCtx: BaseContext = {
             sessionId: capturedTransport?.sessionId,
             mcpReq: {
@@ -824,7 +930,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 method: request.method,
                 _meta: request.params?._meta,
                 ...(lifted.envelope !== undefined && { envelope: lifted.envelope }),
-                ...(lifted.inputResponses !== undefined && { inputResponses: lifted.inputResponses }),
+                ...(partitionedInputResponses !== undefined && { inputResponses: partitionedInputResponses.accepted }),
+                ...(partitionedInputResponses !== undefined &&
+                    partitionedInputResponses.droppedKeys.length > 0 && {
+                        droppedInputResponseKeys: partitionedInputResponses.droppedKeys
+                    }),
                 ...(lifted.requestState !== undefined && { requestState: lifted.requestState }),
                 signal: abortController.signal,
                 // BaseContext.mcpReq.send is declared with two overloads (spec-method-keyed and explicit-schema). Arrow
@@ -1103,6 +1213,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>> {
         const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
+        // Flow start for non-complete result resolution: `maxTotalTimeout`
+        // bounds the WHOLE flow, so the budget is measured from the original
+        // request, not from when an extension takes over after the first leg.
+        const flowStartedAt = Date.now();
 
         let onAbort: (() => void) | undefined;
         let cleanupMessageId: number | undefined;
@@ -1209,15 +1323,30 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     return reject(decoded.error);
                 }
                 if (decoded.kind === 'input_required') {
-                    // Driver seam: the multi-round-trip driver (M4.1)
-                    // consumes this payload; until it lands, surface the
-                    // discriminated kind as a typed local error, no retry.
-                    return reject(
-                        new SdkError(SdkErrorCode.UnsupportedResultType, `Unsupported result type 'input_required' for ${request.method}`, {
-                            resultType: 'input_required',
-                            method: request.method
-                        })
-                    );
+                    // Manual mode (the primitive any driver layers over):
+                    // hand the input-required value back to the caller.
+                    if (options?.allowInputRequired === true) {
+                        return resolve(manualInputRequiredValue(decoded) as StandardSchemaV1.InferOutput<T>);
+                    }
+                    // Non-complete result extension point: the role class may
+                    // resolve the flow itself (the Client wires the
+                    // multi-round-trip auto-fulfilment engine here). The base
+                    // default is the typed UnsupportedResultType error.
+                    const flow: NonCompleteResultFlow<T> = {
+                        codec,
+                        request,
+                        resultSchema,
+                        options,
+                        flowStartedAt,
+                        retry: (params, legOptions) =>
+                            this._requestWithSchemaViaCodec(
+                                codec,
+                                params === undefined ? { method: request.method } : { method: request.method, params },
+                                resultSchema,
+                                legOptions
+                            )
+                    };
+                    return resolve(this._resolveNonCompleteResult(decoded, flow) as Promise<StandardSchemaV1.InferOutput<T>>);
                 }
                 const result = decoded.result;
 
@@ -1348,7 +1477,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     setRequestHandler<M extends RequestMethod>(
         method: M,
-        handler: (request: RequestTypeMap[M], ctx: ContextT) => ResultTypeMap[M] | Promise<ResultTypeMap[M]>
+        handler: (request: RequestTypeMap[M], ctx: ContextT) => HandlerResultTypeMap[M] | Promise<HandlerResultTypeMap[M]>
     ): void;
     setRequestHandler<P extends StandardSchemaV1, R extends StandardSchemaV1 | undefined = undefined>(
         method: string,
@@ -1373,9 +1502,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // Dispatch-time schema resolution: the request is parsed with the
             // schema of the era serving this connection (the instance era at
             // dispatch time), never with a schema captured at registration
-            // time.
+            // time. On the 2026-07-28 era the demoted server→client methods
+            // (elicitation/sampling/roots) are not wire request methods —
+            // they reach a handler only as embedded input requests dispatched
+            // by the multi-round-trip driver, and parse with the era's
+            // in-band schema instead.
             stored = (request, ctx) => {
-                const schema = this._negotiatedWireCodec().requestSchema(method);
+                const dispatchCodec = this._negotiatedWireCodec();
+                const schema = dispatchCodec.requestSchema(method) ?? dispatchCodec.inputRequestSchema(method);
                 if (!schema) {
                     // Unreachable: the dispatch era gate rejects era-mismatched
                     // spec methods with −32601 before any handler runs.

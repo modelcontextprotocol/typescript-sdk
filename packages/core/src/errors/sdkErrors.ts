@@ -35,6 +35,15 @@ export enum SdkErrorCode {
      */
     UnsupportedResultType = 'UNSUPPORTED_RESULT_TYPE',
     /**
+     * The multi-round-trip auto-fulfilment driver exhausted its round cap
+     * (`inputRequired.maxRounds`) without the server returning a complete
+     * result. `data.rounds` carries the cap that was hit and
+     * `data.lastResult` carries the last `input_required` payload received
+     * (`{ inputRequests, requestState? }`), so callers can inspect or resume
+     * the flow manually.
+     */
+    InputRequiredRoundsExceeded = 'INPUT_REQUIRED_ROUNDS_EXCEEDED',
+    /**
      * The spec method being sent does not exist on the negotiated protocol
      * version's wire era (e.g. `tasks/get` toward a 2026-07-28 peer, or
      * `server/discover` toward a 2025-era peer). Raised locally, before

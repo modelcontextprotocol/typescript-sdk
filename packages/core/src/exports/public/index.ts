@@ -108,6 +108,7 @@ export {
     isCallToolResult,
     isInitializedNotification,
     isInitializeRequest,
+    isInputRequiredResult,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,

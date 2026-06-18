@@ -28,11 +28,14 @@ import {
     ClientCapabilitiesSchema,
     ContentBlockSchema,
     CursorSchema,
+    ElicitRequestFormParamsSchema,
     IconsSchema,
     ImageContentSchema,
     ImplementationSchema,
+    JSONObjectSchema,
     LoggingLevelSchema,
     LoggingMessageNotificationSchema,
+    ModelPreferencesSchema,
     ProgressNotificationSchema,
     ProgressTokenSchema,
     PromptListChangedNotificationSchema,
@@ -47,10 +50,12 @@ import {
     ResourceTemplateSchema,
     ResourceUpdatedNotificationSchema,
     RoleSchema,
+    RootSchema,
     ServerCapabilitiesSchema,
     TextContentSchema,
     TextResourceContentsSchema,
     ToolAnnotationsSchema,
+    ToolChoiceSchema,
     ToolListChangedNotificationSchema,
     ToolUseContentSchema
 } from '../../types/schemas.js';
@@ -278,6 +283,125 @@ export const DiscoverResultSchema = wireResult({
 });
 
 /* ------------------------------------------------------------------------ *
+ * Multi round-trip requests (SEP-2322). The in-band vocabulary of this
+ * revision: server→client interactions are carried as de-JSON-RPC'd embedded
+ * requests inside an `input_required` result, fulfilled by the client, and
+ * echoed back as embedded responses on the retry. The shapes below are
+ * anchor-exact wire artifacts (corpus + parity); the lenient dispatch-time
+ * schemas the multi-round-trip driver parses embedded requests with live in
+ * `inputRequired.ts`.
+ *
+ * The sampling shapes fork here (they compose the forked SamplingMessage /
+ * Tool payloads); the URL-mode elicitation params fork here (the draft
+ * removed `elicitationId`; the shared schema keeps it because it is required
+ * on the frozen 2025-11-25 revision); form-mode elicitation params are
+ * revision-identical and are composed by reference from the shared schema.
+ * ------------------------------------------------------------------------ */
+
+/** 2026-era CreateMessageRequestParams (anchor-exact: forked SamplingMessage/Tool, no task augmentation). */
+export const CreateMessageRequestParamsSchema = z.object({
+    messages: z.array(SamplingMessageSchema),
+    modelPreferences: ModelPreferencesSchema.optional(),
+    systemPrompt: z.string().optional(),
+    includeContext: z.enum(['none', 'thisServer', 'allServers']).optional(),
+    temperature: z.number().optional(),
+    maxTokens: z.number().int(),
+    stopSequences: z.array(z.string()).optional(),
+    metadata: JSONObjectSchema.optional(),
+    tools: z.array(ToolSchema).optional(),
+    toolChoice: ToolChoiceSchema.optional()
+});
+
+/** 2026-era embedded sampling request (de-JSON-RPC'd). */
+export const CreateMessageRequestSchema = z.object({
+    method: z.literal('sampling/createMessage'),
+    params: CreateMessageRequestParamsSchema
+});
+
+/**
+ * 2026-era embedded roots listing request (de-JSON-RPC'd). Embedded input
+ * requests do NOT carry the per-request `_meta` envelope on this revision —
+ * the anchor declares a bare optional `_meta` on `params`.
+ */
+export const ListRootsRequestSchema = z.object({
+    method: z.literal('roots/list'),
+    params: z.object({ _meta: z.record(z.string(), z.unknown()).optional() }).optional()
+});
+
+/** 2026-era embedded sampling response (anchor-exact: extends the forked SamplingMessage). */
+export const CreateMessageResultSchema = z.object({
+    ...SamplingMessageSchema.shape,
+    model: z.string(),
+    stopReason: z.string().optional()
+});
+
+/** 2026-era embedded roots listing response (anchor-exact: bare `roots` array). */
+export const ListRootsResultSchema = z.object({
+    roots: z.array(RootSchema)
+});
+
+/** 2026-era embedded elicitation response (anchor-exact: bare result, restricted content value types). */
+export const ElicitResultSchema = z.object({
+    action: z.enum(['accept', 'decline', 'cancel']),
+    content: z.record(z.string(), z.union([z.string(), z.number(), z.boolean(), z.array(z.string())])).optional()
+});
+
+/**
+ * 2026-era URL-mode elicitation params (anchor-exact fork): the draft removed
+ * `elicitationId` (and the `notifications/elicitation/complete` channel it
+ * keyed) — the shared schema keeps the field because it is required on the
+ * frozen 2025-11-25 revision.
+ */
+export const ElicitRequestURLParamsSchema = z.object({
+    mode: z.literal('url'),
+    message: z.string(),
+    url: z.string().url()
+});
+
+/** 2026-era elicitation params (form mode is revision-identical; URL mode is the fork above). */
+export const ElicitRequestParamsSchema = z.union([ElicitRequestFormParamsSchema, ElicitRequestURLParamsSchema]);
+
+/** 2026-era embedded elicitation request (de-JSON-RPC'd; see the URL-mode fork above). */
+export const ElicitRequestSchema = z.object({
+    method: z.literal('elicitation/create'),
+    params: ElicitRequestParamsSchema
+});
+
+/** A single embedded input request (one of the three demoted server→client requests). */
+export const InputRequestSchema = z.union([CreateMessageRequestSchema, ListRootsRequestSchema, ElicitRequestSchema]);
+
+/** A single embedded input response — the BARE result union (never a `{method, result}` wrapper). */
+export const InputResponseSchema = z.union([CreateMessageResultSchema, ListRootsResultSchema, ElicitResultSchema]);
+
+/** Map of embedded input requests, keyed by server-assigned identifiers. */
+export const InputRequestsSchema = z.record(z.string(), InputRequestSchema);
+
+/** Map of embedded input responses, keyed by the corresponding request identifiers. */
+export const InputResponsesSchema = z.record(z.string(), InputResponseSchema);
+
+/**
+ * The wire InputRequiredResult: `resultType: 'input_required'` plus at least
+ * one of `inputRequests` / `requestState` (the at-least-one rule is enforced
+ * at the server seam, not by this parse shape).
+ */
+export const InputRequiredResultSchema = wireResult({
+    inputRequests: InputRequestsSchema.optional(),
+    requestState: z.string().optional()
+});
+
+/** The retry-channel members carried by client-initiated requests on this revision. */
+const retryParamsShape = {
+    inputResponses: InputResponsesSchema.optional(),
+    requestState: z.string().optional()
+};
+
+/** Anchor InputResponseRequestParams: the retry channel on top of the required request `_meta` envelope. */
+export const InputResponseRequestParamsSchema = z.object({
+    _meta: RequestMetaEnvelopeSchema,
+    ...retryParamsShape
+});
+
+/* ------------------------------------------------------------------------ *
  * Request side. Two views per method:
  * - WIRE-TRUE (`<Name>RequestSchema`): params `_meta` carries the REQUIRED
  *   envelope (anchor RequestParams._meta is required). The corpus and parity
@@ -310,7 +434,10 @@ function dispatchRequest<M extends string, T extends z.core.$ZodLooseShape>(meth
 
 const callToolParamsShape = {
     name: z.string(),
-    arguments: z.record(z.string(), z.unknown()).optional()
+    arguments: z.record(z.string(), z.unknown()).optional(),
+    // Multi-round-trip retry channel (the wire-true view models it; dispatch
+    // never sees it — the protocol layer lifts it before any handler runs).
+    ...retryParamsShape
 };
 const paginatedParamsShape = { cursor: CursorSchema.optional() };
 
@@ -319,11 +446,12 @@ export const ListToolsRequestSchema = wireRequest('tools/list', paginatedParamsS
 export const ListPromptsRequestSchema = wireRequest('prompts/list', paginatedParamsShape);
 export const GetPromptRequestSchema = wireRequest('prompts/get', {
     name: z.string(),
-    arguments: z.record(z.string(), z.string()).optional()
+    arguments: z.record(z.string(), z.string()).optional(),
+    ...retryParamsShape
 });
 export const ListResourcesRequestSchema = wireRequest('resources/list', paginatedParamsShape);
 export const ListResourceTemplatesRequestSchema = wireRequest('resources/templates/list', paginatedParamsShape);
-export const ReadResourceRequestSchema = wireRequest('resources/read', { uri: z.string() });
+export const ReadResourceRequestSchema = wireRequest('resources/read', { uri: z.string(), ...retryParamsShape });
 const completeParamsShape = {
     ref: z.union([PromptReferenceSchema, ResourceTemplateReferenceSchema]),
     argument: z.object({ name: z.string(), value: z.string() }),
@@ -517,13 +645,15 @@ const wireResultResponse = <T extends z.ZodType>(result: T) =>
         .strict();
 
 export const JSONRPCResultResponseSchema = wireResultResponse(ResultSchema);
-export const CallToolResultResponseSchema = wireResultResponse(CallToolResultSchema);
+// The multi-round-trip methods may answer with either their final result or an
+// InputRequiredResult (anchor: `result: CallToolResult | InputRequiredResult`).
+export const CallToolResultResponseSchema = wireResultResponse(z.union([CallToolResultSchema, InputRequiredResultSchema]));
 export const ListToolsResultResponseSchema = wireResultResponse(ListToolsResultSchema);
 export const ListPromptsResultResponseSchema = wireResultResponse(ListPromptsResultSchema);
-export const GetPromptResultResponseSchema = wireResultResponse(GetPromptResultSchema);
+export const GetPromptResultResponseSchema = wireResultResponse(z.union([GetPromptResultSchema, InputRequiredResultSchema]));
 export const ListResourcesResultResponseSchema = wireResultResponse(ListResourcesResultSchema);
 export const ListResourceTemplatesResultResponseSchema = wireResultResponse(ListResourceTemplatesResultSchema);
-export const ReadResourceResultResponseSchema = wireResultResponse(ReadResourceResultSchema);
+export const ReadResourceResultResponseSchema = wireResultResponse(z.union([ReadResourceResultSchema, InputRequiredResultSchema]));
 export const CompleteResultResponseSchema = wireResultResponse(CompleteResultSchema);
 export const DiscoverResultResponseSchema = wireResultResponse(DiscoverResultSchema);
 

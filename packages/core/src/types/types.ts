@@ -436,6 +436,81 @@ export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
 export type ListRootsResult = StripWireOnly<Infer<typeof ListRootsResultSchema>>;
 export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
 
+/* Multi round-trip requests (protocol revision 2026-07-28)
+ *
+ * On the 2026-07-28 revision the server obtains client input (elicitation,
+ * sampling, roots) in-band: instead of sending a server→client JSON-RPC
+ * request, a handler for one of the multi-round-trip methods (`tools/call`,
+ * `prompts/get`, `resources/read`) returns an input-required result carrying
+ * de-JSON-RPC'd embedded requests; the client fulfils them and retries the
+ * original request with the responses. These are the NEUTRAL shapes of that
+ * surface — handlers author them and the 2026-07-28 wire codec alone maps
+ * them to/from the wire.
+ */
+
+/**
+ * A single embedded (de-JSON-RPC'd) input request inside an
+ * {@linkcode InputRequiredResult}: an elicitation, sampling, or roots request
+ * object carried in-band rather than sent as a server→client JSON-RPC request.
+ */
+export type InputRequest = CreateMessageRequest | ListRootsRequest | ElicitRequest;
+
+/**
+ * A single embedded (de-JSON-RPC'd) input response inside a retried request's
+ * `inputResponses`: the bare result object for the corresponding
+ * {@linkcode InputRequest} (never wrapped in a `{method, result}` envelope).
+ */
+export type InputResponse = CreateMessageResult | ListRootsResult | ElicitResult;
+
+/**
+ * A map of embedded input requests, keyed by server-assigned identifiers that
+ * are unique within the scope of the request.
+ */
+export interface InputRequests {
+    [key: string]: InputRequest;
+}
+
+/**
+ * A map of embedded input responses. Keys correspond to the keys of the
+ * {@linkcode InputRequests} map the server sent; values are the client's bare
+ * result for each request.
+ */
+export interface InputResponses {
+    [key: string]: InputResponse;
+}
+
+/**
+ * The input-required result a handler for a multi-round-trip method
+ * (`tools/call`, `prompts/get`, `resources/read`) returns to request more
+ * input from the client (protocol revision 2026-07-28). Build it with the
+ * `inputRequired()` builder; hand-built literals are equally legal —
+ * `resultType: 'input_required'` is the discriminator, and the SDK re-checks
+ * the at-least-one rule at the seam.
+ *
+ * This is the one place the wire discriminator `resultType` appears on the
+ * neutral surface: the handler authors it, the 2026-07-28 codec passes it
+ * through to the wire, and consumers receiving results never see it (complete
+ * results are lifted).
+ *
+ * At least one of `inputRequests` or `requestState` must be present.
+ *
+ * `requestState` is an opaque, server-minted string echoed back verbatim by
+ * the client on retry. It travels through the client and MUST be treated by
+ * the server as attacker-controlled input on re-entry: if it influences
+ * authorization, resource access, or business logic, the server MUST protect
+ * its integrity (e.g. HMAC or AEAD) and MUST reject state that fails
+ * verification (spec: basic/patterns/mrtr §Server Requirements). The SDK
+ * surfaces it raw at `ctx.mcpReq.requestState` and applies no integrity
+ * protection of its own.
+ */
+export interface InputRequiredResult extends Result {
+    resultType: 'input_required';
+    /** Embedded requests the client must fulfil before retrying. */
+    inputRequests?: InputRequests;
+    /** Opaque server state the client echoes back verbatim on retry. */
+    requestState?: string;
+}
+
 /* Client messages */
 export type ClientRequest = Infer<typeof ClientRequestSchema>;
 export type ClientNotification = Infer<typeof ClientNotificationSchema>;
@@ -481,6 +556,23 @@ export type ResultTypeMap = {
     'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;
     'elicitation/create': ElicitResult;
     'roots/list': ListRootsResult;
+};
+
+/**
+ * The handler-return counterpart of {@linkcode ResultTypeMap}: what a
+ * registered request handler may RETURN for each method. Identical to
+ * `ResultTypeMap` except that the multi-round-trip methods (`tools/call`,
+ * `prompts/get`, `resources/read`) additionally accept an
+ * {@linkcode InputRequiredResult} (protocol revision 2026-07-28).
+ *
+ * `ResultTypeMap` itself — what a *requester* receives — is deliberately NOT
+ * widened: `client.callTool()` returns a plain {@linkcode CallToolResult} on
+ * both protocol eras.
+ */
+export type HandlerResultTypeMap = {
+    [M in keyof ResultTypeMap]: M extends 'tools/call' | 'prompts/get' | 'resources/read'
+        ? ResultTypeMap[M] | InputRequiredResult
+        : ResultTypeMap[M];
 };
 
 /**
