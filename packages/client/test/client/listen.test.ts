@@ -110,9 +110,7 @@ describe('Client.listen()', () => {
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(clientTx);
         const sub = await client.listen({ toolsListChanged: true });
-        const listenId = (
-            written.find(m => (m as { method?: string }).method === 'subscriptions/listen') as { id: number | string }
-        ).id;
+        const listenId = (written.find(m => (m as { method?: string }).method === 'subscriptions/listen') as { id: number | string }).id;
         written.length = 0;
         await sub.close();
         expect(written).toEqual([{ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } }]);
@@ -147,7 +145,12 @@ describe('Client.listen()', () => {
                 void serverTx.send({
                     jsonrpc: '2.0',
                     id: req.id,
-                    result: { resultType: 'complete', supportedVersions: [MODERN], capabilities: {}, serverInfo: { name: 's', version: '1' } }
+                    result: {
+                        resultType: 'complete',
+                        supportedVersions: [MODERN],
+                        capabilities: {},
+                        serverInfo: { name: 's', version: '1' }
+                    }
                 });
             }
             if (req.method === 'subscriptions/listen' && req.id !== undefined) {

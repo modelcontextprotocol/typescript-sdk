@@ -108,7 +108,7 @@ verifies('typescript:subscriptions:listChanged-auto-open-modern', async () => {
 verifies('typescript:subscriptions:listen:legacy-era-steer', async ({ transport }: TestArgs) => {
     const client = new Client({ name: 'c', version: '0' });
     await using _ = await wire(transport, makeServer, client);
-    const error = await client.listen({ toolsListChanged: true }).catch(e => e as SdkError);
+    const error = await client.listen({ toolsListChanged: true }).catch(error_ => error_ as SdkError);
     expect(error).toBeInstanceOf(SdkError);
     expect((error as SdkError).code).toBe(SdkErrorCode.MethodNotSupportedByProtocolVersion);
     expect((error as SdkError).message).toContain('resources/subscribe');

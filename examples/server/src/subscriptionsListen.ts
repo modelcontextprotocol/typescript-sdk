@@ -26,11 +26,9 @@ let extraToolEnabled = false;
 function buildServer(): McpServer {
     const server = new McpServer({ name: 'subscriptions-listen-example', version: '1.0.0' });
 
-    server.registerTool(
-        'greet',
-        { description: 'Returns a greeting', inputSchema: z.object({ name: z.string() }) },
-        async ({ name }) => ({ content: [{ type: 'text', text: `hello, ${name}` }] })
-    );
+    server.registerTool('greet', { description: 'Returns a greeting', inputSchema: z.object({ name: z.string() }) }, async ({ name }) => ({
+        content: [{ type: 'text', text: `hello, ${name}` }]
+    }));
     if (extraToolEnabled) {
         server.registerTool(
             'farewell',

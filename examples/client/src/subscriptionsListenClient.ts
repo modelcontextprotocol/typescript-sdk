@@ -44,7 +44,10 @@ async function autoOpenLeg(): Promise<void> {
         }
     });
     await client.connect(new StreamableHTTPClientTransport(new globalThis.URL(URL)));
-    console.log(`[client] (auto) connected (${client.getNegotiatedProtocolVersion()}); auto-opened filter:`, client.autoOpenedSubscription?.honoredFilter);
+    console.log(
+        `[client] (auto) connected (${client.getNegotiatedProtocolVersion()}); auto-opened filter:`,
+        client.autoOpenedSubscription?.honoredFilter
+    );
     await finished;
     await client.autoOpenedSubscription?.close();
     await client.close();

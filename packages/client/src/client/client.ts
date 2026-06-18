@@ -64,7 +64,6 @@ import {
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
     parseSchema,
-    PROTOCOL_VERSION_META_KEY,
     Protocol,
     PROTOCOL_VERSION_META_KEY,
     ProtocolError,
@@ -1217,7 +1216,7 @@ export class Client extends Protocol<ClientContext> {
         }
 
         const requestAbort = new AbortController();
-        const transportKind = this.transport !== undefined ? detectProbeTransportKind(this.transport) : 'http';
+        const transportKind = this.transport === undefined ? 'http' : detectProbeTransportKind(this.transport);
 
         let closed = false;
         let parked!: ReturnType<typeof this._parkRequest>;
@@ -1279,10 +1278,10 @@ export class Client extends Protocol<ClientContext> {
                     reject(error ?? new Error('subscriptions/listen failed'));
                 }
             });
-            parked.sent.catch(err => {
+            parked.sent.catch(error => {
                 clearTimeout(timer);
                 void close();
-                reject(err instanceof Error ? err : new Error(String(err)));
+                reject(error instanceof Error ? error : new Error(String(error)));
             });
         });
 
