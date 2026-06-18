@@ -69,6 +69,12 @@ import { ProtocolError, UnsupportedProtocolVersionError } from '../types/errors.
 import { isJSONRPCErrorResponse, isJSONRPCNotification, isJSONRPCRequest, isJSONRPCResultResponse } from '../types/guards.js';
 import type { JSONRPCNotification, JSONRPCRequest, MessageClassification } from '../types/types.js';
 import { envelopeClaimVersion, hasEnvelopeClaim, requestMetaOf, validateEnvelopeMeta } from './envelope.js';
+// Value encoding is shared between the standard `Mcp-Name` header and the
+// custom `Mcp-Param-*` headers; the codec module already imports the
+// `HeaderMismatch` constant and rejection type from here, so this is a benign
+// two-module cycle (both sides only consume the other's exports inside
+// function bodies, never at module-evaluation time).
+import { decodeMcpParamValue } from './mcpParamHeaders.js';
 import { isModernProtocolVersion } from './protocolEras.js';
 
 /* ------------------------------------------------------------------------ *
@@ -88,6 +94,8 @@ export interface InboundHttpRequest {
     protocolVersionHeader?: string;
     /** The value of the `Mcp-Method` header, when present. */
     mcpMethodHeader?: string;
+    /** The value of the `Mcp-Name` header, when present. */
+    mcpNameHeader?: string;
     /** The parsed JSON request body (`undefined` for body-less methods). */
     body?: unknown;
 }
@@ -406,6 +414,101 @@ function crossCheckMismatch(cell: string, header: string, body: string): Inbound
         }),
         true
     );
+}
+
+/**
+ * The methods whose body carries a `params.name` / `params.uri` value the
+ * `Mcp-Name` header must mirror, and which body field supplies it (SEP-2243
+ * § Standard Request Headers, `Required For` column).
+ */
+export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, 'name' | 'uri'>> = {
+    'tools/call': 'name',
+    'prompts/get': 'name',
+    'resources/read': 'uri'
+};
+
+/**
+ * SEP-2243 standard-header server-side validation, evaluated by the HTTP
+ * entry on a modern-classified request immediately after
+ * {@linkcode classifyInboundRequest} returns a modern route.
+ *
+ * Returns the `-32001` (`HeaderMismatch`) ladder rejection (HTTP `400`,
+ * `era-classification` rung — the same shape and rung
+ * {@linkcode classifyInboundRequest} already emits for the
+ * `MCP-Protocol-Version` and `Mcp-Method` *mismatch* cells) when:
+ *
+ * - the required `Mcp-Method` header is absent;
+ * - the required `Mcp-Name` header is absent on a `tools/call`,
+ *   `prompts/get`, or `resources/read` request whose body carries the
+ *   `params.name` / `params.uri` value the header mirrors;
+ * - the `Mcp-Name` header carries an invalid `=?base64?…?=` sentinel; or
+ * - the (decoded) `Mcp-Name` value disagrees with the body's
+ *   `params.name` / `params.uri`.
+ *
+ * Returns `undefined` (pass) for notifications (the spec table reads
+ * "All requests"), for methods that have no `Mcp-Name` source, and when the
+ * headers agree with the body. Never enforced on legacy traffic — the entry
+ * only calls this on a modern route.
+ *
+ * Kept separate from {@linkcode classifyInboundRequest} so that a body-only
+ * call to the classifier (no headers passed) keeps routing a modern request
+ * unchanged: the classifier remains a pure body-primary router, and this
+ * function is the presence/`Mcp-Name` half of the standard-header rung the
+ * entry layers on top.
+ */
+export function validateStandardRequestHeaders(request: InboundHttpRequest, route: InboundModernRoute): InboundLadderRejection | undefined {
+    if (route.messageKind !== 'request') {
+        return undefined;
+    }
+    const method = route.message.method;
+
+    if (request.mcpMethodHeader === undefined) {
+        return crossCheckMismatch(
+            'method-header-missing',
+            '(missing)',
+            `the body names method ${method} but the required Mcp-Method header is absent`
+        );
+    }
+
+    const sourceField = MCP_NAME_HEADER_SOURCE[method];
+    if (sourceField === undefined) {
+        return undefined;
+    }
+    const params = route.message.params as Record<string, unknown> | undefined;
+    const sourceValue = params?.[sourceField];
+    const bodyValue = typeof sourceValue === 'string' ? sourceValue : undefined;
+
+    if (request.mcpNameHeader === undefined) {
+        // The header is required for these methods whenever the body carries
+        // the source value. A body without `params.name`/`params.uri` is a
+        // params-validation failure further down the ladder; this rung only
+        // answers the missing-header case it can observe.
+        if (bodyValue === undefined) {
+            return undefined;
+        }
+        return crossCheckMismatch(
+            'name-header-missing',
+            '(missing)',
+            `the body carries params.${sourceField}="${bodyValue}" but the required Mcp-Name header is absent`
+        );
+    }
+
+    const decoded = decodeMcpParamValue(request.mcpNameHeader);
+    if (decoded === undefined) {
+        return crossCheckMismatch(
+            'name-header-invalid-encoding',
+            request.mcpNameHeader,
+            'the Mcp-Name header carries an invalid Base64 sentinel value'
+        );
+    }
+    if (bodyValue !== undefined && decoded !== bodyValue) {
+        return crossCheckMismatch(
+            'name-header-mismatch',
+            request.mcpNameHeader,
+            `the body carries params.${sourceField}="${bodyValue}" but the Mcp-Name header names "${decoded}"`
+        );
+    }
+    return undefined;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
