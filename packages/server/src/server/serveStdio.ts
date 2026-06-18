@@ -490,6 +490,10 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             // uses, before the instance is connected.
             setNegotiatedProtocolVersion(server, revision);
             installModernOnlyHandlers(server, SUPPORTED_MODERN_PROTOCOL_VERSIONS);
+            // The listen router was created before this instance existed; now
+            // that capabilities are known, hand them over so the acknowledged
+            // filter is narrowed against what the server actually advertises.
+            listenRouter.setServerCapabilities(server.getCapabilities());
         }
         const channel: StdioConnectionChannel = new StdioConnectionChannel(
             wire,

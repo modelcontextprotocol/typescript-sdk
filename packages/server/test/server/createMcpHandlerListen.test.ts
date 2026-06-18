@@ -4,7 +4,8 @@
  * Covers ack-first (the acknowledged notification is the first frame),
  * subscription-id stamping (the listen request's JSON-RPC id verbatim),
  * per-stream filtering (un-requested types provably never delivered),
- * notify sugar, capacity guard, factory non-consultation, and teardown.
+ * notify sugar, capacity guard, capability-narrowed honored filter, and
+ * teardown.
  */
 import {
     CLIENT_CAPABILITIES_META_KEY,
@@ -60,23 +61,44 @@ async function readMessages(response: Response, n: number): Promise<unknown[]> {
 }
 
 function trivialFactory(): () => McpServer {
-    return () => new McpServer({ name: 'listen-test-server', version: '1.0.0' });
+    // Declare every listChanged / subscribe bit so the tests below see the
+    // requested filter honored as-is (the entry now narrows the ack against
+    // the per-serve instance's declared capabilities).
+    return () =>
+        new McpServer(
+            { name: 'listen-test-server', version: '1.0.0' },
+            {
+                capabilities: {
+                    tools: { listChanged: true },
+                    prompts: { listChanged: true },
+                    resources: { listChanged: true, subscribe: true }
+                }
+            }
+        );
 }
 
 describe('createMcpHandler — subscriptions/listen', () => {
-    it('serves listen at the entry without consulting the factory', async () => {
+    it('serves listen at the entry, consulting the factory only for its declared capabilities', async () => {
         let factoryCalls = 0;
+        let connected = false;
         const handler = createMcpHandler(
             () => {
                 factoryCalls++;
-                return new McpServer({ name: 's', version: '1' });
+                const s = new McpServer({ name: 's', version: '1' });
+                s.server.onclose = () => {
+                    connected = true;
+                };
+                return s;
             },
             { keepAliveMs: 0 }
         );
         const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }));
         expect(response.status).toBe(200);
         const [ack] = await readMessages(response, 1);
-        expect(factoryCalls).toBe(0);
+        // The factory is consulted exactly once (capabilities probe, like
+        // server/discover); the instance is never connected and is discarded.
+        expect(factoryCalls).toBe(1);
+        expect(connected).toBe(false);
         expect((ack as { method: string }).method).toBe('notifications/subscriptions/acknowledged');
         await handler.close();
     });

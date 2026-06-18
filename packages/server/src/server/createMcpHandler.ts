@@ -676,23 +676,25 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             }
         }
 
-        // Entry-handled `subscriptions/listen`: recognized BEFORE the factory
-        // is consulted. The router owns ack-first / per-stream filtering /
-        // subscription-id stamping / keepalive / capacity / teardown; the
-        // factory is not constructed for listen, so any authorization the
-        // consumer performs inside the factory does not see listen requests
-        // (token verification belongs at the middleware layer mounted in
-        // front of this entry — the entry's documented authz posture).
-        if (route.messageKind === 'request' && (message as JSONRPCRequest).method === 'subscriptions/listen') {
-            return listenRouter.serve(message as JSONRPCRequest, request.signal);
-        }
-
         const product = await factory({
             era: 'modern',
             ...(authInfo !== undefined && { authInfo }),
             requestInfo: request
         });
         const server = product instanceof McpServer ? product.server : product;
+
+        // Entry-handled `subscriptions/listen`: the router owns ack-first /
+        // per-stream filtering / subscription-id stamping / keepalive /
+        // capacity / teardown. The factory IS constructed for listen — exactly
+        // as for `server/discover` — but only to read the instance's declared
+        // capabilities so the acknowledged filter reflects what the server can
+        // actually deliver; the instance is never connected and is discarded.
+        // Authorization the consumer performs inside the factory therefore DOES
+        // see listen requests, although token verification still belongs at the
+        // middleware layer mounted in front of this entry.
+        if (route.messageKind === 'request' && (message as JSONRPCRequest).method === 'subscriptions/listen') {
+            return listenRouter.serve(message as JSONRPCRequest, request.signal, server.getCapabilities());
+        }
 
         // Era-write at instance binding, then modern-only handler installation —
         // both before the instance is connected to the per-request transport.

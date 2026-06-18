@@ -2,13 +2,15 @@
  * The entry-handled `subscriptions/listen` router for the HTTP serving entry.
  *
  * `createMcpHandler` recognizes a modern-classified `subscriptions/listen`
- * request and routes it here BEFORE the consumer's factory is consulted: the
- * entry owns ack-first, per-stream filtering, subscription-id stamping,
- * keepalive, capacity guarding, and teardown. The factory is not constructed
- * for listen — token verification and any per-request authorization belong at
- * the middleware layer mounted in front of `createMcpHandler` (the entry's
- * documented authz posture); a factory that performs additional authorization
- * does not see listen requests.
+ * request and routes it here: the entry owns ack-first, per-stream filtering,
+ * subscription-id stamping, keepalive, capacity guarding, and teardown. The
+ * consumer's factory IS constructed for listen — exactly as for
+ * `server/discover` — but only to read the instance's declared
+ * `ServerCapabilities` so the acknowledged filter reflects what the server
+ * can actually deliver; the instance is never connected and is discarded.
+ * Token verification and any per-request authorization still belong at the
+ * middleware layer mounted in front of `createMcpHandler` (the entry's
+ * documented authz posture).
  *
  * Per the spec at protocol revision 2026-07-28:
  * - The acknowledged notification is the FIRST message on the stream and
@@ -98,8 +100,12 @@ export interface ListenRouter {
      * Serve one `subscriptions/listen` request and return the SSE `Response`
      * (or, on capacity / params rejection, the in-band JSON-RPC error
      * `Response`). The ack notification is the first SSE frame.
+     *
+     * Pass `capabilities` to narrow the acknowledged filter by what the
+     * serving instance can actually deliver (overrides the router-level
+     * `serverCapabilities` for this call).
      */
-    serve(message: JSONRPCRequest, signal: AbortSignal | undefined): Response;
+    serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities?: ServerCapabilities): Response;
     /**
      * Close every open subscription stream (HTTP teardown is stream close —
      * no JSON-RPC result is written).
@@ -116,7 +122,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
 
     const open = new Set<() => void>();
 
-    function serve(message: JSONRPCRequest, signal: AbortSignal | undefined): Response {
+    function serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities?: ServerCapabilities): Response {
         // Capacity guard, pre-ack: in-band -32603 on HTTP 200.
         if (open.size >= maxSubscriptions) {
             onerror?.(new Error(`subscriptions/listen refused: subscription limit reached (${maxSubscriptions})`));
@@ -126,7 +132,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
         if (filter === undefined) {
             return jsonRpcError(message.id, -32_602, "Invalid params: 'notifications' is required and must be a valid SubscriptionFilter");
         }
-        const honored = honoredSubset(filter, serverCapabilities);
+        const honored = honoredSubset(filter, capabilities ?? serverCapabilities);
         // The spec carries the listen request's JSON-RPC id verbatim as the
         // subscription id; demux is per-connection (each HTTP listen has its
         // own SSE stream) so client-chosen ids cannot route across requests.
@@ -252,11 +258,29 @@ const CHANGE_NOTIFICATION_METHODS: ReadonlySet<string> = new Set([
 export class StdioListenRouter {
     /** Active subscriptions, keyed by the listen request's JSON-RPC id verbatim. */
     private readonly _subs = new Map<RequestId, SubscriptionFilter>();
+    /**
+     * The serving instance's declared capabilities. Filled in by the entry
+     * once the modern instance is constructed (the router is created before
+     * the instance exists), so the acknowledged filter is narrowed against
+     * what the server can actually deliver.
+     */
+    private _serverCapabilities: ServerCapabilities | undefined;
 
     constructor(
         private readonly _maxSubscriptions: number = DEFAULT_MAX_SUBSCRIPTIONS,
-        private readonly _serverCapabilities?: ServerCapabilities
-    ) {}
+        serverCapabilities?: ServerCapabilities
+    ) {
+        this._serverCapabilities = serverCapabilities;
+    }
+
+    /**
+     * Record the serving instance's declared capabilities once it has been
+     * constructed. Called by `serveStdio`'s connect path; subsequent
+     * `serve()` calls narrow the honored filter against these.
+     */
+    setServerCapabilities(capabilities: ServerCapabilities): void {
+        this._serverCapabilities = capabilities;
+    }
 
     /** Whether `id` is an active listen subscription on this connection. */
     has(id: RequestId): boolean {
