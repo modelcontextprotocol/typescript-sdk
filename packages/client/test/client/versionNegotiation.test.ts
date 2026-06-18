@@ -397,6 +397,44 @@ describe('probe timeout policy (transport-aware)', () => {
         );
         expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
     });
+
+    test('maxRetries (default 0) governs timeout re-sends only; the timeout verdict applies after retries are exhausted', async () => {
+        // HTTP-class: even with retries, a server that never answers produces a
+        // typed timeout error after maxRetries+1 probe sends — never a legacy verdict.
+        const transport = new ScriptedTransport(silentScript);
+        const client = new Client(
+            { name: 'c', version: '0' },
+            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 20, maxRetries: 2 } } }
+        );
+
+        await expect(client.connect(transport)).rejects.toSatisfy(
+            error => error instanceof SdkError && error.code === SdkErrorCode.RequestTimeout
+        );
+        const probes = transport.sent.filter(m => 'method' in m && m.method === 'server/discover');
+        expect(probes).toHaveLength(3);
+        expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
+    });
+
+    test('maxRetries: a server that answers on the first retry resolves normally (the retry budget is timeout-only)', async () => {
+        let discoverCalls = 0;
+        const slowThenFastScript: Script = (message, t) => {
+            if (!isJSONRPCRequest(message) || message.method !== 'server/discover') return;
+            discoverCalls++;
+            // Ignore the first probe (forces a timeout); answer the retry.
+            if (discoverCalls === 1) return;
+            t.reply({ jsonrpc: '2.0', id: message.id, result: discoverResult([MODERN]) });
+        };
+        const transport = new ScriptedTransport(slowThenFastScript);
+        const client = new Client(
+            { name: 'c', version: '0' },
+            { versionNegotiation: { mode: 'auto', probe: { timeoutMs: 20, maxRetries: 1 } } }
+        );
+
+        await client.connect(transport);
+        expect(discoverCalls).toBe(2);
+        expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
+        await client.close();
+    });
 });
 
 /* ------------------------------------------------------------------------- *
