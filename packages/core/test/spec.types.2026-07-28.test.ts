@@ -83,6 +83,44 @@ type WCancelledNotification = z4.infer<typeof Wire2026.CancelledNotificationSche
 type WCancelledNotificationParams = z4.infer<typeof Wire2026.CancelledNotificationParamsSchema>;
 type WNotificationMeta = z4.infer<typeof Wire2026.NotificationMetaSchema>;
 
+/* Multi-round-trip vocabulary (SEP-2322) — modeled by the 2026-era wire module. */
+type WInputRequest = z4.infer<typeof Wire2026.InputRequestSchema>;
+type WInputRequests = z4.infer<typeof Wire2026.InputRequestsSchema>;
+type WInputResponse = z4.infer<typeof Wire2026.InputResponseSchema>;
+type WInputResponses = z4.infer<typeof Wire2026.InputResponsesSchema>;
+type WInputRequiredResult = z4.infer<typeof Wire2026.InputRequiredResultSchema>;
+type WInputResponseRequestParams = z4.infer<typeof Wire2026.InputResponseRequestParamsSchema>;
+type WCreateMessageRequest = z4.infer<typeof Wire2026.CreateMessageRequestSchema>;
+type WCreateMessageRequestParams = z4.infer<typeof Wire2026.CreateMessageRequestParamsSchema>;
+type WCreateMessageResult = z4.infer<typeof Wire2026.CreateMessageResultSchema>;
+type WElicitRequest = z4.infer<typeof Wire2026.ElicitRequestSchema>;
+type WElicitRequestParams = z4.infer<typeof Wire2026.ElicitRequestParamsSchema>;
+type WElicitRequestURLParams = z4.infer<typeof Wire2026.ElicitRequestURLParamsSchema>;
+type WElicitResult = z4.infer<typeof Wire2026.ElicitResultSchema>;
+type WListRootsRequest = z4.infer<typeof Wire2026.ListRootsRequestSchema>;
+type WListRootsResult = z4.infer<typeof Wire2026.ListRootsResultSchema>;
+type WCallToolRequest = z4.infer<typeof Wire2026.CallToolRequestSchema>;
+type WCallToolRequestParams = WCallToolRequest['params'];
+type WGetPromptRequest = z4.infer<typeof Wire2026.GetPromptRequestSchema>;
+type WGetPromptRequestParams = WGetPromptRequest['params'];
+type WReadResourceRequestParamsRetry = WReadResourceRequest['params'];
+type WCallToolResultResponse = z4.infer<typeof Wire2026.CallToolResultResponseSchema>;
+type WGetPromptResultResponse = z4.infer<typeof Wire2026.GetPromptResultResponseSchema>;
+type WReadResourceResultResponse = z4.infer<typeof Wire2026.ReadResourceResultResponseSchema>;
+// The anchor's ServerResult union, composed from the era module's wire results.
+type WServerResult =
+    | WResult
+    | WDiscoverResult
+    | WCompleteResult
+    | WGetPromptResult
+    | WListPromptsResult
+    | WListResourceTemplatesResult
+    | WListResourcesResult
+    | WReadResourceResult
+    | WCallToolResult
+    | WListToolsResult
+    | WInputRequiredResult;
+
 const sdkTypeChecks = {
     JSONValue: (sdk: SDKTypes.JSONValue, spec: SpecTypes.JSONValue) => {
         sdk = spec;
@@ -590,6 +628,111 @@ const wireParityChecks = {
     ListToolsRequest: (sdk: WithJSONRPCRequest<WListToolsRequest>, spec: SpecTypes.ListToolsRequest) => {
         sdk = spec;
         spec = sdk;
+    },
+
+    /* Multi-round-trip vocabulary (SEP-2322, M4.1) */
+    InputRequest: (sdk: WInputRequest, spec: SpecTypes.InputRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    InputRequests: (sdk: WInputRequests, spec: SpecTypes.InputRequests) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    InputResponse: (sdk: WInputResponse, spec: SpecTypes.InputResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    InputResponses: (sdk: WInputResponses, spec: SpecTypes.InputResponses) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    InputRequiredResult: (sdk: WInputRequiredResult, spec: SpecTypes.InputRequiredResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    InputResponseRequestParams: (sdk: WInputResponseRequestParams, spec: SpecTypes.InputResponseRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CreateMessageRequest: (sdk: WCreateMessageRequest, spec: SpecTypes.CreateMessageRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CreateMessageRequestParams: (sdk: WCreateMessageRequestParams, spec: SpecTypes.CreateMessageRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CreateMessageResult: (sdk: WCreateMessageResult, spec: SpecTypes.CreateMessageResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    // The 2026-era URL-mode elicitation params drop `elicitationId` (the
+    // shared schema keeps it required for the frozen 2025-11-25 shape) —
+    // compared against the wire-module fork.
+    ElicitRequestURLParams: (sdk: WElicitRequestURLParams, spec: SpecTypes.ElicitRequestURLParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ElicitRequestParams: (sdk: WElicitRequestParams, spec: SpecTypes.ElicitRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ElicitRequest: (sdk: WElicitRequest, spec: SpecTypes.ElicitRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ElicitResult: (sdk: WElicitResult, spec: SpecTypes.ElicitResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListRootsRequest: (sdk: WListRootsRequest, spec: SpecTypes.ListRootsRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ListRootsResult: (sdk: WListRootsResult, spec: SpecTypes.ListRootsResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CallToolRequestParams: (sdk: WCallToolRequestParams, spec: SpecTypes.CallToolRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CallToolRequest: (sdk: WithJSONRPCRequest<WCallToolRequest>, spec: SpecTypes.CallToolRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetPromptRequestParams: (sdk: WGetPromptRequestParams, spec: SpecTypes.GetPromptRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetPromptRequest: (sdk: WithJSONRPCRequest<WGetPromptRequest>, spec: SpecTypes.GetPromptRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ReadResourceRequestParams: (sdk: WReadResourceRequestParamsRetry, spec: SpecTypes.ReadResourceRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ReadResourceRequest: (sdk: WithJSONRPCRequest<WReadResourceRequest>, spec: SpecTypes.ReadResourceRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CallToolResultResponse: (sdk: WCallToolResultResponse, spec: SpecTypes.CallToolResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    GetPromptResultResponse: (sdk: WGetPromptResultResponse, spec: SpecTypes.GetPromptResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ReadResourceResultResponse: (sdk: WReadResourceResultResponse, spec: SpecTypes.ReadResourceResultResponse) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ServerResult: (sdk: WServerResult, spec: SpecTypes.ServerResult) => {
+        sdk = spec;
+        spec = sdk;
     }
 };
 
@@ -608,36 +751,9 @@ const FEATURE_OWNED_PENDING_2026: Record<string, string> = {
     // Inlined in the SDK (same as the 2025-11-25 comparison):
     Error: 'the inner error object of a JSONRPCError is inlined in the SDK',
 
-    // M4.1 MRTR (#13): the in-band input-request surface and the demoted
-    // sampling/elicitation/roots shapes (wire requests in 2025, in-band
-    // InputRequest payloads in 2026 — the SDK models them when the
-    // multi-round-trip driver lands):
-    InputRequest: 'M4.1 MRTR (#13)',
-    InputRequests: 'M4.1 MRTR (#13)',
-    InputRequiredResult: 'M4.1 MRTR (#13)',
-    InputResponse: 'M4.1 MRTR (#13)',
-    InputResponseRequestParams: 'M4.1 MRTR (#13)',
-    InputResponses: 'M4.1 MRTR (#13)',
-    CreateMessageRequest: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
-    CreateMessageRequestParams: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
-    CreateMessageResult: 'M4.1 MRTR (#13) — in-band response shape',
-    ElicitRequest: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
-    ElicitRequestParams: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
-    ElicitRequestURLParams:
-        'M4.1 MRTR (#13) — demoted to an in-band payload in 2026; the draft also removed elicitationId from the URL-mode shape',
-    ElicitResult: 'M4.1 MRTR (#13) — in-band response shape',
-    ListRootsRequest: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
-    ListRootsResult: 'M4.1 MRTR (#13) — in-band response shape',
-    ServerResult: 'M4.1 MRTR (#13) — the union gains InputRequiredResult',
-    CallToolRequestParams: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
-    CallToolRequest: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
-    GetPromptRequestParams: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
-    GetPromptRequest: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
-    ReadResourceRequestParams: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
-    ReadResourceRequest: 'M4.1 MRTR (#13) — params extend InputResponseRequestParams (the retry channel)',
-    CallToolResultResponse: 'M4.1 MRTR (#13) — the result union gains InputRequiredResult',
-    GetPromptResultResponse: 'M4.1 MRTR (#13) — the result union gains InputRequiredResult',
-    ReadResourceResultResponse: 'M4.1 MRTR (#13) — the result union gains InputRequiredResult',
+    // (The M4.1 MRTR partition burned down when the multi-round-trip wire
+    // vocabulary landed in wire/rev2026-07-28 — see the wireParityChecks
+    // entries for InputRequest/InputRequiredResult/… above.)
 
     // M6.1 subscriptions/listen (#14):
     SubscriptionFilter: 'M6.1 subscriptions/listen (#14)',

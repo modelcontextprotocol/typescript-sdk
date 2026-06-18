@@ -44,6 +44,15 @@ export const rev2025Codec: WireCodec = {
     resultSchema: getResultSchema,
     notificationSchema: getNotificationSchema,
 
+    // No in-band input-request vocabulary on this era: elicitation, sampling
+    // and roots are real wire request methods here (see the registry).
+    inputRequestSchema: (): undefined => {
+        return;
+    },
+    inputResponseSchema: (): undefined => {
+        return;
+    },
+
     decodeResult(_method: string, raw: unknown): DecodedResult {
         // Strip-on-lift (Q1-SD3 ii): a foreign `resultType` on the 2025 leg is
         // dropped before validation, whatever its value. There is no
