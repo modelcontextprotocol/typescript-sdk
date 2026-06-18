@@ -610,6 +610,9 @@ New in 2.0 — v1 has no equivalent API. How v1 Streamable HTTP hosting maps ont
   GET/DELETE session operations, all-legacy batches, posted responses, non-JSON bodies). Returns `false` for envelope-claiming requests AND for malformed/incomplete modern claims (the modern path answers those with `-32602`/`-32001`) — route `false` traffic to the modern handler,
   never to a legacy handler. The predicate classifies a clone (the body stays readable); pass the parsed body as the second argument when the stream was already consumed.
 - `legacyStatelessFallback(factory)` is exported as a standalone fetch-shaped handler producing the same stateless legacy serving as the default.
+- The handler is web-standards-only (`{ fetch, close, notify }`). On Workers / Bun / Deno, `export default handler` works directly. On Node frameworks (Express, Fastify, plain `node:http`), wrap once with `toNodeHandler(handler)` from `@modelcontextprotocol/node`:
+  `app.all('/mcp', toNodeHandler(handler))`, or `const node = toNodeHandler(handler); app.all('/mcp', (req, res) => void node(req, res, req.body))` when a body parser already consumed the stream. Earlier 2.x alphas exposed this as `handler.node(req, res, req.body)` — replace with
+  the `toNodeHandler` wrap and add the `@modelcontextprotocol/node` import. `NodeIncomingMessageLike` / `NodeServerResponseLike` are now exported from `@modelcontextprotocol/node`, not `@modelcontextprotocol/server`.
 
 ### Server (stdio / long-lived connections)
 

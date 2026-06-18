@@ -23,6 +23,7 @@ import {
     mcpAuthMetadataRouter,
     requireBearerAuth
 } from '@modelcontextprotocol/express';
+import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
@@ -69,8 +70,9 @@ const auth = requireBearerAuth({
     requiredScopes: ['mcp:tools'],
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
 });
-// `requireBearerAuth` sets `req.auth`; `handler.node` reads it and passes it
+// `requireBearerAuth` sets `req.auth`; `toNodeHandler` reads it and passes it
 // to the factory as `ctx.authInfo`.
-app.all('/mcp', auth, (req, res) => void handler.node(req, res, req.body));
+const node = toNodeHandler(handler);
+app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 
 app.listen(PORT, () => console.error(`[resource-server] MCP on ${mcpServerUrl.href}`));

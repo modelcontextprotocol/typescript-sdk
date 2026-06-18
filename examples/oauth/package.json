@@ -11,6 +11,7 @@
         "@mcp-examples/shared": "workspace:*",
         "@modelcontextprotocol/client": "workspace:*",
         "@modelcontextprotocol/express": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",
         "cors": "catalog:runtimeServerOnly",
         "open": "^11.0.0",

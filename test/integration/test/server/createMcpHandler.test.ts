@@ -14,6 +14,7 @@ import {
     PROTOCOL_VERSION_META_KEY,
     SUBSCRIPTION_ID_META_KEY
 } from '@modelcontextprotocol/core';
+import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { CreateMcpHandlerOptions, McpHttpHandler, McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
@@ -43,7 +44,7 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
 
     async function startEndpoint(options?: CreateMcpHandlerOptions): Promise<{ baseUrl: URL; handler: McpHttpHandler }> {
         const handler = createMcpHandler(factory, options);
-        const httpServer: HttpServer = createServer((req, res) => void handler.node(req, res));
+        const httpServer: HttpServer = createServer(toNodeHandler(handler));
         const baseUrl = await listenOnRandomPort(httpServer);
         cleanups.push(async () => {
             await handler.close();
@@ -160,7 +161,7 @@ describe('createMcpHandler over HTTP — subscriptions/listen honored filter', (
             () => new McpServer({ name: 'caps-gated', version: '1' }, { capabilities: { tools: { listChanged: true } } }),
             { keepAliveMs: 0 }
         );
-        const httpServer: HttpServer = createServer((req, res) => void handler.node(req, res));
+        const httpServer: HttpServer = createServer(toNodeHandler(handler));
         const baseUrl = await listenOnRandomPort(httpServer);
         cleanups.push(async () => {
             await handler.close();
