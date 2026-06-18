@@ -1396,7 +1396,11 @@ export class Client extends Protocol<ClientContext> {
                     this._listenState.set(messageId, {
                         onAck: honored => settle({ ack: honored }),
                         onServerCancel: () => {
-                            settle({ error: new Error('subscriptions/listen: server cancelled before acknowledging') });
+                            // Handles BOTH the pre-ack and post-ack server-side
+                            // cancel: while opening, settle rejects the pending
+                            // listen() promise; once open, settle just
+                            // transitions to closed and the message is unused.
+                            settle({ error: new Error('subscriptions/listen: server cancelled the subscription') });
                         }
                     });
                 }
@@ -1456,7 +1460,11 @@ export class Client extends Protocol<ClientContext> {
                     return 'consumed';
                 }
             }
-            return 'consumed';
+            // An ack referencing no parked listen on this connection is NOT
+            // consumed: pass it through so a stray/foreign ack reaches
+            // setNotificationHandler / fallthroughNotificationHandler instead
+            // of being silently swallowed.
+            return undefined;
         }
         if (raw.method === 'notifications/cancelled') {
             const cancelledId = (raw.params as { requestId?: unknown } | undefined)?.requestId;

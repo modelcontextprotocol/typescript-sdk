@@ -196,7 +196,7 @@ describe('Client.listen()', () => {
         const t0 = Date.now();
         const error = await client.listen({ toolsListChanged: true }).catch(e => e as Error);
         expect(error).toBeInstanceOf(Error);
-        expect((error as Error).message).toContain('server cancelled before acknowledging');
+        expect((error as Error).message).toContain('server cancelled the subscription');
         // Rejected promptly (well under the 60s ack timeout).
         expect(Date.now() - t0).toBeLessThan(1000);
         // No leaked _responseHandlers entry for the listen id.
@@ -258,7 +258,7 @@ describe('Client.listen()', () => {
         const listenState = (client as unknown as { _listenState: Map<unknown, unknown> })._listenState;
         const before = listenState.size;
         const error = await client.listen({ toolsListChanged: true }).catch(e => e as Error);
-        expect((error as Error).message).toContain('server cancelled before acknowledging');
+        expect((error as Error).message).toContain('server cancelled the subscription');
         // No leaked _listenState entry for the listen id.
         expect(listenState.size).toBe(before);
         await client.close();
