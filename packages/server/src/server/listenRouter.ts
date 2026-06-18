@@ -39,13 +39,6 @@ export interface ListenRouterOptions {
     maxSubscriptions?: number;
     /** SSE comment-frame keepalive interval; `0` disables keepalive (default 15000). */
     keepAliveMs?: number;
-    /**
-     * The server's declared capabilities. When supplied, the honored filter
-     * the ack carries is narrowed against these (a requested type the server
-     * does not advertise is dropped from the ack); when omitted, the requested
-     * set is honored as-is.
-     */
-    serverCapabilities?: ServerCapabilities;
     /** Out-of-band error reporting (never alters the response). */
     onerror?: (error: Error) => void;
 }
@@ -100,11 +93,11 @@ export interface ListenRouter {
      * (or, on capacity / params rejection, the in-band JSON-RPC error
      * `Response`). The ack notification is the first SSE frame.
      *
-     * Pass `capabilities` to narrow the acknowledged filter by what the
-     * serving instance can actually deliver (overrides the router-level
-     * `serverCapabilities` for this call).
+     * `capabilities` is required: the acknowledged filter is always narrowed
+     * against what the serving instance advertises (honoring a filter without
+     * capabilities would fail open and deliver unadvertised types).
      */
-    serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities?: ServerCapabilities): Response;
+    serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities: ServerCapabilities): Response;
     /**
      * Close every open subscription stream (HTTP teardown is stream close —
      * no JSON-RPC result is written).
@@ -115,13 +108,13 @@ export interface ListenRouter {
 }
 
 export function createListenRouter(options: ListenRouterOptions): ListenRouter {
-    const { bus, onerror, serverCapabilities } = options;
+    const { bus, onerror } = options;
     const maxSubscriptions = options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS;
     const keepAliveMs = options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS;
 
     const open = new Set<() => void>();
 
-    function serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities?: ServerCapabilities): Response {
+    function serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities: ServerCapabilities): Response {
         // Capacity guard, pre-ack: in-band -32603 on HTTP 200.
         if (open.size >= maxSubscriptions) {
             onerror?.(new Error(`subscriptions/listen refused: subscription limit reached (${maxSubscriptions})`));
@@ -131,7 +124,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
         if (filter === undefined) {
             return jsonRpcError(message.id, -32_602, "Invalid params: 'notifications' is required and must be a valid SubscriptionFilter");
         }
-        const honored = honoredSubset(filter, capabilities ?? serverCapabilities);
+        const honored = honoredSubset(filter, capabilities);
         // The spec carries the listen request's JSON-RPC id verbatim as the
         // subscription id; demux is per-connection (each HTTP listen has its
         // own SSE stream) so client-chosen ids cannot route across requests.
@@ -293,8 +286,17 @@ export class StdioListenRouter {
      * Serve one inbound `subscriptions/listen` request: registers the
      * subscription and returns the stamped acknowledged notification (or, on
      * capacity / params rejection, the in-band JSON-RPC error response).
+     *
+     * @throws when called before {@linkcode setServerCapabilities} (or the
+     * constructor) has supplied the serving instance's capabilities. Honoring a
+     * filter without knowing the server's advertised capabilities would fail
+     * open (deliver unadvertised types); the entry guarantees capabilities are
+     * set before any listen request is routed here.
      */
     serve(message: JSONRPCRequest): NotificationBody | { jsonrpc: '2.0'; id: RequestId; error: { code: number; message: string } } {
+        if (this._serverCapabilities === undefined) {
+            throw new Error('StdioListenRouter.serve() called before setServerCapabilities(); refusing to honor a filter without capabilities');
+        }
         if (this._subs.size >= this._maxSubscriptions) {
             return { jsonrpc: '2.0', id: message.id, error: { code: -32_603, message: 'Subscription limit reached' } };
         }

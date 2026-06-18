@@ -82,7 +82,7 @@ export class InMemoryServerEventBus implements ServerEventBus {
         };
     }
 
-    /** The number of currently registered listeners (for the capacity guard). */
+    /** The number of currently registered listeners (test/introspection only — the routers track capacity via their own open-subscription set). */
     get listenerCount(): number {
         return this._listeners.size;
     }
@@ -153,9 +153,11 @@ export function listenFilterAccepts(filter: SubscriptionFilter, event: ServerEve
  * - `resourceSubscriptions` is honored only when
  *   `capabilities.resources.subscribe` is advertised.
  *
- * When `capabilities` is omitted the requested set is honored as-is (the
- * pre-existing behavior, for callers that cannot supply capabilities at
- * router creation time).
+ * `capabilities` is optional on this pure helper for test convenience only —
+ * both wired routers REQUIRE capabilities at the call site (the HTTP router's
+ * `serve()` takes a required parameter; `StdioListenRouter.serve()` throws
+ * before `setServerCapabilities()` was called), so the fail-open
+ * `undefined → honor everything` branch is never reachable on a wired entry.
  */
 export function honoredSubset(requested: SubscriptionFilter, capabilities?: ServerCapabilities): SubscriptionFilter {
     const honored: SubscriptionFilter = {};

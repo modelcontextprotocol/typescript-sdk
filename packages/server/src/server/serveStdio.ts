@@ -440,20 +440,30 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             // applies the same per-request envelope rung the instance's
             // `_onrequest` would (method-existence is N/A here — the entry
             // recognized the method — so envelope validation is the first
-            // applicable rung). Reuses the same validators the opening
-            // classifier and the HTTP entry use.
+            // applicable rung) and the same supported-revision check the
+            // opening classifier and the HTTP entry apply per request. Reuses
+            // the same validators the opening classifier uses.
             const meta = requestMetaOf(message.params);
             const issue = hasEnvelopeClaim(message.params)
                 ? (meta === undefined ? [] : validateEnvelopeMeta(meta))[0]
                 : { key: '_meta', problem: 'the per-request envelope is required on protocol revision 2026-07-28' };
-            const reply =
-                issue === undefined
-                    ? listenRouter.serve(message)
-                    : {
-                          jsonrpc: '2.0' as const,
-                          id: message.id,
-                          error: { code: -32_602, message: `Invalid _meta envelope: ${issue.key}: ${issue.problem}` }
-                      };
+            const claimedVersion = envelopeClaimVersion(message.params);
+            let reply;
+            if (issue !== undefined) {
+                reply = {
+                    jsonrpc: '2.0' as const,
+                    id: message.id,
+                    error: { code: -32_602, message: `Invalid _meta envelope: ${issue.key}: ${issue.problem}` }
+                };
+            } else if (claimedVersion === undefined || !SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedVersion)) {
+                const error = new UnsupportedProtocolVersionError({
+                    supported: [...SUPPORTED_MODERN_PROTOCOL_VERSIONS],
+                    requested: claimedVersion ?? 'unknown'
+                });
+                reply = { jsonrpc: '2.0' as const, id: message.id, error: { code: error.code, message: error.message, data: error.data } };
+            } else {
+                reply = listenRouter.serve(message);
+            }
             await wire
                 .send('error' in reply ? reply : { jsonrpc: '2.0', method: reply.method, params: reply.params })
                 .catch(error => reportError(toError(error)));
