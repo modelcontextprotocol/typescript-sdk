@@ -43,9 +43,10 @@ describe('listenFilterAccepts', () => {
 
 describe('honoredSubset', () => {
     it('keeps only explicitly-true / non-empty fields', () => {
-        expect(
-            honoredSubset({ toolsListChanged: true, promptsListChanged: false, resourceSubscriptions: ['file:///a'] })
-        ).toEqual({ toolsListChanged: true, resourceSubscriptions: ['file:///a'] });
+        expect(honoredSubset({ toolsListChanged: true, promptsListChanged: false, resourceSubscriptions: ['file:///a'] })).toEqual({
+            toolsListChanged: true,
+            resourceSubscriptions: ['file:///a']
+        });
     });
 
     it('returns an empty object for an all-absent / all-false filter', () => {

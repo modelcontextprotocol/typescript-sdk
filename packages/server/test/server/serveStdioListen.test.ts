@@ -133,7 +133,7 @@ describe('serveStdio — subscriptions/listen', () => {
         await handle.close();
     });
 
-    it("legacy-era pinned connection passes change notifications through unchanged (2025 unsolicited delivery)", async () => {
+    it('legacy-era pinned connection passes change notifications through unchanged (2025 unsolicited delivery)', async () => {
         const [peerTx, wireTx] = InMemoryTransport.createLinkedPair();
         const inbound: JSONRPCMessage[] = [];
         peerTx.onmessage = m => inbound.push(m);

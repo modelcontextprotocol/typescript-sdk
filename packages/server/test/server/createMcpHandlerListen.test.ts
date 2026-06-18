@@ -95,9 +95,7 @@ describe('createMcpHandler — subscriptions/listen', () => {
 
     it('delivers only opted-in change types, each stamped with the subscription id', async () => {
         const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0 });
-        const response = await handler.fetch(
-            listenRequest(7, { toolsListChanged: true, resourceSubscriptions: ['file:///a'] })
-        );
+        const response = await handler.fetch(listenRequest(7, { toolsListChanged: true, resourceSubscriptions: ['file:///a'] }));
         // Publish before reading: a stream that did NOT opt in to prompts must
         // never see the prompts notification (provably-never-delivered).
         handler.notify.promptsChanged();

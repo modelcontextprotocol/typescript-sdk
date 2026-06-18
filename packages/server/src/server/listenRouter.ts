@@ -42,10 +42,17 @@ export interface ListenRouterOptions {
     onerror?: (error: Error) => void;
 }
 
-/** A wire-shape notification body (method + loose params). */
-interface NotificationBody {
+/**
+ * A wire-shape notification body (method + loose params).
+ * @internal
+ */
+export interface NotificationBody {
     method: string;
     params: { _meta?: Record<string, unknown>; [key: string]: unknown };
+}
+
+function jsonRpcError(id: RequestId | null, code: number, message: string): Response {
+    return Response.json({ jsonrpc: '2.0', error: { code, message }, id }, { status: 200 });
 }
 
 /** Stamp the subscription id onto a notification's `_meta`. Non-mutating. */
@@ -99,10 +106,6 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
     const keepAliveMs = options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS;
 
     const open = new Set<() => void>();
-
-    function jsonRpcError(id: RequestId | null, code: number, message: string): Response {
-        return Response.json({ jsonrpc: '2.0', error: { code, message }, id }, { status: 200 });
-    }
 
     function serve(message: JSONRPCRequest, signal: AbortSignal | undefined): Response {
         // Capacity guard, pre-ack: in-band -32603 on HTTP 200.
@@ -210,7 +213,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
     return {
         serve,
         closeAll() {
-            for (const teardown of [...open]) teardown();
+            for (const teardown of open) teardown();
         },
         get openCount() {
             return open.size;
@@ -267,10 +270,7 @@ export class StdioListenRouter {
         }
         const honored = honoredSubset(filter);
         this._subs.set(message.id, honored);
-        return stampSubscriptionId(
-            { method: 'notifications/subscriptions/acknowledged', params: { notifications: honored } },
-            message.id
-        );
+        return stampSubscriptionId({ method: 'notifications/subscriptions/acknowledged', params: { notifications: honored } }, message.id);
     }
 
     /**
@@ -323,13 +323,17 @@ export class StdioListenRouter {
 
 function notificationToServerEvent(method: string, uri: string | undefined): import('./serverEventBus.js').ServerEvent {
     switch (method) {
-        case 'notifications/tools/list_changed':
+        case 'notifications/tools/list_changed': {
             return { kind: 'tools_list_changed' };
-        case 'notifications/prompts/list_changed':
+        }
+        case 'notifications/prompts/list_changed': {
             return { kind: 'prompts_list_changed' };
-        case 'notifications/resources/list_changed':
+        }
+        case 'notifications/resources/list_changed': {
             return { kind: 'resources_list_changed' };
-        default:
+        }
+        default: {
             return { kind: 'resource_updated', uri: uri ?? '' };
+        }
     }
 }

@@ -48,9 +48,10 @@ export interface ServerEventBus {
 /**
  * A `ServerEventBus` backed by an in-process listener set.
  *
- * `publish()` delivers synchronously to a snapshot of the current listener
- * set (so a listener unsubscribing mid-dispatch does not skip a peer); a
- * throwing listener does not stop delivery to the others.
+ * `publish()` delivers synchronously to the live listener set (a listener
+ * unsubscribing itself mid-dispatch is safe; the entry's listen-router
+ * listeners never unsubscribe peers). A throwing listener does not stop
+ * delivery to the others.
  */
 export class InMemoryServerEventBus implements ServerEventBus {
     private readonly _listeners = new Set<(event: ServerEvent) => void>();
@@ -62,7 +63,7 @@ export class InMemoryServerEventBus implements ServerEventBus {
     constructor(private readonly onerror?: (error: Error) => void) {}
 
     publish(event: ServerEvent): void {
-        for (const listener of [...this._listeners]) {
+        for (const listener of this._listeners) {
             try {
                 listener(event);
             } catch (error) {
@@ -125,14 +126,18 @@ export function createNotifySugar(bus: ServerEventBus): ServerNotifySugar {
  */
 export function listenFilterAccepts(filter: SubscriptionFilter, event: ServerEvent): boolean {
     switch (event.kind) {
-        case 'tools_list_changed':
+        case 'tools_list_changed': {
             return filter.toolsListChanged === true;
-        case 'prompts_list_changed':
+        }
+        case 'prompts_list_changed': {
             return filter.promptsListChanged === true;
-        case 'resources_list_changed':
+        }
+        case 'resources_list_changed': {
             return filter.resourcesListChanged === true;
-        case 'resource_updated':
+        }
+        case 'resource_updated': {
             return filter.resourceSubscriptions !== undefined && filter.resourceSubscriptions.includes(event.uri);
+        }
     }
 }
 
@@ -159,13 +164,17 @@ export function honoredSubset(requested: SubscriptionFilter): SubscriptionFilter
 /** Map a {@linkcode ServerEvent} onto its wire notification `{method, params}`. */
 export function serverEventToNotification(event: ServerEvent): { method: string; params?: { uri: string } } {
     switch (event.kind) {
-        case 'tools_list_changed':
+        case 'tools_list_changed': {
             return { method: 'notifications/tools/list_changed' };
-        case 'prompts_list_changed':
+        }
+        case 'prompts_list_changed': {
             return { method: 'notifications/prompts/list_changed' };
-        case 'resources_list_changed':
+        }
+        case 'resources_list_changed': {
             return { method: 'notifications/resources/list_changed' };
-        case 'resource_updated':
+        }
+        case 'resource_updated': {
             return { method: 'notifications/resources/updated', params: { uri: event.uri } };
+        }
     }
 }
