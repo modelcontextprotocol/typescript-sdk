@@ -1,6 +1,9 @@
 # oauth (excluded)
 
-The interactive OAuth set: full browser authorization-code flow, URL-elicitation end-to-end, readline REPL clients, dual-mode auth (host token vs `OAuthClientProvider`), client_credentials / private-key-JWT. Typecheck-only — these need a browser, a callback server on `:8090`, and
-(for client_credentials) an Authorization Server that doesn't ship in-repo.
+The interactive authorization-code OAuth set, typecheck-only. Excluded from the harness (`package.json#example.excluded`) because the browser flow needs a real browser and a callback server on `:8090`.
 
-Excluded from the harness (`manifest.json#excluded`); revisit after the auth-surface walk. For the headless bearer-token resource-server case see `../bearer-auth/`.
+- `simpleOAuthClient.ts` + `simpleOAuthClientProvider.ts` — full browser authorization-code flow against any OAuth-protected MCP server: opens the browser, runs a local callback server, exchanges the code, then drops into a small `list`/`call` REPL.
+- `dualModeAuth.ts` — two auth patterns through the one `authProvider` option: host-managed bearer token vs a built-in `OAuthClientProvider`.
+- `simpleTokenProvider.ts` — the minimal `AuthProvider` (just `token()`) for externally-managed bearer tokens.
+
+For the headless bearer-token resource-server case see `../bearer-auth/`; for the machine-to-machine `client_credentials` grant see `../oauth-client-credentials/`; for URL-mode elicitation see `../mrtr/`; for the interactive readline playground see `../repl/`.

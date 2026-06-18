@@ -532,36 +532,12 @@ importers:
 
   examples/oauth:
     dependencies:
-      '@mcp-examples/shared':
-        specifier: workspace:*
-        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
-      '@modelcontextprotocol/express':
-        specifier: workspace:*
-        version: link:../../packages/middleware/express
-      '@modelcontextprotocol/node':
-        specifier: workspace:*
-        version: link:../../packages/middleware/node
-      '@modelcontextprotocol/server':
-        specifier: workspace:*
-        version: link:../../packages/server
-      ajv:
-        specifier: catalog:runtimeShared
-        version: 8.18.0
-      cors:
-        specifier: catalog:runtimeServerOnly
-        version: 2.8.6
-      express:
-        specifier: catalog:runtimeServerOnly
-        version: 5.2.1
       open:
         specifier: ^11.0.0
         version: 11.0.0
-      zod:
-        specifier: catalog:runtimeShared
-        version: 4.3.6
     devDependencies:
       tsx:
         specifier: catalog:devTools
@@ -610,6 +586,25 @@ importers:
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
+      zod:
+        specifier: catalog:runtimeShared
+        version: 4.3.6
+    devDependencies:
+      tsx:
+        specifier: catalog:devTools
+        version: 4.21.0
+
+  examples/repl:
+    dependencies:
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/server':
+        specifier: workspace:*
+        version: link:../../packages/server
+      ajv:
+        specifier: catalog:runtimeShared
+        version: 8.18.0
       zod:
         specifier: catalog:runtimeShared
         version: 4.3.6

@@ -47,7 +47,7 @@ const transport = new StreamableHTTPClientTransport(new URL('http://localhost:30
 await client.connect(transport);
 ```
 
-For a full interactive client over Streamable HTTP, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/interactiveReplClient.ts).
+For a full interactive client over Streamable HTTP, see [`repl/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/repl/client.ts).
 
 ### stdio
 
@@ -66,7 +66,8 @@ await client.connect(transport);
 
 ### SSE fallback for legacy servers
 
-To support both modern Streamable HTTP and legacy SSE servers, try {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport} first and fall back to {@linkcode @modelcontextprotocol/client!client/sse.SSEClientTransport | SSEClientTransport} on failure:
+To support both modern Streamable HTTP and legacy SSE servers, try {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport} first and fall back to {@linkcode
+@modelcontextprotocol/client!client/sse.SSEClientTransport | SSEClientTransport} on failure:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#connect_sseFallback"
 const baseUrl = new URL(url);
@@ -106,7 +107,9 @@ client.getNegotiatedProtocolVersion(); // '2026-07-28' or '2025-11-25'
 - **`mode: 'auto'`** — `connect()` probes with `server/discover`; a 2025-only server rejects the probe and the client falls back to the plain `initialize` handshake on the same connection, byte-equivalent to a 2025 client. The probe costs one round trip against an old server.
 - **`mode: { pin: '2026-07-28' }`** — modern era at exactly that revision; no fallback. Against a 2025-only server `connect()` rejects with a typed error. Use `pin` where a silent downgrade would be worse than an error (tests, CI, servers you control).
 
-Once a modern era is negotiated, the client automatically attaches the per-request `_meta` envelope (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification. You can also configure negotiation pre-connect on an already-constructed instance via {@linkcode @modelcontextprotocol/client!client/client.Client#setVersionNegotiation | client.setVersionNegotiation()}. See the [migration guide](./migration.md#opt-in-protocol-version-negotiation-2026-07-28-draft) for the full failure semantics, probe policy, and the `'auto'`-mode compatibility table.
+Once a modern era is negotiated, the client automatically attaches the per-request `_meta` envelope (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification. You can also configure negotiation pre-connect on an
+already-constructed instance via {@linkcode @modelcontextprotocol/client!client/client.Client#setVersionNegotiation | client.setVersionNegotiation()}. See the [migration guide](./migration.md#opt-in-protocol-version-negotiation-2026-07-28-draft) for the full failure semantics,
+probe policy, and the `'auto'`-mode compatibility table.
 
 ### Disconnecting
 
@@ -123,7 +126,8 @@ For stdio, `client.close()` handles graceful process shutdown (closes stdin, the
 
 ### Server instructions
 
-Servers can provide an `instructions` string during initialization that describes how to use them — cross-tool relationships, workflow patterns, and constraints (see [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP specification). Retrieve it after connecting and include it in the model's system prompt:
+Servers can provide an `instructions` string during initialization that describes how to use them — cross-tool relationships, workflow patterns, and constraints (see [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP
+specification). Retrieve it after connecting and include it in the model's system prompt:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#serverInstructions_basic"
 const instructions = client.getInstructions();
@@ -135,11 +139,13 @@ console.log(systemPrompt);
 
 ## Authentication
 
-MCP servers can require authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an {@linkcode @modelcontextprotocol/client!client/auth.AuthProvider | AuthProvider} to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport}. The transport calls `token()` before every request and `onUnauthorized()` (if provided) on 401, then retries once.
+MCP servers can require authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an {@linkcode @modelcontextprotocol/client!client/auth.AuthProvider |
+AuthProvider} to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport | StreamableHTTPClientTransport}. The transport calls `token()` before every request and `onUnauthorized()` (if provided) on 401, then retries once.
 
 ### Bearer tokens
 
-For servers that accept bearer tokens managed outside the SDK — API keys, tokens from a gateway or proxy, service-account credentials — implement only `token()`. With no `onUnauthorized()`, a 401 throws {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} immediately:
+For servers that accept bearer tokens managed outside the SDK — API keys, tokens from a gateway or proxy, service-account credentials — implement only `token()`. With no `onUnauthorized()`, a 401 throws {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError |
+UnauthorizedError} immediately:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#auth_tokenProvider"
 const authProvider: AuthProvider = { token: async () => getStoredToken() };
@@ -180,19 +186,24 @@ const authProvider = new PrivateKeyJwtProvider({
 const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
 ```
 
-For a runnable example supporting both auth methods via environment variables, see [`simpleClientCredentials.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleClientCredentials.ts).
+For a runnable example supporting both auth methods via environment variables, see [`oauth-client-credentials/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth-client-credentials/client.ts).
 
 ### Full OAuth with user authorization
 
-For user-facing applications, implement the {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface to handle the full authorization code flow (redirects, code verifiers, token storage, dynamic client registration). The {@linkcode @modelcontextprotocol/client!client/client.Client#connect | connect()} call will throw {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} when authorization is needed — catch it, complete the browser flow, call {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport#finishAuth | transport.finishAuth(code)}, and reconnect.
+For user-facing applications, implement the {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface to handle the full authorization code flow (redirects, code verifiers, token storage, dynamic client registration). The {@linkcode
+@modelcontextprotocol/client!client/client.Client#connect | connect()} call will throw {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} when authorization is needed — catch it, complete the browser flow, call {@linkcode
+@modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport#finishAuth | transport.finishAuth(code)}, and reconnect.
 
-For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleOAuthClient.ts) and [`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleOAuthClientProvider.ts).
+For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleOAuthClient.ts) and
+[`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleOAuthClientProvider.ts).
 
 ### Cross-App Access (Enterprise Managed Authorization)
 
-{@linkcode @modelcontextprotocol/client!client/authExtensions.CrossAppAccessProvider | CrossAppAccessProvider} implements Enterprise Managed Authorization (SEP-990) for scenarios where users authenticate with an enterprise identity provider (IdP) and clients need to access protected MCP servers on their behalf.
+{@linkcode @modelcontextprotocol/client!client/authExtensions.CrossAppAccessProvider | CrossAppAccessProvider} implements Enterprise Managed Authorization (SEP-990) for scenarios where users authenticate with an enterprise identity provider (IdP) and clients need to access
+protected MCP servers on their behalf.
 
 This provider handles a two-step OAuth flow:
+
 1. Exchange the user's ID Token from the enterprise IdP for a JWT Authorization Grant (JAG) via RFC 8693 token exchange
 2. Exchange the JAG for an access token from the MCP server via RFC 7523 JWT bearer grant
 
@@ -220,24 +231,27 @@ const transport = new StreamableHTTPClientTransport(new URL('http://localhost:30
 ```
 
 The `assertion` callback receives a context object with:
+
 - `authorizationServerUrl` – The MCP server's authorization server (discovered automatically)
 - `resourceUrl` – The MCP resource URL (discovered automatically)
 - `scope` – Optional scope passed to `auth()` or from `clientMetadata`
 - `fetchFn` – Fetch implementation to use for HTTP requests
 
 For manual control over the token exchange steps, use the Layer 2 utilities from `@modelcontextprotocol/client`:
+
 - `requestJwtAuthorizationGrant()` – Exchange ID Token for JAG at IdP
 - `discoverAndRequestJwtAuthGrant()` – Discovery + JAG acquisition
 - `exchangeJwtAuthGrant()` – Exchange JAG for access token at MCP server
 
-> [!NOTE]
-> See [RFC 8693 (Token Exchange)](https://datatracker.ietf.org/doc/html/rfc8693), [RFC 7523 (JWT Bearer Grant)](https://datatracker.ietf.org/doc/html/rfc7523), and [RFC 9728 (Resource Discovery)](https://datatracker.ietf.org/doc/html/rfc9728) for the underlying OAuth standards.
+> [!NOTE] See [RFC 8693 (Token Exchange)](https://datatracker.ietf.org/doc/html/rfc8693), [RFC 7523 (JWT Bearer Grant)](https://datatracker.ietf.org/doc/html/rfc7523), and [RFC 9728 (Resource Discovery)](https://datatracker.ietf.org/doc/html/rfc9728) for the underlying OAuth
+> standards.
 
 ## Tools
 
 Tools are callable actions offered by servers — discovering and invoking them is usually how your client enables an LLM to take action (see [Tools](https://modelcontextprotocol.io/docs/learn/server-concepts#tools) in the MCP overview).
 
-Use {@linkcode @modelcontextprotocol/client!client/client.Client#listTools | listTools()} to discover available tools, and {@linkcode @modelcontextprotocol/client!client/client.Client#callTool | callTool()} to invoke one. Results may be paginated — loop on `nextCursor` to collect all pages:
+Use {@linkcode @modelcontextprotocol/client!client/client.Client#listTools | listTools()} to discover available tools, and {@linkcode @modelcontextprotocol/client!client/client.Client#callTool | callTool()} to invoke one. Results may be paginated — loop on `nextCursor` to collect
+all pages:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#callTool_basic"
 const allTools: Tool[] = [];
@@ -295,7 +309,8 @@ console.log(result.content);
 
 Resources are read-only data — files, database schemas, configuration — that your application can retrieve from a server and attach as context for the model (see [Resources](https://modelcontextprotocol.io/docs/learn/server-concepts#resources) in the MCP overview).
 
-Use {@linkcode @modelcontextprotocol/client!client/client.Client#listResources | listResources()} and {@linkcode @modelcontextprotocol/client!client/client.Client#readResource | readResource()} to discover and read server-provided data. Results may be paginated — loop on `nextCursor` to collect all pages:
+Use {@linkcode @modelcontextprotocol/client!client/client.Client#listResources | listResources()} and {@linkcode @modelcontextprotocol/client!client/client.Client#readResource | readResource()} to discover and read server-provided data. Results may be paginated — loop on
+`nextCursor` to collect all pages:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#readResource_basic"
 const allResources: Resource[] = [];
@@ -340,7 +355,8 @@ await client.unsubscribeResource({ uri: 'config://app' });
 
 Prompts are reusable message templates that servers offer to help structure interactions with models (see [Prompts](https://modelcontextprotocol.io/docs/learn/server-concepts#prompts) in the MCP overview).
 
-Use {@linkcode @modelcontextprotocol/client!client/client.Client#listPrompts | listPrompts()} and {@linkcode @modelcontextprotocol/client!client/client.Client#getPrompt | getPrompt()} to list available prompts and retrieve them with arguments. Results may be paginated — loop on `nextCursor` to collect all pages:
+Use {@linkcode @modelcontextprotocol/client!client/client.Client#listPrompts | listPrompts()} and {@linkcode @modelcontextprotocol/client!client/client.Client#getPrompt | getPrompt()} to list available prompts and retrieve them with arguments. Results may be paginated — loop on
+`nextCursor` to collect all pages:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#getPrompt_basic"
 const allPrompts: Prompt[] = [];
@@ -384,7 +400,8 @@ console.log(completion.values); // e.g. ['typescript']
 
 ### Automatic list-change tracking
 
-The {@linkcode @modelcontextprotocol/client!client/client.ClientOptions | listChanged} client option keeps a local cache of tools, prompts, or resources in sync with the server. It provides automatic server capability gating, debouncing (300 ms by default), auto-refresh, and error-first callbacks:
+The {@linkcode @modelcontextprotocol/client!client/client.ClientOptions | listChanged} client option keeps a local cache of tools, prompts, or resources in sync with the server. It provides automatic server capability gating, debouncing (300 ms by default), auto-refresh, and
+error-first callbacks:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#listChanged_basic"
 const client = new Client(
@@ -426,8 +443,8 @@ client.setNotificationHandler('notifications/resources/list_changed', async () =
 });
 ```
 
-> [!WARNING]
-> MCP logging (including `setLoggingLevel()` and `notifications/message`) is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Servers should migrate to stderr logging (STDIO) or OpenTelemetry.
+> [!WARNING] MCP logging (including `setLoggingLevel()` and `notifications/message`) is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the
+> [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Servers should migrate to stderr logging (STDIO) or OpenTelemetry.
 
 To control the minimum severity of log messages the server sends, use {@linkcode @modelcontextprotocol/client!client/client.Client#setLoggingLevel | setLoggingLevel()}:
 
@@ -435,12 +452,12 @@ To control the minimum severity of log messages the server sends, use {@linkcode
 await client.setLoggingLevel('warning');
 ```
 
-> [!WARNING]
-> `listChanged` and {@linkcode @modelcontextprotocol/client!client/client.Client#setNotificationHandler | setNotificationHandler()} are mutually exclusive per notification type — using both for the same notification will cause the manual handler to be overwritten.
+> [!WARNING] `listChanged` and {@linkcode @modelcontextprotocol/client!client/client.Client#setNotificationHandler | setNotificationHandler()} are mutually exclusive per notification type — using both for the same notification will cause the manual handler to be overwritten.
 
 ## Handling server-initiated requests
 
-MCP is bidirectional — servers can send requests *to* the client during tool execution, as long as the client declares matching capabilities (see [Architecture](https://modelcontextprotocol.io/docs/learn/architecture) in the MCP overview). Declare the corresponding capability when constructing the {@linkcode @modelcontextprotocol/client!client/client.Client | Client} and register a request handler:
+MCP is bidirectional — servers can send requests _to_ the client during tool execution, as long as the client declares matching capabilities (see [Architecture](https://modelcontextprotocol.io/docs/learn/architecture) in the MCP overview). Declare the corresponding capability
+when constructing the {@linkcode @modelcontextprotocol/client!client/client.Client | Client} and register a request handler:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#capabilities_declaration"
 const client = new Client(
@@ -456,8 +473,8 @@ const client = new Client(
 
 ### Sampling
 
-> [!WARNING]
-> Sampling is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Servers should migrate to calling LLM provider APIs directly.
+> [!WARNING] Sampling is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Servers
+> should migrate to calling LLM provider APIs directly.
 
 When a server needs an LLM completion during tool execution, it sends a `sampling/createMessage` request to the client (see [Sampling](https://modelcontextprotocol.io/docs/learn/client-concepts#sampling) in the MCP overview). Register a handler to fulfill it:
 
@@ -480,7 +497,8 @@ client.setRequestHandler('sampling/createMessage', async request => {
 
 ### Elicitation
 
-When a server needs user input during tool execution, it sends an `elicitation/create` request to the client (see [Elicitation](https://modelcontextprotocol.io/docs/learn/client-concepts#elicitation) in the MCP overview). The client should present the form to the user and return the collected data, or `{ action: 'decline' }`:
+When a server needs user input during tool execution, it sends an `elicitation/create` request to the client (see [Elicitation](https://modelcontextprotocol.io/docs/learn/client-concepts#elicitation) in the MCP overview). The client should present the form to the user and return
+the collected data, or `{ action: 'decline' }`:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#elicitation_handler"
 client.setRequestHandler('elicitation/create', async request => {
@@ -496,12 +514,13 @@ client.setRequestHandler('elicitation/create', async request => {
 });
 ```
 
-For a full form-based elicitation handler with AJV validation, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/interactiveReplClient.ts). For URL elicitation mode, see [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/elicitationUrlClient.ts).
+For a full form-based elicitation handler with AJV validation, see [`repl/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/repl/client.ts). For URL elicitation mode, see
+[`mrtr/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/mrtr/client.ts).
 
 ### Roots
 
-> [!WARNING]
-> Roots are deprecated as of protocol version 2026-07-28 (SEP-2577). They remain fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to passing paths via tool parameters, resource URIs, or configuration.
+> [!WARNING] Roots are deprecated as of protocol version 2026-07-28 (SEP-2577). They remain fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to
+> passing paths via tool parameters, resource URIs, or configuration.
 
 Roots let the client expose filesystem boundaries to the server (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Declare the `roots` capability and register a `roots/list` handler:
 
@@ -522,7 +541,7 @@ When the available roots change, notify the server with {@linkcode @modelcontext
 
 ### Tool errors vs protocol errors
 
-{@linkcode @modelcontextprotocol/client!client/client.Client#callTool | callTool()} has two error surfaces: the tool can *run but report failure* via `isError: true` in the result, or the *request itself can fail* and throw an exception. Always check both:
+{@linkcode @modelcontextprotocol/client!client/client.Client#callTool | callTool()} has two error surfaces: the tool can _run but report failure_ via `isError: true` in the result, or the _request itself can fail_ and throw an exception. Always check both:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#errorHandling_toolErrors"
 try {
@@ -550,11 +569,14 @@ try {
 }
 ```
 
-{@linkcode @modelcontextprotocol/client!index.ProtocolError | ProtocolError} represents JSON-RPC errors from the server (method not found, invalid params, internal error). {@linkcode @modelcontextprotocol/client!index.SdkError | SdkError} represents local SDK errors — {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.RequestTimeout | REQUEST_TIMEOUT}, {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.ConnectionClosed | CONNECTION_CLOSED}, {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.CapabilityNotSupported | CAPABILITY_NOT_SUPPORTED}, and others.
+{@linkcode @modelcontextprotocol/client!index.ProtocolError | ProtocolError} represents JSON-RPC errors from the server (method not found, invalid params, internal error). {@linkcode @modelcontextprotocol/client!index.SdkError | SdkError} represents local SDK errors — {@linkcode
+@modelcontextprotocol/client!index.SdkErrorCode.RequestTimeout | REQUEST_TIMEOUT}, {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.ConnectionClosed | CONNECTION_CLOSED}, {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.CapabilityNotSupported |
+CAPABILITY_NOT_SUPPORTED}, and others.
 
 ### Connection lifecycle
 
-Set {@linkcode @modelcontextprotocol/client!client/client.Client#onerror | client.onerror} to catch out-of-band transport errors (SSE disconnects, parse errors). Set {@linkcode @modelcontextprotocol/client!client/client.Client#onclose | client.onclose} to detect when the connection drops — pending requests are rejected with a {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.ConnectionClosed | CONNECTION_CLOSED} error:
+Set {@linkcode @modelcontextprotocol/client!client/client.Client#onerror | client.onerror} to catch out-of-band transport errors (SSE disconnects, parse errors). Set {@linkcode @modelcontextprotocol/client!client/client.Client#onclose | client.onclose} to detect when the
+connection drops — pending requests are rejected with a {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.ConnectionClosed | CONNECTION_CLOSED} error:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#errorHandling_lifecycle"
 // Out-of-band errors (SSE disconnects, parse errors)
@@ -570,7 +592,8 @@ client.onclose = () => {
 
 ### Timeouts
 
-All requests have a 60-second default timeout. Pass a custom `timeout` in the options to override it. On timeout, the SDK sends a cancellation notification to the server and rejects the promise with {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.RequestTimeout | SdkErrorCode.RequestTimeout}:
+All requests have a 60-second default timeout. Pass a custom `timeout` in the options to override it. On timeout, the SDK sends a cancellation notification to the server and rejects the promise with {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.RequestTimeout |
+SdkErrorCode.RequestTimeout}:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#errorHandling_timeout"
 try {
@@ -588,7 +611,8 @@ try {
 
 ## Client middleware
 
-Use {@linkcode @modelcontextprotocol/client!client/middleware.createMiddleware | createMiddleware()} and {@linkcode @modelcontextprotocol/client!client/middleware.applyMiddlewares | applyMiddlewares()} to compose fetch middleware pipelines. Middleware wraps the underlying `fetch` call and can add headers, handle retries, or log requests. Pass the enhanced fetch to the transport via the `fetch` option:
+Use {@linkcode @modelcontextprotocol/client!client/middleware.createMiddleware | createMiddleware()} and {@linkcode @modelcontextprotocol/client!client/middleware.applyMiddlewares | applyMiddlewares()} to compose fetch middleware pipelines. Middleware wraps the underlying `fetch`
+call and can add headers, handle retries, or log requests. Pass the enhanced fetch to the transport via the `fetch` option:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#middleware_basic"
 const authMiddleware = createMiddleware(async (next, input, init) => {
@@ -604,7 +628,9 @@ const transport = new StreamableHTTPClientTransport(new URL('http://localhost:30
 
 ## Trace context propagation
 
-The MCP specification ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)) reserves the unprefixed `_meta` keys `traceparent`, `tracestate`, and `baggage` for distributed trace context, as an exception to the usual `_meta` key prefix rule. When present, the values must follow the [W3C Trace Context](https://www.w3.org/TR/trace-context/) and [W3C Baggage](https://www.w3.org/TR/baggage/) formats. The SDK does not interpret these keys — `_meta` passes through both directions untouched — so you can propagate OpenTelemetry context across any transport, including stdio where HTTP headers are unavailable. The key names are exported as `TRACEPARENT_META_KEY`, `TRACESTATE_META_KEY`, and `BAGGAGE_META_KEY`.
+The MCP specification ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)) reserves the unprefixed `_meta` keys `traceparent`, `tracestate`, and `baggage` for distributed trace context, as an exception to the usual `_meta` key prefix rule. When
+present, the values must follow the [W3C Trace Context](https://www.w3.org/TR/trace-context/) and [W3C Baggage](https://www.w3.org/TR/baggage/) formats. The SDK does not interpret these keys — `_meta` passes through both directions untouched — so you can propagate OpenTelemetry
+context across any transport, including stdio where HTTP headers are unavailable. The key names are exported as `TRACEPARENT_META_KEY`, `TRACESTATE_META_KEY`, and `BAGGAGE_META_KEY`.
 
 Attach trace context to a single request via `_meta`:
 
@@ -689,9 +715,9 @@ For an end-to-end example of server-initiated SSE disconnection and automatic cl
 
 ### Additional examples
 
-| Feature | Description | Example |
-|---------|-------------|---------|
-| Parallel tool calls | Run multiple tool calls concurrently via `Promise.all` | [`parallelToolCallsClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts) |
-| SSE disconnect / reconnection | Server-initiated SSE disconnect with automatic reconnection and event replay | [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/client.ts) |
-| Multiple clients | Independent client lifecycles to the same server | [`multipleClientsParallel.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts) |
-| URL elicitation | Handle sensitive data collection via browser | [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/elicitationUrlClient.ts) |
+| Feature                       | Description                                                                  | Example                                                                                                                            |
+| ----------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Parallel tool calls           | Run multiple tool calls concurrently via `Promise.all`                       | [`parallelToolCallsClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts) |
+| SSE disconnect / reconnection | Server-initiated SSE disconnect with automatic reconnection and event replay | [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/client.ts)           |
+| Multiple clients              | Independent client lifecycles to the same server                             | [`multipleClientsParallel.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts) |
+| URL elicitation               | Handle sensitive data collection via browser                                 | [`mrtr/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/mrtr/client.ts)                       |

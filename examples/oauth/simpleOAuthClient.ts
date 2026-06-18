@@ -15,6 +15,11 @@ const DEFAULT_SERVER_URL = 'http://localhost:3000/mcp';
 const CALLBACK_PORT = 8090; // Use different port than auth server (3001)
 const CALLBACK_URL = `http://localhost:${CALLBACK_PORT}/callback`;
 
+/** Minimal HTML escaper for any user/query-derived value interpolated into an HTML response. */
+function escHtml(s: string): string {
+    return s.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#x27;');
+}
+
 /**
  * Interactive MCP client with OAuth authentication
  * Demonstrates the complete OAuth flow with browser-based authorization
@@ -109,7 +114,7 @@ class InteractiveOAuthClient {
             <html>
               <body>
                 <h1>Authorization Failed</h1>
-                <p>Error: ${error}</p>
+                <p>Error: ${escHtml(error)}</p>
               </body>
             </html>
           `);

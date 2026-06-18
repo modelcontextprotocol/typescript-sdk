@@ -50,7 +50,7 @@ await server.connect(transport);
 
 **Options:** Set `sessionIdGenerator` to a function (shown above) for stateful sessions. Set it to `undefined` for stateless mode (simpler, but does not support resumability). Set `enableJsonResponse: true` to return plain JSON instead of SSE streams.
 
-For a complete server with sessions, logging, and CORS mounted on Express, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleStreamableHttpServer.ts).
+For a complete server with sessions, logging, and CORS, see [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts).
 
 ### stdio
 
@@ -64,8 +64,8 @@ await server.connect(transport);
 
 #### Serving the 2026-07-28 draft revision on stdio
 
-A hand-constructed stdio server speaks the 2025-era protocol it was written for: nothing about its wire behavior changes when you upgrade the SDK. Serving the 2026-07-28 draft revision goes through the connection-pinned `serveStdio` entry, which mirrors `createMcpHandler`
-for long-lived connections — the entry owns the transport and the era decision, and one instance from your factory serves the era the client opened the connection with:
+A hand-constructed stdio server speaks the 2025-era protocol it was written for: nothing about its wire behavior changes when you upgrade the SDK. Serving the 2026-07-28 draft revision goes through the connection-pinned `serveStdio` entry, which mirrors `createMcpHandler` for
+long-lived connections — the entry owns the transport and the era decision, and one instance from your factory serves the era the client opened the connection with:
 
 ```typescript
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
@@ -77,13 +77,14 @@ serveStdio(() => {
 });
 ```
 
-Plain 2025 clients open with `initialize` and are served exactly as before; 2026-capable clients negotiate via `server/discover` and send each request with the per-request `_meta` envelope, and their connection is pinned to a 2026-era instance. Pass `legacy: 'reject'` to
-refuse 2025-era openings with the unsupported-protocol-version error. On 2026-pinned connections, read per-request client identity from `ctx.mcpReq.envelope` in your handlers rather than the connection-scoped accessors (see the [migration guide](./migration.md) for
-details). A runnable example lives at `examples/dual-era/server.ts`, with a two-legged client at `examples/dual-era/client.ts`.
+Plain 2025 clients open with `initialize` and are served exactly as before; 2026-capable clients negotiate via `server/discover` and send each request with the per-request `_meta` envelope, and their connection is pinned to a 2026-era instance. Pass `legacy: 'reject'` to refuse
+2025-era openings with the unsupported-protocol-version error. On 2026-pinned connections, read per-request client identity from `ctx.mcpReq.envelope` in your handlers rather than the connection-scoped accessors (see the [migration guide](./migration.md) for details). A runnable
+example lives at `examples/dual-era/server.ts`, with a two-legged client at `examples/dual-era/client.ts`.
 
 ## Server instructions
 
-Instructions describe how to use the server and its features — cross-tool relationships, workflow patterns, and constraints (see [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP specification). Clients may add them to the system prompt. Instructions should not duplicate information already in tool descriptions.
+Instructions describe how to use the server and its features — cross-tool relationships, workflow patterns, and constraints (see [Instructions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#instructions) in the MCP specification). Clients may add them to
+the system prompt. Instructions should not duplicate information already in tool descriptions.
 
 ```ts source="../examples/guides/serverGuide.examples.ts#instructions_basic"
 const server = new McpServer(
@@ -123,12 +124,13 @@ server.registerTool(
 );
 ```
 
-> [!NOTE]
-> When defining a named type for `structuredContent`, use a `type` alias rather than an `interface`. Named interfaces lack implicit index signatures in TypeScript, so they aren't assignable to `{ [key: string]: unknown }`:
+> [!NOTE] When defining a named type for `structuredContent`, use a `type` alias rather than an `interface`. Named interfaces lack implicit index signatures in TypeScript, so they aren't assignable to `{ [key: string]: unknown }`:
 >
 > ```ts
-> type BmiResult = { bmi: number };    // assignable
-> interface BmiResult { bmi: number }  // type error
+> type BmiResult = { bmi: number }; // assignable
+> interface BmiResult {
+>     bmi: number;
+> } // type error
 > ```
 >
 > Alternatively, spread the value: `structuredContent: { ...result }`.
@@ -223,7 +225,8 @@ If a handler throws instead of returning `isError`, the SDK catches the exceptio
 
 ## Resources
 
-Resources expose read-only data — files, database schemas, configuration — that the host application can retrieve and attach as context for the model (see [Resources](https://modelcontextprotocol.io/docs/learn/server-concepts#resources) in the MCP overview). Unlike [tools](#tools), which the LLM invokes on its own, resources are application-controlled: the host decides which resources to fetch and how to present them.
+Resources expose read-only data — files, database schemas, configuration — that the host application can retrieve and attach as context for the model (see [Resources](https://modelcontextprotocol.io/docs/learn/server-concepts#resources) in the MCP overview). Unlike
+[tools](#tools), which the LLM invokes on its own, resources are application-controlled: the host decides which resources to fetch and how to present them.
 
 A static resource at a fixed URI:
 
@@ -271,12 +274,13 @@ server.registerResource(
 );
 ```
 
-> [!IMPORTANT]
-> **Security note:** If a resource is backed by the filesystem (for example, a `file://` server or a template whose variables map onto file paths), the spec requires sanitizing any user-influenced path before use. Resolve the requested path and verify it stays within the intended root directory, rejecting traversal sequences such as `..` (including encoded forms) and symlinks that escape the root. Never pass template variables or client-supplied URIs to filesystem APIs unchecked.
+> [!IMPORTANT] **Security note:** If a resource is backed by the filesystem (for example, a `file://` server or a template whose variables map onto file paths), the spec requires sanitizing any user-influenced path before use. Resolve the requested path and verify it stays within
+> the intended root directory, rejecting traversal sequences such as `..` (including encoded forms) and symlinks that escape the root. Never pass template variables or client-supplied URIs to filesystem APIs unchecked.
 
 ## Prompts
 
-Prompts are reusable templates that help structure interactions with models (see [Prompts](https://modelcontextprotocol.io/docs/learn/server-concepts#prompts) in the MCP overview). Use a prompt when you want to offer a canned interaction pattern that users invoke explicitly; use a [tool](#tools) when the LLM should decide when to call it.
+Prompts are reusable templates that help structure interactions with models (see [Prompts](https://modelcontextprotocol.io/docs/learn/server-concepts#prompts) in the MCP overview). Use a prompt when you want to offer a canned interaction pattern that users invoke explicitly; use
+a [tool](#tools) when the LLM should decide when to call it.
 
 ```ts source="../examples/guides/serverGuide.examples.ts#registerPrompt_basic"
 server.registerPrompt(
@@ -334,8 +338,8 @@ server.registerPrompt(
 
 ## Logging
 
-> [!WARNING]
-> MCP logging is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to stderr logging (STDIO servers) or OpenTelemetry.
+> [!WARNING] MCP logging is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate
+> to stderr logging (STDIO servers) or OpenTelemetry.
 
 Logging lets your server send structured diagnostics — debug traces, progress updates, warnings — to the connected client as notifications (see [Logging](https://modelcontextprotocol.io/specification/latest/server/utilities/logging) in the MCP specification).
 
@@ -405,7 +409,9 @@ server.registerTool(
 
 ## Trace context propagation
 
-The MCP specification ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)) reserves the unprefixed `_meta` keys `traceparent`, `tracestate`, and `baggage` for distributed trace context, as an exception to the usual `_meta` key prefix rule. When present, the values must follow the [W3C Trace Context](https://www.w3.org/TR/trace-context/) and [W3C Baggage](https://www.w3.org/TR/baggage/) formats. The SDK does not interpret these keys — `_meta` passes through untouched on any transport, including stdio. The key names are exported as `TRACEPARENT_META_KEY`, `TRACESTATE_META_KEY`, and `BAGGAGE_META_KEY`.
+The MCP specification ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)) reserves the unprefixed `_meta` keys `traceparent`, `tracestate`, and `baggage` for distributed trace context, as an exception to the usual `_meta` key prefix rule. When
+present, the values must follow the [W3C Trace Context](https://www.w3.org/TR/trace-context/) and [W3C Baggage](https://www.w3.org/TR/baggage/) formats. The SDK does not interpret these keys — `_meta` passes through untouched on any transport, including stdio. The key names are
+exported as `TRACEPARENT_META_KEY`, `TRACESTATE_META_KEY`, and `BAGGAGE_META_KEY`.
 
 Read the caller's trace context from `ctx.mcpReq._meta` in a handler:
 
@@ -433,14 +439,15 @@ To propagate context onward (for example on a server-initiated sampling request,
 
 ## Server-initiated requests
 
-MCP is bidirectional — servers can send requests *to* the client during tool execution, as long as the client declares matching capabilities (see [Architecture](https://modelcontextprotocol.io/docs/learn/architecture) in the MCP overview).
+MCP is bidirectional — servers can send requests _to_ the client during tool execution, as long as the client declares matching capabilities (see [Architecture](https://modelcontextprotocol.io/docs/learn/architecture) in the MCP overview).
 
 ### Sampling
 
-> [!WARNING]
-> Sampling is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to calling LLM provider APIs directly from your server.
+> [!WARNING] Sampling is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to
+> calling LLM provider APIs directly from your server.
 
-Sampling lets a tool handler request an LLM completion from the connected client — the handler describes a prompt and the client returns the model's response (see [Sampling](https://modelcontextprotocol.io/docs/learn/client-concepts#sampling) in the MCP overview). Use sampling when a tool needs the model to generate or transform text mid-execution.
+Sampling lets a tool handler request an LLM completion from the connected client — the handler describes a prompt and the client returns the model's response (see [Sampling](https://modelcontextprotocol.io/docs/learn/client-concepts#sampling) in the MCP overview). Use sampling
+when a tool needs the model to generate or transform text mid-execution.
 
 Call `ctx.mcpReq.requestSampling(params)` (from {@linkcode @modelcontextprotocol/server!index.ServerContext | ServerContext}) inside a tool handler:
 
@@ -485,8 +492,7 @@ Elicitation lets a tool handler request direct input from the user — form fiel
 - **Form** (`mode: 'form'`) — collects non-sensitive data via a schema-driven form.
 - **URL** (`mode: 'url'`) — opens a browser URL for sensitive data or secure flows (API keys, payments, OAuth).
 
-> [!IMPORTANT]
-> Sensitive information must not be collected via form elicitation; always use URL elicitation or out-of-band flows for secrets.
+> [!IMPORTANT] Sensitive information must not be collected via form elicitation; always use URL elicitation or out-of-band flows for secrets.
 
 Call `ctx.mcpReq.elicitInput(params)` (from {@linkcode @modelcontextprotocol/server!index.ServerContext | ServerContext}) inside a tool handler:
 
@@ -530,14 +536,16 @@ server.registerTool(
 );
 ```
 
-For runnable examples, see [`elicitationFormExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/elicitation-form/server.ts) (form) and [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/elicitationUrlServer.ts) (URL).
+For runnable examples, see [`elicitation-form/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/elicitation-form/server.ts) (form) and [`mrtr/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/mrtr/server.ts)
+(URL).
 
 ### Roots
 
-> [!WARNING]
-> Roots are deprecated as of protocol version 2026-07-28 (SEP-2577). They remain fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to passing paths via tool parameters, resource URIs, or configuration.
+> [!WARNING] Roots are deprecated as of protocol version 2026-07-28 (SEP-2577). They remain fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to
+> passing paths via tool parameters, resource URIs, or configuration.
 
-Roots let a tool handler discover the client's workspace directories — for example, to scope a file search or identify project boundaries (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Call {@linkcode @modelcontextprotocol/server!server/server.Server#listRoots | server.server.listRoots()} (requires the client to declare the `roots` capability):
+Roots let a tool handler discover the client's workspace directories — for example, to scope a file search or identify project boundaries (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Call {@linkcode
+@modelcontextprotocol/server!server/server.Server#listRoots | server.server.listRoots()} (requires the client to declare the `roots` capability):
 
 ```ts source="../examples/guides/serverGuide.examples.ts#registerTool_roots"
 server.registerTool(
@@ -585,15 +593,17 @@ process.on('SIGINT', async () => {
 });
 ```
 
-For a complete multi-session server with shutdown handling, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleStreamableHttpServer.ts).
+For a complete multi-session server with shutdown handling, see [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts).
 
 ## Deployment
 
 ### DNS rebinding protection
 
-Under normal circumstances, cross-origin browser restrictions limit what a malicious website can do to your localhost server. [DNS rebinding attacks](https://en.wikipedia.org/wiki/DNS_rebinding) get around those restrictions entirely by making the requests appear as same-origin, since the attacking domain resolves to localhost. Validating the host header on the server side protects against this scenario.  **All localhost MCP servers should use DNS rebinding protection.**
+Under normal circumstances, cross-origin browser restrictions limit what a malicious website can do to your localhost server. [DNS rebinding attacks](https://en.wikipedia.org/wiki/DNS_rebinding) get around those restrictions entirely by making the requests appear as same-origin,
+since the attacking domain resolves to localhost. Validating the host header on the server side protects against this scenario. **All localhost MCP servers should use DNS rebinding protection.**
 
-The recommended approach is to use {@linkcode @modelcontextprotocol/express!express.createMcpExpressApp | createMcpExpressApp()} (from `@modelcontextprotocol/express`) or {@linkcode @modelcontextprotocol/hono!hono.createMcpHonoApp | createMcpHonoApp()} (from `@modelcontextprotocol/hono`), which enable Host header validation by default:
+The recommended approach is to use {@linkcode @modelcontextprotocol/express!express.createMcpExpressApp | createMcpExpressApp()} (from `@modelcontextprotocol/express`) or {@linkcode @modelcontextprotocol/hono!hono.createMcpHonoApp | createMcpHonoApp()} (from
+`@modelcontextprotocol/hono`), which enable Host header validation by default:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#dnsRebinding_basic"
 // Default: DNS rebinding protection auto-enabled (host is 127.0.0.1)
@@ -617,11 +627,12 @@ const app = createMcpExpressApp({
 
 `createMcpHonoApp()` from `@modelcontextprotocol/hono` provides the same protection for Hono-based servers and Web Standard runtimes (Cloudflare Workers, Deno, Bun).
 
-The app factories also validate the `Origin` header with the same arming rules: localhost-class binds are protected by default, and an explicit `allowedOrigins` list (hostnames, port-agnostic — the same convention as `allowedHosts`) replaces the default localhost allowlist; there is no option that disables Origin validation for a localhost-class bind. Requests without
-an `Origin` header always pass, so MCP clients outside a browser are unaffected; a present `Origin` that is not allowed, or that cannot be parsed, is rejected with `403`. The per-framework middleware (`originValidation`, `localhostOriginValidation`) can also be mounted
-explicitly, and `@modelcontextprotocol/node` ships equivalent request guards for plain `node:http` servers.
+The app factories also validate the `Origin` header with the same arming rules: localhost-class binds are protected by default, and an explicit `allowedOrigins` list (hostnames, port-agnostic — the same convention as `allowedHosts`) replaces the default localhost allowlist; there
+is no option that disables Origin validation for a localhost-class bind. Requests without an `Origin` header always pass, so MCP clients outside a browser are unaffected; a present `Origin` that is not allowed, or that cannot be parsed, is rejected with `403`. The per-framework
+middleware (`originValidation`, `localhostOriginValidation`) can also be mounted explicitly, and `@modelcontextprotocol/node` ships equivalent request guards for plain `node:http` servers.
 
-If you use `NodeStreamableHTTPServerTransport` directly with your own HTTP framework, you must implement Host header validation yourself. See the [`hostHeaderValidation`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/middleware/express/src/express.ts) middleware source for reference. When mounting a handler bare on a fetch-native runtime, the framework-agnostic helpers from `@modelcontextprotocol/server` (`hostHeaderValidationResponse`, `originValidationResponse`) cover the same checks before the request reaches the handler.
+If you use `NodeStreamableHTTPServerTransport` directly with your own HTTP framework, you must implement Host header validation yourself. See the [`hostHeaderValidation`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/middleware/express/src/express.ts)
+middleware source for reference. When mounting a handler bare on a fetch-native runtime, the framework-agnostic helpers from `@modelcontextprotocol/server` (`hostHeaderValidationResponse`, `originValidationResponse`) cover the same checks before the request reaches the handler.
 
 ## See also
 
@@ -633,10 +644,10 @@ If you use `NodeStreamableHTTPServerTransport` directly with your own HTTP frame
 
 ### Additional examples
 
-| Feature | Description | Example |
-|---------|-------------|---------|
-| Web Standard transport | Deploy on Cloudflare Workers, Deno, or Bun | [`hono/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/hono/server.ts) |
-| Session management | Per-session transport routing, initialization, and cleanup | [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleStreamableHttpServer.ts) |
-| Resumability | Replay missed SSE events via an event store | [`inMemoryEventStore.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/inMemoryEventStore.ts) |
-| CORS | Expose MCP headers for browser clients | [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleStreamableHttpServer.ts) |
-| Multi-node deployment | Stateless, persistent-storage, and distributed routing patterns | [`examples/server/README.md`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/README.md#multi-node-deployment-patterns) |
+| Feature                | Description                                                     | Example                                                                                                                                                  |
+| ---------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web Standard transport | Deploy on Cloudflare Workers, Deno, or Bun                      | [`hono/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/hono/server.ts)                                             |
+| Session management     | Per-session transport routing, initialization, and cleanup      | [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts)                         |
+| Resumability           | Replay missed SSE events via an event store                     | [`inMemoryEventStore.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/inMemoryEventStore.ts)                   |
+| CORS                   | Expose MCP headers for browser clients                          | [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts)                         |
+| Multi-node deployment  | Stateless, persistent-storage, and distributed routing patterns | [`examples/server/README.md`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/README.md#multi-node-deployment-patterns) |
