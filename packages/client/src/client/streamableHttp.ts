@@ -174,6 +174,27 @@ export type StreamableHTTPClientTransportOptions = {
 };
 
 /**
+ * `AbortSignal.any` with a manual fallback. `AbortSignal.any` landed in
+ * Node 20.3; this package's `engines` floor is `>=20`, so 20.0–20.2 must be
+ * served by the fallback combinator (a controller that aborts on the first
+ * of `a` or `b`). The native path is preferred because it propagates the
+ * originating signal's `reason` and participates in GC the way the spec
+ * defines.
+ */
+function anySignal(a: AbortSignal, b: AbortSignal): AbortSignal {
+    if (typeof AbortSignal.any === 'function') {
+        return AbortSignal.any([a, b]);
+    }
+    const controller = new AbortController();
+    if (a.aborted) return (controller.abort(a.reason), controller.signal);
+    if (b.aborted) return (controller.abort(b.reason), controller.signal);
+    const forward = (source: AbortSignal) => () => controller.abort(source.reason);
+    a.addEventListener('abort', forward(a), { once: true });
+    b.addEventListener('abort', forward(b), { once: true });
+    return controller.signal;
+}
+
+/**
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
@@ -592,11 +613,11 @@ export class StreamableHTTPClientTransport implements Transport {
             // Per-request abort: when the caller supplies a request-scoped
             // signal (the `subscriptions/listen` driver), aborting it cancels
             // this POST and its SSE response stream without closing the
-            // transport. AbortSignal.any is the standard combinator.
+            // transport.
             const transportSignal = this._abortController?.signal;
             const signal =
                 options?.requestSignal !== undefined && transportSignal !== undefined
-                    ? AbortSignal.any([transportSignal, options.requestSignal])
+                    ? anySignal(transportSignal, options.requestSignal)
                     : (options?.requestSignal ?? transportSignal);
             const init = {
                 ...this._requestInit,
