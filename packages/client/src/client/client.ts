@@ -288,7 +288,7 @@ export class Client extends Protocol<ClientContext> {
      * (surfaced via `onerror`) rather than answered. Connections on a legacy
      * era — and all responses and notifications — keep today's dispatch path.
      */
-    protected override _classifyInbound(message: JSONRPCRequest | JSONRPCNotification): 'drop' | undefined {
+    protected override _shouldDropInbound(message: JSONRPCRequest | JSONRPCNotification): 'drop' | undefined {
         if (
             this._negotiatedProtocolVersion !== undefined &&
             isModernProtocolVersion(this._negotiatedProtocolVersion) &&

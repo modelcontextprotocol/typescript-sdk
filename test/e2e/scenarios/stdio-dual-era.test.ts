@@ -3,12 +3,14 @@
  *
  * Like the other transport:stdio scenarios these do not use `wire()`: each
  * body spawns the dual-era fixture server in
- * `fixtures/dual-era-stdio-server.ts` (eraSupport: 'dual-era', unchanged
- * StdioServerTransport) as a real child process via {@link StdioClientTransport}.
- * The matrix `transport` arg is ignored (the requirement lists
- * `transports: ['stdio']`); the spec-version axis selects which client drives
- * the cell — a plain 2025 client over `initialize`, or the auto-negotiating
- * client reaching 2026-07-28 over `server/discover` on the same kind of pipe.
+ * `fixtures/dual-era-stdio-server.ts` (the connection-pinned `serveStdio`
+ * entry over an ordinary McpServer factory) as a real child process via
+ * {@link StdioClientTransport}. The matrix `transport` arg is ignored (the
+ * requirement lists `transports: ['stdio']`); the spec-version axis selects
+ * which client opens the connection — a plain 2025 client over `initialize`,
+ * or the auto-negotiating client reaching 2026-07-28 over `server/discover` —
+ * and the entry pins that connection's instance to the era the client opened
+ * with.
  */
 
 import { fileURLToPath } from 'node:url';
@@ -38,8 +40,9 @@ verifies('typescript:transport:stdio:dual-era-serving', async ({ protocolVersion
     });
 
     if (protocolVersion === '2025-11-25') {
-        // Legacy leg: a plain 2025 client is served via initialize, exactly as
-        // against an undeclared server.
+        // Legacy leg: a plain 2025 client opens with initialize and the entry
+        // pins the connection to a 2025-era instance, served exactly as a
+        // hand-wired stdio server serves it today.
         const client = new Client({ name: 'plain-2025-client', version: '0' });
         try {
             await client.connect(transport);
@@ -55,8 +58,9 @@ verifies('typescript:transport:stdio:dual-era-serving', async ({ protocolVersion
     }
 
     // Modern leg: the auto-negotiating client reaches 2026-07-28 via
-    // server/discover on the pipe (no initialize is ever written) and
-    // tools/call round-trips with the per-request envelope.
+    // server/discover on the pipe (no initialize is ever written), the entry
+    // pins the connection to a 2026-era instance, and tools/call round-trips
+    // with the per-request envelope.
     const sentMethods: string[] = [];
     const originalSend = transport.send.bind(transport);
     transport.send = async message => {

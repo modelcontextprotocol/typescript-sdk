@@ -4,17 +4,17 @@
  * era-aware counter-offer end to end (a legacy client against a server whose
  * supported list carries a 2026 revision never sees a 2026 version string).
  *
- * Serving a 2026-era revision on a hand-constructed instance is a declared
- * act: the servers under test pass `eraSupport: 'dual-era'` (a modern
- * revision in the supported list without that declaration is a
- * construction-time TypeError), and a dual-era instance answers the
- * `server/discover` probe per message with no instance binding.
+ * Era is instance state on the server: an inbound `server/discover` is served
+ * only by a modern-era instance (the method is physically absent from the
+ * legacy registry). Production binding of modern-era instances belongs to the
+ * server-side entry that classifies inbound traffic; until it lands these
+ * tests bind the instance through the package-internal hook it will use.
  */
 import type { Server as HttpServer } from 'node:http';
 import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { SdkError, SdkErrorCode, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode, setNegotiatedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
@@ -39,14 +39,14 @@ describe('server/discover round-trip against a modern server', () => {
         while (cleanups.length > 0) await cleanups.pop()!();
     });
 
-    async function startServer(options: { kind: 'dual-era' | 'legacy-only' }) {
+    async function startServer(options: { modernEraInstance: boolean }) {
         const httpServer: HttpServer = createServer();
         const mcpServer = new McpServer(
             { name: 'dual-era-server', version: '2.0.0' },
             {
                 capabilities: { tools: { listChanged: true } },
-                instructions: 'dual era',
-                ...(options.kind === 'dual-era' ? { supportedProtocolVersions: DUAL_ERA_VERSIONS, eraSupport: 'dual-era' as const } : {})
+                supportedProtocolVersions: DUAL_ERA_VERSIONS,
+                instructions: 'dual era'
             }
         );
         mcpServer.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
@@ -54,6 +54,11 @@ describe('server/discover round-trip against a modern server', () => {
         }));
         const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
         await mcpServer.connect(serverTransport);
+        if (options.modernEraInstance) {
+            // Stand-in for the server-side entry (instance binding): mark the
+            // instance as serving the modern era so it can answer the probe.
+            setNegotiatedProtocolVersion(mcpServer.server, MODERN);
+        }
         httpServer.on('request', (req, res) => void serverTransport.handleRequest(req, res));
         const baseUrl = await listenOnRandomPort(httpServer);
         cleanups.push(async () => {
@@ -65,7 +70,7 @@ describe('server/discover round-trip against a modern server', () => {
     }
 
     it('pin-mode 2026 client: server/discover → version selection, no initialize ever sent', async () => {
-        const baseUrl = await startServer({ kind: 'dual-era' });
+        const baseUrl = await startServer({ modernEraInstance: true });
         const { bodies, fetchFn } = recordingFetch();
 
         const client = new Client({ name: 'pin-client', version: '1.0.0' }, { versionNegotiation: { mode: { pin: MODERN } } });
@@ -83,7 +88,7 @@ describe('server/discover round-trip against a modern server', () => {
     });
 
     it('auto-mode client selects the modern era on the same server', async () => {
-        const baseUrl = await startServer({ kind: 'dual-era' });
+        const baseUrl = await startServer({ modernEraInstance: true });
         const client = new Client({ name: 'auto-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(new StreamableHTTPClientTransport(baseUrl));
         cleanups.push(() => client.close());
@@ -91,11 +96,12 @@ describe('server/discover round-trip against a modern server', () => {
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
     });
 
-    it('auto-mode against a server that has not opted into modern-era support falls back to the legacy handshake', async () => {
-        // A hand-constructed server with the default eraSupport never serves
-        // server/discover: the probe is answered -32601 and the client falls
-        // back cleanly on the same connection.
-        const baseUrl = await startServer({ kind: 'legacy-only' });
+    it('auto-mode against the same server NOT bound to the modern era falls back to the legacy handshake', async () => {
+        // A server instance serves the legacy era until it is bound to the
+        // modern one (binding is owned by the server-side entry); the probe is
+        // answered -32601 and the client falls back cleanly on the same
+        // connection.
+        const baseUrl = await startServer({ modernEraInstance: false });
         const client = new Client({ name: 'auto-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(new StreamableHTTPClientTransport(baseUrl));
         cleanups.push(() => client.close());
@@ -105,8 +111,8 @@ describe('server/discover round-trip against a modern server', () => {
         expect(result.content).toEqual([{ type: 'text', text: 'fallback' }]);
     });
 
-    it('a plain legacy client against a dual-era server never meets a 2026 version string (counter-offer ordering, e2e)', async () => {
-        const baseUrl = await startServer({ kind: 'dual-era' });
+    it('a plain legacy client against a server with a dual-era list never meets a 2026 version string (counter-offer ordering, e2e)', async () => {
+        const baseUrl = await startServer({ modernEraInstance: false });
         const { fetchFn } = recordingFetch();
 
         const responses: string[] = [];

@@ -391,8 +391,12 @@ function classificationForClaim(claimedVersion: string | undefined): MessageClas
  * modern era then answers `initialize` exactly like any other method it does
  * not define (method-not-found). A malformed claim, or one naming a pre-2026
  * revision, keeps the legacy-handshake routing unchanged.
+ *
+ * Exported on the core internal barrel for the stdio serving entry, which
+ * applies the same precedence rule to a connection's opening message; not
+ * public API.
  */
-function carriesValidModernEnvelopeClaim(params: unknown): boolean {
+export function carriesValidModernEnvelopeClaim(params: unknown): boolean {
     if (!hasEnvelopeClaim(params)) {
         return false;
     }
@@ -655,50 +659,6 @@ export function classifyInboundRequest(request: InboundHttpRequest): InboundClas
         new ProtocolError(ProtocolErrorCode.InvalidRequest, 'Bad Request: the request body is not a valid JSON-RPC message'),
         true
     );
-}
-
-/* ------------------------------------------------------------------------ *
- * Per-message classification (long-lived channels)
- * ------------------------------------------------------------------------ */
-
-/**
- * Classifies one inbound JSON-RPC message for a long-lived dual-era channel
- * (stdio and other hand-wired transports with no HTTP edge): the body-primary
- * predicate reduced to its per-message form — there is no header layer (the
- * stdio transport carries all request metadata inline in the message body)
- * and no HTTP method to route.
- *
- * - `initialize` is the legacy handshake by definition; the version it
- *   requested is carried as the classification's `revision`.
- * - A message whose `params._meta` carries the reserved protocol-version key
- *   claims the per-request envelope mechanism and classifies into the era of
- *   the named revision. Envelope validity is enforced at dispatch by the era
- *   codec — a malformed envelope behind a present claim is a validation
- *   error, never a silent fall back to legacy handling.
- * - A message without that claim — including one carrying only
- *   `progressToken` or other non-reserved `_meta` keys — is legacy-era
- *   traffic.
- *
- * Pure and total over requests and notifications; consumed by the
- * protocol-layer classification consult for dual-era server instances.
- */
-export function classifyInboundMessage(message: { method: string; params?: unknown }): MessageClassification {
-    if (message.method === 'initialize') {
-        const params = message.params;
-        const requestedVersion =
-            isPlainObject(params) && typeof params['protocolVersion'] === 'string' ? params['protocolVersion'] : undefined;
-        // The classification's `revision` names the wire revision the message
-        // is classified INTO, so it only carries the requested version when
-        // that version is itself a legacy one — an `initialize` requesting a
-        // modern revision is still the legacy handshake (it never negotiates
-        // a modern era) and stays a bare legacy classification.
-        const legacyRevision = requestedVersion !== undefined && !isModernProtocolVersion(requestedVersion) ? requestedVersion : undefined;
-        return { era: 'legacy', ...(legacyRevision !== undefined && { revision: legacyRevision }) };
-    }
-    if (hasEnvelopeClaim(message.params)) {
-        return classificationForClaim(envelopeClaimVersion(message.params));
-    }
-    return { era: 'legacy' };
 }
 
 /* ------------------------------------------------------------------------ *
