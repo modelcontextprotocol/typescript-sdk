@@ -1159,6 +1159,23 @@ Resolution is per field, most specific author first: for each of `ttlMs` and `ca
 per-resource hint that sets only one field never suppresses the other field configured at the operation level. Configured hints are validated when they are configured — an invalid `ttlMs` (negative or non-integer) or `cacheScope` throws a `RangeError`. Responses on 2025-era
 connections never carry these fields, with or without configuration.
 
+### `subscriptions/listen` (2026-07-28): change-notification streams replace unsolicited delivery
+
+The 2026-07-28 revision delivers `tools/prompts/resources` `list_changed` and `resources/updated` only on a `subscriptions/listen` stream the client opened — the server never sends an un-requested notification type. Both halves ship:
+
+**Server side.** Nothing to register: the serving entries handle `subscriptions/listen` themselves. `createMcpHandler` returns `.notify.{toolsChanged, promptsChanged, resourcesChanged, resourceUpdated(uri)}` typed publish sugar over an in-process bus (supply your own
+`ServerEventBus` for multi-process deployments). On stdio, `serveStdio` routes the pinned instance's existing `send*ListChanged()` calls onto the active subscriptions automatically. The 2025-era unsolicited delivery model is unchanged on legacy connections.
+
+```typescript
+const handler = createMcpHandler(() => buildServer());
+// after a tool registration changes:
+handler.notify.toolsChanged();
+```
+
+**Client side.** `ClientOptions.listChanged` keeps working: on a 2026-07-28 connection the SDK auto-opens a `subscriptions/listen` stream with the filter derived from which sub-options were set, so the same handlers fire on every published change (the auto-opened subscription is
+exposed at `client.autoOpenedSubscription` for `close()`). `client.listen(filter)` opens a stream explicitly and resolves once the server's acknowledged notification arrives with `{ honoredFilter, close() }`; change notifications dispatch to the existing `setNotificationHandler`
+registrations. `resources/subscribe` is 2025-only — on a 2026-07-28 connection, request `notifications/resources/updated` via the `resourceSubscriptions` field of the listen filter instead.
+
 ### Multi round-trip requests (2026-07-28): write-once handlers and the client auto-fulfilment driver
 
 The 2026-07-28 revision removes the server→client JSON-RPC request channel: servers obtain client input (elicitation, sampling, roots) **in-band**, by answering `tools/call`, `prompts/get`, or `resources/read` with an `input_required` result that embeds the requests, and the
@@ -1192,9 +1209,9 @@ has: only `tools/call` has a catch-all that wraps handler failures into `isError
 
 **`requestState` is untrusted input — protect it yourself.** `inputRequired({ requestState })` lets a server round-trip opaque state through the client instead of holding it in memory. The SDK treats it as an opaque string end to end: the client echoes it back byte-exact and
 never parses it, and the server sees the echoed value raw at `ctx.mcpReq.requestState`. The specification's requirement is the consumer's obligation: the value comes back as **attacker-controlled input**, so if it influences authorization, resource access, or business logic you
-MUST integrity-protect it when minting it (for example HMAC or AEAD over the payload, bound to the principal, the originating method/parameters, and an expiry) and MUST reject state that fails verification on re-entry. The SDK does not provide or apply any sealing of its own,
-but it does provide the place to put your verification: configure `ServerOptions.requestState.verify`, and the seam runs it before the handler whenever `requestState` is present — a thrown rejection answers the client with a frozen `-32602` (above the tool funnel, so it is a
-real JSON-RPC error rather than an `isError` result). See `examples/server/src/multiRoundTrip.ts` for a worked HMAC example.
+MUST integrity-protect it when minting it (for example HMAC or AEAD over the payload, bound to the principal, the originating method/parameters, and an expiry) and MUST reject state that fails verification on re-entry. The SDK does not provide or apply any sealing of its own, but
+it does provide the place to put your verification: configure `ServerOptions.requestState.verify`, and the seam runs it before the handler whenever `requestState` is present — a thrown rejection answers the client with a frozen `-32602` (above the tool funnel, so it is a real
+JSON-RPC error rather than an `isError` result). See `examples/server/src/multiRoundTrip.ts` for a worked HMAC example.
 
 **Client side — auto-fulfilment by default.** When a call to `tools/call`, `prompts/get`, or `resources/read` on a 2026-07-28 connection answers `input_required`, the client fulfils the embedded requests through the same handlers registered with
 `setRequestHandler('elicitation/create' | 'sampling/createMessage' | 'roots/list', …)` and retries the original request (fresh request id, `inputResponses`, byte-exact `requestState` echo) up to `inputRequired.maxRounds` rounds (default 10). `client.callTool()` and its siblings
