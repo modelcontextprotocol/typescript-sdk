@@ -1,8 +1,8 @@
 /**
  * createMcpHandler served over real HTTP, driven by real clients: the
  * 2026-capable negotiation client for the modern path and a plain 2025 client
- * for the legacy slot — the three slot states on one endpoint, all backed by
- * one factory.
+ * for the legacy fallback — both legacy postures (the stateless default and
+ * the strict 'reject') on one endpoint, all backed by one factory.
  */
 import type { Server as HttpServer } from 'node:http';
 import { createServer } from 'node:http';
@@ -10,14 +10,14 @@ import { createServer } from 'node:http';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
 import type { CallToolResult, CreateMcpHandlerOptions, McpHttpHandler, McpRequestContext } from '@modelcontextprotocol/server';
-import { createMcpHandler, legacyStatelessFallback, McpServer } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
 const MODERN = '2026-07-28';
 
-describe('createMcpHandler over HTTP (slot states end to end)', () => {
+describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
     const cleanups: Array<() => Promise<void> | void> = [];
     afterEach(async () => {
         while (cleanups.length > 0) await cleanups.pop()!();
@@ -55,7 +55,7 @@ describe('createMcpHandler over HTTP (slot states end to end)', () => {
         };
     }
 
-    it('serves the modern era to an auto-negotiating client (strict endpoint, no legacy slot)', async () => {
+    it('serves the modern era to an auto-negotiating client (default endpoint)', async () => {
         const { baseUrl } = await startEndpoint();
 
         const client = new Client({ name: 'auto-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
@@ -76,16 +76,16 @@ describe('createMcpHandler over HTTP (slot states end to end)', () => {
         expect(result.content).toEqual([{ type: 'text', text: 'hello modern (modern)' }]);
     });
 
-    it('rejects a plain 2025 client on the strict endpoint with the unsupported-protocol-version error', async () => {
-        const { baseUrl } = await startEndpoint();
+    it("rejects a plain 2025 client on a strict (legacy: 'reject') endpoint with the unsupported-protocol-version error", async () => {
+        const { baseUrl } = await startEndpoint({ legacy: 'reject' });
 
         const client = new Client({ name: 'legacy-client', version: '1.0.0' });
         await expect(client.connect(new StreamableHTTPClientTransport(baseUrl))).rejects.toThrow(/Unsupported protocol version|400/);
         cleanups.push(() => client.close().catch(() => {}));
     });
 
-    it("serves a plain 2025 client through the 'stateless' legacy slot while the modern path keeps working", async () => {
-        const { baseUrl } = await startEndpoint({ legacy: 'stateless' });
+    it('serves a plain 2025 client through the default stateless legacy fallback while the modern path keeps working', async () => {
+        const { baseUrl } = await startEndpoint();
 
         const legacyClient = new Client({ name: 'legacy-client', version: '1.0.0' });
         await legacyClient.connect(new StreamableHTTPClientTransport(baseUrl));
@@ -105,17 +105,6 @@ describe('createMcpHandler over HTTP (slot states end to end)', () => {
             params: { name: 'greet', arguments: { name: 'new friend' }, _meta: modernEnvelope() }
         })) as CallToolResult;
         expect(modernResult.content).toEqual([{ type: 'text', text: 'hello new friend (modern)' }]);
-    });
-
-    it('serves a plain 2025 client through a bring-your-own legacy handler', async () => {
-        const { baseUrl } = await startEndpoint({ legacy: legacyStatelessFallback(factory) });
-
-        const client = new Client({ name: 'legacy-client', version: '1.0.0' });
-        await client.connect(new StreamableHTTPClientTransport(baseUrl));
-        cleanups.push(() => client.close());
-
-        const result = await client.callTool({ name: 'greet', arguments: { name: 'byo' } });
-        expect(result.content).toEqual([{ type: 'text', text: 'hello byo (legacy)' }]);
     });
 
     it('pinning the modern revision works against the entry and never sends initialize', async () => {

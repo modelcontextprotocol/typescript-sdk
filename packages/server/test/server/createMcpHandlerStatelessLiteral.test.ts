@@ -2,8 +2,8 @@
  * Wire-level continuity twin for the "Unsupported protocol version" rejection,
  * exercised through `createMcpHandler(factory, { legacy: 'stateless' })`.
  *
- * The legacy slot routes 2025-era traffic through the untouched streamable HTTP
- * transport, so the rejection site (and therefore the wire bytes deployed
+ * The legacy fallback routes 2025-era traffic through the untouched streamable
+ * HTTP transport, so the rejection site (and therefore the wire bytes deployed
  * clients sniff — see streamableHttpUnsupportedVersionLiteral.test.ts for the
  * go-sdk substring dependency) is the same one the standalone transport test
  * pins. This twin asserts the bytes hold on the sugar path itself: HTTP 400,

@@ -15,11 +15,12 @@ export type Transport = (typeof ALL_TRANSPORTS)[number];
 
 /**
  * The createMcpHandler entry arms: the dual-era HTTP entry hosted in process
- * (injected fetch → `handler.fetch`), one arm per slot. `entryStateless` serves
- * a plain 2025-era client through the entry's `legacy: 'stateless'` slot;
- * `entryModern` serves a client that negotiates the 2026-07-28 revision through
- * the entry's modern (per-request envelope) path. Each arm is era-fixed, so it
- * registers cells on exactly one spec-version axis (see TRANSPORT_SPEC_VERSIONS).
+ * (injected fetch → `handler.fetch`), one arm per leg. `entryStateless` serves
+ * a plain 2025-era client through the entry's stateless legacy fallback (the
+ * default posture); `entryModern` serves a client that negotiates the
+ * 2026-07-28 revision through the entry's modern (per-request envelope) path.
+ * Each arm is era-fixed, so it registers cells on exactly one spec-version
+ * axis (see TRANSPORT_SPEC_VERSIONS).
  */
 export const ENTRY_TRANSPORTS = ['entryStateless', 'entryModern'] as const satisfies readonly Transport[];
 export type EntryTransport = (typeof ENTRY_TRANSPORTS)[number];
@@ -38,7 +39,7 @@ export const ALL_SPEC_VERSIONS = ['2025-11-25', '2026-07-28'] as const satisfies
 /**
  * Spec versions a transport arm can serve. Transports without an entry serve
  * every spec version on the active axis; the entry arms are era-fixed (the
- * `legacy: 'stateless'` slot serves only 2025-era traffic, the modern path
+ * stateless legacy fallback serves only 2025-era traffic, the modern path
  * serves only the 2026-07-28 revision), so each registers cells on exactly one
  * axis. `verifies()` intersects this with a requirement's own spec-version
  * bounds when forming cells.

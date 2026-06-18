@@ -1032,19 +1032,16 @@ already does; automatic envelope emission for every request is a client-side fol
 
 ### Serving the 2026-07-28 draft revision over HTTP: `createMcpHandler`
 
-The server package now ships an HTTP entry point that serves the 2026-07-28 draft revision per request, with 2025-era serving available as an **opt-in** slot:
+The server package now ships an HTTP entry point that serves the 2026-07-28 draft revision per request and, **by default, also serves 2025-era traffic** per request through the established stateless idiom — one factory, one endpoint, both eras:
 
 ```typescript
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 
-const handler = createMcpHandler(
-    ctx => {
-        const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { capabilities: { tools: {} } });
-        // register tools/resources/prompts once — the same factory backs both eras
-        return server;
-    },
-    { legacy: 'stateless' }
-);
+const handler = createMcpHandler(ctx => {
+    const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+    // register tools/resources/prompts once — the same factory backs both eras
+    return server;
+});
 
 // Web-standard runtimes (Cloudflare Workers, Deno, Bun, Hono):
 //   handler.fetch(request)
@@ -1052,21 +1049,45 @@ const handler = createMcpHandler(
 //   handler.node(req, res, req.body)
 ```
 
-How the `legacy` slot behaves:
+How the `legacy` option behaves:
 
-- **omitted** — modern-only strict. 2026-07-28 (per-request `_meta` envelope) requests are served; 2025-era requests are rejected with `-32004` naming the supported revisions, and 2025-era notifications are acknowledged with `202` and dropped. **There is no silent 2025
-  serving without the slot.**
-- **`legacy: 'stateless'`** — 2025-era traffic is additionally served per request through the established stateless idiom: a fresh instance from the same factory and a streamable HTTP transport constructed with only `sessionIdGenerator: undefined`. The exported
-  `legacyStatelessFallback(factory)` is the same handler as a standalone value.
-- **`legacy: <handler>`** — bring your own legacy serving (for example an existing sessionful `WebStandardStreamableHTTPServerTransport` wiring). Requests are handed to it untouched and its lifecycle stays yours.
+- **omitted / `legacy: 'stateless'`** (the default) — 2025-era (non-envelope) traffic is served per request through the established stateless idiom: a fresh instance from the same factory and a streamable HTTP transport constructed with only
+  `sessionIdGenerator: undefined`. Because this serving is per-request and stateless, GET and DELETE (2025 session operations) are answered `405` / `Method not allowed.`, exactly like the canonical stateless example. The exported `legacyStatelessFallback(factory)` is the
+  same serving as a standalone fetch-shaped handler for hand-wired compositions.
+- **`legacy: 'reject'`** — modern-only strict. 2026-07-28 (per-request `_meta` envelope) requests are served; 2025-era requests are rejected with `-32004` naming the supported revisions, and 2025-era notifications are acknowledged with `202` and dropped. **There is no
+  2025 serving in this mode.**
+
+> **If you have an existing sessionful 1.x Streamable HTTP setup** (a `StreamableHTTPServerTransport` wiring with session IDs that your deployed 2025-era clients depend on), keep that handler serving 2025 traffic and route it in front of a strict (`legacy: 'reject'`)
+> entry with the exported `isLegacyRequest(request)` predicate. The predicate is the entry's own classification step (the same code `createMcpHandler` runs to decide a request is not on the modern path), so a composition that branches on it can never disagree with the
+> entry:
+>
+> ```typescript
+> // An existing sessionful 1.x streamable HTTP wiring keeps serving 2025 clients, routed in front of a strict entry.
+> import { createMcpHandler, isLegacyRequest } from '@modelcontextprotocol/server';
+>
+> const modern = createMcpHandler(factory, { legacy: 'reject' });
+>
+> export default {
+>     async fetch(request: Request): Promise<Response> {
+>         if (await isLegacyRequest(request)) {
+>             return myExistingLegacyHandler(request); // e.g. an existing sessionful WebStandardStreamableHTTPServerTransport wiring
+>         }
+>         return modern.fetch(request);
+>     }
+> };
+> ```
+>
+> `isLegacyRequest` returns `true` only for requests with no per-request `_meta` envelope claim (claim-less POSTs including `initialize`, GET/DELETE session operations, all-legacy batches, posted responses, and non-JSON bodies). It returns `false` for everything the
+> modern path answers — including a request carrying a **malformed** modern claim, which the modern path rejects with `-32602` — so route `false` traffic to the modern handler, never to your legacy handler. The predicate classifies a clone, so the request body stays
+> readable for whichever handler you route to (pass an already-parsed body as the second argument if the stream has been consumed).
 
 The optional `responseMode` controls how modern request exchanges are answered: `'auto'` (default) returns a single JSON body and lazily upgrades to an SSE stream when the handler emits a related message before its result; `'sse'` always streams; **`'json'` never streams
 and DROPS mid-call notifications** (progress, logging, and any other related message emitted before the result) — only the terminal result is delivered. Subscription (listen-class) streams are always served over SSE regardless of the setting. `onerror` receives
 out-of-band errors and rejected requests for logging.
 
 The entry performs no Origin/Host validation (see the origin-validation middleware below) and no token verification: `authInfo` passed to `handler.fetch(request, { authInfo })` / attached as `req.auth` on the Node face is forwarded to handlers as-is and never derived from
-request headers. Power users who want to compose routing themselves can use the exported `classifyInboundRequest` and `PerRequestHTTPServerTransport` building blocks directly; the handler faces are bound properties, so they can be detached and passed around
-(`const { fetch } = handler`).
+request headers. Power users who want to compose routing themselves can use the exported `isLegacyRequest`, `classifyInboundRequest` and `PerRequestHTTPServerTransport` building blocks directly; the handler faces are bound properties, so they can be detached and passed
+around (`const { fetch } = handler`).
 
 ### Serving the 2026-07-28 draft revision on stdio: `serveStdio`
 
