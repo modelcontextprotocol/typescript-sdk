@@ -472,5 +472,5 @@ This isn't an error - it just means there are no current weather alerts for that
 Now that your server is running locally, here are some ways to go further:
 
 - [**Server guide**](./server.md) — Add resources, prompts, logging, error handling, and remote transports to your server.
-- [**Example servers**](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server) — Browse runnable examples covering OAuth, streaming, sessions, and more.
+- [**Example servers**](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples) — Browse runnable examples covering OAuth, streaming, sessions, and more.
 - [**FAQ**](./faq.md) — Troubleshoot common errors (Zod version conflicts, transport issues, etc.).
