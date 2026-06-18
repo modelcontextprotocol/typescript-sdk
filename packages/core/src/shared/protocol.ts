@@ -387,6 +387,11 @@ export type ServerContext = BaseContext & {
 
         /**
          * Send an elicitation request to the client, requesting user input.
+         *
+         * @deprecated Throws on a 2026-07-28-era request — return `inputRequired(...)`
+         * (multi-round-trip) from the handler instead. The 2025 push-style server-to-client request model is
+         * replaced by input_required results in the 2026-07-28 protocol. If your factory serves
+         * both eras, this only works on the legacy path.
          */
         elicitInput: (params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions) => Promise<ElicitResult>;
 
@@ -394,8 +399,10 @@ export type ServerContext = BaseContext & {
          * Request LLM sampling from the client.
          *
          * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
-         * Remains functional during the deprecation window (at least twelve months).
-         * Migrate to calling LLM provider APIs directly.
+         * Throws on a 2026-07-28-era request — return `inputRequired(...)` (multi-round-trip)
+         * from the handler instead, or migrate to calling LLM provider APIs directly. The 2025 push-style
+         * server-to-client request model is replaced by input_required results in the 2026-07-28
+         * protocol. If your factory serves both eras, this only works on the legacy path.
          */
         requestSampling: (
             params: CreateMessageRequest['params'],
