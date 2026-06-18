@@ -1060,7 +1060,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'elicitation:url:complete-unknown-ignored': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#completion-notifications-for-url-mode-elicitation',
         behavior:
-            'The client ignores an elicitation/complete notification referencing an unknown or already-completed elicitationId without error.'
+            'The client ignores an elicitation/complete notification referencing an unknown or already-completed elicitationId without error.',
+        entryExclusions: [
+            {
+                arm: 'entryModern',
+                reason: 'method-not-in-modern-registry',
+                note: 'notifications/elicitation/complete was removed from the 2026-07-28 draft; on that revision the client drops it as an unknown notification (the row asserts ignored-without-error against received copies, which never arrive)'
+            }
+        ]
     },
     'elicitation:url:required-error': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#url-elicitation-required-error',

@@ -3,7 +3,7 @@
     "source": {
         "repo": "modelcontextprotocol/modelcontextprotocol",
         "path": "schema/draft/examples",
-        "commit": "0168c57fc74aba6e6dcf8f0b7191db3caaa5ad65"
+        "commit": "2fb207da428f43a4981513ec2aef218b7533c5b3"
     },
     "regenerate": "pnpm fetch:spec-examples --spec-dir <spec-checkout>   # or [sha] to fetch from GitHub",
     "directoryCount": 86,
@@ -85,9 +85,6 @@
         "DiscoverResultResponse": [
             "discover-result-response.json"
         ],
-        "ElicitationCompleteNotification": [
-            "elicitation-complete.json"
-        ],
         "ElicitRequest": [
             "elicitation-request.json"
         ],
@@ -117,6 +114,9 @@
         ],
         "GetPromptResultResponse": [
             "get-prompt-result-response.json"
+        ],
+        "HeaderMismatchError": [
+            "header-mismatch.json"
         ],
         "ImageContent": [
             "image-png-content-with-annotations.json"
