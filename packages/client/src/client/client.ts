@@ -1423,9 +1423,11 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * The subscription auto-opened by `ClientOptions.listChanged` on a modern
-     * connection (the listen filter derived from which sub-options were set),
-     * or `undefined` on a legacy connection or before connect. Exposed so the
-     * consumer can `close()` it.
+     * connection — the listen filter is the intersection of the configured
+     * sub-options and the server-advertised `listChanged` capabilities.
+     * `undefined` on a legacy connection, before connect, or when that
+     * intersection is empty (auto-open skipped). Exposed so the consumer can
+     * `close()` it.
      */
     get autoOpenedSubscription(): McpSubscription | undefined {
         return this._autoOpenedSubscription;

@@ -358,7 +358,7 @@ describe('Client.listen()', () => {
         expect((error as SdkError).code).toBe(SdkErrorCode.NotConnected);
     });
 
-    it('ClientOptions.listChanged auto-opens a listen stream on a modern connection (filter derived from sub-options)', async () => {
+    it('ClientOptions.listChanged auto-opens a listen stream on a modern connection (filter = configured ∩ server-advertised)', async () => {
         const filters: unknown[] = [];
         const { clientTx } = await scriptedModern((_id, filter) => filters.push(filter));
         const onChanged = () => {};

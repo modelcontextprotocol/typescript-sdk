@@ -5,8 +5,10 @@
  *
  * 1. **auto-open via `ClientOptions.listChanged`** — the same option a
  *    2025-era client sets; on a modern connection the SDK auto-opens a
- *    listen stream with the filter derived from which sub-options were set,
- *    so the configured `onChanged` handlers fire on every published change;
+ *    listen stream whose filter is the intersection of the configured
+ *    sub-options and the server-advertised `listChanged` capabilities
+ *    (auto-open is skipped when the intersection is empty), so the
+ *    configured `onChanged` handlers fire on every published change;
  * 2. **manual `client.listen()`** — opens a stream explicitly, registers a
  *    `notifications/tools/list_changed` handler the stream feeds, and closes
  *    after a few notifications.

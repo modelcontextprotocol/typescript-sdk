@@ -2695,7 +2695,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:subscriptions:listChanged-auto-open-modern': {
         source: 'sdk',
         behavior:
-            'ClientOptions.listChanged auto-opens a subscriptions/listen stream on a modern connection (filter derived from which sub-options were set), so the configured handlers fire on every published change. The auto-opened subscription is exposed for close.',
+            'ClientOptions.listChanged auto-opens a subscriptions/listen stream on a modern connection — the filter is the intersection of the configured sub-options and the server-advertised listChanged capabilities (auto-open is skipped and autoOpenedSubscription stays undefined when the intersection is empty) — so the configured handlers fire on every published change. The auto-opened subscription is exposed for close.',
         addedInSpecVersion: '2026-07-28',
         transports: ['entryModern'],
         note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify.'
