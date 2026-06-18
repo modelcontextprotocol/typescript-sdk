@@ -1185,7 +1185,9 @@ has: only `tools/call` has a catch-all that wraps handler failures into `isError
 
 **`requestState` is untrusted input — protect it yourself.** `inputRequired({ requestState })` lets a server round-trip opaque state through the client instead of holding it in memory. The SDK treats it as an opaque string end to end: the client echoes it back byte-exact and
 never parses it, and the server sees the echoed value raw at `ctx.mcpReq.requestState`. The specification's requirement is the consumer's obligation: the value comes back as **attacker-controlled input**, so if it influences authorization, resource access, or business logic you
-MUST integrity-protect it when minting it (for example HMAC or AEAD over the payload, bound to the principal, the originating method/parameters, and an expiry) and MUST reject state that fails verification on re-entry. The SDK does not provide or apply any sealing of its own.
+MUST integrity-protect it when minting it (for example HMAC or AEAD over the payload, bound to the principal, the originating method/parameters, and an expiry) and MUST reject state that fails verification on re-entry. The SDK does not provide or apply any sealing of its own,
+but it does provide the place to put your verification: configure `ServerOptions.requestState.verify`, and the seam runs it before the handler whenever `requestState` is present — a thrown rejection answers the client with a frozen `-32602` (above the tool funnel, so it is a
+real JSON-RPC error rather than an `isError` result). See `examples/server/src/multiRoundTrip.ts` for a worked HMAC example.
 
 **Client side — auto-fulfilment by default.** When a call to `tools/call`, `prompts/get`, or `resources/read` on a 2026-07-28 connection answers `input_required`, the client fulfils the embedded requests through the same handlers registered with
 `setRequestHandler('elicitation/create' | 'sampling/createMessage' | 'roots/list', …)` and retries the original request (fresh request id, `inputResponses`, byte-exact `requestState` echo) up to `inputRequired.maxRounds` rounds (default 10). `client.callTool()` and its siblings

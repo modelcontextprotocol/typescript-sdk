@@ -481,10 +481,19 @@ export class Server extends Protocol<ServerContext> {
         // therefore above the McpServer tools/call funnel), so a rejection
         // reaches the wire as a real JSON-RPC error rather than an `isError`
         // tool result. The wire message is FROZEN — the thrown reason is
-        // surfaced via `onerror` only.
-        if (this._requestStateVerify !== undefined && typeof ctx.mcpReq.requestState === 'string') {
+        // surfaced via `onerror` only. A non-string `requestState` value (the
+        // wire field is `string | undefined`) is treated as invalid regardless
+        // of whether a hook is configured, so a malformed value cannot bypass
+        // verification.
+        const rawRequestState = ctx.mcpReq.requestState as unknown;
+        if (rawRequestState !== undefined && typeof rawRequestState !== 'string') {
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Invalid or expired requestState', {
+                reason: 'invalid_request_state'
+            });
+        }
+        if (this._requestStateVerify !== undefined && typeof rawRequestState === 'string') {
             try {
-                await this._requestStateVerify(ctx.mcpReq.requestState, ctx);
+                await this._requestStateVerify(rawRequestState, ctx);
             } catch (error) {
                 this.onerror?.(
                     new Error(`requestState verification rejected ${method}: ${error instanceof Error ? error.message : String(error)}`)
