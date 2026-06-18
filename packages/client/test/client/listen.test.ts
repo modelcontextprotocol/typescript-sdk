@@ -166,6 +166,19 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
+    it('rejects with NotConnected (as a rejected promise, no setup) when no transport is connected', async () => {
+        const { clientTx } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        await client.close();
+        // listen() is async, so a pre-send guard throw is delivered as the
+        // returned promise's rejection (no ack timer started, no park state).
+        const pending = client.listen({ toolsListChanged: true });
+        const error = await pending.catch(e => e as SdkError);
+        expect(error).toBeInstanceOf(SdkError);
+        expect((error as SdkError).code).toBe(SdkErrorCode.NotConnected);
+    });
+
     it('ClientOptions.listChanged auto-opens a listen stream on a modern connection (filter derived from sub-options)', async () => {
         const filters: unknown[] = [];
         const { clientTx } = await scriptedModern((_id, filter) => filters.push(filter));
@@ -179,6 +192,43 @@ describe('Client.listen()', () => {
         expect(client.autoOpenedSubscription).toBeDefined();
         expect(client.autoOpenedSubscription!.honoredFilter).toEqual({ toolsListChanged: true, promptsListChanged: true });
         await client.autoOpenedSubscription!.close();
+        await client.close();
+    });
+
+    it('a failed auto-open surfaces via onerror and does NOT fail connect', async () => {
+        const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+        serverTx.onmessage = m => {
+            const req = m as { id?: number | string; method?: string };
+            if (req.method === 'server/discover' && req.id !== undefined) {
+                void serverTx.send({
+                    jsonrpc: '2.0',
+                    id: req.id,
+                    result: {
+                        resultType: 'complete',
+                        supportedVersions: [MODERN],
+                        capabilities: { tools: { listChanged: true } },
+                        serverInfo: { name: 's', version: '1' }
+                    }
+                });
+            }
+            if (req.method === 'subscriptions/listen' && req.id !== undefined) {
+                // Server refuses listen (capacity guard / not supported).
+                void serverTx.send({ jsonrpc: '2.0', id: req.id, error: { code: -32_603, message: 'Subscription limit reached' } });
+            }
+        };
+        await serverTx.start();
+        const onChanged = () => {};
+        const client = new Client(
+            { name: 'c', version: '1' },
+            { versionNegotiation: { mode: 'auto' }, listChanged: { tools: { onChanged } } }
+        );
+        const errors: Error[] = [];
+        client.onerror = e => errors.push(e);
+        // connect MUST resolve: the modern connection is usable without listen.
+        await client.connect(clientTx);
+        expect(client.autoOpenedSubscription).toBeUndefined();
+        expect(errors).toHaveLength(1);
+        expect((errors[0] as { code?: number }).code).toBe(-32_603);
         await client.close();
     });
 });

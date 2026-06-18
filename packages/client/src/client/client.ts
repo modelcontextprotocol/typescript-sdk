@@ -849,7 +849,15 @@ export class Client extends Protocol<ClientContext> {
                 ...(config.resources && { resourcesListChanged: true as const })
             };
             if (Object.keys(filter).length > 0) {
-                this._autoOpenedSubscription = await this.listen(filter, options);
+                // A failed auto-open MUST NOT fail connect: the modern
+                // connection is fully usable without a listen stream (the
+                // server may not support it, or refuse on capacity). Surface
+                // via onerror; the consumer can call listen() later.
+                try {
+                    this._autoOpenedSubscription = await this.listen(filter, options);
+                } catch (error) {
+                    this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                }
             }
         }
     }
@@ -1210,13 +1218,20 @@ export class Client extends Protocol<ClientContext> {
                 { method: 'subscriptions/listen', protocolVersion: negotiated }
             );
         }
+        // Connectivity is checked here so the rejection is delivered as the
+        // returned promise (no setup or ack timer is started) — `_parkRequest`
+        // would otherwise throw NotConnected from inside the executor below
+        // after the timer is armed.
+        if (this.transport === undefined) {
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+        }
 
         if (this._onParkedNotification === undefined) {
             this._onParkedNotification = raw => this._listenFirstLook(raw);
         }
 
         const requestAbort = new AbortController();
-        const transportKind = this.transport === undefined ? 'http' : detectProbeTransportKind(this.transport);
+        const transportKind = detectProbeTransportKind(this.transport);
 
         let closed = false;
         let parked!: ReturnType<typeof this._parkRequest>;
