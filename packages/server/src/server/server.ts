@@ -755,6 +755,11 @@ export class Server extends Protocol<ServerContext> {
      * Creates a reusable callback that, when invoked, will send a `notifications/elicitation/complete`
      * notification for the specified elicitation ID.
      *
+     * The notification (and the `elicitationId` it references) exists only on protocol revision
+     * 2025-11-25 — the 2026-07-28 draft removed both. On a connection negotiated at 2026-07-28 the
+     * returned callback rejects with a typed local error before anything reaches the transport
+     * (the method is not part of that revision's wire registry).
+     *
      * @param elicitationId The ID of the elicitation to mark as complete.
      * @param options Optional notification options. Useful when the completion notification should be related to a prior request.
      * @returns A function that emits the completion notification when awaited.

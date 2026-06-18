@@ -4,9 +4,11 @@
  * Registry membership IS the deletion story: there are NO entries for
  * `initialize`, `notifications/initialized`, `ping`, `logging/setLevel`,
  * `resources/subscribe`, `resources/unsubscribe`,
- * `notifications/roots/list_changed`, the task family, or the server→client
- * wire-request channel — so an era-mismatched method falls to −32601 by
- * absence inbound and a typed local error outbound, with no table to forget.
+ * `notifications/roots/list_changed`, `notifications/elicitation/complete`
+ * (removed from the draft schema; 2025-11-25-only vocabulary), the task
+ * family, or the server→client wire-request channel — so an era-mismatched
+ * method falls to −32601 by absence inbound and a typed local error outbound,
+ * with no table to forget.
  *
  * HAND-REGISTRY SEED DECISIONS (pinned by the CI registry-diff oracle, which
  * fails LOUD if this list and the anchor diff ever disagree):

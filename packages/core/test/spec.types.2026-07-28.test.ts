@@ -77,6 +77,11 @@ type WCompleteRequestParams = WCompleteRequest['params'];
 // PaginatedRequest in the anchor keeps `method: string` (it is the base, not
 // a concrete method) — composed from the derived params shape.
 type WPaginatedRequest = WithJSONRPCRequest<{ method: string; params: WPaginatedRequestParams }>;
+// 2026-era cancelled fork (requestId required on this revision) and the
+// notification `_meta` shape (anchor NotificationMetaObject).
+type WCancelledNotification = z4.infer<typeof Wire2026.CancelledNotificationSchema>;
+type WCancelledNotificationParams = z4.infer<typeof Wire2026.CancelledNotificationParamsSchema>;
+type WNotificationMeta = z4.infer<typeof Wire2026.NotificationMetaSchema>;
 
 const sdkTypeChecks = {
     JSONValue: (sdk: SDKTypes.JSONValue, spec: SpecTypes.JSONValue) => {
@@ -152,14 +157,6 @@ const sdkTypeChecks = {
         spec = sdk;
     },
     InternalError: (sdk: SDKTypes.InternalError, spec: SpecTypes.InternalError) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CancelledNotificationParams: (sdk: SDKTypes.CancelledNotificationParams, spec: SpecTypes.CancelledNotificationParams) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    CancelledNotification: (sdk: WithJSONRPC<SDKTypes.CancelledNotification>, spec: SpecTypes.CancelledNotification) => {
         sdk = spec;
         spec = sdk;
     },
@@ -339,18 +336,6 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ElicitRequestURLParams: (sdk: SDKTypes.ElicitRequestURLParams, spec: SpecTypes.ElicitRequestURLParams) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ElicitRequestParams: (sdk: SDKTypes.ElicitRequestParams, spec: SpecTypes.ElicitRequestParams) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ElicitRequest: (sdk: SDKTypes.ElicitRequest, spec: SpecTypes.ElicitRequest) => {
-        sdk = spec;
-        spec = sdk;
-    },
     PrimitiveSchemaDefinition: (sdk: SDKTypes.PrimitiveSchemaDefinition, spec: SpecTypes.PrimitiveSchemaDefinition) => {
         sdk = spec;
         spec = sdk;
@@ -398,30 +383,37 @@ const sdkTypeChecks = {
     EnumSchema: (sdk: SDKTypes.EnumSchema, spec: SpecTypes.EnumSchema) => {
         sdk = spec;
         spec = sdk;
-    },
-    ElicitationCompleteNotificationParams: (
-        sdk: SDKTypes.ElicitationCompleteNotificationParams,
-        spec: SpecTypes.ElicitationCompleteNotificationParams
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ElicitationCompleteNotification: (
-        sdk: WithJSONRPC<SDKTypes.ElicitationCompleteNotification>,
-        spec: SpecTypes.ElicitationCompleteNotification
-    ) => {
-        sdk = spec;
-        spec = sdk;
-    },
-    ClientNotification: (sdk: WithJSONRPC<SDKTypes.ClientNotification>, spec: SpecTypes.ClientNotification) => {
-        sdk = spec;
-        spec = sdk;
     }
 };
 
 /* 2026-era wire parity checks (Q1 increment 2) — appended to sdkTypeChecks. */
 const wireParityChecks = {
     Result: (sdk: WResult, spec: SpecTypes.Result) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    // Cancelled is the one notification this era forks (requestId is REQUIRED
+    // on 2026-07-28; the shared schema keeps the frozen 2025-11-25 optional
+    // shape) — compared against the fork, not the neutral type.
+    CancelledNotificationParams: (sdk: WCancelledNotificationParams, spec: SpecTypes.CancelledNotificationParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    CancelledNotification: (sdk: WithJSONRPC<WCancelledNotification>, spec: SpecTypes.CancelledNotification) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    // The 2026 client-sent notification set is exactly `notifications/cancelled`
+    // (progress is server→client only on this revision), so the union compares
+    // against the cancelled fork; HTTP-side cancellation semantics (close the
+    // stream) are #14 scope and not asserted here.
+    ClientNotification: (sdk: WithJSONRPC<WCancelledNotification>, spec: SpecTypes.ClientNotification) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    // Notification `_meta` (anchor NotificationMetaObject): the typed
+    // subscriptions/listen demux key — shape only; listen delivery is #14.
+    NotificationMetaObject: (sdk: WNotificationMeta, spec: SpecTypes.NotificationMetaObject) => {
         sdk = spec;
         spec = sdk;
     },
@@ -629,6 +621,10 @@ const FEATURE_OWNED_PENDING_2026: Record<string, string> = {
     CreateMessageRequest: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
     CreateMessageRequestParams: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
     CreateMessageResult: 'M4.1 MRTR (#13) — in-band response shape',
+    ElicitRequest: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
+    ElicitRequestParams: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
+    ElicitRequestURLParams:
+        'M4.1 MRTR (#13) — demoted to an in-band payload in 2026; the draft also removed elicitationId from the URL-mode shape',
     ElicitResult: 'M4.1 MRTR (#13) — in-band response shape',
     ListRootsRequest: 'M4.1 MRTR (#13) — demoted to an in-band payload in 2026',
     ListRootsResult: 'M4.1 MRTR (#13) — in-band response shape',
@@ -653,6 +649,7 @@ const FEATURE_OWNED_PENDING_2026: Record<string, string> = {
     ServerNotification: 'M6.1 subscriptions/listen (#14) — the union gains the acknowledged notification',
 
     // M1.2 validation ladder (#8): the per-code error response envelopes:
+    HeaderMismatchError: 'M1.2 validation ladder (#8)',
     MissingRequiredClientCapabilityError: 'M1.2 validation ladder (#8)',
     UnsupportedProtocolVersionError: 'M1.2 validation ladder (#8)'
 };
