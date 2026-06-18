@@ -34,8 +34,6 @@ import type {
     InboundLadderRejection,
     InboundLegacyRoute,
     InboundModernRoute,
-    JSONRPCNotification,
-    JSONRPCRequest,
     RequestId
 } from '@modelcontextprotocol/core';
 import {
@@ -630,12 +628,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     // to turn legacy serving off (modern-only strict).
     const legacyHandler: LegacyHttpHandler | undefined = legacy === 'reject' ? undefined : legacyStatelessFallback(factory, reportError);
 
-    async function serveModern(
-        route: InboundModernRoute,
-        message: JSONRPCRequest | JSONRPCNotification,
-        request: Request,
-        authInfo: AuthInfo | undefined
-    ): Promise<Response> {
+    async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;
         if (claimedRevision === undefined || !SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedRevision)) {
             // The claim names a revision this endpoint does not serve (an
@@ -646,10 +639,10 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                 requested: claimedRevision ?? 'unknown'
             });
             reportError(error);
-            return jsonRpcErrorResponse(400, error.code, error.message, error.data, echoableRequestId(message));
+            return jsonRpcErrorResponse(400, error.code, error.message, error.data, echoableRequestId(route.message));
         }
 
-        const meta = route.messageKind === 'request' ? requestMetaOf((message as JSONRPCRequest).params) : undefined;
+        const meta = route.messageKind === 'request' ? requestMetaOf(route.message.params) : undefined;
         const declaredClientCapabilities = meta?.[CLIENT_CAPABILITIES_META_KEY] as ClientCapabilities | undefined;
 
         // Pre-dispatch capability gate: a request to a method whose processing
@@ -659,7 +652,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // spec-mandated HTTP 400 for this error; a handler-time emission would
         // surface in-band on HTTP 200.
         if (route.messageKind === 'request') {
-            const required = requiredClientCapabilitiesForRequest((message as JSONRPCRequest).method);
+            const required = requiredClientCapabilitiesForRequest(route.message.method);
             if (required !== undefined) {
                 const missing = missingClientCapabilities(required, declaredClientCapabilities);
                 if (missing !== undefined) {
@@ -670,7 +663,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                         error.code,
                         error.message,
                         error.data,
-                        (message as JSONRPCRequest).id
+                        route.message.id
                     );
                 }
             }
@@ -692,8 +685,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // Authorization the consumer performs inside the factory therefore DOES
         // see listen requests, although token verification still belongs at the
         // middleware layer mounted in front of this entry.
-        if (route.messageKind === 'request' && (message as JSONRPCRequest).method === 'subscriptions/listen') {
-            return listenRouter.serve(message as JSONRPCRequest, request.signal, server.getCapabilities());
+        if (route.messageKind === 'request' && route.message.method === 'subscriptions/listen') {
+            return listenRouter.serve(route.message, request.signal, server.getCapabilities());
         }
 
         // Era-write at instance binding, then modern-only handler installation —
@@ -717,7 +710,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         };
 
         try {
-            const response = await invoke(product, message, {
+            const response = await invoke(product, route.message, {
                 classification: route.classification,
                 request,
                 ...(authInfo !== undefined && { authInfo }),
@@ -742,7 +735,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             await server.close().catch(() => {});
             inflight.delete(server);
             reportError(toError(error));
-            return internalServerErrorResponse(echoableRequestId(message));
+            return internalServerErrorResponse(echoableRequestId(route.message));
         }
     }
 
@@ -794,7 +787,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                     return rejectionResponse(outcome, echoableRequestId(body));
                 }
                 case 'modern': {
-                    return await serveModern(outcome, body as JSONRPCRequest | JSONRPCNotification, request, authInfo);
+                    return await serveModern(outcome, request, authInfo);
                 }
                 case 'legacy': {
                     return await serveLegacyRoute(outcome, forwardRequest, authInfo, parsedBody);
