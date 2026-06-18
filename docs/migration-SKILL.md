@@ -550,6 +550,16 @@ These can require code changes:
 - `Server.getClientCapabilities()`, `getClientVersion()` and `getNegotiatedProtocolVersion()` are deprecated but functional: prefer the per-request context (`ctx.mcpReq.envelope`) on 2026-07-28 requests. No mechanical change required yet; plan the move before the deprecations are removed.
 - `createMcpExpressApp()` / `createMcpHonoApp()` / `createMcpFastifyApp()` with a localhost-class `host` now also validate the `Origin` header by default (requests without an `Origin` header are unaffected). Browser-served clients on a non-localhost origin need `allowedOrigins: [...]`, which replaces the default localhost allowlist — Origin validation cannot be disabled for localhost-class binds.
 
+### Server (HTTP entry: createMcpHandler — serving the 2026-07-28 draft revision)
+
+New in 2.0 — v1 has no equivalent API. How v1 Streamable HTTP hosting maps onto the entry:
+
+- `createMcpHandler(factory)` from `@modelcontextprotocol/server` serves the 2026-07-28 draft revision per request and, out of the box, also serves 2025-era (non-envelope) traffic through per-request stateless serving (`legacy: 'stateless'`, the default) — one factory, one endpoint, both eras. A v1 stateless `StreamableHTTPServerTransport` hosting (`sessionIdGenerator: undefined`, fresh transport per request) maps directly onto the default entry.
+- Pass `legacy: 'reject'` for a strict, modern-only endpoint: 2025-era requests are rejected with the unsupported-protocol-version error naming the supported revisions, and 2025-era notifications are acknowledged with `202` and dropped. The option type is `legacy?: 'stateless' | 'reject'`.
+- An existing sessionful v1 Streamable HTTP setup (a `StreamableHTTPServerTransport` wiring with session IDs) keeps serving 2025 clients by routing in user land in front of a strict entry: `if (await isLegacyRequest(request)) return myExistingLegacyHandler(request); return strictHandler.fetch(request)` where `strictHandler = createMcpHandler(factory, { legacy: 'reject' })`.
+- `isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean>` from `@modelcontextprotocol/server` is the entry's own classification step. Returns `true` only for requests with no per-request `_meta` envelope claim (claim-less POSTs including `initialize`, GET/DELETE session operations, all-legacy batches, posted responses, non-JSON bodies). Returns `false` for envelope-claiming requests AND for malformed/incomplete modern claims (the modern path answers those with `-32602`/`-32001`) — route `false` traffic to the modern handler, never to a legacy handler. The predicate classifies a clone (the body stays readable); pass the parsed body as the second argument when the stream was already consumed.
+- `legacyStatelessFallback(factory)` is exported as a standalone fetch-shaped handler producing the same stateless legacy serving as the default.
+
 ### Server (stdio / long-lived connections)
 
 - A hand-constructed `Server`/`McpServer` connected to a `StdioServerTransport` serves only the 2025-era protocol it was written for: today's behavior, byte-identical — no change required during a mechanical migration.

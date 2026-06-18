@@ -89,9 +89,10 @@ export interface Wired extends AsyncDisposable {
 export interface WireOptions extends SnifferOptions {
     /**
      * createMcpHandler hosting overrides for the entry arms. Defaults:
-     * `{ legacy: 'stateless' }` on entryStateless (the canonical slot value) and
-     * modern-only strict (no legacy slot) on entryModern. `onerror` and
-     * `responseMode` pass through unchanged.
+     * `{ legacy: 'stateless' }` on entryStateless (the entry's default posture,
+     * passed explicitly so the arm stays pinned to the 2025 leg even if the
+     * default ever moves) and `{ legacy: 'reject' }` (modern-only strict) on
+     * entryModern. `onerror` and `responseMode` pass through unchanged.
      */
     entry?: CreateMcpHandlerOptions;
 }
@@ -136,13 +137,15 @@ export async function wire(
             // injected fetch, exactly like the other HTTP arms. The scenario factory
             // backs the entry directly (the entry calls it once per request with its
             // per-request context). `entryStateless` serves the scenario's plain
-            // client through the entry's `legacy: 'stateless'` slot; `entryModern`
-            // keeps the endpoint modern-only strict and connects the client on the
-            // 2026-07-28 revision (pin-mode negotiation + the per-request envelope
-            // stop-gap). Every HTTP exchange is recorded on `httpLog`.
+            // client through the entry's stateless legacy fallback (the default,
+            // passed explicitly to keep the arm era-pinned); `entryModern` hosts the
+            // endpoint modern-only strict (`legacy: 'reject'` — strict is no longer
+            // the entry default) and connects the client on the 2026-07-28 revision
+            // (pin-mode negotiation + the per-request envelope stop-gap). Every HTTP
+            // exchange is recorded on `httpLog`.
             const handler = createMcpHandler(
                 makeServer,
-                transport === 'entryStateless' ? { legacy: 'stateless', ...sniff.entry } : { ...sniff.entry }
+                transport === 'entryStateless' ? { legacy: 'stateless', ...sniff.entry } : { legacy: 'reject', ...sniff.entry }
             );
             const url = new URL('http://in-process/mcp');
             const httpLog: RecordedHttpExchange[] = [];

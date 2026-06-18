@@ -1,10 +1,11 @@
 /**
- * createMcpHandler: the slot-model HTTP entry.
+ * createMcpHandler: the dual-era HTTP entry.
  *
- * Covers the three slot states (omitted → modern-only strict, 'stateless' →
- * per-request legacy sugar, handler → bring-your-own), the handler faces, the
- * per-request era write + client-identity backfill, notification routing, the
- * response-mode knob, and close() teardown of the modern leg.
+ * Covers the two legacy postures ('stateless' — the default — and 'reject' →
+ * modern-only strict), the isLegacyRequest predicate and the user-land routing
+ * pattern that replaces the removed handler-valued legacy option, the handler
+ * faces, the per-request era write + client-identity backfill, notification
+ * routing, the response-mode knob, and close() teardown of the modern leg.
  */
 import { Readable } from 'node:stream';
 
@@ -13,7 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import type { McpRequestContext, NodeServerResponseLike } from '../../src/server/createMcpHandler.js';
-import { createMcpHandler } from '../../src/server/createMcpHandler.js';
+import { createMcpHandler, isLegacyRequest } from '../../src/server/createMcpHandler.js';
 import { McpServer } from '../../src/server/mcp.js';
 import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport.js';
 
@@ -298,11 +299,11 @@ describe('createMcpHandler — modern path', () => {
     });
 });
 
-describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => {
+describe("createMcpHandler — modern-only strict (legacy: 'reject')", () => {
     it('rejects envelope-less requests with the unsupported-protocol-version error and the supported list', async () => {
         const { factory, state } = testFactory();
         const onerror = vi.fn();
-        const handler = createMcpHandler(factory, { onerror });
+        const handler = createMcpHandler(factory, { legacy: 'reject', onerror });
 
         const response = await handler.fetch(
             postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 'echo', arguments: { text: 'x' } } })
@@ -318,7 +319,7 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
 
     it('rejects an envelope-less initialize naming the supported and requested versions', async () => {
         const { factory } = testFactory();
-        const handler = createMcpHandler(factory);
+        const handler = createMcpHandler(factory, { legacy: 'reject' });
 
         const response = await handler.fetch(
             postRequest({
@@ -338,7 +339,7 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
 
     it('answers GET and DELETE with 405 Method not allowed', async () => {
         const { factory } = testFactory();
-        const handler = createMcpHandler(factory);
+        const handler = createMcpHandler(factory, { legacy: 'reject' });
 
         for (const method of ['GET', 'DELETE']) {
             const response = await handler.fetch(new Request('http://localhost/mcp', { method }));
@@ -353,7 +354,7 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
 
     it('rejects batch and response-body POSTs as invalid requests', async () => {
         const { factory } = testFactory();
-        const handler = createMcpHandler(factory);
+        const handler = createMcpHandler(factory, { legacy: 'reject' });
 
         const batch = await handler.fetch(postRequest([{ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }]));
         expect(batch.status).toBe(400);
@@ -372,7 +373,7 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
 
     it('answers unparseable JSON with a parse error', async () => {
         const { factory } = testFactory();
-        const handler = createMcpHandler(factory);
+        const handler = createMcpHandler(factory, { legacy: 'reject' });
 
         const response = await handler.fetch(postRequest('{not json'));
         expect(response.status).toBe(400);
@@ -384,7 +385,7 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
 
     it('acknowledges and drops legacy-classified notifications (202, never dispatched)', async () => {
         const { factory, state } = testFactory();
-        const handler = createMcpHandler(factory);
+        const handler = createMcpHandler(factory, { legacy: 'reject' });
 
         const response = await handler.fetch(
             postRequest({ jsonrpc: '2.0', method: 'notifications/initialized' }, { 'mcp-method': 'something/else' })
@@ -398,7 +399,7 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
 
     it('routes a notification POST by the modern header when the body carries no claim', async () => {
         const { factory, state } = testFactory();
-        const handler = createMcpHandler(factory);
+        const handler = createMcpHandler(factory, { legacy: 'reject' });
 
         const response = await handler.fetch(
             postRequest(
@@ -413,7 +414,7 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
 
     it('names the modern revisions in the strict rejection data so legacy clients can discover the endpoint era', async () => {
         const { factory } = testFactory();
-        const handler = createMcpHandler(factory);
+        const handler = createMcpHandler(factory, { legacy: 'reject' });
         const response = await handler.fetch(postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }));
         const body = (await response.json()) as JSONRPCErrorBody;
         // The strict rejection deliberately names the modern revisions so a legacy
@@ -422,10 +423,10 @@ describe('createMcpHandler — modern-only strict (legacy slot omitted)', () => 
     });
 });
 
-describe('createMcpHandler — legacy: "stateless" sugar', () => {
-    it('serves a 2025-era client through the frozen stateless idiom with a fresh instance per request', async () => {
+describe('createMcpHandler — stateless legacy fallback (the default)', () => {
+    it('serves a 2025-era client by default through the frozen stateless idiom with a fresh instance per request', async () => {
         const { factory, state } = testFactory();
-        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+        const handler = createMcpHandler(factory);
 
         const initialize = await handler.fetch(
             postRequest({
@@ -451,9 +452,26 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
         expect(state.products[0]!.server.getNegotiatedProtocolVersion()).not.toBe(MODERN_REVISION);
     });
 
+    it("serves the same legacy traffic when 'stateless' is passed explicitly (the explicit value of the default)", async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+
+        const initialize = await handler.fetch(
+            postRequest({
+                jsonrpc: '2.0',
+                id: 'init-2',
+                method: 'initialize',
+                params: { protocolVersion: '2025-11-25', clientInfo: { name: 'legacy-client', version: '1.0' }, capabilities: {} }
+            })
+        );
+        expect(initialize.status).toBe(200);
+        expect(await initialize.text()).toContain('"protocolVersion":"2025-11-25"');
+        expect(state.contexts[0]?.era).toBe('legacy');
+    });
+
     it('answers GET and DELETE like the canonical stateless example (405, Method not allowed.)', async () => {
         const { factory } = testFactory();
-        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+        const handler = createMcpHandler(factory);
 
         for (const method of ['GET', 'DELETE']) {
             const response = await handler.fetch(new Request('http://localhost/mcp', { method }));
@@ -466,7 +484,7 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
 
     it('routes legacy notification POSTs to the legacy leg (202 acknowledged by the stateless transport)', async () => {
         const { factory, state } = testFactory();
-        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+        const handler = createMcpHandler(factory);
 
         const response = await handler.fetch(postRequest({ jsonrpc: '2.0', method: 'notifications/initialized' }));
         expect(response.status).toBe(202);
@@ -476,7 +494,7 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
 
     it('routes all-legacy batch arrays to the legacy leg unchanged', async () => {
         const { factory } = testFactory();
-        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+        const handler = createMcpHandler(factory);
 
         const response = await handler.fetch(
             postRequest([
@@ -489,7 +507,7 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
 
     it('hands unparseable bodies to the legacy leg so the parse error stays the legacy transport answer', async () => {
         const { factory } = testFactory();
-        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+        const handler = createMcpHandler(factory);
 
         const response = await handler.fetch(postRequest('{not json'));
         expect(response.status).toBe(400);
@@ -499,7 +517,7 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
 
     it('still serves the modern path on the same endpoint (one factory, both legs)', async () => {
         const { factory, state } = testFactory();
-        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+        const handler = createMcpHandler(factory);
 
         const modern = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'modern hello' })));
         expect(modern.status).toBe(200);
@@ -507,7 +525,7 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
         expect(state.contexts[0]?.era).toBe('modern');
     });
 
-    it("reports legacy: 'stateless' leg failures through the entry's onerror instead of swallowing them", async () => {
+    it("reports legacy-leg failures through the entry's onerror instead of swallowing them", async () => {
         const onerror = vi.fn();
         const handler = createMcpHandler(
             ctx => {
@@ -516,7 +534,7 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
                 }
                 return new McpServer({ name: 'modern-only-product', version: '1.0.0' });
             },
-            { legacy: 'stateless', onerror }
+            { onerror }
         );
 
         const response = await handler.fetch(postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }));
@@ -525,9 +543,9 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
         expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: 'legacy factory exploded' }));
     });
 
-    it('keeps classifier rejections authoritative on the dual arm (pins the current -32600 cells with a slot configured)', async () => {
+    it('keeps classifier rejections authoritative on the dual arm (pins the current -32600 cells with the fallback active)', async () => {
         const { factory, state } = testFactory();
-        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+        const handler = createMcpHandler(factory);
 
         // Parsed-but-not-JSON-RPC single object: the entry's -32600, not the
         // legacy transport's -32700.
@@ -551,7 +569,7 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
 
     it('answers a legacy-direction server/discover with a plain method-not-found and zero 2026 vocabulary', async () => {
         const { factory } = testFactory();
-        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+        const handler = createMcpHandler(factory);
 
         const response = await handler.fetch(postRequest({ jsonrpc: '2.0', id: 4, method: 'server/discover', params: {} }));
         expect(response.status).toBe(200);
@@ -562,34 +580,143 @@ describe('createMcpHandler — legacy: "stateless" sugar', () => {
     });
 });
 
-describe('createMcpHandler — legacy: bring-your-own handler', () => {
-    it('hands legacy-classified requests to the handler with the original bytes untouched', async () => {
+describe('createMcpHandler — user-land routing with isLegacyRequest (replaces the handler-valued legacy option)', () => {
+    it('routes legacy traffic to an existing handler with the original bytes untouched, alongside a strict modern entry', async () => {
         const { factory, state } = testFactory();
         const original = { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} };
         let receivedBody: string | undefined;
-        let receivedParsedBody: unknown;
-        const byo = vi.fn(async (request: Request, options?: { parsedBody?: unknown }) => {
+        const existingLegacyHandler = vi.fn(async (request: Request) => {
             receivedBody = await request.text();
-            receivedParsedBody = options?.parsedBody;
-            return new Response('byo-served', { status: 299 });
+            return new Response('legacy-served', { status: 299 });
         });
-        const handler = createMcpHandler(factory, { legacy: byo });
+        const modern = createMcpHandler(factory, { legacy: 'reject' });
+        // The documented routing pattern: the predicate decides, the strict
+        // entry serves everything that is not legacy.
+        const route = async (request: Request): Promise<Response> => {
+            if (await isLegacyRequest(request)) {
+                return existingLegacyHandler(request);
+            }
+            return modern.fetch(request);
+        };
 
-        const response = await handler.fetch(postRequest(original));
+        // A claim-less 2025 request reaches the existing handler with its body
+        // still readable — the predicate classifies a clone, never the original.
+        const response = await route(postRequest(original));
         expect(response.status).toBe(299);
-        expect(await response.text()).toBe('byo-served');
+        expect(await response.text()).toBe('legacy-served');
         expect(receivedBody).toBe(JSON.stringify(original));
-        expect(receivedParsedBody).toEqual(original);
 
-        // GET/DELETE are method-routed to the handler too (sessionful BYO wirings own them).
-        const get = await handler.fetch(new Request('http://localhost/mcp', { method: 'GET' }));
+        // GET/DELETE are method-routed to the existing handler too (sessionful wirings own them).
+        const get = await route(new Request('http://localhost/mcp', { method: 'GET' }));
         expect(get.status).toBe(299);
 
-        // Modern envelope traffic never reaches the legacy slot.
-        const modern = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'hi' })));
-        expect(modern.status).toBe(200);
-        expect(byo).toHaveBeenCalledTimes(2);
+        // Modern envelope traffic never reaches the legacy handler.
+        const modernResponse = await route(postRequest(modernToolsCall('echo', { text: 'hi' })));
+        expect(modernResponse.status).toBe(200);
+        expect(existingLegacyHandler).toHaveBeenCalledTimes(2);
         expect(state.contexts.filter(ctx => ctx.era === 'modern')).toHaveLength(1);
+
+        // A malformed modern claim is NOT legacy: it goes to the modern entry,
+        // which answers the validation-ladder error (-32602), never the legacy handler.
+        const malformed = await route(
+            postRequest(modernToolsCall('echo', { text: 'x' }, { [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION }))
+        );
+        expect(malformed.status).toBe(400);
+        expect(((await malformed.json()) as JSONRPCErrorBody).error.code).toBe(-32_602);
+        expect(existingLegacyHandler).toHaveBeenCalledTimes(2);
+    });
+
+    it('isLegacyRequest agrees with the entry classification rung across the routing cells', async () => {
+        const legacyShaped: Array<{ name: string; request: () => Request }> = [
+            {
+                name: 'claim-less request',
+                request: () => postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })
+            },
+            {
+                name: 'initialize handshake',
+                request: () =>
+                    postRequest({
+                        jsonrpc: '2.0',
+                        id: 'init-1',
+                        method: 'initialize',
+                        params: { protocolVersion: '2025-11-25', clientInfo: { name: 'legacy', version: '1.0' }, capabilities: {} }
+                    })
+            },
+            { name: 'claim-less notification', request: () => postRequest({ jsonrpc: '2.0', method: 'notifications/initialized' }) },
+            { name: 'GET session operation', request: () => new Request('http://localhost/mcp', { method: 'GET' }) },
+            { name: 'DELETE session operation', request: () => new Request('http://localhost/mcp', { method: 'DELETE' }) },
+            {
+                name: 'all-legacy batch array',
+                request: () => postRequest([{ jsonrpc: '2.0', method: 'notifications/initialized' }])
+            },
+            { name: 'posted JSON-RPC response', request: () => postRequest({ jsonrpc: '2.0', id: 9, result: { ok: true } }) },
+            { name: 'unparseable body', request: () => postRequest('{not json') },
+            {
+                name: 'claim-less server/discover (no envelope, classified like any other claim-less request)',
+                request: () => postRequest({ jsonrpc: '2.0', id: 4, method: 'server/discover', params: {} })
+            }
+        ];
+        const modernShaped: Array<{ name: string; request: () => Request }> = [
+            { name: 'valid modern envelope', request: () => postRequest(modernToolsCall('echo', { text: 'x' })) },
+            {
+                name: 'enveloped server/discover probe',
+                request: () => postRequest({ jsonrpc: '2.0', id: 5, method: 'server/discover', params: { _meta: ENVELOPE } })
+            },
+            {
+                name: 'envelope claiming an unsupported revision (modern path answers -32004)',
+                request: () =>
+                    postRequest(modernToolsCall('echo', { text: 'x' }, { ...ENVELOPE, [PROTOCOL_VERSION_META_KEY]: '2030-01-01' }))
+            },
+            {
+                name: 'malformed envelope behind a present claim (modern path answers -32602)',
+                request: () => postRequest(modernToolsCall('echo', { text: 'x' }, { [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION }))
+            },
+            {
+                name: 'modern header without a claim (modern path answers -32602)',
+                request: () =>
+                    postRequest(
+                        { jsonrpc: '2.0', id: 11, method: 'tools/list', params: {} },
+                        { 'mcp-protocol-version': MODERN_REVISION, 'mcp-method': 'tools/list' }
+                    )
+            },
+            {
+                name: 'header/body mismatch (modern path answers -32001)',
+                request: () => postRequest(modernToolsCall('echo', { text: 'x' }), { 'mcp-protocol-version': '2025-11-25' })
+            }
+        ];
+
+        for (const { name, request } of legacyShaped) {
+            expect(await isLegacyRequest(request()), name).toBe(true);
+        }
+        for (const { name, request } of modernShaped) {
+            expect(await isLegacyRequest(request()), name).toBe(false);
+        }
+    });
+
+    it('leaves the request body readable and accepts a pre-parsed body without reading the stream', async () => {
+        const original = { jsonrpc: '2.0', id: 7, method: 'tools/list', params: {} };
+
+        // Body stays readable after the predicate ran (it classified a clone).
+        const request = postRequest(original);
+        expect(await isLegacyRequest(request)).toBe(true);
+        expect(request.bodyUsed).toBe(false);
+        expect(await request.text()).toBe(JSON.stringify(original));
+
+        // With a pre-parsed body the request stream is never touched at all.
+        const preParsed = postRequest(original);
+        expect(await isLegacyRequest(preParsed, original)).toBe(true);
+        expect(preParsed.bodyUsed).toBe(false);
+        expect(await isLegacyRequest(postRequest(modernToolsCall('echo', { text: 'x' })), modernToolsCall('echo', { text: 'x' }))).toBe(
+            false
+        );
+    });
+
+    it("throws a TypeError at construction when a handler function is passed as the 'legacy' option", () => {
+        const { factory } = testFactory();
+        const myExistingLegacyHandler = async (): Promise<Response> => new Response(null, { status: 200 });
+        const construct = () => createMcpHandler(factory, { legacy: myExistingLegacyHandler as unknown as 'stateless' });
+        expect(construct).toThrow(TypeError);
+        expect(construct).toThrow(/isLegacyRequest/);
     });
 });
 
@@ -660,33 +787,23 @@ describe('createMcpHandler — handler faces', () => {
         expect(await body()).toContain('pre-parsed');
     });
 
-    it('synthesizes the forwarded body from a pre-parsed body so node-face BYO legacy handlers can read it', async () => {
-        const { factory } = testFactory();
-        const legacyMessage = { jsonrpc: '2.0', id: 7, method: 'tools/list', params: {} };
-        let receivedText: string | undefined;
-        let receivedContentLength: string | null = null;
-        let receivedTransferEncoding: string | null = null;
-        const byo = async (request: Request) => {
-            receivedText = await request.text();
-            receivedContentLength = request.headers.get('content-length');
-            receivedTransferEncoding = request.headers.get('transfer-encoding');
-            return new Response('byo-node-served', { status: 200 });
-        };
-        const handler = createMcpHandler(factory, { legacy: byo });
+    it('serves a pre-parsed legacy body through the node face on the default fallback (the documented express.json mounting)', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory);
 
         // The documented Express mounting: express.json() consumed the stream
         // and hands the parsed object as the third argument; the raw headers
         // still describe the original (already-consumed) bytes.
+        const legacyMessage = { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'echo', arguments: { text: 'node legacy' } } };
         const { req, res, body } = nodeRequestResponse(undefined);
         req.headers['content-length'] = '999';
         req.headers['transfer-encoding'] = 'chunked';
         await handler.node(req, res, legacyMessage);
 
         expect(res.statusCode).toBe(200);
-        expect(await body()).toBe('byo-node-served');
-        expect(receivedText).toBe(JSON.stringify(legacyMessage));
-        expect(receivedContentLength).toBe(String(JSON.stringify(legacyMessage).length));
-        expect(receivedTransferEncoding).toBeNull();
+        expect(await body()).toContain('node legacy');
+        expect(state.contexts).toHaveLength(1);
+        expect(state.contexts[0]?.era).toBe('legacy');
     });
 
     it('forwards req.auth from upstream middleware as pass-through authInfo on the node face', async () => {
@@ -788,9 +905,9 @@ describe('createMcpHandler — close()', () => {
         await expect(handler.fetch(postRequest(modernToolsCall('echo', { text: 'late' })))).rejects.toThrow(/closed/);
     });
 
-    it('leaves the legacy slot untouched by close() until the handler itself refuses requests', async () => {
+    it('leaves the legacy fallback untouched by close() until the handler itself refuses requests', async () => {
         const { factory } = testFactory();
-        const handler = createMcpHandler(factory, { legacy: 'stateless' });
+        const handler = createMcpHandler(factory);
         await handler.close();
         await expect(handler.fetch(postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }))).rejects.toThrow(/closed/);
     });

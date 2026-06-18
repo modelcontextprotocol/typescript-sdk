@@ -1,6 +1,6 @@
 /**
  * `createMcpHandler` — the HTTP entry point for serving the 2026-07-28 protocol
- * revision, with 2025-era serving available as an opt-in slot.
+ * revision, with old-school stateless 2025-era serving as the default fallback.
  *
  * The entry classifies every inbound HTTP request exactly once (body-primary,
  * via {@linkcode classifyInboundRequest}) and routes it:
@@ -11,9 +11,16 @@
  *   transport.
  * - Requests without an envelope claim (including `initialize`, GET/DELETE
  *   session operations, and 2025-era notification POSTs) are legacy traffic.
- *   When the `legacy` slot is configured they are handed to it untouched; when
- *   it is not, the endpoint is modern-only strict and answers the documented
- *   rejection cells. There is no silent 2025 serving without the slot.
+ *   By default they are served per request through the stateless idiom from
+ *   the same factory (`legacy: 'stateless'`); with `legacy: 'reject'` the
+ *   endpoint is modern-only strict and answers the documented rejection cells
+ *   instead — there is no 2025 serving in that mode.
+ *
+ * There is no handler-valued `legacy` option: an existing legacy deployment
+ * (for example a sessionful streamable HTTP wiring) keeps serving 2025 traffic
+ * by routing in user land with {@linkcode isLegacyRequest} — the entry's own
+ * classification step, exported as a predicate — in front of a strict
+ * (`legacy: 'reject'`) handler.
  *
  * The entry performs no Origin/Host validation (mount the origin/host
  * validation middleware in front of it) and no token verification — `authInfo`
@@ -23,6 +30,7 @@ import type {
     AuthInfo,
     ClientCapabilities,
     Implementation,
+    InboundClassificationOutcome,
     InboundLadderRejection,
     InboundLegacyRoute,
     InboundModernRoute,
@@ -77,9 +85,10 @@ export interface McpRequestContext {
      * The protocol era the constructed instance will serve: `modern` for
      * 2026-07-28 (per-request envelope) traffic, `legacy` for 2025-era
      * traffic. Under {@linkcode createMcpHandler} a `legacy` instance serves
-     * one request through the `legacy: 'stateless'` slot; under `serveStdio`
-     * it serves a connection that opened with the 2025 handshake and stays
-     * pinned to that era for its lifetime.
+     * one request through the stateless legacy fallback (the default —
+     * `legacy: 'reject'` endpoints are strict and never construct one); under
+     * `serveStdio` it serves a connection that opened with the 2025 handshake
+     * and stays pinned to that era for its lifetime.
      */
     era: 'legacy' | 'modern';
     /**
@@ -101,7 +110,7 @@ export interface McpRequestContext {
  */
 export type McpServerFactory = (ctx: McpRequestContext) => McpServer | Server | Promise<McpServer | Server>;
 
-/** Caller-provided per-request inputs for {@linkcode McpHttpHandler.fetch} and legacy slot handlers. */
+/** Caller-provided per-request inputs for {@linkcode McpHttpHandler.fetch} and fetch-shaped legacy handlers ({@linkcode LegacyHttpHandler}). */
 export interface McpHandlerRequestOptions {
     /**
      * Validated authentication information for the request. Strictly
@@ -114,9 +123,11 @@ export interface McpHandlerRequestOptions {
 }
 
 /**
- * A fetch-shaped handler serving 2025-era traffic for the `legacy` slot:
- * receives the original request untouched (plus the caller-provided
- * pass-through options) and produces the HTTP response.
+ * A fetch-shaped handler serving 2025-era traffic: the shape produced by
+ * {@linkcode legacyStatelessFallback}, and the shape a hand-wired composition
+ * routes legacy requests to (see {@linkcode isLegacyRequest}). It is not a
+ * `legacy` option value — the entry's own legacy serving is selected by the
+ * `'stateless' | 'reject'` posture only.
  */
 export type LegacyHttpHandler = (request: Request, options?: McpHandlerRequestOptions) => Promise<Response>;
 
@@ -125,19 +136,26 @@ export interface CreateMcpHandlerOptions {
     /**
      * How 2025-era (non-envelope) traffic is served:
      *
-     * - omitted — modern-only strict: legacy-classified requests are rejected
-     *   with the unsupported-protocol-version error naming the endpoint's
-     *   supported revisions (legacy-classified notifications are acknowledged
-     *   with `202` and dropped). **There is no silent 2025 serving.**
-     * - `'stateless'` — serve legacy traffic with the per-request stateless
-     *   idiom (a fresh instance from the same factory and a streamable HTTP
-     *   transport constructed with only `sessionIdGenerator: undefined`).
-     *   Equivalent to passing {@linkcode legacyStatelessFallback | legacyStatelessFallback(factory)}.
-     * - a handler — bring your own legacy serving (for example an existing
-     *   sessionful streamable HTTP wiring); requests are handed to it
-     *   byte-untouched and its lifecycle stays yours.
+     * - `'stateless'` (the default, also when the option is omitted) —
+     *   old-school stateless serving: each legacy request is answered by a
+     *   fresh instance from the same factory over a streamable HTTP transport
+     *   constructed with only `sessionIdGenerator: undefined` (the established
+     *   stateless idiom). Because serving is per-request and stateless, GET and
+     *   DELETE (2025 session operations) are answered with `405` /
+     *   `Method not allowed.`.
+     * - `'reject'` — modern-only strict: legacy-classified requests are
+     *   rejected with the unsupported-protocol-version error naming the
+     *   endpoint's supported revisions (legacy-classified notifications are
+     *   acknowledged with `202` and dropped). **There is no 2025 serving in
+     *   this mode.**
+     *
+     * There is no handler-valued option: to keep an existing legacy deployment
+     * (for example a sessionful streamable HTTP wiring) serving 2025 traffic
+     * next to this entry, route in user land with {@linkcode isLegacyRequest}
+     * in front of a `legacy: 'reject'` handler — see that predicate's
+     * documentation for the pattern.
      */
-    legacy?: 'stateless' | LegacyHttpHandler;
+    legacy?: 'stateless' | 'reject';
     /** Callback for out-of-band errors and rejected requests (reporting only; it never alters the response). */
     onerror?: (error: Error) => void;
     /**
@@ -194,8 +212,8 @@ export interface McpHttpHandler {
     /**
      * Tears down the modern leg: aborts in-flight modern exchanges and closes
      * their per-request instances. Legacy serving is unaffected — the
-     * `'stateless'` slot is per-request by construction, and a bring-your-own
-     * legacy handler's lifecycle stays with its owner.
+     * stateless fallback is per-request by construction and holds nothing
+     * between exchanges.
      */
     close: () => Promise<void>;
 }
@@ -257,25 +275,27 @@ function internalServerErrorResponse(id: RequestId | null = null): Response {
 }
 
 /* ------------------------------------------------------------------------ *
- * The canonical legacy slot value
+ * The default legacy fallback
  * ------------------------------------------------------------------------ */
 
 /**
- * The canonical `legacy` slot value: per-request stateless serving of 2025-era
- * traffic using the same factory as the modern path.
+ * The entry's default legacy serving (`legacy: 'stateless'`): per-request
+ * stateless serving of 2025-era traffic using the same factory as the modern
+ * path. Exported as a standalone building block for hand-wired compositions
+ * (for example mounting legacy stateless serving on its own route next to a
+ * strict modern endpoint).
  *
  * Each POST is served by a fresh instance from the factory connected to a
  * fresh streamable HTTP transport constructed with only
  * `sessionIdGenerator: undefined` — the established stateless idiom, unchanged.
  * Because serving is per-request and stateless, GET and DELETE (2025 session
  * operations) are answered with `405` / `Method not allowed.`, exactly like the
- * canonical stateless example. `createMcpHandler(factory, { legacy: 'stateless' })`
- * is shorthand for passing `legacyStatelessFallback(factory)` here explicitly.
+ * canonical stateless example.
  *
  * The optional `onerror` callback receives factory and serving failures on
  * this leg (reporting only — the response stays the 500 internal-error body).
- * The entry passes its own `onerror` here when expanding `legacy: 'stateless'`,
- * so legacy-leg failures are never silently swallowed.
+ * The entry passes its own `onerror` here when expanding the default, so
+ * legacy-leg failures are never silently swallowed.
  */
 export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (error: Error) => void): LegacyHttpHandler {
     return async (request, options) => {
@@ -362,13 +382,145 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
 }
 
 /* ------------------------------------------------------------------------ *
+ * The entry's classification step (shared with isLegacyRequest)
+ * ------------------------------------------------------------------------ */
+
+/** The outcome of the entry's classification step for one inbound HTTP request. */
+type EntryClassification =
+    /** The body bytes could not be read at all (a failing stream, not malformed JSON). */
+    | { step: 'unreadable-body' }
+    /** A POST with an empty or non-JSON body: nothing to classify, so there is no envelope claim. */
+    | { step: 'no-json-body'; forwardRequest: Request }
+    /** A classifiable request, with the classifier's routing outcome. */
+    | { step: 'classified'; outcome: InboundClassificationOutcome; body: unknown; parsedBody: unknown; forwardRequest: Request };
+
+/**
+ * The entry's classification step: read the request body exactly once (unless
+ * a pre-parsed body is supplied) and classify the request with
+ * {@linkcode classifyInboundRequest}. This is the single code path behind both
+ * {@linkcode createMcpHandler}'s routing and the exported
+ * {@linkcode isLegacyRequest} predicate, so the two can never disagree.
+ */
+async function classifyEntryRequest(request: Request, providedParsedBody?: unknown): Promise<EntryClassification> {
+    const httpMethod = request.method.toUpperCase();
+
+    let body: unknown;
+    let parsedBody = providedParsedBody;
+    let forwardRequest = request;
+    let unparseable = false;
+
+    if (httpMethod === 'POST') {
+        if (parsedBody === undefined) {
+            // Read the body exactly once for classification, keeping an unread
+            // copy of the original bytes for the legacy leg (web-standard
+            // request bodies are single-use).
+            forwardRequest = request.clone();
+            let bodyText: string;
+            try {
+                bodyText = await request.text();
+            } catch {
+                return { step: 'unreadable-body' };
+            }
+            try {
+                body = bodyText.length === 0 ? undefined : JSON.parse(bodyText);
+            } catch {
+                unparseable = true;
+            }
+            if (!unparseable && body !== undefined) {
+                parsedBody = body;
+            }
+        } else {
+            body = parsedBody;
+        }
+
+        if (unparseable || body === undefined) {
+            return { step: 'no-json-body', forwardRequest };
+        }
+    }
+
+    const outcome = classifyInboundRequest({
+        httpMethod,
+        protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
+        mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
+        ...(body !== undefined && { body })
+    });
+    return { step: 'classified', outcome, body, parsedBody, forwardRequest };
+}
+
+/**
+ * Whether {@linkcode createMcpHandler} would route this request to its legacy
+ * (2025-era) serving rather than the modern (2026-07-28) path.
+ *
+ * This is the entry's own classification step exported as a predicate — it
+ * runs exactly the code `createMcpHandler` runs to make the routing decision,
+ * not a re-implementation — so a hand-wired composition that branches on it
+ * can never disagree with the entry. Use it to keep an existing legacy
+ * deployment (for example a sessionful streamable HTTP wiring) serving 2025
+ * traffic next to a strict modern endpoint, now that the entry has no
+ * handler-valued `legacy` option:
+ *
+ * ```ts
+ * import { createMcpHandler, isLegacyRequest } from '@modelcontextprotocol/server';
+ *
+ * const modern = createMcpHandler(factory, { legacy: 'reject' });
+ *
+ * export default {
+ *     async fetch(request: Request): Promise<Response> {
+ *         if (await isLegacyRequest(request)) {
+ *             // e.g. an existing sessionful WebStandardStreamableHTTPServerTransport wiring
+ *             return myExistingLegacyHandler(request);
+ *         }
+ *         return modern.fetch(request);
+ *     }
+ * };
+ * ```
+ *
+ * Semantics (identical to the entry's routing):
+ *
+ * - Returns `true` only for requests with no per-request `_meta` envelope
+ *   claim: claim-less POSTs (including the `initialize` handshake and 2025-era
+ *   notification POSTs without a modern protocol-version header), body-less
+ *   GET/DELETE session operations, all-legacy JSON-RPC batch arrays, posted
+ *   JSON-RPC responses, and POSTs whose body is empty or not valid JSON.
+ * - Returns `false` for everything the modern path answers, including its
+ *   validation-ladder rejections: a request carrying the envelope claim (even
+ *   one naming a revision the endpoint does not serve — the modern path
+ *   answers it with the unsupported-protocol-version error), a malformed
+ *   envelope behind a present claim (answered `-32602`), a request whose
+ *   `MCP-Protocol-Version` header names a modern revision but that lacks the
+ *   envelope (`-32602`), and header/body mismatches (`-32001`). Consumers
+ *   routing on the predicate must send `false` traffic to the modern handler,
+ *   never to a legacy handler — the modern path owns those error answers.
+ * - `server/discover` probes sent by negotiating clients always carry the
+ *   envelope claim, so they are never legacy; a hand-built claim-less POST to
+ *   a method named `server/discover` has no claim and classifies legacy,
+ *   exactly as the entry itself routes it.
+ *
+ * The body is read from a clone, so the passed request stays readable for
+ * whichever handler the caller routes it to. If the body has already been
+ * consumed (for example behind `express.json()`), pass the parsed body as the
+ * second argument and no body read happens at all — without it the predicate
+ * cannot classify a consumed POST body (cloning a used body throws a
+ * `TypeError`), so the call rejects instead of guessing.
+ */
+export async function isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean> {
+    // Classify a clone so the caller's request body stays readable; with a
+    // pre-parsed body (or a body-less method) nothing is read and no clone is
+    // needed.
+    const probe = parsedBody === undefined && request.method.toUpperCase() === 'POST' ? request.clone() : request;
+    const classified = await classifyEntryRequest(probe, parsedBody);
+    return classified.step === 'no-json-body' || (classified.step === 'classified' && classified.outcome.kind === 'legacy');
+}
+
+/* ------------------------------------------------------------------------ *
  * The entry
  * ------------------------------------------------------------------------ */
 
 /**
  * Creates an HTTP handler that serves the 2026-07-28 protocol revision from a
- * per-request server factory, with 2025-era serving available through the
- * opt-in `legacy` slot.
+ * per-request server factory and, by default, falls back to old-school
+ * stateless serving for 2025-era traffic. Pass `legacy: 'reject'` for a
+ * modern-only strict endpoint.
  *
  * Mounting: `handler.fetch` is the web-standard face (Cloudflare Workers,
  * Deno, Bun, Hono's `c.req.raw`); `handler.node(req, res, req.body)` is the
@@ -390,12 +542,15 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
  * ```
  *
  * Use ONE factory for both legs: the same tools/resources/prompts definition
- * backs the modern path and the `legacy: 'stateless'` slot, so the two eras
- * can never drift apart. Power users who want to compose the routing
- * themselves (for example to mount the modern path and an existing legacy
- * deployment on different routes) can use the exported building blocks
- * directly: {@linkcode classifyInboundRequest} for the era decision and
- * `PerRequestHTTPServerTransport` for single-exchange serving.
+ * backs the modern path and the stateless legacy fallback, so the two eras can
+ * never drift apart. To keep an existing legacy deployment (for example a
+ * sessionful streamable HTTP wiring) serving 2025 traffic instead of the
+ * stateless fallback, route in user land with {@linkcode isLegacyRequest} in
+ * front of a strict handler — see that predicate's documentation for the
+ * pattern. Power users composing transport-neutral routing can also use the
+ * exported building blocks directly: {@linkcode classifyInboundRequest} for
+ * the era decision and `PerRequestHTTPServerTransport` for single-exchange
+ * serving.
  *
  * The entry performs no token verification: `authInfo` given to the faces is
  * passed through to handlers and the factory as-is and is never derived from
@@ -403,6 +558,16 @@ export function legacyStatelessFallback(factory: McpServerFactory, onerror?: (er
  */
 export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHandlerOptions = {}): McpHttpHandler {
     const { legacy, onerror, responseMode } = options;
+
+    // Construction-time guard for JavaScript callers passing a handler as the
+    // legacy value: the option only selects a posture ('stateless' | 'reject').
+    // Failing loudly here beats silently treating the handler as the default.
+    if (typeof legacy === 'function') {
+        throw new TypeError(
+            "The 'legacy' option only accepts 'stateless' or 'reject', not a handler function. To serve 2025-era traffic with your own " +
+                "handler, route in user land with the exported isLegacyRequest(request) predicate in front of a strict (legacy: 'reject') handler."
+        );
+    }
 
     /** Modern per-request instances with an exchange still in flight (close() tears these down). */
     const inflight = new Set<Server>();
@@ -417,7 +582,9 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         }
     };
 
-    const legacyHandler: LegacyHttpHandler | undefined = legacy === 'stateless' ? legacyStatelessFallback(factory, reportError) : legacy;
+    // The default posture is the stateless fallback; 'reject' is the only way
+    // to turn legacy serving off (modern-only strict).
+    const legacyHandler: LegacyHttpHandler | undefined = legacy === 'reject' ? undefined : legacyStatelessFallback(factory, reportError);
 
     async function serveModern(
         route: InboundModernRoute,
@@ -561,57 +728,24 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     }
 
     async function handle(request: Request, requestOptions?: McpHandlerRequestOptions): Promise<Response> {
-        const httpMethod = request.method.toUpperCase();
         const authInfo = requestOptions?.authInfo;
+        const classified = await classifyEntryRequest(request, requestOptions?.parsedBody);
 
-        let body: unknown;
-        let parsedBody = requestOptions?.parsedBody;
-        let forwardRequest = request;
-        let unparseable = false;
-
-        if (httpMethod === 'POST') {
-            if (parsedBody === undefined) {
-                // Read the body exactly once for classification, keeping an
-                // unread copy of the original bytes for the legacy slot
-                // (web-standard request bodies are single-use).
-                forwardRequest = request.clone();
-                let bodyText: string;
-                try {
-                    bodyText = await request.text();
-                } catch {
-                    return jsonRpcErrorResponse(400, -32_700, 'Parse error: the request body could not be read');
-                }
-                try {
-                    body = bodyText.length === 0 ? undefined : JSON.parse(bodyText);
-                } catch {
-                    unparseable = true;
-                }
-                if (!unparseable && body !== undefined) {
-                    parsedBody = body;
-                }
-            } else {
-                body = parsedBody;
+        if (classified.step === 'unreadable-body') {
+            return jsonRpcErrorResponse(400, -32_700, 'Parse error: the request body could not be read');
+        }
+        if (classified.step === 'no-json-body') {
+            // No JSON body to classify: there is no envelope claim, so this is
+            // legacy traffic when legacy serving is configured (the legacy leg
+            // answers its own parse error, unchanged), and a parse error
+            // otherwise.
+            if (legacyHandler !== undefined) {
+                return legacyHandler(classified.forwardRequest, { ...(authInfo !== undefined && { authInfo }) });
             }
-
-            if (unparseable || body === undefined) {
-                // No JSON body to classify: there is no envelope claim, so this
-                // is legacy traffic when a slot is configured (the legacy leg
-                // answers its own parse error, unchanged), and a parse error
-                // otherwise.
-                if (legacyHandler !== undefined) {
-                    return legacyHandler(forwardRequest, { ...(authInfo !== undefined && { authInfo }) });
-                }
-                return jsonRpcErrorResponse(400, -32_700, 'Parse error: the request body is not valid JSON');
-            }
+            return jsonRpcErrorResponse(400, -32_700, 'Parse error: the request body is not valid JSON');
         }
 
-        const outcome = classifyInboundRequest({
-            httpMethod,
-            protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
-            mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
-            ...(body !== undefined && { body })
-        });
-
+        const { outcome, body, parsedBody, forwardRequest } = classified;
         try {
             switch (outcome.kind) {
                 case 'reject': {
@@ -627,9 +761,9 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             }
         } catch (error) {
             // Entry-internal failure while serving a classified request (a
-            // throwing factory, a failed connect, a throwing bring-your-own
-            // legacy handler): the parsed body is in scope here, so the 500
-            // body echoes the request id when it could be read.
+            // throwing factory or a failed connect, on either leg): the parsed
+            // body is in scope here, so the 500 body echoes the request id when
+            // it could be read.
             reportError(toError(error));
             return internalServerErrorResponse(echoableRequestId(body));
         }
@@ -777,10 +911,10 @@ async function nodeRequestToFetchRequest(req: NodeIncomingMessageLike, parsedBod
             // The caller already consumed and parsed the Node stream (the
             // documented `handler.node(req, res, req.body)` mounting behind
             // `express.json()`), so the bytes cannot be re-read. Re-serialize
-            // the parsed value so consumers of the forwarded Request — a
-            // bring-your-own legacy handler reading `request.json()`/`text()`
-            // in particular — still receive the body, and replace the entity
-            // headers that described the original raw bytes.
+            // the parsed value so consumers of the forwarded Request — anything
+            // on the legacy leg reading `request.json()`/`text()` instead of
+            // the pass-through parsedBody — still receive the body, and replace
+            // the entity headers that described the original raw bytes.
             const serialized: string | undefined = JSON.stringify(parsedBody);
             headers.delete('content-encoding');
             headers.delete('transfer-encoding');

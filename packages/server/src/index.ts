@@ -18,7 +18,7 @@ export type {
     NodeIncomingMessageLike,
     NodeServerResponseLike
 } from './server/createMcpHandler.js';
-export { createMcpHandler, legacyStatelessFallback } from './server/createMcpHandler.js';
+export { createMcpHandler, isLegacyRequest, legacyStatelessFallback } from './server/createMcpHandler.js';
 export type {
     AnyToolHandler,
     BaseToolCallback,

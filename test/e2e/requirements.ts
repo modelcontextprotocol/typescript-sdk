@@ -2282,15 +2282,15 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'A client pinned to the 2026-07-28 revision (versionNegotiation mode pin) connects to a strict createMcpHandler endpoint without ever sending initialize — its first request is server/discover — and an enveloped tools/call round-trips.',
         transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
-        note: 'Runs on the entryModern arm (modern-only strict is its default hosting); the body constructs the pinned client itself and asserts the never-initialize, discover-first and envelope clauses on the arm-recorded HTTP exchanges.'
+        note: "Runs on the entryModern arm (which hosts the entry strict via legacy: 'reject'; stateless legacy serving is the entry's own default); the body constructs the pinned client itself and asserts the never-initialize, discover-first and envelope clauses on the arm-recorded HTTP exchanges."
     },
     'typescript:hosting:entry:strict-rejects-legacy': {
         source: 'sdk',
         behavior:
-            'A createMcpHandler endpoint with no legacy slot configured (modern-only strict) rejects a 2025-shaped initialize with the unsupported-protocol-version error carrying the supported modern revisions in error.data.supported; nothing is silently served on the 2025 era.',
+            "A createMcpHandler endpoint configured strict (legacy: 'reject') rejects a 2025-shaped initialize with the unsupported-protocol-version error carrying the supported modern revisions in error.data.supported; nothing is silently served on the 2025 era in that mode (stateless legacy serving is the entry's default and must be turned off explicitly).",
         transports: ['entryModern'],
         addedInSpecVersion: '2026-07-28',
-        note: 'Runs on the entryModern arm (modern-only strict is its default hosting); the 2025-shaped initialize and the plain-client connect attempt are driven against the harness-hosted endpoint via wired.fetch/wired.url. The numeric error code is asserted by message and supported-list shape only, since it shares a code with the still-disputed header/body mismatch family.'
+        note: "Runs on the entryModern arm (which hosts the entry strict via legacy: 'reject'); the 2025-shaped initialize and the plain-client connect attempt are driven against the harness-hosted endpoint via wired.fetch/wired.url. The numeric error code is asserted by message and supported-list shape only, since it shares a code with the still-disputed header/body mismatch family."
     },
     'typescript:hosting:entry:notification-202': {
         source: 'sdk',
@@ -2318,10 +2318,10 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:hosting:entry:byo-sessionful-legacy': {
         source: 'sdk',
         behavior:
-            'A real sessionful legacy wiring (per-session WebStandardStreamableHTTPServerTransport instances keyed by Mcp-Session-Id) passed as the createMcpHandler legacy slot value serves the full 2025-era session lifecycle through the entry: initialize issues an Mcp-Session-Id, a follow-up POST is served on that session, GET opens the standalone SSE stream, and DELETE tears the session down (a request carrying the dead session id answers 404).',
+            "A real sessionful legacy wiring (per-session WebStandardStreamableHTTPServerTransport instances keyed by Mcp-Session-Id) keeps serving the full 2025-era session lifecycle alongside a strict (legacy: 'reject') createMcpHandler endpoint via explicit user-land routing on the exported isLegacyRequest predicate: initialize issues an Mcp-Session-Id, a follow-up POST is served on that session, GET opens the standalone SSE stream, and DELETE tears the session down (a request carrying the dead session id answers 404), while envelope-claiming traffic is answered by the strict modern entry and never reaches the legacy wiring.",
         transports: ['entryStateless'],
         removedInSpecVersion: '2026-07-28',
-        note: "The lifecycle is a statement about 2025-era serving through the bring-your-own legacy slot, so the requirement is bounded to the 2025-11-25 axis and runs on the entryStateless arm with the slot overridden via wire()'s entry.legacy option. It pins the entry routing of body-less GET and DELETE to the bring-your-own legacy slot, observed at the slot as method/status/content-type; byte-level forwarding fidelity is not asserted."
+        note: 'The lifecycle is a statement about 2025-era serving kept by an existing sessionful deployment, so the requirement is bounded to the 2025-11-25 axis (the entryStateless arm label). The handler-valued legacy option was removed from createMcpHandler, so the body hosts the documented replacement composition itself — isLegacyRequest in front of the existing wiring plus a strict entry — behind an in-process fetch instead of overriding the wire() arm. It pins the routing of body-less GET and DELETE to the legacy wiring, observed at the wiring as method/status/content-type; byte-level forwarding fidelity is not asserted.'
     },
     'typescript:hosting:entry:modern-lazy-sse-upgrade': {
         source: 'sdk',
