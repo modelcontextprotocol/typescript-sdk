@@ -2,8 +2,9 @@
  * `Client.listen()` — the `subscriptions/listen` driver (protocol revision
  * 2026-07-28). Covers ack-resolved-promise, change-notification dispatch to
  * existing setNotificationHandler registrations, the F-12 legacy-era steer,
- * stdio-style close (sends notifications/cancelled), inbound server-side
- * cancel, and ClientOptions.listChanged auto-open on a modern connection.
+ * transport-agnostic close (always sends notifications/cancelled), inbound
+ * server-side cancel, and ClientOptions.listChanged auto-open on a modern
+ * connection.
  */
 import type { JSONRPCMessage, JSONRPCNotification } from '@modelcontextprotocol/core';
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION, SdkError, SdkErrorCode, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core';
@@ -103,10 +104,12 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
-    it('close() on a stdio-style transport sends notifications/cancelled referencing the listen id', async () => {
+    it('close() sends notifications/cancelled referencing the listen id on any transport', async () => {
+        // Plain InMemoryTransport (neither child-process nor SSE-stream
+        // semantics): close() must NOT depend on transport-kind detection —
+        // it always sends notifications/cancelled, so a spec-compliant server
+        // on InMemory / SSE / a custom transport tears the subscription down.
         const { clientTx, written } = await scriptedModern();
-        // Make the in-memory transport quack like a stdio child-process transport.
-        Object.assign(clientTx, { stderr: null, pid: 1 });
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(clientTx);
         const sub = await client.listen({ toolsListChanged: true });

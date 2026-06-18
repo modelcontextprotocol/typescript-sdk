@@ -1228,10 +1228,12 @@ export class Client extends Protocol<ClientContext> {
      * 2025-era unsolicited notifications fire on a legacy connection — so
      * `listen()` is era-transparent for consumers that already register those.
      *
-     * `close()` tears the subscription down: on Streamable HTTP it closes the
-     * listen request's SSE stream; on stdio it sends `notifications/cancelled`
-     * referencing the listen request id. No automatic re-listen — call
-     * `listen()` again to re-establish.
+     * `close()` tears the subscription down by aborting the listen request's
+     * `requestSignal` (closes the SSE stream where the transport honors it)
+     * AND sending `notifications/cancelled` referencing the listen request id
+     * — both, unconditionally, so any spec-compliant server on any transport
+     * sees the cancel. No automatic re-listen — call `listen()` again to
+     * re-establish.
      *
      * On a 2025-era connection this throws a typed
      * {@linkcode SdkErrorCode.MethodNotSupportedByProtocolVersion} steering to
@@ -1263,7 +1265,6 @@ export class Client extends Protocol<ClientContext> {
         }
 
         const requestAbort = new AbortController();
-        const transportKind = detectProbeTransportKind(this.transport);
 
         // Explicit `opening → open → closed` state machine. Every termination
         // path — ack-arrives, ack-timeout, server-cancelled, user-close,
@@ -1310,17 +1311,21 @@ export class Client extends Protocol<ClientContext> {
         };
 
         // Wire-level teardown for a locally-initiated close (user close or ack
-        // timeout): HTTP closes the request's SSE stream; stdio sends
-        // notifications/cancelled referencing the listen id. Not called when
-        // the server already terminated (error / server-cancelled).
+        // timeout). Transport-agnostic: ALWAYS abort the request signal (closes
+        // the SSE stream where the transport honors `requestSignal` — HTTP does,
+        // stdio does not) AND send `notifications/cancelled` referencing the
+        // listen id (which the stdio listen router and any spec-compliant
+        // server honor). Idempotent over HTTP — the cancelled notification is
+        // a no-op once the stream is gone; correct on every other transport.
+        // Not called when the server already terminated (error / server-
+        // cancelled).
         const wireTeardown = async (): Promise<void> => {
+            requestAbort.abort();
             const id = parked?.messageId;
-            if (transportKind === 'stdio' && id !== undefined) {
+            if (id !== undefined) {
                 await this.transport
                     ?.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id } })
                     .catch(() => {});
-            } else {
-                requestAbort.abort();
             }
         };
 
