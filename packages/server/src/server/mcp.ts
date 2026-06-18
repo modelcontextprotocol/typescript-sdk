@@ -7,6 +7,7 @@ import type {
     CompleteResult,
     GetPromptResult,
     Implementation,
+    InputRequiredResult,
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
@@ -30,6 +31,7 @@ import {
     assertCompleteRequestResourceTemplate,
     assertValidCacheHint,
     attachCacheHintFallback,
+    isInputRequiredResult,
     normalizeRawShapeSchema,
     promptArgumentsFromStandardSchema,
     ProtocolError,
@@ -159,7 +161,7 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult> => {
+        this.server.setRequestHandler('tools/call', async (request, ctx): Promise<CallToolResult | InputRequiredResult> => {
             const tool = this._registeredTools[request.params.name];
             if (!tool) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} not found`);
@@ -231,8 +233,14 @@ export class McpServer {
     /**
      * Validates tool output against the tool's output schema.
      */
-    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult, toolName: string): Promise<void> {
+    private async validateToolOutput(tool: RegisteredTool, result: CallToolResult | InputRequiredResult, toolName: string): Promise<void> {
         if (!tool.outputSchema) {
+            return;
+        }
+
+        // An input-required result is not the tool's final output: structured
+        // content is only required (and validated) on the completing result.
+        if (isInputRequiredResult(result)) {
             return;
         }
 
@@ -260,7 +268,11 @@ export class McpServer {
     /**
      * Executes a tool handler.
      */
-    private async executeToolHandler(tool: RegisteredTool, args: unknown, ctx: ServerContext): Promise<CallToolResult> {
+    private async executeToolHandler(
+        tool: RegisteredTool,
+        args: unknown,
+        ctx: ServerContext
+    ): Promise<CallToolResult | InputRequiredResult> {
         // Executor encapsulates handler invocation with proper types
         return tool.executor(args, ctx);
     }
@@ -469,7 +481,7 @@ export class McpServer {
             })
         );
 
-        this.server.setRequestHandler('prompts/get', async (request, ctx): Promise<GetPromptResult> => {
+        this.server.setRequestHandler('prompts/get', async (request, ctx): Promise<GetPromptResult | InputRequiredResult> => {
             const prompt = this._registeredPrompts[request.params.name];
             if (!prompt) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Prompt ${request.params.name} not found`);
@@ -1079,13 +1091,19 @@ export type InferRawShape<S extends ZodRawShape> = z.infer<z.ZodObject<S>>;
 
 /** {@linkcode ToolCallback} variant used when `inputSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyToolCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
-    ? (args: InferRawShape<Args>, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>
-    : (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+    ? (
+          args: InferRawShape<Args>,
+          ctx: ServerContext
+      ) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>
+    : (ctx: ServerContext) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
 
 /** {@linkcode PromptCallback} variant used when `argsSchema` is a {@linkcode ZodRawShape}. */
 export type LegacyPromptCallback<Args extends ZodRawShape | undefined> = Args extends ZodRawShape
-    ? (args: InferRawShape<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+    ? (
+          args: InferRawShape<Args>,
+          ctx: ServerContext
+      ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>
+    : (ctx: ServerContext) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
 export type BaseToolCallback<
     SendResultT extends Result,
@@ -1099,7 +1117,7 @@ export type BaseToolCallback<
  * Callback for a tool handler registered with {@linkcode McpServer.registerTool}.
  */
 export type ToolCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = BaseToolCallback<
-    CallToolResult,
+    CallToolResult | InputRequiredResult,
     ServerContext,
     Args
 >;
@@ -1112,7 +1130,7 @@ export type AnyToolHandler<Args extends StandardSchemaWithJSON | undefined = und
 /**
  * Internal executor type that encapsulates handler invocation with proper types.
  */
-type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult>;
+type ToolExecutor = (args: unknown, ctx: ServerContext) => Promise<CallToolResult | InputRequiredResult>;
 
 export type RegisteredTool = {
     title?: string;
@@ -1157,7 +1175,9 @@ function createToolExecutor(
     }
 
     // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
-    const callback = handler as (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+    const callback = handler as (
+        ctx: ServerContext
+    ) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
     return async (_args, ctx) => callback(ctx);
 }
 
@@ -1179,7 +1199,10 @@ export type ListResourcesCallback = (ctx: ServerContext) => ListResourcesResult 
 /**
  * Callback to read a resource at a given URI.
  */
-export type ReadResourceCallback = (uri: URL, ctx: ServerContext) => ReadResourceResult | Promise<ReadResourceResult>;
+export type ReadResourceCallback = (
+    uri: URL,
+    ctx: ServerContext
+) => ReadResourceResult | InputRequiredResult | Promise<ReadResourceResult | InputRequiredResult>;
 
 export type RegisteredResource = {
     name: string;
@@ -1209,7 +1232,7 @@ export type ReadResourceTemplateCallback = (
     uri: URL,
     variables: Variables,
     ctx: ServerContext
-) => ReadResourceResult | Promise<ReadResourceResult>;
+) => ReadResourceResult | InputRequiredResult | Promise<ReadResourceResult | InputRequiredResult>;
 
 export type RegisteredResourceTemplate = {
     resourceTemplate: ResourceTemplate;
@@ -1233,16 +1256,22 @@ export type RegisteredResourceTemplate = {
 };
 
 export type PromptCallback<Args extends StandardSchemaWithJSON | undefined = undefined> = Args extends StandardSchemaWithJSON
-    ? (args: StandardSchemaWithJSON.InferOutput<Args>, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>
-    : (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+    ? (
+          args: StandardSchemaWithJSON.InferOutput<Args>,
+          ctx: ServerContext
+      ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>
+    : (ctx: ServerContext) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
 /**
  * Internal handler type that encapsulates parsing and callback invocation.
  * This allows type-safe handling without runtime type assertions.
  */
-type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult>;
+type PromptHandler = (args: Record<string, unknown> | undefined, ctx: ServerContext) => Promise<GetPromptResult | InputRequiredResult>;
 
-type ToolCallbackInternal = (args: unknown, ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
+type ToolCallbackInternal = (
+    args: unknown,
+    ctx: ServerContext
+) => CallToolResult | InputRequiredResult | Promise<CallToolResult | InputRequiredResult>;
 
 export type RegisteredPrompt = {
     title?: string;
@@ -1276,7 +1305,10 @@ function createPromptHandler(
     callback: PromptCallback<StandardSchemaWithJSON | undefined>
 ): PromptHandler {
     if (argsSchema) {
-        const typedCallback = callback as (args: unknown, ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+        const typedCallback = callback as (
+            args: unknown,
+            ctx: ServerContext
+        ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
         return async (args, ctx) => {
             const parseResult = await validateStandardSchema(argsSchema, args);
@@ -1286,7 +1318,9 @@ function createPromptHandler(
             return typedCallback(parseResult.data, ctx);
         };
     } else {
-        const typedCallback = callback as (ctx: ServerContext) => GetPromptResult | Promise<GetPromptResult>;
+        const typedCallback = callback as (
+            ctx: ServerContext
+        ) => GetPromptResult | InputRequiredResult | Promise<GetPromptResult | InputRequiredResult>;
 
         return async (_args, ctx) => {
             return typedCallback(ctx);

@@ -75,5 +75,11 @@ export { classifyInboundRequest } from '@modelcontextprotocol/core';
 // the registerResource cacheHint option).
 export type { CacheHint, CacheScope } from '@modelcontextprotocol/core';
 
+// Multi round-trip requests (protocol revision 2026-07-28): the authoring
+// helpers a handler uses to request additional client input by returning an
+// input-required result instead of sending a server→client request.
+export type { InputRequiredSpec } from '@modelcontextprotocol/core';
+export { acceptedContent, inputRequired } from '@modelcontextprotocol/core';
+
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core/public';

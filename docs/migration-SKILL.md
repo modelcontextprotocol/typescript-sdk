@@ -501,34 +501,58 @@ The 2025-11 task side-channel through `Protocol` is removed (was always `@experi
 
 `TaskStore` / `InMemoryTaskStore` / `CreateTaskOptions` / `isTerminal` (storage layer) are also removed; they will return with the SEP-2663 server-directed plugin.
 
-NOT removed (wire surface, kept for 2025-11-25 interop, now `@deprecated`): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task members of the request/result/notification union types, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
+NOT removed (wire surface, kept for 2025-11-25 interop, now `@deprecated`): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`,
+`TaskAugmentedRequestParams`), task members of the request/result/notification union types, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
 
-Task methods are excluded from the typed method maps: `RequestMethod`/`RequestTypeMap`/`ResultTypeMap` have no `tasks/*` entries and `NotificationMethod`/`NotificationTypeMap` have no `notifications/tasks/status`, so the method-keyed overloads of `request()`, `ctx.mcpReq.send()`, `setRequestHandler()`, `setNotificationHandler()` reject task methods at compile time. Mechanical fix where task interop is genuinely required: pass an explicit schema (`request({ method: 'tasks/get', params }, GetTaskResultSchema)`-style custom-method form). `ResultTypeMap['tools/call']` is plain `CallToolResult` (no `| CreateTaskResult`); same for `sampling/createMessage` and `elicitation/create`.
+Task methods are excluded from the typed method maps: `RequestMethod`/`RequestTypeMap`/`ResultTypeMap` have no `tasks/*` entries and `NotificationMethod`/`NotificationTypeMap` have no `notifications/tasks/status`, so the method-keyed overloads of `request()`, `ctx.mcpReq.send()`,
+`setRequestHandler()`, `setNotificationHandler()` reject task methods at compile time. Mechanical fix where task interop is genuinely required: pass an explicit schema (`request({ method: 'tasks/get', params }, GetTaskResultSchema)`-style custom-method form).
+`ResultTypeMap['tools/call']` is plain `CallToolResult` (no `| CreateTaskResult`); same for `sampling/createMessage` and `elicitation/create`.
 
 ## 12b. Wire-only members hidden from public types
 
-`resultType` (2026-07-28 result discrimination) is no longer declared on any public result type; the SDK parses and consumes it internally. The reserved `_meta` envelope keys (`io.modelcontextprotocol/{protocolVersion,clientInfo,clientCapabilities,logLevel}`) and retry fields (`inputResponses`, `requestState`) appear in no public params/result type. `RequestMetaEnvelope` and the `*_META_KEY` constants remain exported.
+`resultType` (2026-07-28 result discrimination) is no longer declared on any public result type; the SDK parses and consumes it internally. The reserved `_meta` envelope keys (`io.modelcontextprotocol/{protocolVersion,clientInfo,clientCapabilities,logLevel}`) and retry fields
+(`inputResponses`, `requestState`) appear in no public params/result type. `RequestMetaEnvelope` and the `*_META_KEY` constants remain exported.
 
-| Pattern in v2-alpha code              | Mechanical fix                                                                    |
-| ------------------------------------- | --------------------------------------------------------------------------------- |
-| `result.resultType` (typed read)      | delete the read — the SDK consumes the field; results are complete when delivered |
-| `Result['resultType']` type reference | remove; the member is no longer declared                                          |
-| return-type capture of `callTool` etc. | use the named public types (`CallToolResult`, `ListToolsResult`, …)              |
+v1 code never reads `resultType` (the field did not exist before 2026-07-28); the table below applies only to code that began reading the wire shape directly.
 
-Runtime counterpart: inbound reserved envelope keys are lifted out of `params._meta` before handlers run — on requests they are readable at `ctx.mcpReq.envelope` (typed `Partial<RequestMetaEnvelope>`, keys present only as received); on notifications there is no ctx, so the lifted envelope keys are dropped and NOT surfaced anywhere. Retry fields (`inputResponses`/`requestState`) lift from REQUEST top-level params only, to `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState`; notification params are never touched. On a 2026-era exchange a response carrying a non-`complete` `resultType` rejects with `SdkError` code `UNSUPPORTED_RESULT_TYPE` (kind in `error.data.resultType`), while on a 2025-era connection a foreign `resultType` is stripped before validation; the serving wire era is the instance's negotiated protocol version (connection state), and `MessageExtraInfo.classification` is only validated against it at dispatch (a mismatch is rejected as an entry/routing error). Collision note for 2025-era peers: 2025-11-25 reserves the `io.modelcontextprotocol/` `_meta` prefix but NOT the bare names `inputResponses`/`requestState`, so a 2025 peer's custom-method request using those names as ordinary params has them lifted out of `request.params` (recoverable via ctx; everything else passes through untouched).
+| Pattern                                | Mechanical fix                                                                    |
+| -------------------------------------- | --------------------------------------------------------------------------------- |
+| `result.resultType` (typed read)       | delete the read — the SDK consumes the field; results are complete when delivered |
+| `Result['resultType']` type reference  | remove; the member is no longer declared                                          |
+| return-type capture of `callTool` etc. | use the named public types (`CallToolResult`, `ListToolsResult`, …)               |
+
+Runtime counterpart: inbound reserved envelope keys are lifted out of `params._meta` before handlers run — on requests they are readable at `ctx.mcpReq.envelope` (typed `Partial<RequestMetaEnvelope>`, keys present only as received); on notifications there is no ctx, so the lifted
+envelope keys are dropped and NOT surfaced anywhere. Retry fields (`inputResponses`/`requestState`) lift from REQUEST top-level params only, to `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState`; notification params are never touched. On a 2026-era exchange a response
+carrying a non-`complete` `resultType` rejects with `SdkError` code `UNSUPPORTED_RESULT_TYPE` (kind in `error.data.resultType`), while on a 2025-era connection a foreign `resultType` is stripped before validation; the serving wire era is the instance's negotiated protocol version
+(connection state), and `MessageExtraInfo.classification` is only validated against it at dispatch (a mismatch is rejected as an entry/routing error). Collision note for 2025-era peers: 2025-11-25 reserves the `io.modelcontextprotocol/` `_meta` prefix but NOT the bare names
+`inputResponses`/`requestState`, so a 2025 peer's custom-method request using those names as ordinary params has them lifted out of `request.params` (recoverable via ctx; everything else passes through untouched).
 
 ## 12c. Per-era wire codecs (physical deletions + stricter wire schemas)
 
-The wire layer is split into per-era codecs (2025-era = 2024-10-07 … 2025-11-25; 2026-era = 2026-07-28). Era-mismatched spec methods fail physically: inbound -> `-32601` even with a handler registered; outbound -> `SdkError` code `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` before the transport.
+The wire layer is split into per-era codecs (2025-era = 2024-10-07 … 2025-11-25; 2026-era = 2026-07-28). Era-mismatched spec methods fail physically: inbound -> `-32601` even with a handler registered; outbound -> `SdkError` code `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` before
+the transport.
 
-| Pattern in v2-alpha code                                                       | Mechanical fix                                                                                          |
-| ------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| tool handler returns without `content`                                          | add `content: []` (or real content) — results without it are rejected `-32602`, no longer defaulted       |
-| parsing wire bytes with `EmptyResultSchema` that may carry `resultType`          | strip `resultType` first (the schema now rejects it as an unknown key)                                     |
-| strict custom-handler params schema (3-arg `setRequestHandler`/`setNotification…`) | add optional `_meta` to the schema (or strip it) — `_meta` is now passed through minus reserved keys      |
-| `specTypeSchemas`/`SpecTypeName` references to task message types or `RequestMetaEnvelope` | remove — these validators left the public set (types remain importable)                          |
-| `ClientRequest`/`ServerResult`/… aggregate types expected to include task members | use the individual deprecated `Task*` types — role aggregates are now the neutral (task-free) sets      |
-| relying on `isCallToolResult` to reject wire-only members                        | guards validate neutral shapes (loose passthrough); validate raw wire traffic with a transport-level parse |
+| v1 pattern                                                                                 | Mechanical fix                                                                                             |
+| ------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------- |
+| tool handler returns without `content`                                                     | add `content: []` (or real content) — results without it are rejected `-32602`, no longer defaulted        |
+| parsing wire bytes with `EmptyResultSchema` that may carry `resultType`                    | strip `resultType` first (the schema now rejects it as an unknown key)                                     |
+| strict custom-handler params schema (3-arg `setRequestHandler`/`setNotification…`)         | add optional `_meta` to the schema (or strip it) — `_meta` is now passed through minus reserved keys       |
+| `specTypeSchemas`/`SpecTypeName` references to task message types or `RequestMetaEnvelope` | remove — these validators left the public set (types remain importable)                                    |
+| `ClientRequest`/`ServerResult`/… aggregate types expected to include task members          | use the individual deprecated `Task*` types — role aggregates are now the neutral (task-free) sets         |
+| relying on `isCallToolResult` to reject wire-only members                                  | guards validate neutral shapes (loose passthrough); validate raw wire traffic with a transport-level parse |
+
+## 12d. Multi round-trip requests (2026-07-28)
+
+The 2026-07-28 revision removes the server→client JSON-RPC request channel; servers obtain client input in-band by returning `inputRequired(...)` from a `tools/call`/`prompts/get`/`resources/read` handler, and the client's auto-fulfilment driver retries the original call.
+
+| v1 pattern (handler serving 2026-07-28 requests)                              | Mechanical fix                                                                                                                                    |
+| ----------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `await ctx.mcpReq.elicitInput({…})` / `requestSampling({…})` inside a handler | `return inputRequired({ inputRequests: { id: inputRequired.elicit({…}) } })`; read `acceptedContent(ctx.mcpReq.inputResponses, 'id')` on re-entry |
+| `throw new UrlElicitationRequiredError([…])`                                  | `return inputRequired({ inputRequests: { id: inputRequired.elicitUrl({…}) } })`                                                                   |
+| handler shared across both eras                                               | branch on the served era: keep the v1 push-style call toward 2025-era requests, return `inputRequired(...)` toward 2026-07-28 requests            |
+
+`inputRequired`/`acceptedContent`/`InputRequiredSpec` are exported from `@modelcontextprotocol/server`. `requestState` round-trips as an opaque string and comes back as attacker-controlled input — integrity-protect (HMAC/AEAD) and verify it yourself when relying on it. Client
+side: auto-fulfilment is on by default (`ClientOptions.inputRequired`, `maxRounds` cap default 10); manual mode is `inputRequired: { autoFulfill: false }` plus per-call `allowInputRequired: true` and `withInputRequired(schema)`.
 
 ## 13. Behavioral Changes
 
@@ -540,34 +564,43 @@ The wire layer is split into per-era codecs (2025-era = 2024-10-07 … 2025-11-2
 
 No code changes required; these are wire-behavior notes:
 
-- Resumability behavior (SSE priming events, `closeSSEStream` / `closeStandaloneSSEStream` callbacks) is only enabled for protocol versions in the transport's supported-versions list that are `>= 2025-11-25`. Unknown future version strings in an `initialize` request body no longer enable it. Behavior for all currently supported protocol versions is unchanged.
-- Session-ID mismatch still responds `404 Not Found` with JSON-RPC error code `-32001` (`Session not found`), unchanged from v1. This `-32001` usage is an SDK convention, not a spec-assigned code, and may be re-derived as 2026 protocol revision error handling is adopted — migrated client code should key off the HTTP `404` status, not the `-32001` code.
+- Resumability behavior (SSE priming events, `closeSSEStream` / `closeStandaloneSSEStream` callbacks) is only enabled for protocol versions in the transport's supported-versions list that are `>= 2025-11-25`. Unknown future version strings in an `initialize` request body no
+  longer enable it. Behavior for all currently supported protocol versions is unchanged.
+- Session-ID mismatch still responds `404 Not Found` with JSON-RPC error code `-32001` (`Session not found`), unchanged from v1. This `-32001` usage is an SDK convention, not a spec-assigned code, and may be re-derived as 2026 protocol revision error handling is adopted —
+  migrated client code should key off the HTTP `404` status, not the `-32001` code.
 
 ### Server (deprecated accessors and app-factory Origin validation)
 
 These can require code changes:
 
-- `Server.getClientCapabilities()`, `getClientVersion()` and `getNegotiatedProtocolVersion()` are deprecated but functional: prefer the per-request context (`ctx.mcpReq.envelope`) on 2026-07-28 requests. No mechanical change required yet; plan the move before the deprecations are removed.
-- `createMcpExpressApp()` / `createMcpHonoApp()` / `createMcpFastifyApp()` with a localhost-class `host` now also validate the `Origin` header by default (requests without an `Origin` header are unaffected). Browser-served clients on a non-localhost origin need `allowedOrigins: [...]`, which replaces the default localhost allowlist — Origin validation cannot be disabled for localhost-class binds.
+- `Server.getClientCapabilities()`, `getClientVersion()` and `getNegotiatedProtocolVersion()` are deprecated but functional: prefer the per-request context (`ctx.mcpReq.envelope`) on 2026-07-28 requests. No mechanical change required yet; plan the move before the deprecations are
+  removed.
+- `createMcpExpressApp()` / `createMcpHonoApp()` / `createMcpFastifyApp()` with a localhost-class `host` now also validate the `Origin` header by default (requests without an `Origin` header are unaffected). Browser-served clients on a non-localhost origin need
+  `allowedOrigins: [...]`, which replaces the default localhost allowlist — Origin validation cannot be disabled for localhost-class binds.
 
 ### Server (HTTP entry: createMcpHandler — serving the 2026-07-28 draft revision)
 
 New in 2.0 — v1 has no equivalent API. How v1 Streamable HTTP hosting maps onto the entry:
 
-- `createMcpHandler(factory)` from `@modelcontextprotocol/server` serves the 2026-07-28 draft revision per request and, out of the box, also serves 2025-era (non-envelope) traffic through per-request stateless serving (`legacy: 'stateless'`, the default) — one factory, one endpoint, both eras. A v1 stateless `StreamableHTTPServerTransport` hosting (`sessionIdGenerator: undefined`, fresh transport per request) maps directly onto the default entry.
-- Pass `legacy: 'reject'` for a strict, modern-only endpoint: 2025-era requests are rejected with the unsupported-protocol-version error naming the supported revisions, and 2025-era notifications are acknowledged with `202` and dropped. The option type is `legacy?: 'stateless' | 'reject'`.
-- An existing sessionful v1 Streamable HTTP setup (a `StreamableHTTPServerTransport` wiring with session IDs) keeps serving 2025 clients by routing in user land in front of a strict entry: `if (await isLegacyRequest(request)) return myExistingLegacyHandler(request); return strictHandler.fetch(request)` where `strictHandler = createMcpHandler(factory, { legacy: 'reject' })`.
-- `isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean>` from `@modelcontextprotocol/server` is the entry's own classification step. Returns `true` only for requests with no per-request `_meta` envelope claim (claim-less POSTs including `initialize`, GET/DELETE session operations, all-legacy batches, posted responses, non-JSON bodies). Returns `false` for envelope-claiming requests AND for malformed/incomplete modern claims (the modern path answers those with `-32602`/`-32001`) — route `false` traffic to the modern handler, never to a legacy handler. The predicate classifies a clone (the body stays readable); pass the parsed body as the second argument when the stream was already consumed.
+- `createMcpHandler(factory)` from `@modelcontextprotocol/server` serves the 2026-07-28 draft revision per request and, out of the box, also serves 2025-era (non-envelope) traffic through per-request stateless serving (`legacy: 'stateless'`, the default) — one factory, one
+  endpoint, both eras. A v1 stateless `StreamableHTTPServerTransport` hosting (`sessionIdGenerator: undefined`, fresh transport per request) maps directly onto the default entry.
+- Pass `legacy: 'reject'` for a strict, modern-only endpoint: 2025-era requests are rejected with the unsupported-protocol-version error naming the supported revisions, and 2025-era notifications are acknowledged with `202` and dropped. The option type is
+  `legacy?: 'stateless' | 'reject'`.
+- An existing sessionful v1 Streamable HTTP setup (a `StreamableHTTPServerTransport` wiring with session IDs) keeps serving 2025 clients by routing in user land in front of a strict entry:
+  `if (await isLegacyRequest(request)) return myExistingLegacyHandler(request); return strictHandler.fetch(request)` where `strictHandler = createMcpHandler(factory, { legacy: 'reject' })`.
+- `isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean>` from `@modelcontextprotocol/server` is the entry's own classification step. Returns `true` only for requests with no per-request `_meta` envelope claim (claim-less POSTs including `initialize`,
+  GET/DELETE session operations, all-legacy batches, posted responses, non-JSON bodies). Returns `false` for envelope-claiming requests AND for malformed/incomplete modern claims (the modern path answers those with `-32602`/`-32001`) — route `false` traffic to the modern handler,
+  never to a legacy handler. The predicate classifies a clone (the body stays readable); pass the parsed body as the second argument when the stream was already consumed.
 - `legacyStatelessFallback(factory)` is exported as a standalone fetch-shaped handler producing the same stateless legacy serving as the default.
 
 ### Server (stdio / long-lived connections)
 
 - A hand-constructed `Server`/`McpServer` connected to a `StdioServerTransport` serves only the 2025-era protocol it was written for: today's behavior, byte-identical — no change required during a mechanical migration.
-- Serving the 2026-07-28 draft revision (or both eras) on stdio goes through the connection-pinned entry: `serveStdio(() => new McpServer(info, options))` from `@modelcontextprotocol/server/stdio`. The opening exchange selects the connection's era (2025 `initialize` vs
-  2026 per-request envelope, with `server/discover` answered as a probe); one factory instance is pinned per connection. There is no per-instance option that makes a hand-constructed server serve the 2026 revision: move the v1 `server.connect(new StdioServerTransport())`
-  call into `serveStdio(() => buildServer())`. `serveStdio(factory, { legacy: 'reject' })` refuses 2025-era openings with the unsupported-protocol-version error.
-- On 2026-pinned stdio connections `getClientCapabilities()` / `getClientVersion()` return `undefined` (no `initialize` ever runs there) and handlers read per-request identity from `ctx.mcpReq.envelope`; `getNegotiatedProtocolVersion()` reports the pinned revision
-  (`2026-07-28`), as on instances served through `createMcpHandler`. 2025-pinned connections keep the `initialize`-scoped semantics for all three accessors.
+- Serving the 2026-07-28 draft revision (or both eras) on stdio goes through the connection-pinned entry: `serveStdio(() => new McpServer(info, options))` from `@modelcontextprotocol/server/stdio`. The opening exchange selects the connection's era (2025 `initialize` vs 2026
+  per-request envelope, with `server/discover` answered as a probe); one factory instance is pinned per connection. There is no per-instance option that makes a hand-constructed server serve the 2026 revision: move the v1 `server.connect(new StdioServerTransport())` call into
+  `serveStdio(() => buildServer())`. `serveStdio(factory, { legacy: 'reject' })` refuses 2025-era openings with the unsupported-protocol-version error.
+- On 2026-pinned stdio connections `getClientCapabilities()` / `getClientVersion()` return `undefined` (no `initialize` ever runs there) and handlers read per-request identity from `ctx.mcpReq.envelope`; `getNegotiatedProtocolVersion()` reports the pinned revision (`2026-07-28`),
+  as on instances served through `createMcpHandler`. 2025-pinned connections keep the `initialize`-scoped semantics for all three accessors.
 - A client whose connection negotiated a modern era drops inbound server→client JSON-RPC requests (the 2026 era has no such channel) instead of answering them; legacy-era connections are unchanged.
 
 ## 14. Runtime-Specific JSON Schema Validators (Enhancement)

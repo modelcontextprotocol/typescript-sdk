@@ -514,7 +514,10 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'mcpserver:tool:url-elicitation-error': {
         source: 'sdk',
         behavior:
-            'A tool function that raises the URL-elicitation-required error surfaces to the caller as error -32042 with the elicitation parameters intact.'
+            'A tool function that raises the URL-elicitation-required error surfaces to the caller as error -32042 with the elicitation parameters intact.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'typescript:mrtr:url-elicitation:no-32042-on-2026',
+        note: 'The body asserts the legacy -32042 error surface; on the 2026-07-28 era URL elicitation rides multi round-trip results instead (the supersedes link names that surface).'
     },
     'typescript:mcpserver:tool:schema-variants': {
         source: 'sdk',
@@ -1061,18 +1064,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#completion-notifications-for-url-mode-elicitation',
         behavior:
             'The client ignores an elicitation/complete notification referencing an unknown or already-completed elicitationId without error.',
-        entryExclusions: [
-            {
-                arm: 'entryModern',
-                reason: 'method-not-in-modern-registry',
-                note: 'notifications/elicitation/complete was removed from the 2026-07-28 draft; on that revision the client drops it as an unknown notification (the row asserts ignored-without-error against received copies, which never arrive)'
-            }
-        ]
+        removedInSpecVersion: '2026-07-28',
+        note: 'Retired on the 2026-07-28 era: notifications/elicitation/complete is removed from the draft schema (spec PR #2891), so there is no notification for the modern client to ignore.'
     },
     'elicitation:url:required-error': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#url-elicitation-required-error',
         behavior:
-            'A handler that cannot proceed without a URL elicitation rejects the request with error -32042, carrying the pending elicitations in the error data.'
+            'A handler that cannot proceed without a URL elicitation rejects the request with error -32042, carrying the pending elicitations in the error data.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'typescript:mrtr:url-elicitation:no-32042-on-2026',
+        note: 'The body asserts the legacy -32042 error surface; on the 2026-07-28 era URL elicitation rides multi round-trip results instead (the supersedes link names that surface).'
     },
     'elicitation:form:response-validation': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#form-mode-security',
@@ -2617,6 +2618,47 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'StreamableHTTPServerTransport invokes onsessioninitialized with the new session id after initialization and onsessionclosed when the client issues DELETE, allowing hosts to maintain a session-to-transport map.',
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    // Multi round-trip requests (SEP-2322, protocol revision 2026-07-28)
+    'typescript:mrtr:tools-call:write-once-roundtrip': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr',
+        behavior:
+            'A write-once tool that returns inputRequired() on a 2026-07-28 connection is fulfilled by the client auto-fulfilment driver: the registered elicitation handler answers the embedded request, and the original call is retried with a fresh request id, a byte-exact requestState echo, and the collected inputResponses, completing as a plain CallToolResult.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: 'Runs on the entryModern arm; the input_required wire shape, the fresh request id, and the byte-exact requestState echo are asserted on the arm-recorded HTTP exchanges.'
+    },
+    'typescript:mrtr:push-api:loud-fail-2026': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr',
+        behavior:
+            'The push-style server→client APIs (e.g. ctx.mcpReq.elicitInput) on a 2026-07-28 request fail with a typed local error before any wire traffic; in a tool handler the error surfaces as an isError result whose text steers to inputRequired(...).',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: 'Runs on the entryModern arm; the absence of any server→client request on the wire is asserted on the arm-recorded HTTP bytes.'
+    },
+    'typescript:mrtr:url-elicitation:no-32042-on-2026': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr',
+        behavior:
+            'URL-mode elicitation rides the multi-round-trip flow on the 2026-07-28 era: a tool handler that returns inputRequired.elicitUrl(...) embeds a URL-mode elicitation/create in an input_required result (capability-gated by -32003 on elicitation.url), the registered elicitation handler fulfils it, the retried call completes, and the urlElicitationRequired error code (-32042) never appears on the wire.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['mcpserver:tool:url-elicitation-error', 'elicitation:url:required-error'],
+        note: 'Runs on the entryModern arm; the input_required wire shape and the absence of -32042 anywhere in the exchange are asserted on the arm-recorded HTTP bytes.'
+    },
+    'typescript:mrtr:rounds-cap': {
+        source: 'sdk',
+        behavior:
+            'The client auto-fulfilment driver is bounded: when a server keeps answering input_required, the call fails with the typed InputRequiredRoundsExceeded error (carrying the last input_required payload) once the configurable inputRequired.maxRounds cap is exhausted, instead of looping forever.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: 'Runs on the entryModern arm so the round count can be asserted directly on the arm-recorded HTTP exchanges.'
+    },
+    'typescript:mrtr:legacy-32042-freeze': {
+        source: 'sdk',
+        behavior:
+            'On 2025-era serving, a UrlElicitationRequiredError thrown by a tool handler still reaches the client as the exact urlElicitationRequired protocol error: code -32042 with data.elicitations carrying the URL-mode elicitation params, byte-identical to the pre-multi-round-trip behavior.',
+        removedInSpecVersion: '2026-07-28',
+        note: 'Bounded to the 2025-11-25 axis: this is the freeze cell pinning that the 2026-07-28 era guard leaves the deployed -32042 surface untouched on legacy serving.'
     },
     // Legacy SSE
     'transport:sse:server-transport': {
