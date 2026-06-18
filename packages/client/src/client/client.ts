@@ -279,6 +279,8 @@ export interface McpSubscription {
 interface ListenStateEntry {
     onAck: (honored: SubscriptionFilter) => void;
     onServerCancel: () => void;
+    /** Settle the per-listen machine with an explicit error (used by `_resetConnectionState`). */
+    onConnectionReset: (error: Error) => void;
 }
 
 /**
@@ -349,13 +351,33 @@ export class Client extends Protocol<ClientContext> {
         this._serverVersion = undefined;
         this._instructions = undefined;
         this._autoOpenedSubscription = undefined;
+        // Settle every live per-listen state machine before clearing the map:
+        // a fresh connect (or close) on a connection whose prior transport
+        // never fired onclose would otherwise leave an in-flight listen()
+        // promise hanging forever. Each entry's settle() deletes itself from
+        // the map, so iterate over a snapshot.
+        if (this._listenState.size > 0) {
+            const reason = new SdkError(
+                SdkErrorCode.ConnectionClosed,
+                'subscriptions/listen: client reconnected or closed; subscription state from the previous connection was reset'
+            );
+            for (const entry of [...this._listenState.values()]) {
+                entry.onConnectionReset(reason);
+            }
+        }
         this._listenState.clear();
         this._cachedToolOutputValidators.clear();
     }
 
     override async close(): Promise<void> {
-        await super.close();
-        this._resetConnectionState();
+        try {
+            await super.close();
+        } finally {
+            // Per-connection state is cleared even when the transport's close
+            // rejects, so a stale negotiated era / live listen state cannot
+            // survive a failed close.
+            this._resetConnectionState();
+        }
     }
 
     /**
@@ -1401,7 +1423,8 @@ export class Client extends Protocol<ClientContext> {
                             // listen() promise; once open, settle just
                             // transitions to closed and the message is unused.
                             settle({ error: new Error('subscriptions/listen: server cancelled the subscription') });
-                        }
+                        },
+                        onConnectionReset: error => settle({ error })
                     });
                 }
             );
