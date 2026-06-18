@@ -265,6 +265,14 @@ export class StreamableHTTPClientTransport implements Transport {
     onerror?: (error: Error) => void;
     onmessage?: (message: JSONRPCMessage) => void;
 
+    /**
+     * Streamable HTTP opens one POST (and SSE response stream) per outbound
+     * request and honors `TransportSendOptions.requestSignal`. On a 2026-era
+     * connection the protocol layer aborts that per-request stream as the
+     * spec cancellation signal instead of POSTing `notifications/cancelled`.
+     */
+    readonly hasPerRequestStream = true;
+
     constructor(url: URL, opts?: StreamableHTTPClientTransportOptions) {
         this._url = url;
         this._resourceMetadataUrl = undefined;
@@ -736,10 +744,16 @@ export class StreamableHTTPClientTransport implements Transport {
             const { resumptionToken, onresumptiontoken } = options || {};
 
             if (resumptionToken) {
-                // If we have a last event ID, we need to reconnect the SSE stream
-                this._startOrAuthSse({ resumptionToken, replayMessageId: isJSONRPCRequest(message) ? message.id : undefined }).catch(
-                    error => this.onerror?.(error)
-                );
+                // If we have a last event ID, we need to reconnect the SSE stream.
+                // Thread `requestSignal` through so the resumed GET honours the
+                // same per-request abort as the original POST — modern-era
+                // cancel-via-stream-close routes through `requestSignal`, and
+                // without it a resumed long-running request would not cancel.
+                this._startOrAuthSse({
+                    resumptionToken,
+                    replayMessageId: isJSONRPCRequest(message) ? message.id : undefined,
+                    requestSignal: options?.requestSignal
+                }).catch(error => this.onerror?.(error));
                 return;
             }
 

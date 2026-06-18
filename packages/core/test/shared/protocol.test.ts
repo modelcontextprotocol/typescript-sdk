@@ -4,7 +4,7 @@ import * as z from 'zod/v4';
 import type { ZodType } from 'zod/v4';
 
 import type { BaseContext } from '../../src/shared/protocol.js';
-import { mergeCapabilities, Protocol } from '../../src/shared/protocol.js';
+import { mergeCapabilities, Protocol, setNegotiatedProtocolVersion } from '../../src/shared/protocol.js';
 import type { Transport, TransportSendOptions } from '../../src/shared/transport.js';
 import type {
     ClientCapabilities,
@@ -818,6 +818,98 @@ describe('protocol tests', () => {
 
             // Verify the request was aborted
             expect(wasAborted).toBe(true);
+        });
+    });
+
+    // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28): on a
+    // per-request-stream transport (Streamable HTTP), closing that stream IS
+    // the cancel signal — no `notifications/cancelled` is sent. Legacy era and
+    // single-channel transports keep the `notifications/cancelled` POST path.
+    describe('outbound request cancellation: stream-close vs notifications/cancelled', () => {
+        /** Mock transport that records the requestSignal it was handed and every outbound message. */
+        class PerRequestStreamTransport extends MockTransport {
+            readonly hasPerRequestStream = true;
+            sent: JSONRPCMessage[] = [];
+            lastRequestSignal: AbortSignal | undefined;
+            override async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+                this.sent.push(message);
+                this.lastRequestSignal = options?.requestSignal;
+            }
+        }
+
+        const cancelledSent = (sent: JSONRPCMessage[]): JSONRPCMessage[] =>
+            sent.filter(m => 'method' in m && m.method === 'notifications/cancelled');
+
+        test('modern era + per-request-stream transport: abort closes the stream, NO notifications/cancelled', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2026-07-28');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+
+            // The transport was handed a per-request requestSignal.
+            expect(tx.lastRequestSignal).toBeInstanceOf(AbortSignal);
+            expect(tx.lastRequestSignal?.aborted).toBe(false);
+
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            // Stream-close IS the signal: requestSignal aborted, no cancelled notification on the wire.
+            expect(tx.lastRequestSignal?.aborted).toBe(true);
+            expect(cancelledSent(tx.sent)).toHaveLength(0);
+        });
+
+        test('modern era + single-channel transport (no hasPerRequestStream): POSTs notifications/cancelled', async () => {
+            // stdio / in-memory shape: hasPerRequestStream is undefined.
+            const sent: JSONRPCMessage[] = [];
+            const tx = new MockTransport();
+            tx.send = async (m: JSONRPCMessage, _opts?: TransportSendOptions) => {
+                sent.push(m);
+            };
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2026-07-28');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            // stdio MUST send notifications/cancelled (spec).
+            expect(cancelledSent(sent)).toHaveLength(1);
+        });
+
+        test('legacy era + per-request-stream transport: behavior unchanged — POSTs notifications/cancelled, no requestSignal', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+
+            // Legacy path is byte-identical to before: no requestSignal threaded.
+            expect(tx.lastRequestSignal).toBeUndefined();
+
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            expect(cancelledSent(tx.sent)).toHaveLength(1);
+        });
+
+        test('modern era + per-request-stream transport: timeout aborts the stream, NO notifications/cancelled', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2026-07-28');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+            await expect(pending).rejects.toThrow();
+
+            expect(tx.lastRequestSignal?.aborted).toBe(true);
+            expect(cancelledSent(tx.sent)).toHaveLength(0);
         });
     });
 });

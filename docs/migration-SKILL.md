@@ -574,6 +574,10 @@ side: auto-fulfilment is on by default (`ClientOptions.inputRequired`, `maxRound
 
 Output-schema validator compilation is now lazy (first `callTool()` against the cached `tools/list` entry) and non-throwing (an uncompilable `outputSchema` is `console.warn`-ed and validation is skipped for that tool only); `listTools()` no longer throws on an uncompilable `outputSchema`. Applies on every era — the legacy-era `listTools()` path is unchanged at the wire level only.
 
+No code changes required; wire-behavior note: on a 2026-07-28 Streamable HTTP connection, aborting an in-flight client request (caller `signal` / timeout) closes that request's SSE response stream as the spec cancellation signal — `notifications/cancelled` is no longer POSTed
+there. 2025-era connections and stdio at any era still send `notifications/cancelled`. Custom `Transport` implementations that open one underlying request per outbound message and honor `TransportSendOptions.requestSignal` may declare `readonly hasPerRequestStream = true` to opt
+into the same routing.
+
 ### Server (Streamable HTTP transport)
 
 No code changes required; these are wire-behavior notes:

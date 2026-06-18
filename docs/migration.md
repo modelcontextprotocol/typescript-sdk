@@ -1223,6 +1223,12 @@ once the server's acknowledged notification arrives with `{ honoredFilter, close
 you still want events); change notifications dispatch to the existing `setNotificationHandler` registrations. `resources/subscribe` is 2025-only — on a 2026-07-28 connection, request `notifications/resources/updated` via the `resourceSubscriptions` field of the listen filter
 instead.
 
+### Client cancellation on Streamable HTTP (2026-07-28): stream-close is the signal
+
+On a 2026-07-28 Streamable HTTP connection, aborting an in-flight client request (caller `signal` or timeout) now closes that request's SSE response stream — the spec cancellation signal for this transport — instead of POSTing a `notifications/cancelled` message. Nothing to change in calling code: `RequestOptions.signal` and `timeout` behave exactly as before. Cancellation on a 2025-era
+connection, and on stdio at any era, is unchanged and still sends `notifications/cancelled`. Custom `Transport` implementations that open one underlying request per outbound JSON-RPC request and honor `TransportSendOptions.requestSignal` may opt into the same routing by declaring
+`readonly hasPerRequestStream = true`.
+
 ### Multi round-trip requests (2026-07-28): write-once handlers and the client auto-fulfilment driver
 
 The 2026-07-28 revision removes the server→client JSON-RPC request channel: servers obtain client input (elicitation, sampling, roots) **in-band**, by answering `tools/call`, `prompts/get`, or `resources/read` with an `input_required` result that embeds the requests, and the
