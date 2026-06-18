@@ -70,7 +70,13 @@ function buildServer(): McpServer {
             }
 
             // step === 'signed-in': the URL-mode elicitation completed out of
-            // band; finish the deploy.
+            // band — verify the auth response actually arrived. requestState is
+            // attacker-controlled and trivially replayed; a real server MUST
+            // integrity-protect it (e.g. HMAC/AEAD), per the migration guide.
+            const auth = ctx.mcpReq.inputResponses?.['auth'] as { action?: string } | undefined;
+            if (auth?.action !== 'accept') {
+                return { isError: true, content: [{ type: 'text', text: 'auth response missing or declined' }] };
+            }
             return { content: [{ type: 'text', text: `deployed to ${env}` }] };
         }
     );

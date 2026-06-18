@@ -491,8 +491,8 @@ export class Server extends Protocol<ServerContext> {
 
         // F7 at-least-one re-check (hand-built results are legal; the rule is
         // re-checked at the seam).
-        const inputRequests = result.inputRequests as Record<string, unknown> | undefined;
-        const hasInputRequests = inputRequests !== undefined && Object.keys(inputRequests).length > 0;
+        const inputRequests = result.inputRequests as Record<string, unknown> | null | undefined;
+        const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
         const hasRequestState = typeof result.requestState === 'string';
         if (!hasInputRequests && !hasRequestState) {
             throw new ProtocolError(
