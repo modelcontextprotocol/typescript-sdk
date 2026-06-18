@@ -47,6 +47,7 @@
  * were written for.
  */
 import type {
+    CancelledNotificationParams,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
@@ -118,6 +119,16 @@ export interface StdioServerHandle {
  * ------------------------------------------------------------------------ */
 
 /**
+ * How long the probe-discard path waits for the probe instance to answer the
+ * requests it was delivered before closing it. The wait normally settles as
+ * soon as the DiscoverResult is handed to the wire (or immediately, when a
+ * delivered cancellation already settled the probe); the bound is a backstop
+ * so no edge can ever hold the connection's inbound pump indefinitely behind
+ * the discard.
+ */
+const DISCARD_ANSWER_TIMEOUT_MS = 3000;
+
+/**
  * The transport a pinned instance is connected to: a thin channel that writes
  * through to the entry-owned wire transport and receives the messages the
  * entry forwards. The wire transport itself is never handed to an instance —
@@ -173,21 +184,45 @@ class StdioConnectionChannel implements Transport {
         }
         if (isJSONRPCRequest(message)) {
             this._pendingRequests.add(message.id);
+        } else if (isJSONRPCNotification(message) && message.method === 'notifications/cancelled') {
+            // By protocol contract a cancelled request may legitimately go
+            // unanswered (the instance aborts the in-flight handler and writes
+            // nothing for it), so a delivered cancellation settles the request
+            // it names: nothing should keep waiting for an answer that may
+            // never come. Non-cancelled requests still settle only when their
+            // answer is handed to the wire.
+            const cancelledId = (message.params as CancelledNotificationParams | undefined)?.requestId;
+            if (cancelledId !== undefined) {
+                this._settle(cancelledId);
+            }
         }
         this.onmessage?.(message, extra);
     }
 
     /**
      * Resolves once every request delivered to the instance has been answered
-     * through {@linkcode send} (or the channel has been closed and nothing
-     * further can be answered). Used by the probe-discard path so a probe
-     * request the entry accepted is never silently dropped.
+     * through {@linkcode send}, settled by a delivered cancellation, or the
+     * channel has been closed and nothing further can be answered. The wait is
+     * bounded by `timeoutMs` as a backstop so no edge can hold the caller
+     * indefinitely; resolves `false` only when the bound elapsed with requests
+     * still unanswered. Used by the probe-discard path so a probe request the
+     * entry accepted is never silently dropped.
      */
-    async whenRequestsAnswered(): Promise<void> {
+    async whenRequestsAnswered(timeoutMs: number): Promise<boolean> {
         if (this._closed || this._pendingRequests.size === 0) {
-            return;
+            return true;
         }
-        await new Promise<void>(resolve => this._drainWaiters.push(resolve));
+        return await new Promise<boolean>(resolve => {
+            const waiter = (): void => {
+                clearTimeout(timer);
+                resolve(true);
+            };
+            const timer = setTimeout(() => {
+                this._drainWaiters = this._drainWaiters.filter(pending => pending !== waiter);
+                resolve(false);
+            }, timeoutMs);
+            this._drainWaiters.push(waiter);
+        });
     }
 
     async close(): Promise<void> {
@@ -405,8 +440,19 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             // the instance aborts whatever it still has in flight. Let the
             // in-flight DiscoverResult reach the wire before the instance is
             // closed; the probe instance only ever receives `server/discover`,
-            // whose entry-installed handler always answers promptly.
-            await instance.channel.whenRequestsAnswered();
+            // whose entry-installed handler always answers promptly. A probe
+            // the client cancelled is already settled by the delivered
+            // cancellation (a cancelled request may go unanswered), and the
+            // wait is bounded as a backstop so nothing can wedge the
+            // connection's pump behind the discard.
+            const answered = await instance.channel.whenRequestsAnswered(DISCARD_ANSWER_TIMEOUT_MS);
+            if (!answered) {
+                reportError(
+                    new Error(
+                        `Discarded the probe instance with requests still unanswered after ${DISCARD_ANSWER_TIMEOUT_MS}ms; continuing with the fallback`
+                    )
+                );
+            }
             await instance.product.close();
         } catch (error) {
             reportError(toError(error));
