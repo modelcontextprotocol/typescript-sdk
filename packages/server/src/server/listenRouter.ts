@@ -217,3 +217,119 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
         }
     };
 }
+
+/* ------------------------------------------------------------------------ *
+ * Stdio listen router
+ * ------------------------------------------------------------------------ */
+
+const CHANGE_NOTIFICATION_METHODS: ReadonlySet<string> = new Set([
+    'notifications/tools/list_changed',
+    'notifications/prompts/list_changed',
+    'notifications/resources/list_changed',
+    'notifications/resources/updated'
+]);
+
+/**
+ * Per-connection listen state for the stdio entry. One instance is held by
+ * `serveStdio` for the connection lifetime; it routes inbound
+ * `subscriptions/listen` / `notifications/cancelled` and rewrites outbound
+ * change notifications onto the active subscriptions. No bus — the long-lived
+ * pinned instance's existing `send*ListChanged()` calls feed straight into
+ * `routeOutbound()`.
+ */
+export class StdioListenRouter {
+    /** Active subscriptions, keyed by the listen request's JSON-RPC id verbatim. */
+    private readonly _subs = new Map<RequestId, SubscriptionFilter>();
+
+    constructor(private readonly _maxSubscriptions: number = DEFAULT_MAX_SUBSCRIPTIONS) {}
+
+    /** Whether `id` is an active listen subscription on this connection. */
+    has(id: RequestId): boolean {
+        return this._subs.has(id);
+    }
+
+    /**
+     * Serve one inbound `subscriptions/listen` request: registers the
+     * subscription and returns the stamped acknowledged notification (or, on
+     * capacity / params rejection, the in-band JSON-RPC error response).
+     */
+    serve(message: JSONRPCRequest): NotificationBody | { jsonrpc: '2.0'; id: RequestId; error: { code: number; message: string } } {
+        if (this._subs.size >= this._maxSubscriptions) {
+            return { jsonrpc: '2.0', id: message.id, error: { code: -32_603, message: 'Subscription limit reached' } };
+        }
+        const filter = parseListenFilter(message);
+        if (filter === undefined) {
+            return {
+                jsonrpc: '2.0',
+                id: message.id,
+                error: { code: -32_602, message: "Invalid params: 'notifications' is not a valid SubscriptionFilter" }
+            };
+        }
+        const honored = honoredSubset(filter);
+        this._subs.set(message.id, honored);
+        return stampSubscriptionId(
+            { method: 'notifications/subscriptions/acknowledged', params: { notifications: honored } },
+            message.id
+        );
+    }
+
+    /**
+     * Tear down one subscription (inbound `notifications/cancelled`). Returns
+     * `true` when a subscription was removed. After this call NOTHING further
+     * is delivered for that subscription id (the post-cancel hardening).
+     */
+    cancel(id: RequestId): boolean {
+        return this._subs.delete(id);
+    }
+
+    /**
+     * Route an outbound notification through the active subscriptions.
+     *
+     * - For a subscription-gated change notification, returns one stamped copy
+     *   per subscription that opted in to it (an empty array means it is
+     *   dropped — the modern era never delivers an un-requested change type).
+     * - For any other outbound message, returns `'passthrough'` (the entry
+     *   forwards it as-is).
+     */
+    routeOutbound(message: { method: string; params?: { [key: string]: unknown } }): NotificationBody[] | 'passthrough' {
+        if (!CHANGE_NOTIFICATION_METHODS.has(message.method)) {
+            return 'passthrough';
+        }
+        const uri = typeof message.params?.['uri'] === 'string' ? (message.params['uri'] as string) : undefined;
+        const event = notificationToServerEvent(message.method, uri);
+        const out: NotificationBody[] = [];
+        for (const [subscriptionId, filter] of this._subs) {
+            if (listenFilterAccepts(filter, event)) {
+                out.push(stampSubscriptionId({ method: message.method, params: message.params ?? {} }, subscriptionId));
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Server-side teardown of every active subscription: returns the single
+     * `notifications/cancelled` per subscription id the entry MUST emit on
+     * stdio teardown (and clears the set so nothing further is delivered).
+     */
+    teardownAll(): { jsonrpc: '2.0'; method: 'notifications/cancelled'; params: { requestId: RequestId } }[] {
+        const out: { jsonrpc: '2.0'; method: 'notifications/cancelled'; params: { requestId: RequestId } }[] = [];
+        for (const id of this._subs.keys()) {
+            out.push({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id } });
+        }
+        this._subs.clear();
+        return out;
+    }
+}
+
+function notificationToServerEvent(method: string, uri: string | undefined): import('./serverEventBus.js').ServerEvent {
+    switch (method) {
+        case 'notifications/tools/list_changed':
+            return { kind: 'tools_list_changed' };
+        case 'notifications/prompts/list_changed':
+            return { kind: 'prompts_list_changed' };
+        case 'notifications/resources/list_changed':
+            return { kind: 'resources_list_changed' };
+        default:
+            return { kind: 'resource_updated', uri: uri ?? '' };
+    }
+}
