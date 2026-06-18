@@ -143,6 +143,17 @@ function createMcpServer() {
                 },
                 logging: {},
                 completions: {}
+            },
+            // Seam-level integrity check (SEP-2322): every re-entered MRTR
+            // request that carries requestState is verified before the handler
+            // runs. A rejection answers a wire-level -32602 with
+            // data.reason 'invalid_request_state'.
+            requestState: {
+                verify: state => {
+                    if (verifyRequestState(state) === undefined) {
+                        throw new Error('requestState failed integrity verification');
+                    }
+                }
             }
         }
     );
@@ -884,12 +895,11 @@ function createMcpServer() {
         }
     );
 
-    // Tampered-state rejection: the retry's requestState must verify against
-    // the fixture's HMAC. NOTE: a rejection thrown from a tool callback
-    // surfaces as an `isError` tool result (the tools/call funnel wraps
-    // handler throws), not as the JSON-RPC error the conformance scenario
-    // expects, so that scenario stays in the expected-failures baseline until
-    // the SDK can reject invalid requestState at the protocol layer.
+    // Tampered-state rejection: the seam-level `requestState.verify` hook
+    // (configured on the McpServer above) rejects a retry whose requestState
+    // fails the fixture's HMAC before this handler runs, answering the
+    // wire-level -32602 the conformance scenario requires. The handler only
+    // sees verified state.
     mcpServer.registerTool(
         'test_input_required_result_tampered_state',
         {
@@ -897,17 +907,8 @@ function createMcpServer() {
             inputSchema: z.object({})
         },
         async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
-            if (ctx.mcpReq.requestState !== undefined) {
-                const state = verifyRequestState(ctx.mcpReq.requestState);
-                if (state === undefined) {
-                    throw new ProtocolError(
-                        ProtocolErrorCode.InvalidParams,
-                        'Invalid requestState: integrity verification failed (HMAC mismatch)'
-                    );
-                }
-                if (acceptedContent(ctx.mcpReq.inputResponses, 'confirm') !== undefined) {
-                    return { content: [{ type: 'text', text: 'integrity-ok: requestState verified' }] };
-                }
+            if (ctx.mcpReq.requestState !== undefined && acceptedContent(ctx.mcpReq.inputResponses, 'confirm') !== undefined) {
+                return { content: [{ type: 'text', text: 'integrity-ok: requestState verified' }] };
             }
             return inputRequired({
                 inputRequests: {

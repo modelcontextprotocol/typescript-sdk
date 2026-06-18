@@ -83,11 +83,3 @@ server:
     # (Mcp-Method, Mcp-Name) and the Mcp-Name cross-check are not implemented,
     # so those reject cells are still accepted with 200.
     - http-header-validation
-    # SEP-2322 (multi-round-trip requests): the fixture integrity-protects
-    # requestState with an HMAC and rejects tampered state, but a rejection
-    # thrown from a tool callback surfaces as an isError tool result (the
-    # tools/call funnel wraps handler throws), not the JSON-RPC error this
-    # scenario requires. Unblocks when the SDK can reject invalid requestState
-    # at the protocol layer (the opt-in requestState sealing helper) or lets
-    # this rejection escape the tools/call funnel as a protocol error.
-    - input-required-result-tampered-state
