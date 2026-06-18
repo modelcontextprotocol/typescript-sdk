@@ -116,6 +116,33 @@ export type ServerOptions = ProtocolOptions & {
      * affected. Invalid values throw a `RangeError` at construction time.
      */
     cacheHints?: Partial<Record<CacheableResultMethod, CacheHint>>;
+
+    /**
+     * Multi-round-trip `requestState` integrity hook (protocol revision
+     * 2026-07-28).
+     */
+    requestState?: {
+        /**
+         * Called on every re-entered multi-round-trip request that carries a
+         * `requestState` (i.e. whenever `ctx.mcpReq.requestState` is present),
+         * BEFORE the handler runs. Throw or reject to refuse the request: the
+         * seam answers with a wire-level `-32602` Invalid Params error whose
+         * message is frozen to `"Invalid or expired requestState"` and whose
+         * `data.reason` is `'invalid_request_state'` — the thrown reason is
+         * surfaced via the server's `onerror` callback only and never reaches
+         * the wire.
+         *
+         * This is the place to put HMAC or AEAD verification of
+         * `requestState`. The spec MUST for integrity-protecting state that
+         * influences authorization, resource access, or business logic is on
+         * the server author (basic/patterns/mrtr, server requirements 4–5);
+         * the SDK provides NO default verification. Leaving this option
+         * unconfigured keeps today's behavior — `ctx.mcpReq.requestState` is
+         * passed through raw and MUST be treated as attacker-controlled
+         * input.
+         */
+        verify?: (state: string, ctx: ServerContext) => void | Promise<void>;
+    };
 };
 
 /*
@@ -199,6 +226,7 @@ export class Server extends Protocol<ServerContext> {
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cacheHints?: ServerOptions['cacheHints'];
+    private _requestStateVerify?: (state: string, ctx: ServerContext) => void | Promise<void>;
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
@@ -216,6 +244,7 @@ export class Server extends Protocol<ServerContext> {
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
+        this._requestStateVerify = options?.requestState?.verify;
 
         // Configured cache hints fail loudly at construction time (before any
         // handler registration consults them).
@@ -447,6 +476,24 @@ export class Server extends Protocol<ServerContext> {
         ctx: ServerContext
     ): Promise<Result> {
         const servedModern = this._servedModernEra();
+
+        // The configured requestState.verify hook runs above the handler (and
+        // therefore above the McpServer tools/call funnel), so a rejection
+        // reaches the wire as a real JSON-RPC error rather than an `isError`
+        // tool result. The wire message is FROZEN — the thrown reason is
+        // surfaced via `onerror` only.
+        if (this._requestStateVerify !== undefined && typeof ctx.mcpReq.requestState === 'string') {
+            try {
+                await this._requestStateVerify(ctx.mcpReq.requestState, ctx);
+            } catch (error) {
+                this.onerror?.(
+                    new Error(`requestState verification rejected ${method}: ${error instanceof Error ? error.message : String(error)}`)
+                );
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Invalid or expired requestState', {
+                    reason: 'invalid_request_state'
+                });
+            }
+        }
 
         let result: Result;
         try {

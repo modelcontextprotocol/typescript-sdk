@@ -38,10 +38,11 @@ import {
     setNegotiatedProtocolVersion,
     UrlElicitationRequiredError
 } from '@modelcontextprotocol/core';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
 import { McpServer } from '../../src/server/mcp.js';
+import type { ServerOptions } from '../../src/server/server.js';
 import { Server } from '../../src/server/server.js';
 
 const MODERN = '2026-07-28';
@@ -340,6 +341,90 @@ describe('UrlElicitationRequiredError (the 2025-era -32042 idiom)', () => {
         const error = errorOf(answer);
         expect(error.code).toBe(-32_042);
         expect(error.data).toEqual({ elicitations: [URL_PARAMS] });
+
+        await close();
+    });
+});
+
+describe('requestState.verify hook', () => {
+    function buildServer(options?: ServerOptions) {
+        const server = new McpServer({ name: 's', version: '1.0.0' }, { capabilities: { tools: {} }, ...options });
+        const handler = vi.fn(async () => ({ content: [{ type: 'text' as const, text: 'ok' }] }));
+        server.registerTool('deploy', { inputSchema: z.object({}) }, handler);
+        return { server, handler };
+    }
+
+    const reentry = (id: number, requestState?: string) =>
+        modernToolCall(id, 'deploy', {}, { extraParams: requestState === undefined ? {} : { requestState } });
+
+    it('is called with the echoed state and the handler context, before the handler', async () => {
+        const seen: Array<{ state: string; method: string }> = [];
+        const { server, handler } = buildServer({
+            requestState: { verify: (state, ctx) => void seen.push({ state, method: ctx.mcpReq.method }) }
+        });
+        const { request, close } = await wire(server, { era: 'modern' });
+
+        const answer = resultOf(await request(reentry(1, 'signed-state')));
+        expect(seen).toEqual([{ state: 'signed-state', method: 'tools/call' }]);
+        expect(handler).toHaveBeenCalledOnce();
+        expect(answer.content).toEqual([{ type: 'text', text: 'ok' }]);
+
+        await close();
+    });
+
+    it('a throw becomes the frozen -32602 wire error (not an isError tool result); the reason goes to onerror only', async () => {
+        const { server, handler } = buildServer({
+            requestState: {
+                verify: () => {
+                    throw new Error('HMAC mismatch — granular reason');
+                }
+            }
+        });
+        const onerror = vi.fn();
+        server.server.onerror = onerror;
+        const { request, close } = await wire(server, { era: 'modern' });
+
+        const answer = await request(reentry(1, 'tampered'));
+        // Real JSON-RPC error (above the tools/call funnel), not a result.
+        expect((answer as { result?: unknown }).result).toBeUndefined();
+        const error = errorOf(answer);
+        expect(error.code).toBe(-32_602);
+        expect(error.message).toBe('Invalid or expired requestState');
+        expect(error.data).toEqual({ reason: 'invalid_request_state' });
+        // The granular reason never reaches the wire — onerror only.
+        expect(JSON.stringify(answer)).not.toContain('HMAC mismatch');
+        expect(onerror).toHaveBeenCalledOnce();
+        expect(String(onerror.mock.calls[0]?.[0])).toContain('HMAC mismatch');
+        expect(handler).not.toHaveBeenCalled();
+
+        await close();
+    });
+
+    it('is not called when the request carries no requestState', async () => {
+        const verify = vi.fn();
+        const { server, handler } = buildServer({ requestState: { verify } });
+        const { request, close } = await wire(server, { era: 'modern' });
+
+        const answer = resultOf(await request(reentry(1)));
+        expect(verify).not.toHaveBeenCalled();
+        expect(handler).toHaveBeenCalledOnce();
+        expect(answer.content).toEqual([{ type: 'text', text: 'ok' }]);
+
+        await close();
+    });
+
+    it('not configured → today’s behavior (raw passthrough; the handler reads the state itself)', async () => {
+        const server = new McpServer({ name: 's', version: '1.0.0' }, { capabilities: { tools: {} } });
+        let seen: string | undefined;
+        server.registerTool('deploy', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            seen = ctx.mcpReq.requestState;
+            return { content: [{ type: 'text', text: 'ok' }] };
+        });
+        const { request, close } = await wire(server, { era: 'modern' });
+
+        const answer = resultOf(await request(reentry(1, 'raw-state')));
+        expect(seen).toBe('raw-state');
+        expect(answer.content).toEqual([{ type: 'text', text: 'ok' }]);
 
         await close();
     });
