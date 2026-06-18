@@ -34,6 +34,7 @@ import type {
     MessageExtraInfo,
     NonCompleteResultFlow,
     NotificationMethod,
+    ProtocolEra,
     ProtocolOptions,
     ReadResourceRequest,
     ReadResourceResult,
@@ -49,6 +50,8 @@ import type {
     UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     codecForVersion,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
@@ -61,6 +64,7 @@ import {
     mergeCapabilities,
     parseSchema,
     Protocol,
+    PROTOCOL_VERSION_META_KEY,
     ProtocolError,
     ProtocolErrorCode,
     resolveInputRequiredDriverConfig,
@@ -165,8 +169,11 @@ export type ClientOptions = ProtocolOptions & {
     /**
      * Opt-in protocol version negotiation (protocol revision 2026-07-28 and later).
      *
-     * - absent or `mode: 'legacy'` — the plain 2025 connect sequence, byte-identical
-     *   to today's behavior (no probe, no new headers).
+     * **The default is `'legacy'`**: absent (or `mode: 'legacy'`), `connect()`
+     * runs the plain 2025 sequence, byte-identical to today's behavior (no
+     * probe, no new headers). Opt into `'auto'` or pin to talk to a 2026-07-28
+     * server.
+     *
      * - `mode: 'auto'` — `connect()` probes the server with `server/discover` first:
      *   definitive modern evidence selects the modern era; definitive legacy signals
      *   (and anything unrecognized) fall back to the plain legacy `initialize`
@@ -179,8 +186,15 @@ export type ClientOptions = ProtocolOptions & {
      * - `mode: { pin: '2026-07-28' }` — modern era at exactly the pinned revision;
      *   no probe-and-fallback: anything else fails loudly.
      *
-     * Probe policy lives under `probe: { timeoutMs? }`; the probe inherits the
-     * client's standard request timeout unless overridden.
+     * Probe policy lives under `probe: { timeoutMs?, maxRetries? }`; the probe
+     * inherits the client's standard request timeout unless overridden, and
+     * `maxRetries` (default `0`) governs timeout re-sends only — the
+     * spec-mandated `-32004` corrective continuation is never counted against it.
+     *
+     * Once a modern era is negotiated, the client automatically attaches the
+     * per-request `_meta` envelope (the reserved protocol-version / client-info /
+     * client-capabilities keys) to every outgoing request and notification;
+     * user-supplied `_meta` keys take precedence over the auto-attached ones.
      */
     versionNegotiation?: VersionNegotiationOptions;
 
@@ -335,6 +349,30 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
+     * Per-request `_meta` envelope auto-emission (protocol revision 2026-07-28):
+     * on a connection that negotiated a modern era — auto-negotiated or pinned —
+     * every outgoing request and notification automatically carries the reserved
+     * protocol-version / client-info / client-capabilities `_meta` keys (the
+     * same envelope the connect-time `server/discover` probe sends).
+     * User-supplied `_meta` keys take precedence over the auto-attached ones.
+     *
+     * Legacy-era connections return `undefined`: the envelope seam is a no-op
+     * and outbound traffic is byte-identical to a 2025 client (the legacy
+     * `'auto'` fallback included).
+     */
+    protected override _outboundMetaEnvelope(): Readonly<Record<string, unknown>> | undefined {
+        const version = this._negotiatedProtocolVersion;
+        if (version === undefined || !isModernProtocolVersion(version)) {
+            return undefined;
+        }
+        return {
+            [PROTOCOL_VERSION_META_KEY]: version,
+            [CLIENT_INFO_META_KEY]: this._clientInfo,
+            [CLIENT_CAPABILITIES_META_KEY]: this._capabilities
+        };
+    }
+
+    /**
      * Wires the multi-round-trip auto-fulfilment engine (protocol revision
      * 2026-07-28) into the response funnel: an `input_required` answer is
      * fulfilled through the registered elicitation/sampling/roots handlers
@@ -410,6 +448,21 @@ export class Client extends Protocol<ClientContext> {
         }
 
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+    }
+
+    /**
+     * Configure protocol version negotiation before connecting (equivalent to
+     * passing `versionNegotiation` at construction time). Can only be called
+     * before connecting to a transport. Passing `undefined` clears a previously
+     * configured negotiation, restoring the default `'legacy'` posture.
+     *
+     * See {@linkcode ClientOptions | ClientOptions.versionNegotiation} for the mode semantics.
+     */
+    public setVersionNegotiation(options: VersionNegotiationOptions | undefined): void {
+        if (this.transport) {
+            throw new Error('Cannot configure version negotiation after connecting to transport');
+        }
+        this._versionNegotiation = options;
     }
 
     /**
@@ -777,6 +830,19 @@ export class Client extends Protocol<ClientContext> {
      */
     getNegotiatedProtocolVersion(): string | undefined {
         return this._negotiatedProtocolVersion;
+    }
+
+    /**
+     * After initialization has completed, this returns the protocol era of the
+     * connection: `'modern'` when the connection negotiated a 2026-07-28+
+     * revision (via `server/discover`), `'legacy'` for the 2025-era
+     * `initialize` handshake, or `undefined` before the connection is
+     * established.
+     */
+    getProtocolEra(): ProtocolEra | undefined {
+        const version = this._negotiatedProtocolVersion;
+        if (version === undefined) return undefined;
+        return isModernProtocolVersion(version) ? 'modern' : 'legacy';
     }
 
     /**

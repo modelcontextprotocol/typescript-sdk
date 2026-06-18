@@ -90,6 +90,9 @@ export {
     TRACESTATE_META_KEY
 } from '../../types/constants.js';
 
+// Protocol-era helpers
+export type { ProtocolEra } from '../../shared/protocolEras.js';
+
 // Enums
 export { ProtocolErrorCode } from '../../types/enums.js';
 

@@ -6,10 +6,8 @@
  * 1. a plain 2025 client — the `initialize` handshake, served exactly as today;
  * 2. a 2026-capable client (`versionNegotiation: { mode: 'auto' }`) — the
  *    `server/discover` probe negotiates the 2026-07-28 revision on the pipe
- *    (no `initialize` is ever sent), and each modern request carries the
- *    per-request `_meta` envelope. (Attaching the envelope explicitly is a
- *    stop-gap: automatic per-request envelope emission is a client-side
- *    follow-up.)
+ *    (no `initialize` is ever sent), and the client attaches the per-request
+ *    `_meta` envelope to every outgoing request itself.
  *
  * The client spawns the server example directly from source over stdio:
  *
@@ -17,7 +15,7 @@
  */
 import path from 'node:path';
 
-import { Client, CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/client';
+import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 // Spawn the sibling server example straight from its source (no build step),
@@ -46,20 +44,9 @@ async function modernLeg(): Promise<void> {
     const client = new Client({ name: 'modern-demo-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
     await client.connect(new StdioClientTransport(SERVER));
 
-    const negotiated = client.getNegotiatedProtocolVersion();
-    console.log('negotiated protocol version:', negotiated);
+    console.log('negotiated protocol version:', client.getNegotiatedProtocolVersion());
 
-    // The per-request envelope every 2026-era request carries on the wire.
-    const envelope = {
-        [PROTOCOL_VERSION_META_KEY]: negotiated,
-        [CLIENT_INFO_META_KEY]: { name: 'modern-demo-client', version: '1.0.0' },
-        [CLIENT_CAPABILITIES_META_KEY]: {}
-    };
-
-    const result = await client.request({
-        method: 'tools/call',
-        params: { name: 'greet', arguments: { name: '2026 client' }, _meta: envelope }
-    });
+    const result = await client.callTool({ name: 'greet', arguments: { name: '2026 client' } });
     console.log('greet result:', JSON.stringify(result.content));
     await client.close();
 }

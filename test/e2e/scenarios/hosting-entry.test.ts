@@ -33,11 +33,9 @@ function greetFactory(ctx?: McpRequestContext): McpServer {
 
 verifies('typescript:hosting:entry:dual-era-one-factory', async ({ transport }: TestArgs) => {
     // Both cells host the same handler shape — one ctx-taking factory, the
-    // 'stateless' legacy posture — and differ only in the client driving it.
-    const client =
-        transport === 'entryModern'
-            ? new Client({ name: 'auto-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } })
-            : new Client({ name: 'plain-2025-client', version: '1.0.0' });
+    // 'stateless' legacy posture — driven by a plain client; the entry arm
+    // decides which era serves it (entryModern pins the client to 2026-07-28).
+    const client = new Client({ name: 'dual-era-client', version: '1.0.0' });
     await using wired = await wire(transport, greetFactory, client, { entry: { legacy: 'stateless' } });
 
     if (transport === 'entryStateless') {
@@ -51,7 +49,7 @@ verifies('typescript:hosting:entry:dual-era-one-factory', async ({ transport }: 
         return;
     }
 
-    // 2026-era leg: the auto-negotiating client reaches 2026-07-28 via
+    // 2026-era leg: the arm-pinned client reaches 2026-07-28 via
     // server/discover — never initialize — and tools/call is served with the
     // per-request envelope (the modern factory leg answers, not the slot).
     expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);

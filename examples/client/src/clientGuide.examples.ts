@@ -78,6 +78,19 @@ async function connect_sseFallback(url: string) {
     //#endregion connect_sseFallback
 }
 
+/** Example: Opt into 2026-07-28 protocol version negotiation. */
+async function Client_versionNegotiation(transport: StreamableHTTPClientTransport) {
+    //#region Client_versionNegotiation
+    // Auto-negotiate: probe with server/discover, fall back to the 2025 handshake
+    // against a 2025-only server.
+    const client = new Client({ name: 'my-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+    await client.connect(transport);
+
+    client.getProtocolEra(); // 'modern' or 'legacy'
+    client.getNegotiatedProtocolVersion(); // '2026-07-28' or '2025-11-25'
+    //#endregion Client_versionNegotiation
+}
+
 // ---------------------------------------------------------------------------
 // Disconnecting
 // ---------------------------------------------------------------------------
@@ -599,6 +612,7 @@ async function resumptionToken_basic(client: Client) {
 void connect_streamableHttp;
 void connect_stdio;
 void connect_sseFallback;
+void Client_versionNegotiation;
 void disconnect_streamableHttp;
 void serverInstructions_basic;
 void auth_tokenProvider;

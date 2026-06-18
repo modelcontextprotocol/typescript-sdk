@@ -365,8 +365,11 @@ verifies('protocol:error:invalid-params', async ({ transport }: TestArgs) => {
     await expect(call).rejects.toBeInstanceOf(ProtocolError);
 
     // The malformed request did reach the wire (failure is server-side, not client-side validation).
+    // toMatchObject: on a 2026-07-28 connection the client auto-attaches the per-request `_meta`
+    // envelope, which is additive and not part of the assertion's intent.
     const sent = outbound.filter(m => isRequest(m)).find(m => m.method === 'tools/call');
-    expect(sent?.params).toEqual({ arguments: {} });
+    expect(sent?.params).toMatchObject({ arguments: {} });
+    expect((sent?.params as { name?: unknown }).name).toBeUndefined();
 
     expect(ProtocolErrorCode.InvalidParams).toBe(-32_602);
     await expect(call).rejects.toMatchObject({ code: ProtocolErrorCode.InvalidParams });
