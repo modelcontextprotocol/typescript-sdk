@@ -2384,8 +2384,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior:
             'ctx.mcpReq.log() inside a registered tool handler emits a notifications/message logging notification that the client receives while the call is in flight.',
-        transports: STATEFUL_TRANSPORTS,
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+        transports: [...STATEFUL_TRANSPORTS, 'entryStateless', 'entryModern'],
+        note: 'Emitted request-related, so on per-request hosting (createMcpHandler, either era) the notification rides the in-flight exchange like progress; the streamableHttpStateless arm has no per-request stream visible to the body and stays restricted.'
     },
     'mcpserver:context:elicit-from-handler': {
         source: 'sdk',
