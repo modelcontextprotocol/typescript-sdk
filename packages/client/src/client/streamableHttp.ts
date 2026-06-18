@@ -50,6 +50,15 @@ export interface StartSSEOptions {
      * so that the response can be associated with the new resumed request.
      */
     replayMessageId?: string | number;
+
+    /**
+     * The per-request abort signal supplied by the caller via
+     * `TransportSendOptions.requestSignal`. When this signal is aborted the
+     * originating POST and its SSE response stream are torn down
+     * intentionally — `_handleSseStream` treats it exactly like the
+     * transport-level abort: no `onerror`, no reconnect.
+     */
+    requestSignal?: AbortSignal;
 }
 
 /**
@@ -391,7 +400,13 @@ export class StreamableHTTPClientTransport implements Transport {
         if (!stream) {
             return;
         }
-        const { onresumptiontoken, replayMessageId } = options;
+        const { onresumptiontoken, replayMessageId, requestSignal } = options;
+        // An intentional abort — transport-wide close OR a per-request abort
+        // (McpSubscription.close() aborting its `requestSignal`) — must read as
+        // a clean shutdown: no misleading "SSE stream disconnected" onerror,
+        // and no GET+Last-Event-ID reconnect that would resurrect a stream the
+        // caller just tore down.
+        const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
 
         let lastEventId: string | undefined;
         // Track whether we've received a priming event (event with ID)
@@ -460,7 +475,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 // BUT don't reconnect if we already received a response - the request is complete
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
-                if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
+                if (needsReconnect && this._abortController && !isIntentionalAbort()) {
                     this._scheduleReconnection(
                         {
                             resumptionToken: lastEventId,
@@ -471,6 +486,11 @@ export class StreamableHTTPClientTransport implements Transport {
                     );
                 }
             } catch (error) {
+                if (isIntentionalAbort()) {
+                    // The reader threw because we aborted it. Not an error; do
+                    // not surface onerror, do not reconnect.
+                    return;
+                }
                 // Handle stream errors - likely a network disconnect
                 this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
 
@@ -479,7 +499,7 @@ export class StreamableHTTPClientTransport implements Transport {
                 // BUT don't reconnect if we already received a response - the request is complete
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
-                if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
+                if (needsReconnect && this._abortController && !isIntentionalAbort()) {
                     // Use the exponential backoff reconnection strategy
                     try {
                         this._scheduleReconnection(
@@ -699,7 +719,7 @@ export class StreamableHTTPClientTransport implements Transport {
                     // Handle SSE stream responses for requests
                     // We use the same handler as standalone streams, which now supports
                     // reconnection with the last event ID
-                    this._handleSseStream(response.body, { onresumptiontoken }, false);
+                    this._handleSseStream(response.body, { onresumptiontoken, requestSignal: options?.requestSignal }, false);
                 } else if (contentType?.includes('application/json')) {
                     // For non-streaming servers, we might get direct JSON responses
                     const data = await response.json();

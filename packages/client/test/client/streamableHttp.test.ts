@@ -1102,6 +1102,59 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock.mock.calls[0]![1]?.method).toBe('POST');
         });
 
+        it('per-request requestSignal abort: no onerror, no reconnect (McpSubscription.close())', async () => {
+            // ARRANGE — a POST stream that has been primed with an SSE event id
+            // (server-side resumability), so without the per-request abort
+            // guard the transport WOULD schedule a GET+Last-Event-ID reconnect.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const primedStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                    // Priming event with an id — would arm POST-stream resumability.
+                    controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce((_url, init: RequestInit) => {
+                // Propagate abort to the stream the way fetch does.
+                init.signal?.addEventListener('abort', () => streamController.error(init.signal?.reason), { once: true });
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'text/event-stream' }),
+                    body: primedStream
+                });
+            });
+
+            const requestAbort = new AbortController();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen-1', params: {} },
+                { requestSignal: requestAbort.signal }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — McpSubscription.close() aborts the per-request signal.
+            requestAbort.abort();
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT — intentional per-request abort: no onerror, no reconnect.
+            expect(errorSpy).not.toHaveBeenCalled();
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+
         it('should NOT reconnect a POST stream when error response was received', async () => {
             // ARRANGE
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
