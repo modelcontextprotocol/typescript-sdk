@@ -248,4 +248,59 @@ describe('driver loop', () => {
         });
         expect(progress).toEqual([1]);
     });
+
+    test('a failing embedded dispatch aborts its sibling dispatches via the per-round signal', async () => {
+        let siblingSignal: AbortSignal | undefined;
+        const siblingSettled = vi.fn();
+        const outcome = runInputRequiredDriver({
+            config: { autoFulfill: true, maxRounds: 10 },
+            method: 'tools/call',
+            originalParams: { name: 't' },
+            firstPayload: { inputRequests: { fail: ELICIT_ENTRY, slow: ELICIT_ENTRY } },
+            requestOptions: {},
+            hooks: {
+                dispatchInputRequest: (key, _entry, signal) => {
+                    if (key === 'fail') {
+                        return Promise.reject(new SdkError(SdkErrorCode.CapabilityNotSupported, 'no handler'));
+                    }
+                    siblingSignal = signal;
+                    return new Promise((resolve, reject) => {
+                        signal.addEventListener('abort', () => {
+                            siblingSettled();
+                            reject(signal.reason);
+                        });
+                    });
+                },
+                retry: () => Promise.resolve({ content: [] })
+            }
+        });
+        await expect(outcome).rejects.toMatchObject({ code: SdkErrorCode.CapabilityNotSupported });
+        // The sibling was aborted via the linked per-round signal — it did not
+        // keep running after the first failure.
+        expect(siblingSignal?.aborted).toBe(true);
+        expect(siblingSettled).toHaveBeenCalledOnce();
+    });
+
+    test('the requestState-only pacing sleep honors the caller abort signal', async () => {
+        const controller = new AbortController();
+        const outcome = runInputRequiredDriver({
+            config: { autoFulfill: true, maxRounds: 10 },
+            method: 'tools/call',
+            originalParams: { name: 't' },
+            firstPayload: { inputRequests: {}, requestState: 'opaque' },
+            requestOptions: {},
+            signal: controller.signal,
+            hooks: {
+                dispatchInputRequest: () => Promise.resolve({}),
+                retry: () => Promise.resolve({ content: [] })
+            }
+        });
+        // Abort while the loop is in the 250 ms pacing sleep — the call must
+        // settle without waiting it out.
+        const aborted = new SdkError(SdkErrorCode.RequestTimeout, 'aborted');
+        controller.abort(aborted);
+        const start = Date.now();
+        await expect(outcome).rejects.toBe(aborted);
+        expect(Date.now() - start).toBeLessThan(REQUEST_STATE_ONLY_LEG_PACING_MS);
+    });
 });

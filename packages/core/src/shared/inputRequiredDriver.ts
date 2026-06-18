@@ -101,14 +101,17 @@ export interface InputRequiredRetryLegOptions {
     maxTotalTimeout?: number;
 }
 
-/** The hooks the protocol layer provides to the driver. */
+/** The hooks the engine provides to the driver. */
 export interface InputRequiredDriverHooks {
     /**
      * Dispatches one embedded input request to the locally registered handler
      * and resolves with the bare response value. Rejections fail the whole
      * call (typed errors: unknown kind, missing handler, handler failure).
+     * The signal is the per-round abort: when one sibling fails (or the
+     * caller aborts the originating call) the remaining dispatches are
+     * cancelled.
      */
-    dispatchInputRequest(key: string, entry: unknown): Promise<unknown>;
+    dispatchInputRequest(key: string, entry: unknown, signal: AbortSignal): Promise<unknown>;
 
     /**
      * Re-issues the original request with the given params on a fresh request
@@ -138,8 +141,44 @@ export function buildInputRequiredRetryParams(
     };
 }
 
-function sleep(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+/**
+ * Abortable delay: resolves after `ms`, or rejects with the signal's reason
+ * (wrapped in an `SdkError` when it isn't already one) if the signal aborts
+ * first. Aborting after resolution is a no-op.
+ */
+function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+    return new Promise((resolve, reject) => {
+        if (signal?.aborted) {
+            reject(signal.reason instanceof SdkError ? signal.reason : new SdkError(SdkErrorCode.RequestTimeout, String(signal.reason)));
+            return;
+        }
+        const timer = setTimeout(() => {
+            signal?.removeEventListener('abort', onAbort);
+            resolve();
+        }, ms);
+        const onAbort = (): void => {
+            clearTimeout(timer);
+            reject(signal?.reason instanceof SdkError ? signal.reason : new SdkError(SdkErrorCode.RequestTimeout, String(signal?.reason)));
+        };
+        signal?.addEventListener('abort', onAbort, { once: true });
+    });
+}
+
+/**
+ * A per-round abort linked to the caller's signal: the embedded sibling
+ * dispatches share it, so the first failure (or a caller abort) cancels the
+ * others instead of leaving them running.
+ */
+function linkedRoundAbort(outer: AbortSignal | undefined): { signal: AbortSignal; abort: (reason: unknown) => void; dispose: () => void } {
+    const controller = new AbortController();
+    const onOuterAbort = (): void => controller.abort(outer?.reason);
+    outer?.addEventListener('abort', onOuterAbort, { once: true });
+    if (outer?.aborted) controller.abort(outer.reason);
+    return {
+        signal: controller.signal,
+        abort: reason => controller.abort(reason),
+        dispose: () => outer?.removeEventListener('abort', onOuterAbort)
+    };
 }
 
 /**
@@ -159,9 +198,11 @@ export async function runInputRequiredDriver(args: {
     firstPayload: InputRequiredPayload;
     requestOptions: InputRequiredDriverRequestOptions;
     hooks: InputRequiredDriverHooks;
+    /** The originating call's abort signal — chains through every round and the pacing sleep. */
+    signal?: AbortSignal;
     flowStartedAt?: number;
 }): Promise<unknown> {
-    const { config, method, originalParams, requestOptions, hooks } = args;
+    const { config, method, originalParams, requestOptions, hooks, signal } = args;
     const startedAt = args.flowStartedAt ?? Date.now();
     let payload = args.firstPayload;
     let round = 0;
@@ -192,15 +233,29 @@ export async function runInputRequiredDriver(args: {
         let responses: Record<string, unknown> | undefined;
         if (entries.length > 0) {
             // Fulfil concurrently (the embedded requests are independent); a
-            // single failure fails the call.
-            const fulfilled = await Promise.all(
-                entries.map(async ([key, entry]) => [key, await hooks.dispatchInputRequest(key, entry)] as const)
-            );
-            responses = Object.fromEntries(fulfilled);
+            // single failure fails the call AND aborts the siblings via the
+            // linked per-round signal so they do not keep running.
+            const round = linkedRoundAbort(signal);
+            try {
+                const fulfilled = await Promise.all(
+                    entries.map(async ([key, entry]) => {
+                        try {
+                            return [key, await hooks.dispatchInputRequest(key, entry, round.signal)] as const;
+                        } catch (error) {
+                            round.abort(error);
+                            throw error;
+                        }
+                    })
+                );
+                responses = Object.fromEntries(fulfilled);
+            } finally {
+                round.dispose();
+            }
         } else {
             // requestState-only (load-shedding) leg: fixed pacing so the loop
-            // never hot-spins; counted in the same round cap.
-            await sleep(REQUEST_STATE_ONLY_LEG_PACING_MS);
+            // never hot-spins; counted in the same round cap. The sleep
+            // honors the caller's abort signal.
+            await sleep(REQUEST_STATE_ONLY_LEG_PACING_MS, signal);
         }
 
         const legOptions: InputRequiredRetryLegOptions = {
