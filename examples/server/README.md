@@ -39,7 +39,6 @@ pnpm tsx src/simpleStreamableHttp.ts
 | Hono Streamable HTTP server               | Streamable HTTP server built with Hono instead of Express.                                                                  | [`src/honoWebStandardStreamableHttp.ts`](src/honoWebStandardStreamableHttp.ts)           |
 | SSE polling demo server                   | Legacy SSE server intended for polling demos.                                                                               | [`src/ssePollingExample.ts`](src/ssePollingExample.ts)                                   |
 | Multi-round-trip server (2026-07-28)      | Write-once tool that returns `inputRequired(...)` (form + URL elicitation, requestState echo) via `createMcpHandler`.       | [`src/multiRoundTrip.ts`](src/multiRoundTrip.ts)                                         |
-| Subscriptions/listen server (2026-07-28)  | Publishes `tools/list_changed` to open `subscriptions/listen` streams via `handler.notify.toolsChanged()`.                  | [`src/subscriptionsListen.ts`](src/subscriptionsListen.ts)                               |
 
 ## OAuth demo flags (Streamable HTTP server)
 

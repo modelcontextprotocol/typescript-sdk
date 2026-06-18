@@ -73,7 +73,7 @@ entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' 
 ```
 
 Omitting `arm` excludes both arms. The reasons (`EntryExclusionReason` in types.ts) are the acceptance checklist for re-admitting cells when the corresponding entry feature lands; a coverage gate rejects annotations that would never have an effect. Requirement families that the
-per-request entry structurally cannot serve at all (server→client requests, sessions/resumability, standalone GET streams, subscriptions) are already expressed through their `transports` restrictions and need no annotation.
+per-request entry structurally cannot serve at all (server→client requests, sessions/resumability, standalone GET streams) are already expressed through their `transports` restrictions and need no annotation.
 
 Arm-specific helpers: `wire()`'s fourth argument also accepts `entry` (createMcpHandler hosting overrides — e.g. a `responseMode` or a different `legacy` posture), the returned `Wired.httpLog` records every HTTP exchange (request body, status, content-type, a readable response
 clone) for raw wire assertions, factories may accept the optional per-request context (`EntryServerFactory`), and `modernEnvelopeMeta()` builds the envelope for bodies that POST raw 2026-era requests through `wired.fetch`. Compositions that the entry no longer expresses through

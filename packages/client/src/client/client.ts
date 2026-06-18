@@ -974,9 +974,15 @@ export class Client extends Protocol<ClientContext> {
                     });
                 } catch (error) {
                     // Connect-signal abort during the ack wait propagates as a
-                    // connect() rejection (caller asked to abort connect); a
-                    // server-side refusal stays a soft onerror.
-                    if (options?.signal?.aborted) throw error;
+                    // connect() rejection (caller asked to abort connect). The
+                    // transport is already started, so close it before
+                    // rethrowing — a connect() rejection MUST NOT leave a
+                    // half-open connection. A server-side refusal stays a
+                    // soft onerror (connect succeeds, no listen stream).
+                    if (options?.signal?.aborted) {
+                        void this.close();
+                        throw error;
+                    }
                     this.onerror?.(error instanceof Error ? error : new Error(String(error)));
                 } finally {
                     options?.signal?.removeEventListener('abort', onConnectAbort);
