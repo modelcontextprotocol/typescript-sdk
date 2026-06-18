@@ -11,6 +11,6 @@
         "@modelcontextprotocol/examples",
         "@modelcontextprotocol/examples-client-quickstart",
         "@modelcontextprotocol/examples-server-quickstart",
-        "@modelcontextprotocol/examples-shared"
+        "@mcp-examples/*"
     ]
 }

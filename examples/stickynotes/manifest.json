@@ -1,4 +1,0 @@
-{
-    "era": "legacy",
-    "//": "The elicitation-confirmed remove_all path needs a 2025 initialize handshake to advertise the elicitation capability; the http leg additionally skips that path (no return path on per-request HTTP)."
-}

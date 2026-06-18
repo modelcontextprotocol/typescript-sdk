@@ -9,7 +9,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { createProtectedResourceMetadataRouter, demoTokenVerifier, setupAuthServer } from '@modelcontextprotocol/examples-shared';
+import { createProtectedResourceMetadataRouter, demoTokenVerifier, setupAuthServer } from '@mcp-examples/shared';
 import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ElicitRequestURLParams, ElicitResult } from '@modelcontextprotocol/server';

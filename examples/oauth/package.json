@@ -1,0 +1,23 @@
+{
+    "name": "@mcp-examples/oauth",
+    "private": true,
+    "type": "module",
+    "dependencies": {
+        "@modelcontextprotocol/client": "workspace:*",
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/express": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "ajv": "catalog:runtimeShared",
+        "cors": "catalog:runtimeServerOnly",
+        "express": "catalog:runtimeServerOnly",
+        "open": "^11.0.0",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "excluded": "Interactive authorization-code OAuth flows: browser auth, readline REPLs, callback server on :8090. The machine-to-machine client_credentials grant is covered by ../oauth-client-credentials/. Revisit after the auth-surface walk."
+    }
+}

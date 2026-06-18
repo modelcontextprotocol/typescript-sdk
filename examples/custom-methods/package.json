@@ -1,0 +1,20 @@
+{
+    "name": "@mcp-examples/custom-methods",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "legacy",
+        "//": "Custom methods carry no envelope semantics; the example connects as a plain 2025 client so the request reaches setRequestHandler exactly as a hand-wired client would."
+    }
+}

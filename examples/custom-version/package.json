@@ -1,0 +1,19 @@
+{
+    "name": "@mcp-examples/custom-version",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/server": "workspace:*"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "legacy",
+        "//": "supportedProtocolVersions / version negotiation is the 2025 initialize handshake; the modern era is its own negotiation story (../dual-era/)."
+    }
+}

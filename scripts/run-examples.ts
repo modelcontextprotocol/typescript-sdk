@@ -14,9 +14,9 @@
  *   - **legacy**: pass `--legacy` to the client so it uses the 2025
  *     `initialize` handshake (`versionNegotiation: { mode: 'legacy' }`).
  *
- * A per-directory `manifest.json` overrides defaults — most stories have none.
- * `excluded` stories are listed (with their reason) but not run. Stories
- * without a `client.ts` are skipped.
+ * Per-story configuration lives in the story's `package.json` under the
+ * `"example"` field — most stories have none. `excluded` stories are listed
+ * (with their reason) but not run. Stories without a `client.ts` are skipped.
  */
 import { spawn, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
@@ -24,10 +24,11 @@ import { connect } from 'node:net';
 import { join, resolve } from 'node:path';
 
 type Era = 'modern' | 'legacy';
+type Transport = 'stdio' | 'http';
 
-interface Manifest {
-    /** `'dual'` (stdio + http; the default), `'http'`, or `'stdio'`. */
-    transport?: 'dual' | 'http' | 'stdio';
+interface ExampleConfig {
+    /** Transports to run (default: `['stdio', 'http']`). */
+    transports?: Transport[];
     /** `'dual'` (modern + legacy; the default), `'modern'`, or `'legacy'`. */
     era?: 'dual' | Era;
     /** HTTP port (default: a per-story port assigned below). */
@@ -54,15 +55,17 @@ const NON_STORY = new Set(['shared', 'guides', 'oauth', 'server-quickstart', 'cl
 /** Distinct per-story HTTP ports so the servers never collide. */
 let nextPort = 8530;
 const portFor = new Map<string, number>();
-function assignPort(story: string, manifest: Manifest): number {
-    if (manifest.port) return manifest.port;
+function assignPort(story: string, config: ExampleConfig): number {
+    if (config.port) return config.port;
     if (!portFor.has(story)) portFor.set(story, nextPort++);
     return portFor.get(story)!;
 }
 
-function readManifest(dir: string): Manifest {
-    const file = join(dir, 'manifest.json');
-    return existsSync(file) ? (JSON.parse(readFileSync(file, 'utf8')) as Manifest) : {};
+function readConfig(dir: string): ExampleConfig {
+    const file = join(dir, 'package.json');
+    if (!existsSync(file)) return {};
+    const pkg = JSON.parse(readFileSync(file, 'utf8')) as { example?: ExampleConfig };
+    return pkg.example ?? {};
 }
 
 function run(
@@ -116,10 +119,10 @@ interface LegResult {
 
 const eraArgs = (era: Era): string[] => (era === 'legacy' ? ['--legacy'] : []);
 
-async function runStdioLeg(story: string, dir: string, manifest: Manifest, era: Era): Promise<LegResult> {
-    const timeoutMs = manifest.timeoutMs ?? 30_000;
+async function runStdioLeg(story: string, dir: string, config: ExampleConfig, era: Era): Promise<LegResult> {
+    const timeoutMs = config.timeoutMs ?? 30_000;
     const result = await run(TSX, [join(dir, 'client.ts'), ...eraArgs(era)], { cwd: ROOT, timeoutMs });
-    const ok = result.code === 0 && (!manifest.expects?.stdout || result.stdout.includes(manifest.expects.stdout));
+    const ok = result.code === 0 && (!config.expects?.stdout || result.stdout.includes(config.expects.stdout));
     return {
         story,
         leg: `stdio/${era}`,
@@ -128,15 +131,15 @@ async function runStdioLeg(story: string, dir: string, manifest: Manifest, era: 
     };
 }
 
-async function runHttpLeg(story: string, dir: string, manifest: Manifest, era: Era): Promise<LegResult> {
-    const timeoutMs = manifest.timeoutMs ?? 30_000;
-    const port = assignPort(story, manifest);
-    const path = manifest.path ?? '/';
+async function runHttpLeg(story: string, dir: string, config: ExampleConfig, era: Era): Promise<LegResult> {
+    const timeoutMs = config.timeoutMs ?? 30_000;
+    const port = assignPort(story, config);
+    const path = config.path ?? '/';
     const url = `http://127.0.0.1:${port}${path}`;
     let serverStderr = '';
     const server: ChildProcess = spawn(TSX, [join(dir, 'server.ts'), '--http', '--port', String(port)], {
         cwd: ROOT,
-        env: { ...process.env, PORT: String(port), ...manifest.env }
+        env: { ...process.env, PORT: String(port), ...config.env }
     });
     server.stderr?.on('data', d => (serverStderr += String(d)));
     server.stdout?.on('data', d => (serverStderr += String(d)));
@@ -146,7 +149,7 @@ async function runHttpLeg(story: string, dir: string, manifest: Manifest, era: E
             return { story, leg: `http/${era}`, ok: false, detail: `server never bound :${port}\n--- server log ---\n${serverStderr}` };
         }
         const result = await run(TSX, [join(dir, 'client.ts'), '--http', url, ...eraArgs(era)], { cwd: ROOT, timeoutMs });
-        const ok = result.code === 0 && (!manifest.expects?.stdout || result.stdout.includes(manifest.expects.stdout));
+        const ok = result.code === 0 && (!config.expects?.stdout || result.stdout.includes(config.expects.stdout));
         return {
             story,
             leg: `http/${era}`,
@@ -174,20 +177,19 @@ async function main(): Promise<void> {
 
     for (const story of stories) {
         const dir = join(EXAMPLES, story);
-        const manifest = readManifest(dir);
-        if (manifest.excluded) {
-            excluded.push({ story, reason: manifest.excluded });
-            console.log(`\n::group::example ${story}\nSKIPPED: ${manifest.excluded}\n::endgroup::`);
+        const config = readConfig(dir);
+        if (config.excluded) {
+            excluded.push({ story, reason: config.excluded });
+            console.log(`\n::group::example ${story}\nSKIPPED: ${config.excluded}\n::endgroup::`);
             continue;
         }
-        const transport = manifest.transport ?? 'dual';
-        const era = manifest.era ?? 'dual';
-        const transports: Array<'stdio' | 'http'> = transport === 'dual' ? ['stdio', 'http'] : [transport];
+        const transports: Transport[] = config.transports ?? ['stdio', 'http'];
+        const era = config.era ?? 'dual';
         const eras: Era[] = era === 'dual' ? ['modern', 'legacy'] : [era];
-        console.log(`\n::group::example ${story} (${transport} × ${era})`);
+        console.log(`\n::group::example ${story} (${transports.join('+')} × ${era})`);
         for (const t of transports) {
             for (const e of eras) {
-                const r = t === 'stdio' ? await runStdioLeg(story, dir, manifest, e) : await runHttpLeg(story, dir, manifest, e);
+                const r = t === 'stdio' ? await runStdioLeg(story, dir, config, e) : await runHttpLeg(story, dir, config, e);
                 results.push(r);
                 console.log(`[${r.leg}] ${r.ok ? 'PASS' : 'FAIL'}: ${r.detail.split('\n')[0]}`);
                 if (!r.ok) console.log(r.detail);

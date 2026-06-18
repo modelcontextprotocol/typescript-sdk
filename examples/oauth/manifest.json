@@ -1,3 +1,0 @@
-{
-    "excluded": "Interactive OAuth flows: browser auth, readline REPLs, callback server on :8090, no in-repo Authorization Server for client_credentials. Revisit after the auth-surface walk."
-}

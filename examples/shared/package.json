@@ -1,5 +1,5 @@
 {
-    "name": "@modelcontextprotocol/examples-shared",
+    "name": "@mcp-examples/shared",
     "private": true,
     "version": "2.0.0-alpha.0",
     "description": "Model Context Protocol implementation for TypeScript",
@@ -8,6 +8,9 @@
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
     "type": "module",
+    "exports": {
+        ".": "./src/index.ts"
+    },
     "repository": {
         "type": "git",
         "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"

@@ -1,0 +1,26 @@
+{
+    "name": "@mcp-examples/bearer-auth",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/express": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "transports": [
+            "http"
+        ],
+        "era": "modern",
+        "path": "/mcp",
+        "//": "The story body manages its own era internally (or does not use connectFromArgs); pinned so the harness runs it once per transport."
+    }
+}

@@ -3,6 +3,7 @@ packages:
     - '!packages/codemod/batch-test/**'
     - common/**/*
     - examples
+    - examples/*
     - examples/**/*
     - test/**/*
 

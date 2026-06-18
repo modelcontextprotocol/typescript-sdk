@@ -1,4 +1,0 @@
-{
-    "era": "modern",
-    "//": "The story body drives BOTH eras itself (legacy via versionNegotiation: undefined, modern via the harness default); pinned so the harness runs it once per transport."
-}
