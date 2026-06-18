@@ -609,12 +609,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * resolve. The base default surfaces it as a typed
      * {@linkcode SdkErrorCode.UnsupportedResultType} error (no retry).
      *
-     * Intended consumers (named so the seam stays accountable):
-     * - the `Client`'s multi-round-trip auto-fulfilment engine, which fulfils
-     *   `'input_required'` results through the registered
-     *   elicitation/sampling/roots handlers and retries via `flow.retry`;
-     * - a future client-side terminal-result handler for
-     *   `subscriptions/listen`, when the spec defines one.
+     * Intended consumer (named so the seam stays accountable): the `Client`'s
+     * multi-round-trip auto-fulfilment engine, which fulfils
+     * `'input_required'` results through the registered
+     * elicitation/sampling/roots handlers and retries via `flow.retry`.
+     *
+     * `subscriptions/listen` does NOT use this seam — it never receives a
+     * JSON-RPC result; the listen driver uses {@linkcode _parkRequest} and
+     * {@linkcode _onParkedNotification} instead.
      *
      * `Server` instances never receive `input_required` responses on their
      * outbound legs and leave the base behavior in place.
@@ -639,6 +641,97 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     protected _getRequestHandler(method: string): ((request: JSONRPCRequest, ctx: ContextT) => Promise<Result>) | undefined {
         return this._requestHandlers.get(method);
+    }
+
+    /**
+     * First-look hook for inbound notifications, consulted before any
+     * decoding, era gating, or handler dispatch. When set and returning
+     * `'consumed'`, the notification goes no further; when unset or returning
+     * `undefined`, dispatch proceeds unchanged.
+     *
+     * Intended consumer (named so the seam stays accountable): the
+     * `Client`-side `subscriptions/listen` driver, which routes the leading
+     * `notifications/subscriptions/acknowledged` (and the inbound
+     * `notifications/cancelled` that terminates a parked listen on stdio) to
+     * the per-subscription state rather than the generic notification map.
+     * The hook receives the raw wire shape — `_meta` (including the
+     * subscription-id key) is intact.
+     *
+     * Inert when unset. Do NOT widen this into a general-purpose notification
+     * tap; anything beyond the listen driver belongs in
+     * {@linkcode setNotificationHandler}.
+     */
+    protected _onParkedNotification?: (raw: JSONRPCNotification) => 'consumed' | undefined;
+
+    /**
+     * Low-level no-timeout request primitive: sends a JSON-RPC request and
+     * registers a response handler WITHOUT arming `_setupTimeout`. The
+     * registration stays in `_responseHandlers` until either a JSON-RPC
+     * response/error arrives for the id, the transport closes, or the caller
+     * invokes the returned `unpark()` — whichever comes first.
+     *
+     * Intended consumer (named so the seam stays accountable): the
+     * `Client.listen()` driver. `subscriptions/listen` is a long-lived
+     * request that the spec defines as never receiving a JSON-RPC result —
+     * termination is stream close (HTTP) or an inbound
+     * `notifications/cancelled` (stdio). The standard `request()` funnel is
+     * deliberately untouched; this primitive does not pass through
+     * `_resolveNonCompleteResult`, `decodeResult`, or any per-request timeout.
+     *
+     * Returns the allocated message id (the spec's subscription id is this id
+     * verbatim) and an `unpark()` that idempotently removes the registration.
+     * `terminated` resolves when the registration is consumed by a response,
+     * error, or transport close; it never rejects.
+     */
+    protected _parkRequest(
+        request: { method: string; params?: { [key: string]: unknown; _meta?: { [key: string]: unknown } } },
+        options?: TransportSendOptions,
+        /**
+         * Called synchronously after the message id is allocated and the
+         * response handler is registered, BEFORE the request is sent — so
+         * the caller can register per-id state without racing a
+         * synchronously-delivered response on an in-process transport.
+         */
+        onBeforeSend?: (messageId: number) => void
+    ): {
+        messageId: number;
+        sent: Promise<void>;
+        terminated: Promise<{ reason: 'response' | 'error' | 'unparked'; error?: Error }>;
+        unpark: () => void;
+    } {
+        if (!this._transport) {
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+        }
+        const messageId = this._requestMessageId++;
+        const jsonrpcRequest: JSONRPCRequest = { ...request, jsonrpc: '2.0', id: messageId };
+        let settle!: (value: { reason: 'response' | 'error' | 'unparked'; error?: Error }) => void;
+        const terminated = new Promise<{ reason: 'response' | 'error' | 'unparked'; error?: Error }>(resolve => {
+            settle = resolve;
+        });
+        let live = true;
+        this._responseHandlers.set(messageId, response => {
+            if (!live) return;
+            live = false;
+            settle(response instanceof Error ? { reason: 'error', error: response } : { reason: 'response' });
+        });
+        const unpark = () => {
+            if (!live) return;
+            live = false;
+            this._responseHandlers.delete(messageId);
+            settle({ reason: 'unparked' });
+        };
+        onBeforeSend?.(messageId);
+        let sent: Promise<void>;
+        try {
+            sent = this._transport.send(jsonrpcRequest, options);
+        } catch (error) {
+            // Unregister before rethrowing so a synchronous send failure does
+            // not leak a permanent _responseHandlers entry for an id that
+            // never went out on the wire.
+            unpark();
+            throw error;
+        }
+        return { messageId, sent, terminated, unpark };
     }
 
     private async _oncancel(notification: CancelledNotification): Promise<void> {
@@ -771,6 +864,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     private _onnotification(rawNotification: JSONRPCNotification, extra?: MessageExtraInfo): void {
+        // First-look hook (inert when unset): the `subscriptions/listen`
+        // driver gets first refusal on the raw notification — `_meta` intact.
+        if (this._onParkedNotification?.(rawNotification) === 'consumed') {
+            return;
+        }
         // Hide wire-only material from notification handlers too — but ONLY
         // the reserved envelope `_meta` keys (the retry params names are
         // reserved on requests, not notifications). There is no
