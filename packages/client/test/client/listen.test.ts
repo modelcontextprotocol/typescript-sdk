@@ -288,6 +288,35 @@ describe('Client.listen()', () => {
         expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
     });
 
+    it('auto-open filter is configured ∩ server-advertised; empty intersection skips auto-open', async () => {
+        const filters: unknown[] = [];
+        // scriptedModern advertises tools.listChanged + prompts.listChanged but NOT resources.
+        const { clientTx } = await scriptedModern((_id, filter) => filters.push(filter));
+        const onChanged = () => {};
+        const client = new Client(
+            { name: 'c', version: '1' },
+            // Configures tools + resources; server advertises tools + prompts.
+            { versionNegotiation: { mode: 'auto' }, listChanged: { tools: { onChanged }, resources: { onChanged } } }
+        );
+        await client.connect(clientTx);
+        // Intersection = tools only.
+        expect(filters).toEqual([{ toolsListChanged: true }]);
+        expect(client.autoOpenedSubscription?.honoredFilter).toEqual({ toolsListChanged: true });
+        await client.close();
+
+        // Empty intersection: configures resources only; server advertises tools+prompts.
+        const filters2: unknown[] = [];
+        const { clientTx: clientTx2 } = await scriptedModern((_id, filter) => filters2.push(filter));
+        const client2 = new Client(
+            { name: 'c', version: '1' },
+            { versionNegotiation: { mode: 'auto' }, listChanged: { resources: { onChanged } } }
+        );
+        await client2.connect(clientTx2);
+        expect(filters2).toEqual([]);
+        expect(client2.autoOpenedSubscription).toBeUndefined();
+        await client2.close();
+    });
+
     it('a failed auto-open surfaces via onerror and does NOT fail connect', async () => {
         const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
         serverTx.onmessage = m => {

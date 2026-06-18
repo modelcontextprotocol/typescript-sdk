@@ -862,12 +862,22 @@ export class Client extends Protocol<ClientContext> {
         // 2025-era unsolicited notifications, no listen needed.
         if (this._pendingListChangedConfig) {
             const config = this._pendingListChangedConfig;
-            this._setupListChangedHandlers(config);
             this._pendingListChangedConfig = undefined;
+            // Compute configured ∩ server-advertised ONCE and use that single
+            // value for BOTH handler registration and the auto-open filter, so
+            // a configured-but-not-advertised type is neither subscribed to
+            // nor handled (the two stay in lockstep).
+            const advertised = this._serverCapabilities;
+            const effective: ListChangedHandlers = {
+                ...(config.tools && advertised?.tools?.listChanged && { tools: config.tools }),
+                ...(config.prompts && advertised?.prompts?.listChanged && { prompts: config.prompts }),
+                ...(config.resources && advertised?.resources?.listChanged && { resources: config.resources })
+            };
+            this._setupListChangedHandlers(effective);
             const filter: SubscriptionFilter = {
-                ...(config.tools && { toolsListChanged: true as const }),
-                ...(config.prompts && { promptsListChanged: true as const }),
-                ...(config.resources && { resourcesListChanged: true as const })
+                ...(effective.tools && { toolsListChanged: true as const }),
+                ...(effective.prompts && { promptsListChanged: true as const }),
+                ...(effective.resources && { resourcesListChanged: true as const })
             };
             if (Object.keys(filter).length > 0) {
                 // A failed auto-open MUST NOT fail connect: the modern
@@ -1354,8 +1364,9 @@ export class Client extends Protocol<ClientContext> {
             );
             // A synchronously-delivered termination during `send()` (an
             // in-process transport) ran `settle()` before `parked` was
-            // assigned — unpark now so the handler does not leak.
-            if (state === 'closed') parked.unpark();
+            // assigned — unpark now so the handler does not leak. (Cast: TS
+            // control-flow narrowing does not track closure mutation.)
+            if ((state as 'opening' | 'open' | 'closed') === 'closed') parked.unpark();
             // Pre-ack capacity / params rejection arrives as a JSON-RPC error
             // for the listen id; transport close is delivered the same way.
             void parked.terminated.then(({ reason, error }) => {
