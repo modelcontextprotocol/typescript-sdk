@@ -162,11 +162,16 @@ export async function wire(
                 return response;
             };
             let clientTx = new StreamableHTTPClientTransport(url, { fetch });
+            // entryModern is the era-fixed 2026-07-28 arm: it is the only arm
+            // whose wire may legitimately carry input_required results, so it
+            // opts the sniffer into accepting them (other arms stay strict).
+            let armSniff: WireOptions = sniff;
             if (transport === 'entryModern') {
                 pinModernNegotiation(client);
                 clientTx = attachModernEnvelope(clientTx);
+                armSniff = { allowInputRequiredResults: true, ...sniff };
             }
-            await client.connect(sniffTransport(clientTx, 'client', sniff));
+            await client.connect(sniffTransport(clientTx, 'client', armSniff));
             if (transport === 'entryModern') assertModernNegotiation(client);
             return {
                 fetch,

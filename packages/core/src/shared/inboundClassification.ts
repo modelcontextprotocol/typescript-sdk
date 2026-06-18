@@ -27,6 +27,12 @@
  *   A notification that does carry a claim is treated body-primary like a
  *   request, and a malformed claim is rejected the same way a request's
  *   malformed claim is — never silently resolved against the header.
+ *   The notification-POST header cross-checks here are an SDK-defensive
+ *   posture, not a spec requirement: the spec leaves header rules for posted
+ *   notifications undefined (core client notifications do not occur over
+ *   Streamable HTTP); applying the request rules symmetrically is what an
+ *   ecosystem custom-notification POST expects, and the −32001 cells stay
+ *   passing for them.
  * - `GET`/`DELETE` (and any other non-`POST` method) are body-less 2025-era
  *   session operations: the modern era is `POST`-only, so they are routed to
  *   legacy serving when it is configured and rejected otherwise.

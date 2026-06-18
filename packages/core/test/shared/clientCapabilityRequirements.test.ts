@@ -12,6 +12,7 @@ import { describe, expect, test } from 'vitest';
 import {
     missingClientCapabilities,
     REQUIRED_CLIENT_CAPABILITIES_BY_METHOD,
+    requiredClientCapabilitiesForInputRequest,
     requiredClientCapabilitiesForRequest
 } from '../../src/shared/clientCapabilityRequirements.js';
 import { rev2026RequestMethods } from '../../src/wire/rev2026-07-28/registry.js';
@@ -38,6 +39,43 @@ describe('missingClientCapabilities', () => {
 
     test('an empty requirement object is always satisfied', () => {
         expect(missingClientCapabilities({}, undefined)).toBeUndefined();
+    });
+
+    test('a bare elicitation declaration implies form support (the pre-mode meaning), but not other modes', () => {
+        // Bare `elicitation: {}` satisfies the form requirement…
+        expect(missingClientCapabilities({ elicitation: { form: {} } }, { elicitation: {} })).toBeUndefined();
+        // …but an explicit mode declaration removes the implication…
+        expect(missingClientCapabilities({ elicitation: { form: {} } }, { elicitation: { url: {} } })).toEqual({
+            elicitation: { form: {} }
+        });
+        // …and the bare declaration never implies URL support.
+        expect(missingClientCapabilities({ elicitation: { url: {} } }, { elicitation: {} })).toEqual({ elicitation: { url: {} } });
+    });
+});
+
+describe('requiredClientCapabilitiesForInputRequest', () => {
+    test('elicitation requirements are mode-aware sub-capabilities', () => {
+        expect(requiredClientCapabilitiesForInputRequest({ method: 'elicitation/create', params: { mode: 'url' } })).toEqual({
+            elicitation: { url: {} }
+        });
+        expect(requiredClientCapabilitiesForInputRequest({ method: 'elicitation/create', params: { mode: 'form' } })).toEqual({
+            elicitation: { form: {} }
+        });
+        // Mode omitted defaults to form.
+        expect(requiredClientCapabilitiesForInputRequest({ method: 'elicitation/create', params: { message: 'Name?' } })).toEqual({
+            elicitation: { form: {} }
+        });
+    });
+
+    test('sampling requires sampling.tools only when tools/toolChoice are present; roots requires roots; other methods are not input requests', () => {
+        expect(requiredClientCapabilitiesForInputRequest({ method: 'sampling/createMessage', params: { maxTokens: 5 } })).toEqual({
+            sampling: {}
+        });
+        expect(
+            requiredClientCapabilitiesForInputRequest({ method: 'sampling/createMessage', params: { maxTokens: 5, tools: [] } })
+        ).toEqual({ sampling: { tools: {} } });
+        expect(requiredClientCapabilitiesForInputRequest({ method: 'roots/list' })).toEqual({ roots: {} });
+        expect(requiredClientCapabilitiesForInputRequest({ method: 'tools/call' })).toBeUndefined();
     });
 });
 
