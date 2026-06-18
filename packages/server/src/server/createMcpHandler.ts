@@ -430,8 +430,12 @@ type EntryClassification =
  * {@linkcode classifyInboundRequest}. This is the single code path behind both
  * {@linkcode createMcpHandler}'s routing and the exported
  * {@linkcode isLegacyRequest} predicate, so the two can never disagree.
+ *
+ * Pass `needsForward: false` when the caller never reads `forwardRequest` —
+ * the body-preserving clone is then skipped and `forwardRequest` is the
+ * (consumed) input request.
  */
-async function classifyEntryRequest(request: Request, providedParsedBody?: unknown): Promise<EntryClassification> {
+async function classifyEntryRequest(request: Request, providedParsedBody?: unknown, needsForward = true): Promise<EntryClassification> {
     const httpMethod = request.method.toUpperCase();
 
     let body: unknown;
@@ -443,8 +447,10 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
         if (parsedBody === undefined) {
             // Read the body exactly once for classification, keeping an unread
             // copy of the original bytes for the legacy leg (web-standard
-            // request bodies are single-use).
-            forwardRequest = request.clone();
+            // request bodies are single-use) when the caller needs it.
+            if (needsForward) {
+                forwardRequest = request.clone();
+            }
             let bodyText: string;
             try {
                 bodyText = await request.text();
@@ -537,9 +543,10 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
 export async function isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean> {
     // Classify a clone so the caller's request body stays readable; with a
     // pre-parsed body (or a body-less method) nothing is read and no clone is
-    // needed.
+    // needed. The predicate never reads forwardRequest, so the classification
+    // step's own forwarding clone is skipped.
     const probe = parsedBody === undefined && request.method.toUpperCase() === 'POST' ? request.clone() : request;
-    const classified = await classifyEntryRequest(probe, parsedBody);
+    const classified = await classifyEntryRequest(probe, parsedBody, false);
     return classified.step === 'no-json-body' || (classified.step === 'classified' && classified.outcome.kind === 'legacy');
 }
 
