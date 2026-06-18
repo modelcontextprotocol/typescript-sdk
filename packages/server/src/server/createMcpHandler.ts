@@ -678,15 +678,19 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
 
         // Entry-handled `subscriptions/listen`: the router owns ack-first /
         // per-stream filtering / subscription-id stamping / keepalive /
-        // capacity / teardown. The factory IS constructed for listen — exactly
-        // as for `server/discover` — but only to read the instance's declared
-        // capabilities so the acknowledged filter reflects what the server can
-        // actually deliver; the instance is never connected and is discarded.
+        // capacity / teardown. The factory IS constructed for listen — to read
+        // the instance's declared capabilities only, so the acknowledged
+        // filter reflects what the server can actually deliver. Unlike the
+        // discover path (which connects via the per-request transport and tears
+        // down with it), the probe instance is never connected: capabilities
+        // are read off the unconnected instance and it is closed immediately.
         // Authorization the consumer performs inside the factory therefore DOES
         // see listen requests, although token verification still belongs at the
         // middleware layer mounted in front of this entry.
         if (route.messageKind === 'request' && route.message.method === 'subscriptions/listen') {
-            return listenRouter.serve(route.message, request.signal, server.getCapabilities());
+            const capabilities = server.getCapabilities();
+            void product.close().catch(reportError);
+            return listenRouter.serve(route.message, request.signal, capabilities);
         }
 
         // Era-write at instance binding, then modern-only handler installation —

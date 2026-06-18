@@ -4,13 +4,12 @@
  * `createMcpHandler` recognizes a modern-classified `subscriptions/listen`
  * request and routes it here: the entry owns ack-first, per-stream filtering,
  * subscription-id stamping, keepalive, capacity guarding, and teardown. The
- * consumer's factory IS constructed for listen — exactly as for
- * `server/discover` — but only to read the instance's declared
- * `ServerCapabilities` so the acknowledged filter reflects what the server
- * can actually deliver; the instance is never connected and is discarded.
- * Token verification and any per-request authorization still belong at the
- * middleware layer mounted in front of `createMcpHandler` (the entry's
- * documented authz posture).
+ * consumer's factory IS constructed for listen, to read the instance's
+ * declared `ServerCapabilities` only — the probe instance is never connected
+ * and is closed immediately after the capabilities read. Token verification
+ * and any per-request authorization still belong at the middleware layer
+ * mounted in front of `createMcpHandler` (the entry's documented authz
+ * posture).
  *
  * Per the spec at protocol revision 2026-07-28:
  * - The acknowledged notification is the FIRST message on the stream and

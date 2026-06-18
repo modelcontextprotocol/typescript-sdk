@@ -80,13 +80,20 @@ function trivialFactory(): () => McpServer {
 describe('createMcpHandler — subscriptions/listen', () => {
     it('serves listen at the entry, consulting the factory only for its declared capabilities', async () => {
         let factoryCalls = 0;
-        let connected = false;
+        let connectCalls = 0;
+        let closeCalls = 0;
         const handler = createMcpHandler(
             () => {
                 factoryCalls++;
                 const s = new McpServer({ name: 's', version: '1' });
-                s.server.onclose = () => {
-                    connected = true;
+                const { connect, close } = s;
+                s.connect = tx => {
+                    connectCalls++;
+                    return connect.call(s, tx);
+                };
+                s.close = () => {
+                    closeCalls++;
+                    return close.call(s);
                 };
                 return s;
             },
@@ -95,10 +102,12 @@ describe('createMcpHandler — subscriptions/listen', () => {
         const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }));
         expect(response.status).toBe(200);
         const [ack] = await readMessages(response, 1);
-        // The factory is consulted exactly once (capabilities probe, like
-        // server/discover); the instance is never connected and is discarded.
+        // The factory is consulted exactly once (capabilities probe only); the
+        // instance is never connected and is closed immediately after the
+        // capabilities read so a factory-allocated resource cannot leak.
         expect(factoryCalls).toBe(1);
-        expect(connected).toBe(false);
+        expect(connectCalls).toBe(0);
+        expect(closeCalls).toBe(1);
         expect((ack as { method: string }).method).toBe('notifications/subscriptions/acknowledged');
         await handler.close();
     });
