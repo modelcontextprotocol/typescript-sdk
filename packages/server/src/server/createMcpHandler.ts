@@ -52,7 +52,8 @@ import {
     setNegotiatedProtocolVersion,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS,
     UnsupportedProtocolVersionError,
-    validateMcpParamHeaders
+    validateMcpParamHeaders,
+    validateStandardRequestHeaders
 } from '@modelcontextprotocol/core';
 
 import { invoke } from './invoke.js';
@@ -471,6 +472,7 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
         httpMethod,
         protocolVersionHeader: request.headers.get('mcp-protocol-version') ?? undefined,
         mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
+        mcpNameHeader: request.headers.get('mcp-name') ?? undefined,
         ...(body !== undefined && { body })
     });
     return { step: 'classified', outcome, body, parsedBody, forwardRequest };
@@ -642,6 +644,29 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             });
             reportError(error);
             return jsonRpcErrorResponse(400, error.code, error.message, error.data, echoableRequestId(route.message));
+        }
+
+        // SEP-2243 standard-header presence and `Mcp-Name` cross-check
+        // (`era-classification` rung; the `MCP-Protocol-Version` and
+        // `Mcp-Method` *mismatch* cells are already answered inside
+        // `classifyInboundRequest`). Evaluated after the supported-revision
+        // gate so an envelope naming a revision this endpoint does not serve
+        // is still answered with `-32004` (the supported list is the more
+        // useful answer to a client speaking the wrong revision); evaluated
+        // before the capability gate, the factory call, and the
+        // `Mcp-Param-*` rung so a request that fails several rungs is
+        // answered by the standard-header rung first.
+        const stdHeaderRejection = validateStandardRequestHeaders(
+            {
+                httpMethod: request.method,
+                mcpMethodHeader: request.headers.get('mcp-method') ?? undefined,
+                mcpNameHeader: request.headers.get('mcp-name') ?? undefined
+            },
+            route
+        );
+        if (stdHeaderRejection !== undefined) {
+            reportError(new Error(`Rejected inbound request (${stdHeaderRejection.cell}): ${stdHeaderRejection.message}`));
+            return rejectionResponse(stdHeaderRejection, echoableRequestId(route.message));
         }
 
         const meta = route.messageKind === 'request' ? requestMetaOf(route.message.params) : undefined;

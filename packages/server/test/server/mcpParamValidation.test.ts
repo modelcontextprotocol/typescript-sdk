@@ -52,6 +52,7 @@ function call(args: Record<string, unknown>, paramHeaders: Record<string, string
             Accept: 'application/json, text/event-stream',
             'mcp-protocol-version': MODERN,
             'mcp-method': 'tools/call',
+            'mcp-name': 'route',
             ...paramHeaders
         },
         body: JSON.stringify({

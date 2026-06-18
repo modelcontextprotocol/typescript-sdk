@@ -1056,16 +1056,16 @@ versionNegotiation: {
 }
 ```
 
-`maxRetries` governs timeout re-sends only (the spec-mandated `-32004` corrective continuation — select-and-continue with a mutual version — is a separate negotiation step and is never counted against it). Negotiation can also be configured pre-connect on an
-already-constructed instance via `client.setVersionNegotiation(options)` (equivalent to the constructor option; throws after connecting).
+`maxRetries` governs timeout re-sends only (the spec-mandated `-32004` corrective continuation — select-and-continue with a mutual version — is a separate negotiation step and is never counted against it). Negotiation can also be configured pre-connect on an already-constructed
+instance via `client.setVersionNegotiation(options)` (equivalent to the constructor option; throws after connecting).
 
-Once a modern era is negotiated, the client **automatically attaches the per-request `_meta` envelope** (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification — you never set it by hand. Any `_meta` keys you pass
-in a request are preserved over the auto-attached ones. After connect, `client.getProtocolEra()` returns `'legacy'` or `'modern'` and `client.getNegotiatedProtocolVersion()` the exact revision.
+Once a modern era is negotiated, the client **automatically attaches the per-request `_meta` envelope** (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification — you never set it by hand. Any `_meta` keys you pass in a
+request are preserved over the auto-attached ones. After connect, `client.getProtocolEra()` returns `'legacy'` or `'modern'` and `client.getNegotiatedProtocolVersion()` the exact revision.
 
 On the server side, `server/discover` (advertising only the modern revisions) is served by instances hosted through one of the 2026-era serving entries; a hand-constructed `Server`/`McpServer` is byte-identical to before (it keeps answering `-32601`, and the `initialize`
-handshake only ever negotiates 2025-era versions — a 2026-era revision is never accepted or counter-offered there). Serving the 2026 revision to ordinary HTTP traffic is done with the `createMcpHandler` entry point described in the next section; serving it on stdio (and
-other long-lived connections) is the `serveStdio` entry point described after that. The client can also issue `client.discover()` directly on a 2026-era connection; on a 2025-era connection the method is rejected locally with a typed error, since it does not exist on that
-protocol revision.
+handshake only ever negotiates 2025-era versions — a 2026-era revision is never accepted or counter-offered there). Serving the 2026 revision to ordinary HTTP traffic is done with the `createMcpHandler` entry point described in the next section; serving it on stdio (and other
+long-lived connections) is the `serveStdio` entry point described after that. The client can also issue `client.discover()` directly on a 2026-era connection; on a 2025-era connection the method is rejected locally with a typed error, since it does not exist on that protocol
+revision.
 
 ### Serving the 2026-07-28 draft revision over HTTP: `createMcpHandler`
 
@@ -1140,6 +1140,10 @@ skips the reserved standard/auth header names so a per-request header cannot ove
 `Client.listTools()` (and the client's internal `tools/list` cache) exclude tool definitions whose `x-mcp-header` declarations violate the spec's constraints, logging a warning naming the tool and the reason. Browser clients skip mirroring (dynamically named headers cannot be
 statically allow-listed for credentialed CORS); calling an `x-mcp-header` tool with a non-null designated argument from a browser against a conforming SEP-2243 server is therefore a known limitation.
 
+On the modern path, `createMcpHandler` also validates the SEP-2243 **standard** request-metadata headers against the body and rejects with the same `400` / `-32001` (`HeaderMismatch`) when the `MCP-Protocol-Version` or `Mcp-Method` header disagrees with the body, when the
+required `Mcp-Method` header is absent, when the required `Mcp-Name` header is absent on a `tools/call` / `prompts/get` / `resources/read` request, and when the (Base64-sentinel-decoded) `Mcp-Name` value disagrees with `params.name` / `params.uri`. These checks only fire on the
+modern (2026-07-28) serving path — 2025-era traffic is unchanged — and a hand-built modern HTTP request must carry the `Mcp-Method` (and where applicable `Mcp-Name`) header; the SDK client already sends them.
+
 ### Serving the 2026-07-28 draft revision on stdio: `serveStdio`
 
 The server package ships a stdio entry point that mirrors `createMcpHandler` for long-lived connections: the entry owns the transport and the era decision, the client's opening exchange selects the era for the connection, and ONE instance from your factory is pinned to that
@@ -1213,9 +1217,11 @@ const handler = createMcpHandler(() => buildServer());
 handler.notify.toolsChanged();
 ```
 
-**Client side.** `ClientOptions.listChanged` keeps working: on a 2026-07-28 connection the SDK auto-opens a `subscriptions/listen` stream whose filter is the intersection of the configured sub-options and the server-advertised `listChanged` capabilities, so the same handlers
-fire on every published change (the auto-opened subscription is exposed at `client.autoOpenedSubscription` for `close()`; when the intersection is empty auto-open is skipped and `autoOpenedSubscription` stays `undefined`). `client.listen(filter)` opens a stream explicitly and resolves once the server's acknowledged notification arrives with `{ honoredFilter, close(), closed }` (where `closed` is a `Promise<'local' | 'remote'>` that resolves once on termination — `'remote'` means the server cancelled, the stream ended, or the transport dropped, so re-listen if you still want events); change notifications dispatch to the existing `setNotificationHandler`
-registrations. `resources/subscribe` is 2025-only — on a 2026-07-28 connection, request `notifications/resources/updated` via the `resourceSubscriptions` field of the listen filter instead.
+**Client side.** `ClientOptions.listChanged` keeps working: on a 2026-07-28 connection the SDK auto-opens a `subscriptions/listen` stream whose filter is the intersection of the configured sub-options and the server-advertised `listChanged` capabilities, so the same handlers fire
+on every published change (the auto-opened subscription is exposed at `client.autoOpenedSubscription` for `close()`; when the intersection is empty auto-open is skipped and `autoOpenedSubscription` stays `undefined`). `client.listen(filter)` opens a stream explicitly and resolves
+once the server's acknowledged notification arrives with `{ honoredFilter, close(), closed }` (where `closed` is a `Promise<'local' | 'remote'>` that resolves once on termination — `'remote'` means the server cancelled, the stream ended, or the transport dropped, so re-listen if
+you still want events); change notifications dispatch to the existing `setNotificationHandler` registrations. `resources/subscribe` is 2025-only — on a 2026-07-28 connection, request `notifications/resources/updated` via the `resourceSubscriptions` field of the listen filter
+instead.
 
 ### Multi round-trip requests (2026-07-28): write-once handlers and the client auto-fulfilment driver
 
