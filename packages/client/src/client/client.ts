@@ -1260,6 +1260,10 @@ export class Client extends Protocol<ClientContext> {
             );
         }
 
+        // Honor RequestOptions.signal exactly as request() does: an
+        // already-aborted signal rejects synchronously before any setup.
+        options?.signal?.throwIfAborted();
+
         if (this._onParkedNotification === undefined) {
             this._onParkedNotification = raw => this._listenFirstLook(raw);
         }
@@ -1281,6 +1285,7 @@ export class Client extends Protocol<ClientContext> {
         // leak the entry.
         let listenMessageId: number | undefined;
         let ackTimer: ReturnType<typeof setTimeout> | undefined;
+        let onCallerAbort: (() => void) | undefined;
         let resolveOpening!: (honored: SubscriptionFilter) => void;
         let rejectOpening!: (error: Error) => void;
         const opening = new Promise<SubscriptionFilter>((resolve, reject) => {
@@ -1303,6 +1308,9 @@ export class Client extends Protocol<ClientContext> {
                 return;
             }
             state = 'closed';
+            if (onCallerAbort !== undefined) {
+                options?.signal?.removeEventListener('abort', onCallerAbort);
+            }
             if (listenMessageId !== undefined) {
                 this._listenState.delete(listenMessageId);
             }
@@ -1346,6 +1354,22 @@ export class Client extends Protocol<ClientContext> {
             settle({ error: new SdkError(SdkErrorCode.RequestTimeout, 'subscriptions/listen ack timed out', { timeout: ackTimeout }) });
             void wireTeardown().catch(() => {});
         }, ackTimeout);
+
+        // RequestOptions.signal aborts the subscription at any point in its
+        // lifecycle (mirrors request()'s cancel path). While `opening`, settle
+        // rejects the pending listen() promise with the signal's reason; while
+        // `open`, it transitions to `closed` and tears the wire down. The
+        // listener is removed by `settle()` once the subscription has closed.
+        if (options?.signal) {
+            const callerSignal = options.signal;
+            onCallerAbort = () => {
+                if (state === 'closed') return;
+                const reason = callerSignal.reason;
+                settle({ error: reason instanceof Error ? reason : new Error(String(reason ?? 'Aborted')) });
+                void wireTeardown().catch(() => {});
+            };
+            callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+        }
 
         try {
             // The per-subscription state is registered BEFORE the request is

@@ -285,6 +285,66 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
+    it('options.signal aborted while opening: listen() rejects fast with the signal reason', async () => {
+        const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+        const written: JSONRPCMessage[] = [];
+        serverTx.onmessage = m => {
+            written.push(m);
+            const req = m as { id?: number | string; method?: string };
+            if (req.method === 'server/discover' && req.id !== undefined) {
+                void serverTx.send({
+                    jsonrpc: '2.0',
+                    id: req.id,
+                    result: {
+                        resultType: 'complete',
+                        supportedVersions: [MODERN],
+                        capabilities: {},
+                        serverInfo: { name: 's', version: '1' }
+                    }
+                });
+            }
+            // No ack for subscriptions/listen — stays in `opening`.
+        };
+        await serverTx.start();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const ac = new AbortController();
+        const t0 = Date.now();
+        const pending = client.listen({ toolsListChanged: true }, { signal: ac.signal });
+        ac.abort(new Error('caller-abort'));
+        const error = await pending.catch(e => e as Error);
+        expect((error as Error).message).toBe('caller-abort');
+        expect(Date.now() - t0).toBeLessThan(1000);
+        // wireTeardown sent notifications/cancelled referencing the listen id.
+        await flush();
+        const listenId = (written.find(m => (m as { method?: string }).method === 'subscriptions/listen') as { id: number | string }).id;
+        const cancelled = written.find(m => (m as { method?: string }).method === 'notifications/cancelled') as
+            | { params: { requestId: unknown } }
+            | undefined;
+        expect(cancelled?.params.requestId).toBe(listenId);
+        // No leaked state.
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
+        await client.close();
+    });
+
+    it('options.signal aborted while open: closes the subscription (notifications/cancelled sent)', async () => {
+        const { clientTx, written } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const ac = new AbortController();
+        const sub = await client.listen({ toolsListChanged: true }, { signal: ac.signal });
+        const listenId = (written.find(m => (m as { method?: string }).method === 'subscriptions/listen') as { id: number | string }).id;
+        written.length = 0;
+        ac.abort();
+        await flush();
+        expect(written).toEqual([{ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } }]);
+        // close() after signal-abort is idempotent.
+        await sub.close();
+        expect(written).toHaveLength(1);
+        await client.close();
+    });
+
     it('rejects with NotConnected (as a rejected promise, no setup) when no transport is connected', async () => {
         const { clientTx } = await scriptedModern();
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
