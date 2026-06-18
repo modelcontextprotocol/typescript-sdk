@@ -295,7 +295,9 @@ export class StdioListenRouter {
      */
     serve(message: JSONRPCRequest): NotificationBody | { jsonrpc: '2.0'; id: RequestId; error: { code: number; message: string } } {
         if (this._serverCapabilities === undefined) {
-            throw new Error('StdioListenRouter.serve() called before setServerCapabilities(); refusing to honor a filter without capabilities');
+            throw new Error(
+                'StdioListenRouter.serve() called before setServerCapabilities(); refusing to honor a filter without capabilities'
+            );
         }
         if (this._subs.size >= this._maxSubscriptions) {
             return { jsonrpc: '2.0', id: message.id, error: { code: -32_603, message: 'Subscription limit reached' } };

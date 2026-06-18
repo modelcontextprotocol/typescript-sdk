@@ -17,6 +17,7 @@ import {
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
+import { StdioListenRouter } from '../../src/server/listenRouter.js';
 import { McpServer } from '../../src/server/mcp.js';
 import { serveStdio } from '../../src/server/serveStdio.js';
 
@@ -133,6 +134,60 @@ describe('serveStdio — subscriptions/listen', () => {
         await handle.close();
     });
 
+    it("narrows the acknowledged filter against the pinned instance's declared capabilities", async () => {
+        // bootModern's factory registers a tool (so tools.listChanged is
+        // advertised) but no prompts/resources: a listen requesting all
+        // listChanged types must see only toolsListChanged honored.
+        const { handle, inbound, send, flush } = await bootModern();
+        await send(listenReq(42, { toolsListChanged: true, promptsListChanged: true, resourcesListChanged: true }));
+        await flush();
+        expect(inbound).toHaveLength(1);
+        expect(inbound[0]).toEqual({
+            jsonrpc: '2.0',
+            method: 'notifications/subscriptions/acknowledged',
+            params: { _meta: { [SUBSCRIPTION_ID_META_KEY]: 42 }, notifications: { toolsListChanged: true } }
+        });
+        await handle.close();
+    });
+
+    it('rejects an entry-handled listen with -32602 when the per-request envelope is absent', async () => {
+        const { handle, inbound, send, flush } = await bootModern();
+        // Connection is pinned modern; a later listen without the envelope
+        // claim must be rejected at the entry's envelope rung (no ack written).
+        await send({ jsonrpc: '2.0', id: 8, method: 'subscriptions/listen', params: { notifications: { toolsListChanged: true } } });
+        await flush();
+        expect(inbound).toHaveLength(1);
+        const err = inbound[0] as { id: unknown; error: { code: number; message: string } };
+        expect(err.id).toBe(8);
+        expect(err.error.code).toBe(-32_602);
+        expect(err.error.message).toContain('Invalid _meta envelope');
+        expect(inbound.some(m => (m as JSONRPCNotification).method === 'notifications/subscriptions/acknowledged')).toBe(false);
+        await handle.close();
+    });
+
+    it('rejects an entry-handled listen claiming a revision the entry does not serve (unsupported-revision)', async () => {
+        const { handle, inbound, send, flush } = await bootModern();
+        await send({
+            jsonrpc: '2.0',
+            id: 9,
+            method: 'subscriptions/listen',
+            params: {
+                _meta: { ...ENVELOPE, [PROTOCOL_VERSION_META_KEY]: '2099-01-01' },
+                notifications: { toolsListChanged: true }
+            }
+        });
+        await flush();
+        expect(inbound).toHaveLength(1);
+        const err = inbound[0] as { id: unknown; error: { code: number; message: string; data?: unknown } };
+        expect(err.id).toBe(9);
+        // Same shape the opening classifier produces for an unsupported
+        // revision (ProtocolErrorCode.UnsupportedProtocolVersion).
+        expect(err.error.code).toBe(-32_004);
+        expect(err.error.data).toMatchObject({ requested: '2099-01-01' });
+        expect(inbound.some(m => (m as JSONRPCNotification).method === 'notifications/subscriptions/acknowledged')).toBe(false);
+        await handle.close();
+    });
+
     it('legacy-era pinned connection passes change notifications through unchanged (2025 unsolicited delivery)', async () => {
         const [peerTx, wireTx] = InMemoryTransport.createLinkedPair();
         const inbound: JSONRPCMessage[] = [];
@@ -166,5 +221,20 @@ describe('serveStdio — subscriptions/listen', () => {
         expect(note.method).toBe('notifications/tools/list_changed');
         expect((note.params as { _meta?: unknown } | undefined)?._meta).toBeUndefined();
         await handle.close();
+    });
+});
+
+describe('StdioListenRouter — capability gate', () => {
+    it('serve() throws before setServerCapabilities() (refuses to honor a filter without capabilities)', () => {
+        const router = new StdioListenRouter();
+        expect(() => router.serve(listenReq(1, { toolsListChanged: true }))).toThrow(/before setServerCapabilities/);
+        // Once capabilities are supplied (as serveStdio does at modern-instance
+        // construction) the same call succeeds and narrows.
+        router.setServerCapabilities({ tools: { listChanged: true } });
+        const ack = router.serve(listenReq(1, { toolsListChanged: true, promptsListChanged: true }));
+        expect(ack).toMatchObject({
+            method: 'notifications/subscriptions/acknowledged',
+            params: { notifications: { toolsListChanged: true } }
+        });
     });
 });
