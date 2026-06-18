@@ -710,6 +710,14 @@ describe('createMcpHandler — user-land routing with isLegacyRequest (replaces 
             false
         );
     });
+
+    it("throws a TypeError at construction when a handler function is passed as the 'legacy' option", () => {
+        const { factory } = testFactory();
+        const myExistingLegacyHandler = async (): Promise<Response> => new Response(null, { status: 200 });
+        const construct = () => createMcpHandler(factory, { legacy: myExistingLegacyHandler as unknown as 'stateless' });
+        expect(construct).toThrow(TypeError);
+        expect(construct).toThrow(/isLegacyRequest/);
+    });
 });
 
 describe('createMcpHandler — responseMode', () => {

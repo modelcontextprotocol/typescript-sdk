@@ -557,6 +557,16 @@ export async function isLegacyRequest(request: Request, parsedBody?: unknown): P
 export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHandlerOptions = {}): McpHttpHandler {
     const { legacy, onerror, responseMode } = options;
 
+    // Construction-time guard for JavaScript callers passing a handler as the
+    // legacy value: the option only selects a posture ('stateless' | 'reject').
+    // Failing loudly here beats silently treating the handler as the default.
+    if (typeof legacy === 'function') {
+        throw new TypeError(
+            "The 'legacy' option only accepts 'stateless' or 'reject', not a handler function. To serve 2025-era traffic with your own " +
+                "handler, route in user land with the exported isLegacyRequest(request) predicate in front of a strict (legacy: 'reject') handler."
+        );
+    }
+
     /** Modern per-request instances with an exchange still in flight (close() tears these down). */
     const inflight = new Set<Server>();
     let closed = false;
