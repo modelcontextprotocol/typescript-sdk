@@ -1,0 +1,5 @@
+{
+    "transport": "http",
+    "path": "/mcp",
+    "excluded": "Sessionful 2025 timer-driven listChanged push over the standalone GET stream — long-running by design. Typecheck-only for now; revisit alongside the sse-polling re-host."
+}

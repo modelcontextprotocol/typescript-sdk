@@ -1,6 +1,6 @@
 /**
- * A write-once tool served via `createMcpHandler` that requests client input
- * with multi round-trip results (protocol revision 2026-07-28).
+ * A write-once tool that requests client input with multi-round-trip results
+ * (protocol revision 2026-07-28).
  *
  * The `deploy` tool returns `inputRequired(...)` instead of pushing a
  * server→client request: a form-mode elicitation for confirmation, then a
@@ -15,20 +15,15 @@
  * key and rejects tampered state via the {@linkcode ServerOptions.requestState}
  * `verify` hook, which answers a wire-level `-32602` Invalid Params error.
  *
- * Run with:
- *
- *     tsx examples/server/src/multiRoundTrip.ts
- *
- * and point the paired client example at it:
- *
- *     tsx examples/client/src/multiRoundTripClient.ts
+ * One binary, either transport (selected by the shared scaffold from argv).
  */
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { createServer } from 'node:http';
 
 import type { CallToolResult, InputRequiredResult } from '@modelcontextprotocol/server';
-import { acceptedContent, createMcpHandler, inputRequired, McpServer } from '@modelcontextprotocol/server';
+import { acceptedContent, inputRequired, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
+
+import { runServerFromArgs } from '../harness.js';
 
 const CONFIRM_SCHEMA = { type: 'object' as const, properties: { confirm: { type: 'boolean' as const } }, required: ['confirm'] };
 
@@ -124,12 +119,4 @@ function buildServer(): McpServer {
     return server;
 }
 
-// Host with the per-request HTTP entry on its default posture (2026-07-28
-// served per request; 2025-era traffic served stateless from the same
-// factory).
-const handler = createMcpHandler(() => buildServer());
-const port = Number(process.env.PORT ?? '3000');
-
-createServer((req, res) => void handler.node(req, res)).listen(port, () => {
-    console.error(`multi-round-trip example server listening on http://localhost:${port}/`);
-});
+runServerFromArgs(buildServer);
