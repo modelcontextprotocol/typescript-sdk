@@ -499,7 +499,9 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
  * The body is read from a clone, so the passed request stays readable for
  * whichever handler the caller routes it to. If the body has already been
  * consumed (for example behind `express.json()`), pass the parsed body as the
- * second argument and no body read happens at all.
+ * second argument and no body read happens at all — without it the predicate
+ * cannot classify a consumed POST body (cloning a used body throws a
+ * `TypeError`), so the call rejects instead of guessing.
  */
 export async function isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean> {
     // Classify a clone so the caller's request body stays readable; with a
