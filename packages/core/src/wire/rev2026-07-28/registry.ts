@@ -20,10 +20,10 @@
  *   (the ATK-D flavor-b trap); this hand registry excludes them by
  *   construction. Their in-band role lands with the MRTR driver (#13).
  * - `subscriptions/listen` + `notifications/subscriptions/acknowledged`
- *   (SEP-1865): 2026-only vocabulary whose SHELLS land with the
- *   subscriptions feature (#14). Until then they are absent here — inbound
- *   listen gets −32601 (capability not yet served), which is protocol-legal
- *   for a server that does not implement subscriptions.
+ *   (SEP-1865): 2026-only vocabulary, present here as registry shells.
+ *   Dispatch never reaches a registered handler — the serving entries
+ *   (`createMcpHandler`, `serveStdio`) recognize listen at the entry layer
+ *   and own ack/filter/stamp/teardown themselves.
  */
 import type * as z from 'zod/v4';
 

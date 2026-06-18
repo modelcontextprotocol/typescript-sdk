@@ -146,6 +146,11 @@ import type {
     StringSchemaSchema,
     SubscribeRequestParamsSchema,
     SubscribeRequestSchema,
+    SubscriptionFilterSchema,
+    SubscriptionsAcknowledgedNotificationParamsSchema,
+    SubscriptionsAcknowledgedNotificationSchema,
+    SubscriptionsListenRequestParamsSchema,
+    SubscriptionsListenRequestSchema,
     TaskAugmentedRequestParamsSchema,
     TaskMetadataSchema,
     TextContentSchema,
@@ -352,6 +357,13 @@ export type UnsubscribeRequest = Infer<typeof UnsubscribeRequestSchema>;
 export type ResourceUpdatedNotificationParams = Infer<typeof ResourceUpdatedNotificationParamsSchema>;
 export type ResourceUpdatedNotification = Infer<typeof ResourceUpdatedNotificationSchema>;
 
+/* Subscriptions (protocol revision 2026-07-28) */
+export type SubscriptionFilter = Infer<typeof SubscriptionFilterSchema>;
+export type SubscriptionsListenRequestParams = Infer<typeof SubscriptionsListenRequestParamsSchema>;
+export type SubscriptionsListenRequest = Infer<typeof SubscriptionsListenRequestSchema>;
+export type SubscriptionsAcknowledgedNotificationParams = Infer<typeof SubscriptionsAcknowledgedNotificationParamsSchema>;
+export type SubscriptionsAcknowledgedNotification = Infer<typeof SubscriptionsAcknowledgedNotificationSchema>;
+
 /* Prompts */
 export type PromptArgument = Infer<typeof PromptArgumentSchema>;
 export type Prompt = Infer<typeof PromptSchema>;
@@ -551,6 +563,11 @@ export type ResultTypeMap = {
     'resources/read': ReadResourceResult;
     'resources/subscribe': EmptyResult;
     'resources/unsubscribe': EmptyResult;
+    // `subscriptions/listen` never receives a JSON-RPC result on the wire:
+    // termination is stream close (HTTP) or `notifications/cancelled` (stdio).
+    // The `EmptyResult` entry exists only to keep the mapped types total —
+    // see the serving entries' listen routers.
+    'subscriptions/listen': EmptyResult;
     'tools/call': CallToolResult;
     'tools/list': ListToolsResult;
     'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;

@@ -67,6 +67,10 @@ client:
 
 server:
     # --- Carried-forward scenarios (also run by the 2025 legs) ---
+    # WARNING-only: see the matching entry in expected-failures.yaml — the
+    # sep-2575 list_changed-on-listen SHOULD checks; fixture armed in a
+    # follow-up change.
+    - server-stateless
     # Pre-existing fixture/baseline bug: the fixture tool's schema is a plain
     # Zod object with none of the JSON Schema 2020-12 keywords the scenario
     # checks; it fails identically at 2025 in `--suite all` (not a 2026-path

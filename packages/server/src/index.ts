@@ -43,6 +43,9 @@ export type { PerRequestHTTPServerTransportOptions, PerRequestMessageExtra, PerR
 export { PerRequestHTTPServerTransport } from './server/perRequestTransport.js';
 export type { ServerOptions } from './server/server.js';
 export { Server } from './server/server.js';
+// subscriptions/listen change-event sourcing seam (protocol revision 2026-07-28).
+export type { ServerEvent, ServerEventBus, ServerNotifier } from './server/serverEventBus.js';
+export { InMemoryServerEventBus } from './server/serverEventBus.js';
 // StdioServerTransport and the serveStdio entry are exported from the './stdio' subpath — server stdio
 // has only type-level Node imports (erased at compile time), but matching the client's `./stdio` subpath
 // gives consumers a consistent shape across packages.

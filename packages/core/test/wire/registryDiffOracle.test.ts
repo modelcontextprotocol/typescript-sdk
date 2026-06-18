@@ -14,11 +14,6 @@
  *   methods in 2026 — the server→client JSON-RPC request channel is deleted
  *   (`ServerRequest` has no 2026 export; the shapes survive only as in-band
  *   `InputRequest` payloads, M4.1/#13).
- * - 2026 DEFERRALS: `subscriptions/listen` and
- *   `notifications/subscriptions/acknowledged` are real 2026 wire methods
- *   whose SHELLS land with the subscriptions feature (M6.1/#14). The day #14
- *   wires them, this oracle fails until the entries are removed — that
- *   failure is the burn-down notification, by design.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -50,9 +45,7 @@ const SEED_EXCLUSIONS: Record<string, Record<string, string>> = {
     '2026-07-28': {
         'sampling/createMessage': 'DEMOTED to an in-band InputRequest payload (M4.1/#13) — not a 2026 wire request',
         'elicitation/create': 'DEMOTED to an in-band InputRequest payload (M4.1/#13) — not a 2026 wire request',
-        'roots/list': 'DEMOTED to an in-band InputRequest payload (M4.1/#13) — not a 2026 wire request',
-        'subscriptions/listen': 'DEFERRED to the subscriptions feature (M6.1/#14)',
-        'notifications/subscriptions/acknowledged': 'DEFERRED to the subscriptions feature (M6.1/#14)'
+        'roots/list': 'DEMOTED to an in-band InputRequest payload (M4.1/#13) — not a 2026 wire request'
     }
 };
 

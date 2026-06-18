@@ -460,6 +460,16 @@ const completeParamsShape = {
 export const CompleteRequestSchema = wireRequest('completion/complete', completeParamsShape);
 export const DiscoverRequestSchema = wireRequest('server/discover', {});
 
+/** Anchor SubscriptionFilter (2026-only). */
+export const SubscriptionFilterSchema = z.object({
+    toolsListChanged: z.boolean().optional(),
+    promptsListChanged: z.boolean().optional(),
+    resourcesListChanged: z.boolean().optional(),
+    resourceSubscriptions: z.array(z.string()).optional()
+});
+const subscriptionsListenParamsShape = { notifications: SubscriptionFilterSchema };
+export const SubscriptionsListenRequestSchema = wireRequest('subscriptions/listen', subscriptionsListenParamsShape);
+
 /**
  * The 2026-era request-method set — the hand-registry seed (see registry.ts
  * for the seed decisions). The dispatch maps below are mapped types over this
@@ -476,7 +486,8 @@ export type Rev2026RequestMethod =
     | 'resources/templates/list'
     | 'resources/read'
     | 'completion/complete'
-    | 'server/discover';
+    | 'server/discover'
+    | 'subscriptions/listen';
 
 /** Dispatch (post-lift) request schemas, keyed by method — registry-internal. */
 export const dispatchRequestSchemas: { readonly [M in Rev2026RequestMethod]: z.ZodType<{ method: M }> } = {
@@ -491,7 +502,8 @@ export const dispatchRequestSchemas: { readonly [M in Rev2026RequestMethod]: z.Z
     'resources/templates/list': dispatchRequest('resources/templates/list', paginatedParamsShape),
     'resources/read': dispatchRequest('resources/read', { uri: z.string() }),
     'completion/complete': dispatchRequest('completion/complete', completeParamsShape),
-    'server/discover': dispatchRequest('server/discover', {})
+    'server/discover': dispatchRequest('server/discover', {}),
+    'subscriptions/listen': dispatchRequest('subscriptions/listen', subscriptionsListenParamsShape)
 };
 
 /** Dispatch (post-lift) result schemas, keyed by method — what the funnel
@@ -555,7 +567,12 @@ export const dispatchResultSchemas: { readonly [M in Rev2026RequestMethod]: z.Zo
         capabilities: ServerCapabilities2026Schema,
         serverInfo: ImplementationSchema,
         instructions: z.string().optional()
-    })
+    }),
+    // `subscriptions/listen` never receives a JSON-RPC result: termination is
+    // stream close (HTTP) or `notifications/cancelled` (stdio). The empty
+    // entry keeps the mapped type total; the codec's `decodeResult` would
+    // never be called for this method in practice.
+    'subscriptions/listen': liftedResult({})
 };
 
 /* ------------------------------------------------------------------------ *
@@ -565,9 +582,8 @@ export const dispatchResultSchemas: { readonly [M in Rev2026RequestMethod]: z.Zo
  * tasks/status, elicitation/complete (removed from the draft together with
  * URL-elicitation's elicitationId — both remain 2025-11-25 vocabulary only).
  * The shapes are revision-identical to the shared schemas, which are
- * composed by reference, EXCEPT cancelled, which forks below: this revision
- * requires `requestId`. (The 2026-only subscriptions/acknowledged
- * notification is #14 scope — see registry.ts.)
+ * composed by reference, EXCEPT cancelled (forks below: this revision
+ * requires `requestId`) and the 2026-only subscriptions/acknowledged.
  * ------------------------------------------------------------------------ */
 
 /**
@@ -583,6 +599,15 @@ export const NotificationMetaSchema = z.looseObject({
      * delivered via a subscription stream.
      */
     'io.modelcontextprotocol/subscriptionId': RequestIdSchema.optional()
+});
+
+/** Anchor SubscriptionsAcknowledgedNotification (2026-only). */
+export const SubscriptionsAcknowledgedNotificationSchema = z.object({
+    method: z.literal('notifications/subscriptions/acknowledged'),
+    params: z.object({
+        _meta: NotificationMetaSchema.optional(),
+        notifications: SubscriptionFilterSchema
+    })
 });
 
 /**
@@ -620,7 +645,8 @@ export type Rev2026NotificationMethod =
     | 'notifications/resources/updated'
     | 'notifications/resources/list_changed'
     | 'notifications/tools/list_changed'
-    | 'notifications/prompts/list_changed';
+    | 'notifications/prompts/list_changed'
+    | 'notifications/subscriptions/acknowledged';
 
 export const notificationSchemas2026: { readonly [M in Rev2026NotificationMethod]: z.ZodType<{ method: M }> } = {
     'notifications/cancelled': CancelledNotificationSchema,
@@ -629,7 +655,8 @@ export const notificationSchemas2026: { readonly [M in Rev2026NotificationMethod
     'notifications/resources/updated': ResourceUpdatedNotificationSchema,
     'notifications/resources/list_changed': ResourceListChangedNotificationSchema,
     'notifications/tools/list_changed': ToolListChangedNotificationSchema,
-    'notifications/prompts/list_changed': PromptListChangedNotificationSchema
+    'notifications/prompts/list_changed': PromptListChangedNotificationSchema,
+    'notifications/subscriptions/acknowledged': SubscriptionsAcknowledgedNotificationSchema
 };
 
 /* ------------------------------------------------------------------------ *

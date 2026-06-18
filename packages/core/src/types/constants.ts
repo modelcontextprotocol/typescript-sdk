@@ -32,6 +32,19 @@ export const CLIENT_INFO_META_KEY = 'io.modelcontextprotocol/clientInfo';
 export const CLIENT_CAPABILITIES_META_KEY = 'io.modelcontextprotocol/clientCapabilities';
 
 /**
+ * `_meta` key carrying the JSON-RPC ID of the `subscriptions/listen` request
+ * that opened the stream a notification was delivered on.
+ *
+ * Stamped by the server on every notification delivered via a
+ * `subscriptions/listen` stream (including the leading
+ * `notifications/subscriptions/acknowledged`); on stdio, where all messages
+ * share one channel, clients use it to correlate notifications with their
+ * originating subscription. The value is the listen request's JSON-RPC ID
+ * verbatim.
+ */
+export const SUBSCRIPTION_ID_META_KEY = 'io.modelcontextprotocol/subscriptionId';
+
+/**
  * `_meta` key carrying the desired log level for a request.
  *
  * When absent, the server must not send `notifications/message` notifications

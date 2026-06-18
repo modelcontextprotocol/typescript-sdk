@@ -898,6 +898,67 @@ export const UnsubscribeRequestSchema = RequestSchema.extend({
     params: UnsubscribeRequestParamsSchema
 });
 
+/* Subscriptions (protocol revision 2026-07-28) */
+/**
+ * The set of notification types a client opts in to on a `subscriptions/listen`
+ * request. Each type is opt-in; the server MUST NOT send a notification type
+ * the client has not explicitly requested here.
+ */
+export const SubscriptionFilterSchema = z.object({
+    /**
+     * If true, receive `notifications/tools/list_changed`.
+     */
+    toolsListChanged: z.boolean().optional(),
+    /**
+     * If true, receive `notifications/prompts/list_changed`.
+     */
+    promptsListChanged: z.boolean().optional(),
+    /**
+     * If true, receive `notifications/resources/list_changed`.
+     */
+    resourcesListChanged: z.boolean().optional(),
+    /**
+     * Subscribe to `notifications/resources/updated` for these resource URIs.
+     * Replaces the former `resources/subscribe` RPC on the 2026-07-28 revision.
+     */
+    resourceSubscriptions: z.array(z.string()).optional()
+});
+
+export const SubscriptionsListenRequestParamsSchema = BaseRequestParamsSchema.extend({
+    /**
+     * The notifications the client opts in to on this stream. The server MUST
+     * NOT send notification types the client has not explicitly requested.
+     */
+    notifications: SubscriptionFilterSchema
+});
+
+/**
+ * Sent from the client to open a long-lived channel for receiving notifications
+ * outside the context of a specific request (protocol revision 2026-07-28).
+ * Replaces the previous HTTP GET endpoint and `resources/subscribe`.
+ */
+export const SubscriptionsListenRequestSchema = RequestSchema.extend({
+    method: z.literal('subscriptions/listen'),
+    params: SubscriptionsListenRequestParamsSchema
+});
+
+export const SubscriptionsAcknowledgedNotificationParamsSchema = NotificationsParamsSchema.extend({
+    /**
+     * The subset of requested notification types the server agreed to honor.
+     */
+    notifications: SubscriptionFilterSchema
+});
+
+/**
+ * Sent by the server as the first message on a `subscriptions/listen` stream
+ * to acknowledge that the subscription has been established and report which
+ * notification types it agreed to honor (protocol revision 2026-07-28).
+ */
+export const SubscriptionsAcknowledgedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/subscriptions/acknowledged'),
+    params: SubscriptionsAcknowledgedNotificationParamsSchema
+});
+
 /**
  * Parameters for a {@linkcode ResourceUpdatedNotification | notifications/resources/updated} notification.
  */
@@ -2025,6 +2086,7 @@ export const ClientRequestSchema = z.union([
     ReadResourceRequestSchema,
     SubscribeRequestSchema,
     UnsubscribeRequestSchema,
+    SubscriptionsListenRequestSchema,
     CallToolRequestSchema,
     ListToolsRequestSchema
 ]);
@@ -2055,6 +2117,7 @@ export const ServerNotificationSchema = z.union([
     ResourceListChangedNotificationSchema,
     ToolListChangedNotificationSchema,
     PromptListChangedNotificationSchema,
+    SubscriptionsAcknowledgedNotificationSchema,
     ElicitationCompleteNotificationSchema
 ]);
 
