@@ -296,8 +296,8 @@ describe('Client.listen()', () => {
         expect((error as Error).message).toContain('server cancelled the subscription');
         // Rejected promptly (well under the 60s ack timeout).
         expect(Date.now() - t0).toBeLessThan(1000);
-        // No leaked _responseHandlers entry for the listen id.
-        expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
+        // No leaked per-listen state for the listen id.
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
         await client.close();
     });
 
@@ -327,9 +327,8 @@ describe('Client.listen()', () => {
 
     it('a synchronously-delivered server-cancel during send does not leak a _listenState entry', async () => {
         // In-process delivery: the server's notifications/cancelled arrives
-        // inside `_parkRequest`'s send (before `parked` is assigned). settle()
-        // must still drop the `_listenState` entry it registered via
-        // onBeforeSend.
+        // inside `transport.send()` (before the `await opening`). settle()
+        // must still drop the `_listenState` entry registered before send.
         const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
         serverTx.onmessage = m => {
             const req = m as { id?: number | string; method?: string };
@@ -361,23 +360,21 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
-    it('a synchronous transport.send throw does not leak a _responseHandlers entry', async () => {
+    it('a synchronous transport.send throw does not leak a _listenState entry', async () => {
         const { clientTx } = await scriptedModern();
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(clientTx);
-        const handlers = (client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers;
-        const before = handlers.size;
         const realSend = clientTx.send.bind(clientTx);
         clientTx.send = () => {
             throw new Error('send blew up');
         };
         const error = await client.listen({ toolsListChanged: true }).catch(e => e as Error);
         expect((error as Error).message).toContain('send blew up');
-        // The park primitive unregistered before rethrowing — no leak.
-        expect(handlers.size).toBe(before);
-        // settle() in the catch path also dropped the _listenState entry that
-        // onBeforeSend registered before send threw.
+        // settle() in the catch path dropped the _listenState entry that was
+        // registered before send threw; listen() never registers in
+        // Protocol's `_responseHandlers` so there is nothing to leak there.
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
         clientTx.send = realSend;
         await client.close();
     });
@@ -421,7 +418,6 @@ describe('Client.listen()', () => {
         expect(cancelled?.params.requestId).toBe(listenId);
         // No leaked state.
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
-        expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
         await client.close();
     });
 
@@ -657,8 +653,8 @@ describe('Client.listen()', () => {
         const t0 = Date.now();
         const pending = client.listen({ toolsListChanged: true });
         await flush();
-        // Server-side transport closes before ever acking → Protocol._onclose
-        // errors every parked _responseHandlers entry → settle({error}).
+        // Server-side transport closes before ever acking → Client's
+        // `_onclose` override settles every per-listen state machine.
         await serverTx.close();
         const error = await pending.catch(e => e as Error);
         expect(error).toBeInstanceOf(Error);
@@ -720,8 +716,9 @@ describe('Client.listen()', () => {
         const sub = await client.listen({ toolsListChanged: true });
         await sub.close();
         // The per-listen entry is gone; a late server-side ack and a late
-        // server-side cancel for this id are NOT consumed by the first-look
-        // hook (no parked entry matches) and reach the fallback handler.
+        // server-side cancel for this id are NOT consumed by the
+        // `_onnotification` override (no entry matches) and reach the
+        // fallback handler.
         const fallback: string[] = [];
         client.fallbackNotificationHandler = async n => {
             fallback.push(n.method);
@@ -771,7 +768,6 @@ describe('Client.listen()', () => {
         await client.connect(clientTx);
         const pending = client.listen({ toolsListChanged: true });
         await flush();
-        const handlers = (client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers;
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(1);
         // Fresh connect on a new transport — _resetConnectionState runs.
         const { clientTx: clientTx2 } = await scriptedModern();
@@ -780,9 +776,59 @@ describe('Client.listen()', () => {
         expect(error).toBeInstanceOf(SdkError);
         expect((error as SdkError).code).toBe(SdkErrorCode.ConnectionClosed);
         expect((error as SdkError).message).toContain('reconnected or closed');
-        // No leaked parked handler from the old connection.
-        expect(handlers.size).toBe(0);
+        // No leaked per-listen state from the old connection.
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
         await client.close();
+    });
+
+    it("the listen request id is a STRING on the wire ('listen:N'); cancel echoes it verbatim", async () => {
+        const { clientTx, written } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const sub = await client.listen({ toolsListChanged: true });
+        const wireListen = written.find(m => (m as { method?: string }).method === 'subscriptions/listen') as {
+            id: unknown;
+            params: { _meta?: Record<string, unknown> };
+        };
+        // String id from a Client-owned counter — JSON-RPC valid; spec
+        // subscriptionId is the request id verbatim; zero collision with
+        // Protocol's numeric counter.
+        expect(typeof wireListen.id).toBe('string');
+        expect(wireListen.id).toMatch(/^listen:\d+$/);
+        // The auto-envelope is on the wire too.
+        expect(wireListen.params._meta?.[PROTOCOL_VERSION_META_KEY]).toBe(MODERN);
+        written.length = 0;
+        await sub.close();
+        const cancel = written[0] as unknown as { method: string; params: { requestId: unknown } };
+        expect(cancel.params.requestId).toBe(wireListen.id);
+        await client.close();
+    });
+
+    it("transport-level per-request stream end (onRequestStreamEnd) → closed resolves 'remote'", async () => {
+        // Mock a transport that captures the per-request `onRequestStreamEnd`
+        // callback and fires it after the ack — simulating a Streamable HTTP
+        // server closing the listen request's SSE stream.
+        const { clientTx, serverTx } = await scriptedModern();
+        let onStreamEnd: (() => void) | undefined;
+        const realSend = clientTx.send.bind(clientTx);
+        clientTx.send = (m, opts) => {
+            if ((m as { method?: string }).method === 'subscriptions/listen') {
+                onStreamEnd = (opts as { onRequestStreamEnd?: () => void } | undefined)?.onRequestStreamEnd;
+            }
+            return realSend(m, opts);
+        };
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const sub = await client.listen({ toolsListChanged: true });
+        expect(onStreamEnd).toBeDefined();
+        // Transport reports the per-request stream ended (server closed the
+        // SSE response, network dropped it, reconnection exhausted).
+        onStreamEnd!();
+        await expect(sub.closed).resolves.toBe('remote');
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        // close() after stream-end is a no-op (state already 'closed').
+        await sub.close();
+        await serverTx.close();
     });
 
     it('close() resets per-connection state even when transport.close() rejects', async () => {

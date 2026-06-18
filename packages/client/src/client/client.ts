@@ -17,6 +17,7 @@ import type {
     InputRequiredOptions,
     JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
@@ -58,6 +59,7 @@ import {
     CreateMessageResultWithToolsSchema,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
+    isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isModernProtocolVersion,
     legacyProtocolVersions,
@@ -287,10 +289,14 @@ export interface McpSubscription {
 
 /** @internal */
 interface ListenStateEntry {
-    onAck: (honored: SubscriptionFilter) => void;
-    onServerCancel: () => void;
-    /** Settle the per-listen machine with an explicit error (used by `_resetConnectionState`). */
-    onConnectionReset: (error: Error) => void;
+    /**
+     * The single funnel for the per-listen `opening → open → closed` state
+     * machine. Every transport-level feed source — the `_onnotification` /
+     * `_onresponse` / `_onclose` overrides, `onRequestStreamEnd`, send
+     * failure, ack timeout, caller-signal abort, `_resetConnectionState` —
+     * routes through it.
+     */
+    settle: (outcome: { ack: SubscriptionFilter } | { cause: 'local' | 'remote'; error?: Error }) => void;
 }
 
 /**
@@ -344,8 +350,15 @@ export class Client extends Protocol<ClientContext> {
     private _versionNegotiation?: VersionNegotiationOptions;
     private _supportedProtocolVersionsOption?: string[];
     private _inputRequiredDriverConfig: ResolvedInputRequiredDriverConfig;
-    /** Active subscriptions/listen state, keyed by subscription id (= the listen request's JSON-RPC id). */
-    private _listenState = new Map<number, ListenStateEntry>();
+    /**
+     * Active subscriptions/listen state, keyed by subscription id (= the
+     * listen request's JSON-RPC id verbatim). The id is a STRING from a
+     * Client-owned counter (`'listen:' + N`) — JSON-RPC permits string ids,
+     * and Protocol's numeric `_requestMessageId` counter only ever issues
+     * numbers, so listen ids cannot collide with ordinary request ids.
+     */
+    private _listenState = new Map<string, ListenStateEntry>();
+    private _nextListenId = 0;
     /** The auto-opened subscription backing ClientOptions.listChanged on a modern connection. */
     private _autoOpenedSubscription?: McpSubscription;
 
@@ -372,7 +385,7 @@ export class Client extends Protocol<ClientContext> {
                 'subscriptions/listen: client reconnected or closed; subscription state from the previous connection was reset'
             );
             for (const entry of this._listenState.values()) {
-                entry.onConnectionReset(reason);
+                entry.settle({ cause: 'remote', error: reason });
             }
         }
         this._listenState.clear();
@@ -915,7 +928,16 @@ export class Client extends Protocol<ClientContext> {
                 ...(config.prompts && advertised?.prompts?.listChanged && { prompts: config.prompts }),
                 ...(config.resources && advertised?.resources?.listChanged && { resources: config.resources })
             };
-            this._setupListChangedHandlers(effective);
+            // Handler registration validates the per-type options and can
+            // throw on misconfiguration; the modern connection IS established
+            // at this point and is fully usable without listChanged handlers,
+            // so a misconfiguration surfaces via onerror and connect resolves
+            // (matching the auto-open soft-fail posture).
+            try {
+                this._setupListChangedHandlers(effective);
+            } catch (error) {
+                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
             const filter: SubscriptionFilter = {
                 ...(effective.tools && { toolsListChanged: true as const }),
                 ...(effective.prompts && { promptsListChanged: true as const }),
@@ -1334,26 +1356,21 @@ export class Client extends Protocol<ClientContext> {
         // already-aborted signal rejects synchronously before any setup.
         options?.signal?.throwIfAborted();
 
-        if (this._onParkedNotification === undefined) {
-            this._onParkedNotification = raw => this._listenFirstLook(raw);
-        }
-
         const requestAbort = new AbortController();
+        // The listen request's JSON-RPC id (= the spec's subscription id
+        // verbatim). A STRING from a Client-owned counter so it cannot
+        // collide with Protocol's numeric `_requestMessageId` counter — the
+        // `_onresponse`/`_onnotification` overrides demux by string-id alone.
+        const listenId = `listen:${this._nextListenId++}`;
 
         // Explicit `opening → open → closed` state machine. Every termination
         // path — ack-arrives, ack-timeout, server-cancelled, user-close,
-        // transport-close, send-failure — funnels through the single `settle`
-        // below, which clears the ack timer, unparks, transitions state, and
-        // resolves/rejects the opening promise exactly once. The cancelled-
-        // before-ack / close-before-ack hangs are impossible by construction.
+        // stream-end, transport-close, send-failure — funnels through the
+        // single `settle` below, which clears the ack timer, transitions
+        // state, and resolves/rejects the opening promise exactly once. The
+        // cancelled-before-ack / close-before-ack hangs are impossible by
+        // construction.
         let state: 'opening' | 'open' | 'closed' = 'opening';
-        let parked: ReturnType<typeof this._parkRequest> | undefined;
-        // The listen request id, captured by `onBeforeSend` BEFORE the request
-        // goes out. `settle()` deletes `_listenState` by this id (not via
-        // `parked.messageId`), so a synchronously-delivered termination during
-        // `_parkRequest`'s send — when `parked` is still unassigned — does not
-        // leak the entry.
-        let listenMessageId: number | undefined;
         let ackTimer: ReturnType<typeof setTimeout> | undefined;
         let onCallerAbort: (() => void) | undefined;
         let resolveOpening!: (honored: SubscriptionFilter) => void;
@@ -1389,10 +1406,7 @@ export class Client extends Protocol<ClientContext> {
             if (onCallerAbort !== undefined) {
                 options?.signal?.removeEventListener('abort', onCallerAbort);
             }
-            if (listenMessageId !== undefined) {
-                this._listenState.delete(listenMessageId);
-            }
-            parked?.unpark();
+            this._listenState.delete(listenId);
             // Abort the per-request signal so an HTTP SSE reader stops on a
             // remote-initiated close too (server-cancel / stream-end /
             // transport-drop). Idempotent; a no-op on transports that ignore
@@ -1408,31 +1422,19 @@ export class Client extends Protocol<ClientContext> {
             }
         };
 
-        // Wire-level teardown for a locally-initiated close (user close or ack
-        // timeout). Transport-agnostic: ALWAYS abort the request signal (closes
-        // the SSE stream where the transport honors `requestSignal` — HTTP does,
-        // stdio does not) AND send `notifications/cancelled` referencing the
-        // listen id (which the stdio listen router and any spec-compliant
-        // server honor). Idempotent over HTTP — the cancelled notification is
-        // a no-op once the stream is gone; correct on every other transport.
-        // Not called when the server already terminated (error / server-
-        // cancelled).
+        // Wire-level teardown for a locally-initiated close (user close, ack
+        // timeout, caller-signal abort). Transport-agnostic: ALWAYS abort the
+        // request signal (closes the SSE stream where the transport honors
+        // `requestSignal` — HTTP does, stdio does not) AND send
+        // `notifications/cancelled` referencing the listen id (which the
+        // stdio listen router and any spec-compliant server honor). Sent via
+        // `notification()` so the modern auto-envelope is attached exactly as
+        // for every other outbound. Idempotent over HTTP — the cancelled
+        // notification is a no-op once the stream is gone; correct on every
+        // other transport. Not called when the server already terminated.
         const wireTeardown = async (): Promise<void> => {
             requestAbort.abort();
-            const id = listenMessageId;
-            if (id !== undefined) {
-                // Carry the same modern auto-envelope as every other outbound
-                // (request()'s cancel and Protocol.notification() both go via
-                // `_envelopeOutbound`); the listen path was the only outbound
-                // bypassing it.
-                await this.transport
-                    ?.send({
-                        jsonrpc: '2.0',
-                        method: 'notifications/cancelled',
-                        params: { _meta: { ...this._outboundMetaEnvelope() }, requestId: id }
-                    })
-                    .catch(() => {});
-            }
+            await this.notification({ method: 'notifications/cancelled', params: { requestId: listenId } }).catch(() => {});
         };
 
         const close = async (): Promise<void> => {
@@ -1440,6 +1442,11 @@ export class Client extends Protocol<ClientContext> {
             settle({ cause: 'local' });
             await wireTeardown();
         };
+
+        // The per-subscription state is registered BEFORE the request is sent
+        // so a synchronously-delivered ack (an in-process transport) cannot
+        // race the registration.
+        this._listenState.set(listenId, { settle });
 
         const ackTimeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
         ackTimer = setTimeout(() => {
@@ -1467,71 +1474,29 @@ export class Client extends Protocol<ClientContext> {
             callerSignal.addEventListener('abort', onCallerAbort, { once: true });
         }
 
+        // Send the listen request directly on the transport. The `_meta`
+        // envelope is built via the same `_outboundMetaEnvelope()` seam every
+        // other outbound uses (so a future envelope key cannot silently
+        // diverge here). `onRequestStreamEnd` feeds the per-request stream's
+        // non-deliberate end into the state machine on transports that open
+        // one (Streamable HTTP); stdio/InMemory ignore it.
+        const jsonrpcRequest: JSONRPCRequest = {
+            jsonrpc: '2.0',
+            id: listenId,
+            method: 'subscriptions/listen',
+            params: { _meta: { ...this._outboundMetaEnvelope() }, notifications: filter }
+        };
         try {
-            // The per-subscription state is registered BEFORE the request is
-            // sent (`onBeforeSend`) so a synchronously-delivered ack (an
-            // in-process transport) cannot race the registration.
-            parked = this._parkRequest(
-                {
-                    method: 'subscriptions/listen',
-                    params: {
-                        _meta: {
-                            [PROTOCOL_VERSION_META_KEY]: negotiated,
-                            [CLIENT_INFO_META_KEY]: this._clientInfo,
-                            [CLIENT_CAPABILITIES_META_KEY]: this._capabilities
-                        },
-                        notifications: filter
-                    }
-                },
-                { requestSignal: requestAbort.signal },
-                messageId => {
-                    listenMessageId = messageId;
-                    this._listenState.set(messageId, {
-                        onAck: honored => settle({ ack: honored }),
-                        onServerCancel: () => {
-                            // Handles BOTH the pre-ack and post-ack server-side
-                            // cancel: while opening, settle rejects the pending
-                            // listen() promise; once open, settle transitions
-                            // to closed and `closed` resolves 'remote' so the
-                            // consumer can observe the server-initiated close.
-                            settle({ cause: 'remote', error: new Error('subscriptions/listen: server cancelled the subscription') });
-                        },
-                        onConnectionReset: error => settle({ cause: 'remote', error })
-                    });
-                }
-            );
-            // A synchronously-delivered termination during `send()` (an
-            // in-process transport) ran `settle()` before `parked` was
-            // assigned; `settle()` already cleared `_listenState` via
-            // `listenMessageId` — unpark now so the response handler does not
-            // leak either. (Cast: TS control-flow narrowing does not track
-            // closure mutation.)
-            if ((state as 'opening' | 'open' | 'closed') === 'closed') parked.unpark();
-            // Pre-ack capacity / params rejection arrives as a JSON-RPC error
-            // for the listen id; transport close is delivered the same way.
-            // A 'response' (the spec defines listen as never receiving a
-            // result) surfaces as a typed protocol-shape error so a server
-            // bug — answering listen with a JSON-RPC result instead of the
-            // acknowledged notification — is diagnosable, not a 60s ack
-            // timeout.
-            void parked.terminated.then(({ reason, error }) => {
-                if (reason === 'unparked') return;
-                if (reason === 'response') {
-                    settle({
-                        cause: 'remote',
-                        error: new SdkError(
-                            SdkErrorCode.InvalidResult,
-                            'server answered subscriptions/listen with a result; expected the acknowledged notification'
-                        )
-                    });
-                    return;
-                }
-                settle({ cause: 'remote', error: error ?? new Error('subscriptions/listen: stream ended') });
-            });
-            parked.sent.catch(error => {
-                settle({ cause: 'remote', error: error instanceof Error ? error : new Error(String(error)) });
+            await this.transport.send(jsonrpcRequest, {
+                requestSignal: requestAbort.signal,
+                onRequestStreamEnd: () => settle({ cause: 'remote', error: new Error('subscriptions/listen: stream ended') })
             });
         } catch (error) {
+            // Synchronous OR awaited send failure (including a per-request
+            // abort fired before response headers — `streamableHttp._send`
+            // rethrows with onerror suppressed). `settle()` is idempotent so
+            // a locally-aborted send hitting this path after `close()` is a
+            // no-op.
             settle({ cause: 'remote', error: error instanceof Error ? error : new Error(String(error)) });
         }
 
@@ -1552,41 +1517,94 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * The first-look notification hook installed by `listen()`. Consumes the
-     * leading `notifications/subscriptions/acknowledged` (resolves the ack
-     * waiter) and an inbound `notifications/cancelled` referencing a parked
-     * listen id (stdio server-side teardown). Change notifications carrying a
-     * subscription id pass through to the existing registered handlers.
+     * Transport-level demux for `subscriptions/listen` notifications, before
+     * any decoding/era-gating/handler dispatch. Consumes the leading
+     * `notifications/subscriptions/acknowledged` referencing a live
+     * subscription id (resolves the ack waiter) and an inbound
+     * `notifications/cancelled` referencing a live string-typed subscription
+     * id (server-side teardown on stdio). Change notifications carrying a
+     * subscription id pass through to the existing registered handlers via
+     * `super`. An unmatched ack/cancelled is NOT consumed: it reaches
+     * `setNotificationHandler` / `fallbackNotificationHandler` instead of
+     * being silently swallowed.
      */
-    private _listenFirstLook(raw: JSONRPCNotification): 'consumed' | undefined {
+    protected override _onnotification(raw: JSONRPCNotification, extra?: MessageExtraInfo): void {
         if (raw.method === 'notifications/subscriptions/acknowledged') {
             const params = raw.params as { _meta?: Record<string, unknown>; notifications?: unknown } | undefined;
             const subscriptionId = params?._meta?.[SUBSCRIPTION_ID_META_KEY];
-            // Tolerant read: subscription id may be string or number; match by
-            // String() coercion against this connection's parked listen ids.
-            for (const [id, entry] of this._listenState) {
-                if (String(id) === String(subscriptionId)) {
-                    const honored = SubscriptionFilterSchema.safeParse(params?.notifications ?? {});
-                    entry.onAck(honored.success ? honored.data : {});
-                    return 'consumed';
-                }
+            const entry = typeof subscriptionId === 'string' ? this._listenState.get(subscriptionId) : undefined;
+            if (entry !== undefined) {
+                const honored = SubscriptionFilterSchema.safeParse(params?.notifications ?? {});
+                entry.settle({ ack: honored.success ? honored.data : {} });
+                return;
             }
-            // An ack referencing no parked listen on this connection is NOT
-            // consumed: pass it through so a stray/foreign ack reaches
-            // setNotificationHandler / fallbackNotificationHandler instead of
-            // being silently swallowed.
-            return undefined;
         }
         if (raw.method === 'notifications/cancelled') {
             const cancelledId = (raw.params as { requestId?: unknown } | undefined)?.requestId;
-            for (const [id, entry] of this._listenState) {
-                if (String(id) === String(cancelledId)) {
-                    entry.onServerCancel();
-                    return 'consumed';
-                }
+            const entry = typeof cancelledId === 'string' ? this._listenState.get(cancelledId) : undefined;
+            if (entry !== undefined) {
+                // Handles BOTH the pre-ack and post-ack server-side cancel:
+                // while opening, settle rejects the pending listen() promise;
+                // once open, settle transitions to closed and `closed` resolves
+                // 'remote' so the consumer can observe the server-initiated
+                // close.
+                entry.settle({ cause: 'remote', error: new Error('subscriptions/listen: server cancelled the subscription') });
+                return;
             }
         }
-        return undefined;
+        super._onnotification(raw, extra);
+    }
+
+    /**
+     * Transport-level demux for `subscriptions/listen` responses. The spec
+     * defines listen as never receiving a JSON-RPC result; a JSON-RPC ERROR
+     * for the listen id is the server's pre-ack capacity/params rejection. A
+     * string-id response that matches a live `_listenState` entry is consumed
+     * here (Protocol's `_responseHandlers` map is keyed by NUMBER and never
+     * holds a listen id, so passing a string-id response through would
+     * surface as "unknown message ID" via `onerror`).
+     */
+    protected override _onresponse(response: JSONRPCResponse): void {
+        const id = response.id;
+        const entry = typeof id === 'string' ? this._listenState.get(id) : undefined;
+        if (entry !== undefined) {
+            if (isJSONRPCErrorResponse(response)) {
+                entry.settle({
+                    cause: 'remote',
+                    error: ProtocolError.fromError(response.error.code, response.error.message, response.error.data)
+                });
+            } else {
+                entry.settle({
+                    cause: 'remote',
+                    error: new SdkError(
+                        SdkErrorCode.InvalidResult,
+                        'server answered subscriptions/listen with a result; expected the acknowledged notification'
+                    )
+                });
+            }
+            return;
+        }
+        super._onresponse(response);
+    }
+
+    /**
+     * Settle every live per-listen state machine on a transport-initiated
+     * close (the server dropping the connection on stdio/InMemory) before
+     * Protocol's `_onclose` tears the transport down. The base
+     * `_responseHandlers` settlement does not reach `_listenState` (listen
+     * ids are never registered there), so without this override a remote
+     * close would leave an in-flight `listen()` / open `McpSubscription`
+     * hanging.
+     */
+    protected override _onclose(): void {
+        if (this._listenState.size > 0) {
+            const reason = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+            for (const entry of this._listenState.values()) {
+                entry.settle({ cause: 'remote', error: reason });
+            }
+            this._listenState.clear();
+        }
+        super._onclose();
     }
 
     /**

@@ -59,6 +59,15 @@ export interface StartSSEOptions {
      * transport-level abort: no `onerror`, no reconnect.
      */
     requestSignal?: AbortSignal;
+
+    /**
+     * The per-request stream-end callback supplied via
+     * `TransportSendOptions.onRequestStreamEnd`. Fired when the SSE response
+     * stream for the originating POST ends or errors for any non-deliberate
+     * reason (server closed, network dropped, reconnection exhausted) — never
+     * when `requestSignal` was aborted.
+     */
+    onRequestStreamEnd?: () => void;
 }
 
 /**
@@ -418,6 +427,8 @@ export class StreamableHTTPClientTransport implements Transport {
         // Check if we've exceeded maximum retry attempts
         if (attemptCount >= maxRetries) {
             this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
+            // The per-request stream is now definitively gone.
+            options.onRequestStreamEnd?.();
             return;
         }
 
@@ -454,7 +465,7 @@ export class StreamableHTTPClientTransport implements Transport {
         if (!stream) {
             return;
         }
-        const { onresumptiontoken, replayMessageId, requestSignal } = options;
+        const { onresumptiontoken, replayMessageId, requestSignal, onRequestStreamEnd } = options;
         // An intentional abort — transport-wide close OR a per-request abort
         // (McpSubscription.close() aborting its `requestSignal`) — must read as
         // a clean shutdown: no misleading "SSE stream disconnected" onerror,
@@ -535,10 +546,16 @@ export class StreamableHTTPClientTransport implements Transport {
                             resumptionToken: lastEventId,
                             onresumptiontoken,
                             replayMessageId,
-                            requestSignal
+                            requestSignal,
+                            onRequestStreamEnd
                         },
                         0
                     );
+                } else if (!isIntentionalAbort()) {
+                    // The per-request stream ended without reconnecting (no
+                    // priming event for a POST stream, or response already
+                    // received). Not a deliberate abort — notify the caller.
+                    onRequestStreamEnd?.();
                 }
             } catch (error) {
                 if (isIntentionalAbort()) {
@@ -562,13 +579,19 @@ export class StreamableHTTPClientTransport implements Transport {
                                 resumptionToken: lastEventId,
                                 onresumptiontoken,
                                 replayMessageId,
-                                requestSignal
+                                requestSignal,
+                                onRequestStreamEnd
                             },
                             0
                         );
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
+                        onRequestStreamEnd?.();
                     }
+                } else {
+                    // Non-deliberate stream error without reconnection: the
+                    // per-request stream is gone — notify the caller.
+                    onRequestStreamEnd?.();
                 }
             }
         };
@@ -617,14 +640,26 @@ export class StreamableHTTPClientTransport implements Transport {
 
     async send(
         message: JSONRPCMessage | JSONRPCMessage[],
-        options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void; requestSignal?: AbortSignal }
+        options?: {
+            resumptionToken?: string;
+            onresumptiontoken?: (token: string) => void;
+            requestSignal?: AbortSignal;
+            onRequestStreamEnd?: () => void;
+        }
     ): Promise<void> {
         return this._send(message, options, false);
     }
 
     private async _send(
         message: JSONRPCMessage | JSONRPCMessage[],
-        options: { resumptionToken?: string; onresumptiontoken?: (token: string) => void; requestSignal?: AbortSignal } | undefined,
+        options:
+            | {
+                  resumptionToken?: string;
+                  onresumptiontoken?: (token: string) => void;
+                  requestSignal?: AbortSignal;
+                  onRequestStreamEnd?: () => void;
+              }
+            | undefined,
         isAuthRetry: boolean
     ): Promise<void> {
         try {
@@ -775,7 +810,15 @@ export class StreamableHTTPClientTransport implements Transport {
                     // Handle SSE stream responses for requests
                     // We use the same handler as standalone streams, which now supports
                     // reconnection with the last event ID
-                    this._handleSseStream(response.body, { onresumptiontoken, requestSignal: options?.requestSignal }, false);
+                    this._handleSseStream(
+                        response.body,
+                        {
+                            onresumptiontoken,
+                            requestSignal: options?.requestSignal,
+                            onRequestStreamEnd: options?.onRequestStreamEnd
+                        },
+                        false
+                    );
                 } else if (contentType?.includes('application/json')) {
                     // For non-streaming servers, we might get direct JSON responses
                     const data = await response.json();
@@ -801,7 +844,8 @@ export class StreamableHTTPClientTransport implements Transport {
             // `subscriptions/listen` driver aborting its `requestSignal`):
             // fetch rejects with AbortError. Same guard as
             // `_handleSseStream`'s `isIntentionalAbort` — do not surface a
-            // misleading onerror; still rethrow so `parked.sent` settles.
+            // misleading onerror; still rethrow so `listen()`'s send-catch
+            // settles the per-subscription state machine.
             if (options?.requestSignal?.aborted !== true) {
                 this.onerror?.(error as Error);
             }

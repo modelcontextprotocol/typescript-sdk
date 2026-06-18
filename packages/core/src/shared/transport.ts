@@ -77,6 +77,16 @@ export type TransportSendOptions = {
      * ignore it.
      */
     requestSignal?: AbortSignal | undefined;
+
+    /**
+     * Fired by transports that open a per-request stream (the Streamable HTTP
+     * transport's POST-per-request SSE response) when that stream ends or
+     * errors for any reason OTHER than a deliberate `requestSignal` abort —
+     * i.e. the server closed the stream, the network dropped it, or
+     * reconnection was exhausted. Transports that share a single channel
+     * (stdio, in-memory) ignore it.
+     */
+    onRequestStreamEnd?: (() => void) | undefined;
 };
 /**
  * Describes the minimal contract for an MCP transport that a client or server can communicate over.

@@ -1155,6 +1155,92 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock).toHaveBeenCalledTimes(1);
         });
 
+        it('onRequestStreamEnd fires when the per-request POST stream ends gracefully without reconnecting', async () => {
+            // ARRANGE — a POST stream with NO priming event id (so the
+            // graceful-close path does NOT schedule a reconnect): the
+            // per-request stream simply ends.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const unprimedStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                    // An ack frame with no SSE event id — does NOT arm POST-stream resumability.
+                    controller.enqueue(
+                        new TextEncoder().encode(
+                            'data: {"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{}}\n\n'
+                        )
+                    );
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce(() =>
+                Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'text/event-stream' }),
+                    body: unprimedStream
+                })
+            );
+
+            const requestAbort = new AbortController();
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: requestAbort.signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(onStreamEnd).not.toHaveBeenCalled();
+
+            // ACT — server gracefully closes the SSE stream.
+            streamController.close();
+            await vi.advanceTimersByTimeAsync(5);
+
+            // ASSERT — non-deliberate stream end without reconnecting:
+            // onRequestStreamEnd fired exactly once; no further fetches.
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('onRequestStreamEnd does NOT fire on a deliberate per-request abort', async () => {
+            // Same shape as the no-onerror/no-reconnect test, but assert the
+            // stream-end callback is NEVER invoked when `requestSignal` was the
+            // abort source.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce((_url, init: RequestInit) => {
+                init.signal?.addEventListener('abort', () => streamController.error(init.signal?.reason), { once: true });
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'text/event-stream' }),
+                    body: stream
+                });
+            });
+
+            const requestAbort = new AbortController();
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: requestAbort.signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            // ACT — deliberate per-request abort.
+            requestAbort.abort();
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT — deliberate abort: onRequestStreamEnd never fires.
+            expect(onStreamEnd).not.toHaveBeenCalled();
+        });
+
         it('per-request requestSignal abort BEFORE response headers: no misleading onerror; send() still rejects', async () => {
             // ARRANGE — fetch is in flight (pending promise) when the
             // requestSignal aborts; fetch rejects with AbortError before the
@@ -1184,7 +1270,7 @@ describe('StreamableHTTPClientTransport', () => {
             // ACT — abort before headers.
             requestAbort.abort(new Error('intentional'));
 
-            // ASSERT — send() rejects (so parked.sent settles), but no onerror.
+            // ASSERT — send() rejects (so listen()'s send-catch settles), but no onerror.
             await expect(sent).rejects.toThrow();
             expect(errorSpy).not.toHaveBeenCalled();
         });
