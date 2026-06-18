@@ -1173,7 +1173,7 @@ handler.notify.toolsChanged();
 ```
 
 **Client side.** `ClientOptions.listChanged` keeps working: on a 2026-07-28 connection the SDK auto-opens a `subscriptions/listen` stream whose filter is the intersection of the configured sub-options and the server-advertised `listChanged` capabilities, so the same handlers
-fire on every published change (the auto-opened subscription is exposed at `client.autoOpenedSubscription` for `close()`; when the intersection is empty auto-open is skipped and `autoOpenedSubscription` stays `undefined`). `client.listen(filter)` opens a stream explicitly and resolves once the server's acknowledged notification arrives with `{ honoredFilter, close() }`; change notifications dispatch to the existing `setNotificationHandler`
+fire on every published change (the auto-opened subscription is exposed at `client.autoOpenedSubscription` for `close()`; when the intersection is empty auto-open is skipped and `autoOpenedSubscription` stays `undefined`). `client.listen(filter)` opens a stream explicitly and resolves once the server's acknowledged notification arrives with `{ honoredFilter, close(), closed }` (where `closed` is a `Promise<'local' | 'remote'>` that resolves once on termination — `'remote'` means the server cancelled, the stream ended, or the transport dropped, so re-listen if you still want events); change notifications dispatch to the existing `setNotificationHandler`
 registrations. `resources/subscribe` is 2025-only — on a 2026-07-28 connection, request `notifications/resources/updated` via the `resourceSubscriptions` field of the listen filter instead.
 
 ### Multi round-trip requests (2026-07-28): write-once handlers and the client auto-fulfilment driver

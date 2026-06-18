@@ -150,7 +150,7 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
-    it('inbound notifications/cancelled referencing the listen id tears the subscription down', async () => {
+    it("inbound notifications/cancelled post-ack: closed resolves 'remote'; subscription torn down; handlers stop firing", async () => {
         let listenId!: number | string;
         let send!: (m: JSONRPCMessage) => void;
         const { clientTx } = await scriptedModern((id, _f, s) => {
@@ -158,13 +158,70 @@ describe('Client.listen()', () => {
             send = s;
         });
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        const seen: string[] = [];
+        client.setNotificationHandler('notifications/tools/list_changed', () => {
+            seen.push('tools');
+        });
         await client.connect(clientTx);
         const sub = await client.listen({ toolsListChanged: true });
         send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } } as JSONRPCNotification);
-        await flush();
-        // close() after server-cancel is idempotent.
+        // The spec-defined remote termination signal is now observable on the
+        // subscription handle; settle() is the funnel and resolves it once.
+        await expect(sub.closed).resolves.toBe('remote');
+        // Per-listen state is gone; the request signal was aborted (so an HTTP
+        // SSE reader would have stopped).
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        // After a server-side close, the server stops delivering on this stream
+        // — a notification carrying this subscription id is no longer routed
+        // through any per-listen entry (the entry is gone). The handler is the
+        // shared setNotificationHandler registration; assert no later
+        // dispatch from THIS subscription's stream by asserting no entry exists
+        // to demux it.
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.has(listenId)).toBe(false);
+        expect(seen).toEqual([]);
+        // close() after server-cancel is idempotent and does NOT change the
+        // already-resolved cause.
         await sub.close();
+        await expect(sub.closed).resolves.toBe('remote');
         await client.close();
+    });
+
+    it("close() resolves closed with 'local' exactly once", async () => {
+        const { clientTx } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const sub = await client.listen({ toolsListChanged: true });
+        await sub.close();
+        await expect(sub.closed).resolves.toBe('local');
+        // A second close() and a later remote signal cannot change it.
+        await sub.close();
+        await expect(sub.closed).resolves.toBe('local');
+        await client.close();
+    });
+
+    it('closed resolves exactly once even when multiple termination signals arrive', async () => {
+        let listenId!: number | string;
+        let send!: (m: JSONRPCMessage) => void;
+        const { clientTx, serverTx } = await scriptedModern((id, _f, s) => {
+            listenId = id;
+            send = s;
+        });
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const sub = await client.listen({ toolsListChanged: true });
+        const resolutions: string[] = [];
+        void sub.closed.then(cause => resolutions.push(cause));
+        // Three signals in quick succession: server-cancel, a duplicate
+        // server-cancel, then transport close. settle()'s `closed` guard
+        // means only the first transitions; `closed` resolves once.
+        send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } } as JSONRPCNotification);
+        send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } } as JSONRPCNotification);
+        await serverTx.close();
+        await flush();
+        expect(resolutions).toEqual(['remote']);
+        // sub.close() after the fact is still idempotent and cannot flip it.
+        await sub.close();
+        await expect(sub.closed).resolves.toBe('remote');
     });
 
     it('rejects with the typed pre-ack error when the server answers -32603', async () => {
@@ -366,6 +423,8 @@ describe('Client.listen()', () => {
         ac.abort();
         await flush();
         expect(written).toEqual([{ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } }]);
+        // Caller-signal abort is consumer-initiated → 'local'.
+        await expect(sub.closed).resolves.toBe('local');
         // close() after signal-abort is idempotent.
         await sub.close();
         expect(written).toHaveLength(1);
@@ -533,14 +592,14 @@ describe('Client.listen()', () => {
         expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
     });
 
-    it('transport closes WHILE the subscription is open: subscription transitions to closed; close() is a no-op', async () => {
+    it("transport closes WHILE the subscription is open: closed resolves 'remote'; close() is a no-op", async () => {
         const { clientTx, serverTx, written } = await scriptedModern();
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
         await client.connect(clientTx);
         const sub = await client.listen({ toolsListChanged: true });
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(1);
         await serverTx.close();
-        await flush();
+        await expect(sub.closed).resolves.toBe('remote');
         // Transport-close settled the per-listen machine; nothing leaks.
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
         // sub.close() after transport-close is a no-op (state already 'closed'):
@@ -659,6 +718,36 @@ describe('Client.listen()', () => {
         // Per-connection state was cleared regardless.
         expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+    });
+});
+
+describe('_resetConnectionState() clears connection-scoped debounce timers (fake timers)', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('a debounced listChanged callback armed on a closed connection never fires', async () => {
+        const { clientTx, serverTx } = await scriptedModernNoAck();
+        const calls: unknown[] = [];
+        const client = new Client(
+            { name: 'c', version: '1' },
+            {
+                versionNegotiation: { mode: 'auto' },
+                listChanged: { tools: { onChanged: (e, items) => calls.push({ e, items }), autoRefresh: false, debounceMs: 100 } }
+            }
+        );
+        const connecting = client.connect(clientTx);
+        await vi.runAllTimersAsync();
+        await connecting;
+        // Arm the debounce timer for `tools` on the current connection.
+        await serverTx.send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' });
+        await vi.advanceTimersByTimeAsync(0);
+        expect((client as unknown as { _listChangedDebounceTimers: Map<unknown, unknown> })._listChangedDebounceTimers.size).toBe(1);
+        // close() → _resetConnectionState() must clear the armed timer so the
+        // callback for the dead connection never fires.
+        await client.close();
+        expect((client as unknown as { _listChangedDebounceTimers: Map<unknown, unknown> })._listChangedDebounceTimers.size).toBe(0);
+        await vi.advanceTimersByTimeAsync(200);
+        expect(calls).toEqual([]);
     });
 });
 

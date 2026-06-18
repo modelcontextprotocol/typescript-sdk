@@ -273,6 +273,16 @@ export interface McpSubscription {
      * always, so close works on any transport.
      */
     close(): Promise<void>;
+    /**
+     * Resolves exactly once when the subscription has terminated. Never
+     * rejects — this is an observation, not an operation.
+     *
+     * - `'local'` — you called {@linkcode close} (or aborted the
+     *   `RequestOptions.signal` you passed to `listen()`).
+     * - `'remote'` — the server cancelled, the stream ended, or the transport
+     *   dropped. Re-listen if you still want events.
+     */
+    readonly closed: Promise<'local' | 'remote'>;
 }
 
 /** @internal */
@@ -366,6 +376,13 @@ export class Client extends Protocol<ClientContext> {
             }
         }
         this._listenState.clear();
+        // Debounce timers are connection-scoped: a callback armed on a
+        // connection that is now gone must not fire onto whatever connection
+        // (if any) replaces it.
+        for (const timer of this._listChangedDebounceTimers.values()) {
+            clearTimeout(timer);
+        }
+        this._listChangedDebounceTimers.clear();
         this._cachedToolOutputValidators.clear();
     }
 
@@ -1328,15 +1345,23 @@ export class Client extends Protocol<ClientContext> {
             resolveOpening = resolve;
             rejectOpening = reject;
         });
+        // The McpSubscription.closed observation. Resolved exactly once by
+        // settle()'s `→ closed` transition; never rejects. When listen()
+        // itself rejects (pre-ack) there is no McpSubscription to observe it
+        // on — settle() resolves it anyway so nothing dangles.
+        let resolveClosed!: (cause: 'local' | 'remote') => void;
+        const closed = new Promise<'local' | 'remote'>(resolve => {
+            resolveClosed = resolve;
+        });
 
-        const settle = (outcome: { ack: SubscriptionFilter } | { error: Error } | 'closed'): void => {
+        const settle = (outcome: { ack: SubscriptionFilter } | { cause: 'local' | 'remote'; error?: Error }): void => {
             if (state === 'closed') return;
             const wasOpening = state === 'opening';
             if (ackTimer !== undefined) {
                 clearTimeout(ackTimer);
                 ackTimer = undefined;
             }
-            if (outcome !== 'closed' && 'ack' in outcome) {
+            if ('ack' in outcome) {
                 // The single `opening → open` transition; an ack after close
                 // hits the `closed` guard above and is a no-op.
                 state = 'open';
@@ -1351,11 +1376,17 @@ export class Client extends Protocol<ClientContext> {
                 this._listenState.delete(listenMessageId);
             }
             parked?.unpark();
+            // Abort the per-request signal so an HTTP SSE reader stops on a
+            // remote-initiated close too (server-cancel / stream-end /
+            // transport-drop). Idempotent; a no-op on transports that ignore
+            // requestSignal. wireTeardown() also aborts on the local paths —
+            // harmless redundancy.
+            requestAbort.abort();
+            resolveClosed(outcome.cause);
             if (wasOpening) {
                 rejectOpening(
-                    outcome === 'closed'
-                        ? new SdkError(SdkErrorCode.ConnectionClosed, 'subscriptions/listen closed before the server acknowledged')
-                        : outcome.error
+                    outcome.error ??
+                        new SdkError(SdkErrorCode.ConnectionClosed, 'subscriptions/listen closed before the server acknowledged')
                 );
             }
         };
@@ -1381,27 +1412,31 @@ export class Client extends Protocol<ClientContext> {
 
         const close = async (): Promise<void> => {
             if (state === 'closed') return;
-            settle('closed');
+            settle({ cause: 'local' });
             await wireTeardown();
         };
 
         const ackTimeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
         ackTimer = setTimeout(() => {
-            settle({ error: new SdkError(SdkErrorCode.RequestTimeout, 'subscriptions/listen ack timed out', { timeout: ackTimeout }) });
+            settle({
+                cause: 'remote',
+                error: new SdkError(SdkErrorCode.RequestTimeout, 'subscriptions/listen ack timed out', { timeout: ackTimeout })
+            });
             void wireTeardown().catch(() => {});
         }, ackTimeout);
 
         // RequestOptions.signal aborts the subscription at any point in its
         // lifecycle (mirrors request()'s cancel path). While `opening`, settle
         // rejects the pending listen() promise with the signal's reason; while
-        // `open`, it transitions to `closed` and tears the wire down. The
-        // listener is removed by `settle()` once the subscription has closed.
+        // `open`, it transitions to `closed` (`closed` resolves `'local'`) and
+        // tears the wire down. The listener is removed by `settle()` once the
+        // subscription has closed.
         if (options?.signal) {
             const callerSignal = options.signal;
             onCallerAbort = () => {
                 if (state === 'closed') return;
                 const reason = callerSignal.reason;
-                settle({ error: reason instanceof Error ? reason : new Error(String(reason ?? 'Aborted')) });
+                settle({ cause: 'local', error: reason instanceof Error ? reason : new Error(String(reason ?? 'Aborted')) });
                 void wireTeardown().catch(() => {});
             };
             callerSignal.addEventListener('abort', onCallerAbort, { once: true });
@@ -1431,11 +1466,12 @@ export class Client extends Protocol<ClientContext> {
                         onServerCancel: () => {
                             // Handles BOTH the pre-ack and post-ack server-side
                             // cancel: while opening, settle rejects the pending
-                            // listen() promise; once open, settle just
-                            // transitions to closed and the message is unused.
-                            settle({ error: new Error('subscriptions/listen: server cancelled the subscription') });
+                            // listen() promise; once open, settle transitions
+                            // to closed and `closed` resolves 'remote' so the
+                            // consumer can observe the server-initiated close.
+                            settle({ cause: 'remote', error: new Error('subscriptions/listen: server cancelled the subscription') });
                         },
-                        onConnectionReset: error => settle({ error })
+                        onConnectionReset: error => settle({ cause: 'remote', error })
                     });
                 }
             );
@@ -1448,18 +1484,21 @@ export class Client extends Protocol<ClientContext> {
             if ((state as 'opening' | 'open' | 'closed') === 'closed') parked.unpark();
             // Pre-ack capacity / params rejection arrives as a JSON-RPC error
             // for the listen id; transport close is delivered the same way.
+            // A 'response' (the spec defines listen as never receiving a
+            // result) is treated as the server having ended the stream.
             void parked.terminated.then(({ reason, error }) => {
-                if (reason === 'error') settle({ error: error ?? new Error('subscriptions/listen failed') });
+                if (reason === 'unparked') return;
+                settle({ cause: 'remote', error: error ?? new Error('subscriptions/listen: stream ended') });
             });
             parked.sent.catch(error => {
-                settle({ error: error instanceof Error ? error : new Error(String(error)) });
+                settle({ cause: 'remote', error: error instanceof Error ? error : new Error(String(error)) });
             });
         } catch (error) {
-            settle({ error: error instanceof Error ? error : new Error(String(error)) });
+            settle({ cause: 'remote', error: error instanceof Error ? error : new Error(String(error)) });
         }
 
         const honored = await opening;
-        return { honoredFilter: honored, close };
+        return { honoredFilter: honored, close, closed };
     }
 
     /**
