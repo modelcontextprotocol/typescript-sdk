@@ -73,10 +73,3 @@ server:
     # (WARNING-only; the expected-failures evaluator counts WARNINGs as
     # failures). Same failure as in the 2025 baseline.
     - sep-2164-resource-not-found
-
-    # --- Draft scenarios (same failures and reasons as the `--suite draft` leg) ---
-    # SEP-2243 (HTTP header standardization): the reject cells the SDK does
-    # answer now use -32001 (HeaderMismatch), but missing-header enforcement
-    # (Mcp-Method, Mcp-Name) and the Mcp-Name cross-check are not implemented,
-    # so those reject cells are still accepted with 200.
-    - http-header-validation
