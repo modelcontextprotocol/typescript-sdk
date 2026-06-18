@@ -276,7 +276,7 @@ export interface McpSubscription {
 
 /** @internal */
 interface ListenStateEntry {
-    onAck: ((honored: SubscriptionFilter) => void) | undefined;
+    onAck: (honored: SubscriptionFilter) => void;
     onServerCancel: () => void;
 }
 
@@ -1229,6 +1229,14 @@ export class Client extends Protocol<ClientContext> {
      * unsolicited delivery model still applies there); no transparent shim.
      */
     async listen(filter: SubscriptionFilter, options?: RequestOptions): Promise<McpSubscription> {
+        // Connectivity is checked first so a closed instance rejects with
+        // NotConnected (no setup or ack timer is started); after close(),
+        // `_resetConnectionState` has also cleared the negotiated era, so the
+        // era guard alone would surface a misleading
+        // MethodNotSupportedByProtocolVersion.
+        if (this.transport === undefined) {
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+        }
         const negotiated = this._negotiatedProtocolVersion;
         if (negotiated === undefined || !isModernProtocolVersion(negotiated)) {
             throw new SdkError(
@@ -1239,13 +1247,6 @@ export class Client extends Protocol<ClientContext> {
                 { method: 'subscriptions/listen', protocolVersion: negotiated }
             );
         }
-        // Connectivity is checked here so the rejection is delivered as the
-        // returned promise (no setup or ack timer is started) — `_parkRequest`
-        // would otherwise throw NotConnected from inside the executor below
-        // after the timer is armed.
-        if (this.transport === undefined) {
-            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
-        }
 
         if (this._onParkedNotification === undefined) {
             this._onParkedNotification = raw => this._listenFirstLook(raw);
@@ -1254,30 +1255,78 @@ export class Client extends Protocol<ClientContext> {
         const requestAbort = new AbortController();
         const transportKind = detectProbeTransportKind(this.transport);
 
-        let closed = false;
-        let parked!: ReturnType<typeof this._parkRequest>;
-        const close = async (): Promise<void> => {
-            if (closed) return;
-            closed = true;
-            this._listenState.delete(parked.messageId);
-            // Per-transport teardown: HTTP closes the request's SSE stream;
-            // stdio sends notifications/cancelled referencing the listen id.
-            if (transportKind === 'stdio') {
+        // Explicit `opening → open → closed` state machine. Every termination
+        // path — ack-arrives, ack-timeout, server-cancelled, user-close,
+        // transport-close, send-failure — funnels through the single `settle`
+        // below, which clears the ack timer, unparks, transitions state, and
+        // resolves/rejects the opening promise exactly once. The cancelled-
+        // before-ack / close-before-ack hangs are impossible by construction.
+        let state: 'opening' | 'open' | 'closed' = 'opening';
+        let parked: ReturnType<typeof this._parkRequest> | undefined;
+        let ackTimer: ReturnType<typeof setTimeout> | undefined;
+        let resolveOpening!: (honored: SubscriptionFilter) => void;
+        let rejectOpening!: (error: Error) => void;
+        const opening = new Promise<SubscriptionFilter>((resolve, reject) => {
+            resolveOpening = resolve;
+            rejectOpening = reject;
+        });
+
+        const settle = (outcome: { ack: SubscriptionFilter } | { error: Error } | 'closed'): void => {
+            if (state === 'closed') return;
+            const wasOpening = state === 'opening';
+            if (ackTimer !== undefined) {
+                clearTimeout(ackTimer);
+                ackTimer = undefined;
+            }
+            if (outcome !== 'closed' && 'ack' in outcome) {
+                // The single `opening → open` transition; an ack after close
+                // hits the `closed` guard above and is a no-op.
+                state = 'open';
+                resolveOpening(outcome.ack);
+                return;
+            }
+            state = 'closed';
+            if (parked !== undefined) {
+                this._listenState.delete(parked.messageId);
+                parked.unpark();
+            }
+            if (wasOpening) {
+                rejectOpening(
+                    outcome === 'closed'
+                        ? new SdkError(SdkErrorCode.ConnectionClosed, 'subscriptions/listen closed before the server acknowledged')
+                        : outcome.error
+                );
+            }
+        };
+
+        // Wire-level teardown for a locally-initiated close (user close or ack
+        // timeout): HTTP closes the request's SSE stream; stdio sends
+        // notifications/cancelled referencing the listen id. Not called when
+        // the server already terminated (error / server-cancelled).
+        const wireTeardown = async (): Promise<void> => {
+            const id = parked?.messageId;
+            if (transportKind === 'stdio' && id !== undefined) {
                 await this.transport
-                    ?.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: parked.messageId } })
+                    ?.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id } })
                     .catch(() => {});
             } else {
                 requestAbort.abort();
             }
-            parked.unpark();
         };
 
-        const honored = await new Promise<SubscriptionFilter>((resolve, reject) => {
-            const ackTimeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
-            const timer = setTimeout(() => {
-                void close();
-                reject(new SdkError(SdkErrorCode.RequestTimeout, 'subscriptions/listen ack timed out', { timeout: ackTimeout }));
-            }, ackTimeout);
+        const close = async (): Promise<void> => {
+            if (state === 'closed') return;
+            settle('closed');
+            await wireTeardown();
+        };
+
+        const ackTimeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
+        ackTimer = setTimeout(() => {
+            settle({ error: new SdkError(SdkErrorCode.RequestTimeout, 'subscriptions/listen ack timed out', { timeout: ackTimeout }) });
+            void wireTeardown().catch(() => {});
+        }, ackTimeout);
+
+        try {
             // The per-subscription state is registered BEFORE the request is
             // sent (`onBeforeSend`) so a synchronously-delivered ack (an
             // in-process transport) cannot race the registration.
@@ -1296,31 +1345,30 @@ export class Client extends Protocol<ClientContext> {
                 { requestSignal: requestAbort.signal },
                 messageId => {
                     this._listenState.set(messageId, {
-                        onAck: honored => {
-                            clearTimeout(timer);
-                            resolve(honored);
-                        },
-                        onServerCancel: () => void close()
+                        onAck: honored => settle({ ack: honored }),
+                        onServerCancel: () => {
+                            settle({ error: new Error('subscriptions/listen: server cancelled before acknowledging') });
+                        }
                     });
                 }
             );
+            // A synchronously-delivered termination during `send()` (an
+            // in-process transport) ran `settle()` before `parked` was
+            // assigned — unpark now so the handler does not leak.
+            if (state === 'closed') parked.unpark();
             // Pre-ack capacity / params rejection arrives as a JSON-RPC error
-            // for the listen id — surfaced via terminated.
+            // for the listen id; transport close is delivered the same way.
             void parked.terminated.then(({ reason, error }) => {
-                if (reason === 'error') {
-                    clearTimeout(timer);
-                    this._listenState.delete(parked.messageId);
-                    closed = true;
-                    reject(error ?? new Error('subscriptions/listen failed'));
-                }
+                if (reason === 'error') settle({ error: error ?? new Error('subscriptions/listen failed') });
             });
             parked.sent.catch(error => {
-                clearTimeout(timer);
-                void close();
-                reject(error instanceof Error ? error : new Error(String(error)));
+                settle({ error: error instanceof Error ? error : new Error(String(error)) });
             });
-        });
+        } catch (error) {
+            settle({ error: error instanceof Error ? error : new Error(String(error)) });
+        }
 
+        const honored = await opening;
         return { honoredFilter: honored, close };
     }
 
@@ -1348,10 +1396,9 @@ export class Client extends Protocol<ClientContext> {
             // Tolerant read: subscription id may be string or number; match by
             // String() coercion against this connection's parked listen ids.
             for (const [id, entry] of this._listenState) {
-                if (String(id) === String(subscriptionId) && entry.onAck !== undefined) {
+                if (String(id) === String(subscriptionId)) {
                     const honored = SubscriptionFilterSchema.safeParse(params?.notifications ?? {});
                     entry.onAck(honored.success ? honored.data : {});
-                    entry.onAck = undefined;
                     return 'consumed';
                 }
             }

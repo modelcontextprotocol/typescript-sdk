@@ -166,6 +166,83 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
+    it('server cancels BEFORE the ack: listen() rejects immediately, no 60s hang', async () => {
+        const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+        serverTx.onmessage = m => {
+            const req = m as { id?: number | string; method?: string };
+            if (req.method === 'server/discover' && req.id !== undefined) {
+                void serverTx.send({
+                    jsonrpc: '2.0',
+                    id: req.id,
+                    result: {
+                        resultType: 'complete',
+                        supportedVersions: [MODERN],
+                        capabilities: {},
+                        serverInfo: { name: 's', version: '1' }
+                    }
+                });
+            }
+            if (req.method === 'subscriptions/listen' && req.id !== undefined) {
+                // Server cancels the listen id BEFORE sending the ack.
+                void serverTx.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: req.id } });
+            }
+        };
+        await serverTx.start();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const t0 = Date.now();
+        const error = await client.listen({ toolsListChanged: true }).catch(e => e as Error);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('server cancelled before acknowledging');
+        // Rejected promptly (well under the 60s ack timeout).
+        expect(Date.now() - t0).toBeLessThan(1000);
+        // No leaked _responseHandlers entry for the listen id.
+        expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
+        await client.close();
+    });
+
+    it('an ack arriving AFTER the subscription was server-cancelled is a no-op', async () => {
+        let listenId!: number | string;
+        let send!: (m: JSONRPCMessage) => void;
+        const { clientTx } = await scriptedModern((id, _f, s) => {
+            listenId = id;
+            send = s;
+        });
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const sub = await client.listen({ toolsListChanged: true });
+        // Server tears the open subscription down.
+        send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } } as JSONRPCNotification);
+        await flush();
+        // A late duplicate ack must not throw or resurrect state.
+        send({
+            jsonrpc: '2.0',
+            method: 'notifications/subscriptions/acknowledged',
+            params: { _meta: { [SUBSCRIPTION_ID_META_KEY]: listenId }, notifications: {} }
+        });
+        await flush();
+        await sub.close();
+        await client.close();
+    });
+
+    it('a synchronous transport.send throw does not leak a _responseHandlers entry', async () => {
+        const { clientTx } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const handlers = (client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers;
+        const before = handlers.size;
+        const realSend = clientTx.send.bind(clientTx);
+        clientTx.send = () => {
+            throw new Error('send blew up');
+        };
+        const error = await client.listen({ toolsListChanged: true }).catch(e => e as Error);
+        expect((error as Error).message).toContain('send blew up');
+        // The park primitive unregistered before rethrowing — no leak.
+        expect(handlers.size).toBe(before);
+        clientTx.send = realSend;
+        await client.close();
+    });
+
     it('rejects with NotConnected (as a rejected promise, no setup) when no transport is connected', async () => {
         const { clientTx } = await scriptedModern();
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
