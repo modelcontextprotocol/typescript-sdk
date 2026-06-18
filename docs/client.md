@@ -86,7 +86,7 @@ try {
 }
 ```
 
-For a complete example with error reporting, see [`streamableHttpWithSseFallbackClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/guides/clientGuide.examples.ts).
+The snippet above is the complete pattern; wrap the `catch` body with whatever error reporting your host needs.
 
 ### Protocol version negotiation (2026-07-28 revision)
 

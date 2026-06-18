@@ -11,8 +11,10 @@ pnpm --filter @mcp-examples/<story> client
 
 # Streamable HTTP (two terminals):
 pnpm --filter @mcp-examples/<story> server -- --http --port 3000
-pnpm --filter @mcp-examples/<story> client -- --http http://127.0.0.1:3000/
+pnpm --filter @mcp-examples/<story> client -- --http http://127.0.0.1:3000/mcp
 ```
+
+Some stories mount at a different path (e.g. `/`); check the story's `package.json#example.path` or its README for the exact URL.
 
 ## Start here
 

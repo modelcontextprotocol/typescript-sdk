@@ -15,7 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
-import { createMcpHandler, isLegacyRequest, McpServer } from '@modelcontextprotocol/server';
+import { createMcpHandler, isInitializeRequest, isLegacyRequest, McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -30,17 +30,26 @@ const buildServer = (era: 'legacy' | 'modern') => {
 
 // --- the existing sessionful 2025 deployment, unchanged ---
 const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
-const ensureSessionful = async (sid: string | undefined) => {
-    if (sid && sessions.has(sid)) return sessions.get(sid)!;
-    const transport = new NodeStreamableHTTPServerTransport({
-        sessionIdGenerator: () => randomUUID(),
-        onsessioninitialized: id => {
-            sessions.set(id, transport);
-        }
-    });
-    transport.onclose = () => transport.sessionId && sessions.delete(transport.sessionId);
-    await buildServer('legacy').connect(transport);
-    return transport;
+const handleLegacy = async (req: Request, res: Response) => {
+    const sid = req.headers['mcp-session-id'] as string | undefined;
+    if (sid && sessions.has(sid)) {
+        await sessions.get(sid)!.handleRequest(req, res, req.body);
+    } else if (!sid && isInitializeRequest(req.body)) {
+        const transport = new NodeStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: id => {
+                sessions.set(id, transport);
+            }
+        });
+        transport.onclose = () => transport.sessionId && sessions.delete(transport.sessionId);
+        await buildServer('legacy').connect(transport);
+        await transport.handleRequest(req, res, req.body);
+    } else if (sid) {
+        // Unknown session ID → 404 so the client knows to start a new session.
+        res.status(404).json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null });
+    } else {
+        res.status(400).json({ jsonrpc: '2.0', error: { code: -32_000, message: 'Bad Request: Session ID required' }, id: null });
+    }
 };
 
 // --- the strict modern entry alongside it ---
@@ -55,13 +64,7 @@ app.all('/', async (req: Request, res: Response) => {
         method: req.method,
         headers: req.headers as Record<string, string>
     });
-    if (await isLegacyRequest(probe, req.body)) {
-        const sid = req.headers['mcp-session-id'] as string | undefined;
-        const transport = await ensureSessionful(sid);
-        await transport.handleRequest(req, res, req.body);
-    } else {
-        await modern.node(req, res, req.body);
-    }
+    await ((await isLegacyRequest(probe, req.body)) ? handleLegacy(req, res) : modern.node(req, res, req.body));
 });
 
 const argv = process.argv.slice(2);
