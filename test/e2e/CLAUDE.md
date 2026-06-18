@@ -64,7 +64,7 @@ Two transport arms host the dual-era HTTP entry (`createMcpHandler`) in process 
 
 - `entryStateless` — the entry with its stateless legacy fallback (`legacy: 'stateless'`, the entry's default posture, passed explicitly so the arm stays era-pinned); the scenario's plain client is served per request through the fallback. Cells run on the 2025-11-25 axis only.
 - `entryModern` — the entry hosted modern-only strict (`legacy: 'reject'`); the arm pins the scenario's client to the 2026-07-28 revision via `setVersionNegotiation()`, and the client attaches the per-request `_meta` envelope to every outgoing request/notification itself. Cells
-  run on the 2026-07-28 axis only.
+  run on the 2026-07-28 axis only. The pin is unconditional, so a scenario that needs to assert non-pin negotiation behavior (e.g. `mode: 'auto'` probing) must restrict off `entryModern` or drive a non-entry transport.
 
 Both arms are part of the default transport list, so unrestricted requirements run through the entry automatically. When a requirement cannot run on an entry arm, annotate it with a machine-readable reason instead of bending the test:
 

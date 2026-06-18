@@ -61,10 +61,7 @@ verifies('typescript:mrtr:tools-call:write-once-roundtrip', async ({ transport }
         return server;
     };
 
-    const client = new Client(
-        { name: 'mrtr-client', version: '1.0.0' },
-        { versionNegotiation: { mode: 'auto' }, capabilities: { elicitation: { form: {} } } }
-    );
+    const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { elicitation: { form: {} } } });
     const handled: unknown[] = [];
     client.setRequestHandler('elicitation/create', async request => {
         handled.push(request.params);
@@ -104,10 +101,7 @@ verifies('typescript:mrtr:push-api:loud-fail-2026', async ({ transport }: TestAr
         return server;
     };
 
-    const client = new Client(
-        { name: 'mrtr-client', version: '1.0.0' },
-        { versionNegotiation: { mode: 'auto' }, capabilities: { elicitation: { form: {} } } }
-    );
+    const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { elicitation: { form: {} } } });
     client.setRequestHandler('elicitation/create', async () => ({ action: 'accept', content: {} }));
 
     await using wired = await wire(transport, makeServer, client);
@@ -143,10 +137,7 @@ verifies('typescript:mrtr:url-elicitation:no-32042-on-2026', async ({ transport 
         return server;
     };
 
-    const client = new Client(
-        { name: 'mrtr-client', version: '1.0.0' },
-        { versionNegotiation: { mode: 'auto' }, capabilities: { elicitation: { url: {} } } }
-    );
+    const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { elicitation: { url: {} } } });
     const seenUrlRequests: unknown[] = [];
     client.setRequestHandler('elicitation/create', async request => {
         seenUrlRequests.push(request.params);
@@ -183,7 +174,7 @@ verifies('typescript:mrtr:rounds-cap', async ({ transport }: TestArgs) => {
 
     const client = new Client(
         { name: 'mrtr-client', version: '1.0.0' },
-        { versionNegotiation: { mode: 'auto' }, capabilities: { elicitation: { form: {} } }, inputRequired: { maxRounds: 2 } }
+        { capabilities: { elicitation: { form: {} } }, inputRequired: { maxRounds: 2 } }
     );
     client.setRequestHandler('elicitation/create', async () => ({ action: 'accept', content: { confirm: true } }));
 
