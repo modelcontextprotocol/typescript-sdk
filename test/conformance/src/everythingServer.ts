@@ -7,12 +7,33 @@
  * This server is designed to pass all conformance test scenarios.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { localhostHostValidation } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import type { CallToolResult, EventId, EventStore, GetPromptResult, ReadResourceResult, StreamId } from '@modelcontextprotocol/server';
-import { classifyInboundRequest, createMcpHandler, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import type {
+    CallToolResult,
+    EventId,
+    EventStore,
+    GetPromptResult,
+    InputRequests,
+    InputRequiredResult,
+    ReadResourceResult,
+    ServerContext,
+    StreamId
+} from '@modelcontextprotocol/server';
+import {
+    acceptedContent,
+    classifyInboundRequest,
+    CLIENT_CAPABILITIES_META_KEY,
+    createMcpHandler,
+    inputRequired,
+    isInitializeRequest,
+    McpServer,
+    ProtocolError,
+    ProtocolErrorCode,
+    ResourceTemplate
+} from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 import express from 'express';
@@ -64,6 +85,43 @@ const TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQ
 // Sample base64 encoded minimal WAV file for testing
 const TEST_AUDIO_BASE64 = 'UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA=';
 
+// ===== MULTI-ROUND-TRIP requestState INTEGRITY (SEP-2322) =====
+//
+// `requestState` round-trips through the client and comes back as
+// attacker-controlled input. The SDK treats it as an opaque string and applies
+// no protection of its own, so a server that lets it influence behavior MUST
+// integrity-protect it when minting and MUST reject state that fails
+// verification (see the migration guide). This pair of helpers is the worked
+// example of that obligation: the payload is HMAC-signed with a per-process
+// key and verified on every retry. The key is process-local because the
+// 2026-07-28 path serves every request from a fresh server instance — the
+// state itself is the only thing that survives between rounds.
+const REQUEST_STATE_HMAC_KEY = randomBytes(32);
+
+function mintRequestState(payload: Record<string, unknown>): string {
+    const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    const signature = createHmac('sha256', REQUEST_STATE_HMAC_KEY).update(body).digest('base64url');
+    return `${body}.${signature}`;
+}
+
+function verifyRequestState(state: string): Record<string, unknown> | undefined {
+    const separator = state.lastIndexOf('.');
+    if (separator <= 0) {
+        return undefined;
+    }
+    const body = state.slice(0, separator);
+    const expected = createHmac('sha256', REQUEST_STATE_HMAC_KEY).update(body).digest();
+    const provided = Buffer.from(state.slice(separator + 1), 'base64url');
+    if (provided.length !== expected.length || !timingSafeEqual(provided, expected)) {
+        return undefined;
+    }
+    try {
+        return JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as Record<string, unknown>;
+    } catch {
+        return undefined;
+    }
+}
+
 // Function to create a new MCP server instance (one per session)
 function createMcpServer() {
     const mcpServer = new McpServer(
@@ -85,6 +143,17 @@ function createMcpServer() {
                 },
                 logging: {},
                 completions: {}
+            },
+            // Seam-level integrity check (SEP-2322): every re-entered MRTR
+            // request that carries requestState is verified before the handler
+            // runs. A rejection answers a wire-level -32602 with
+            // data.reason 'invalid_request_state'.
+            requestState: {
+                verify: state => {
+                    if (verifyRequestState(state) === undefined) {
+                        throw new Error('requestState failed integrity verification');
+                    }
+                }
             }
         }
     );
@@ -624,6 +693,280 @@ function createMcpServer() {
         }
     );
 
+    // ===== MULTI-ROUND-TRIP TOOLS (SEP-2322, protocol revision 2026-07-28) =====
+    //
+    // Diagnostic tools for the input-required conformance scenarios. Each tool
+    // is written write-once style: it returns `inputRequired(...)` until the
+    // retried request carries the responses it needs (read from
+    // `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState`), then completes.
+    // These tools are only meaningful toward 2026-07-28 requests; calling them
+    // on a 2025-era session fails loudly at the server seam by design.
+
+    // Basic elicitation round trip. Also exercised by the result-type,
+    // missing-input-response, ignore-extra-params and validate-input
+    // scenarios: anything that does not contain an accepted "user_name"
+    // response is answered with a fresh InputRequiredResult re-requesting it.
+    mcpServer.registerTool(
+        'test_input_required_result_elicitation',
+        {
+            description: 'MRTR (SEP-2322): asks for the caller name via an in-band elicitation request',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            const name = acceptedContent<{ name: string }>(ctx.mcpReq.inputResponses, 'user_name')?.name;
+            if (typeof name !== 'string') {
+                return inputRequired({
+                    inputRequests: {
+                        user_name: inputRequired.elicit({
+                            message: 'What is your name?',
+                            requestedSchema: {
+                                type: 'object',
+                                properties: { name: { type: 'string' } },
+                                required: ['name']
+                            }
+                        })
+                    }
+                });
+            }
+            return { content: [{ type: 'text', text: `Hello, ${name}!` }] };
+        }
+    );
+
+    // Basic sampling round trip.
+    mcpServer.registerTool(
+        'test_input_required_result_sampling',
+        {
+            description: 'MRTR (SEP-2322): asks for an LLM completion via an in-band sampling request',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            const samplingResponse = ctx.mcpReq.inputResponses?.['capital_question'] as
+                | { content?: { type?: string; text?: string } }
+                | undefined;
+            if (samplingResponse === undefined) {
+                return inputRequired({
+                    inputRequests: {
+                        capital_question: inputRequired.createMessage({
+                            messages: [{ role: 'user', content: { type: 'text', text: 'What is the capital of France?' } }],
+                            maxTokens: 100
+                        })
+                    }
+                });
+            }
+            const text =
+                typeof samplingResponse.content?.text === 'string' ? samplingResponse.content.text : JSON.stringify(samplingResponse);
+            return { content: [{ type: 'text', text: `Sampling response: ${text}` }] };
+        }
+    );
+
+    // Basic roots/list round trip.
+    mcpServer.registerTool(
+        'test_input_required_result_list_roots',
+        {
+            description: 'MRTR (SEP-2322): asks for the client roots via an in-band roots/list request',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            const rootsResponse = ctx.mcpReq.inputResponses?.['client_roots'] as
+                | { roots?: Array<{ uri?: string; name?: string }> }
+                | undefined;
+            if (!Array.isArray(rootsResponse?.roots)) {
+                return inputRequired({ inputRequests: { client_roots: inputRequired.listRoots() } });
+            }
+            const uris = rootsResponse.roots.map(root => root.uri).join(', ');
+            return { content: [{ type: 'text', text: `Client exposed ${rootsResponse.roots.length} root(s): ${uris}` }] };
+        }
+    );
+
+    // requestState round trip: the state is integrity-protected when minted
+    // and verified on the retry (see the helpers above).
+    mcpServer.registerTool(
+        'test_input_required_result_request_state',
+        {
+            description: 'MRTR (SEP-2322): round-trips integrity-protected requestState alongside an elicitation request',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            const confirmation = acceptedContent<{ ok: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
+            if (confirmation === undefined) {
+                return inputRequired({
+                    inputRequests: {
+                        confirm: inputRequired.elicit({
+                            message: 'Please confirm',
+                            requestedSchema: {
+                                type: 'object',
+                                properties: { ok: { type: 'boolean' } },
+                                required: ['ok']
+                            }
+                        })
+                    },
+                    requestState: mintRequestState({ tool: 'request_state', nonce: randomUUID() })
+                });
+            }
+            const state = ctx.mcpReq.requestState === undefined ? undefined : verifyRequestState(ctx.mcpReq.requestState);
+            if (state === undefined) {
+                throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Invalid requestState: missing or failed integrity verification');
+            }
+            return { content: [{ type: 'text', text: 'state-ok: requestState verified and confirmation received' }] };
+        }
+    );
+
+    // Multiple input requests of different kinds in one InputRequiredResult.
+    mcpServer.registerTool(
+        'test_input_required_result_multiple_inputs',
+        {
+            description: 'MRTR (SEP-2322): asks for elicitation, sampling and roots input in a single round',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            const responses = ctx.mcpReq.inputResponses;
+            const name = acceptedContent<{ name: string }>(responses, 'user_name')?.name;
+            const greeting = (responses?.['greeting'] as { content?: { text?: string } } | undefined)?.content?.text;
+            const roots = (responses?.['client_roots'] as { roots?: unknown[] } | undefined)?.roots;
+            if (typeof name !== 'string' || typeof greeting !== 'string' || !Array.isArray(roots)) {
+                return inputRequired({
+                    inputRequests: {
+                        user_name: inputRequired.elicit({
+                            message: 'What is your name?',
+                            requestedSchema: {
+                                type: 'object',
+                                properties: { name: { type: 'string' } },
+                                required: ['name']
+                            }
+                        }),
+                        greeting: inputRequired.createMessage({
+                            messages: [{ role: 'user', content: { type: 'text', text: 'Generate a greeting' } }],
+                            maxTokens: 50
+                        }),
+                        client_roots: inputRequired.listRoots()
+                    },
+                    requestState: mintRequestState({ tool: 'multiple_inputs', nonce: randomUUID() })
+                });
+            }
+            return { content: [{ type: 'text', text: `${greeting} ${name} — ${roots.length} root(s) visible` }] };
+        }
+    );
+
+    // Multi-round flow: the round number lives in the integrity-protected
+    // requestState (the 2026-07-28 path keeps no per-session state), and the
+    // state changes between rounds.
+    mcpServer.registerTool(
+        'test_input_required_result_multi_round',
+        {
+            description: 'MRTR (SEP-2322): two elicitation rounds with evolving requestState before completing',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            const state = ctx.mcpReq.requestState === undefined ? undefined : verifyRequestState(ctx.mcpReq.requestState);
+            const round = state?.tool === 'multi_round' && typeof state.round === 'number' ? state.round : 0;
+            if (round === 0) {
+                return inputRequired({
+                    inputRequests: {
+                        step1: inputRequired.elicit({
+                            message: 'Step 1: What is your name?',
+                            requestedSchema: {
+                                type: 'object',
+                                properties: { name: { type: 'string' } },
+                                required: ['name']
+                            }
+                        })
+                    },
+                    requestState: mintRequestState({ tool: 'multi_round', round: 1, nonce: randomUUID() })
+                });
+            }
+            if (round === 1) {
+                const name = acceptedContent<{ name: string }>(ctx.mcpReq.inputResponses, 'step1')?.name ?? 'unknown';
+                return inputRequired({
+                    inputRequests: {
+                        step2: inputRequired.elicit({
+                            message: 'Step 2: What is your favorite color?',
+                            requestedSchema: {
+                                type: 'object',
+                                properties: { color: { type: 'string' } },
+                                required: ['color']
+                            }
+                        })
+                    },
+                    requestState: mintRequestState({ tool: 'multi_round', round: 2, name, nonce: randomUUID() })
+                });
+            }
+            const color = acceptedContent<{ color: string }>(ctx.mcpReq.inputResponses, 'step2')?.color ?? 'unknown';
+            return { content: [{ type: 'text', text: `Multi-round complete: ${String(state?.name ?? 'unknown')} likes ${color}` }] };
+        }
+    );
+
+    // Tampered-state rejection: the seam-level `requestState.verify` hook
+    // (configured on the McpServer above) rejects a retry whose requestState
+    // fails the fixture's HMAC before this handler runs, answering the
+    // wire-level -32602 the conformance scenario requires. The handler only
+    // sees verified state.
+    mcpServer.registerTool(
+        'test_input_required_result_tampered_state',
+        {
+            description: 'MRTR (SEP-2322): rejects retries whose requestState fails integrity verification',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            if (ctx.mcpReq.requestState !== undefined && acceptedContent(ctx.mcpReq.inputResponses, 'confirm') !== undefined) {
+                return { content: [{ type: 'text', text: 'integrity-ok: requestState verified' }] };
+            }
+            return inputRequired({
+                inputRequests: {
+                    confirm: inputRequired.elicit({
+                        message: 'Please confirm',
+                        requestedSchema: {
+                            type: 'object',
+                            properties: { ok: { type: 'boolean' } },
+                            required: ['ok']
+                        }
+                    })
+                },
+                requestState: mintRequestState({ tool: 'tampered_state', nonce: randomUUID() })
+            });
+        }
+    );
+
+    // Capability-aware input requests: only ask for kinds the request's
+    // declared client capabilities cover (the server seam enforces the same
+    // rule with a -32003 error; the tool simply never trips it).
+    mcpServer.registerTool(
+        'test_input_required_result_capabilities',
+        {
+            description: 'MRTR (SEP-2322): only requests input kinds the declared client capabilities cover',
+            inputSchema: z.object({})
+        },
+        async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
+            if (ctx.mcpReq.inputResponses !== undefined) {
+                return { content: [{ type: 'text', text: 'Capability-aware input requests fulfilled' }] };
+            }
+            const declared = ctx.mcpReq.envelope?.[CLIENT_CAPABILITIES_META_KEY];
+            const inputRequests: InputRequests = {};
+            if (declared?.elicitation !== undefined) {
+                inputRequests.user_name = inputRequired.elicit({
+                    message: 'What is your name?',
+                    requestedSchema: {
+                        type: 'object',
+                        properties: { name: { type: 'string' } },
+                        required: ['name']
+                    }
+                });
+            }
+            if (declared?.sampling !== undefined) {
+                inputRequests.greeting = inputRequired.createMessage({
+                    messages: [{ role: 'user', content: { type: 'text', text: 'Generate a short greeting' } }],
+                    maxTokens: 50
+                });
+            }
+            if (declared?.roots !== undefined) {
+                inputRequests.client_roots = inputRequired.listRoots();
+            }
+            if (Object.keys(inputRequests).length === 0) {
+                return { content: [{ type: 'text', text: 'No declared client capability supports an in-band input request' }] };
+            }
+            return inputRequired({ inputRequests });
+        }
+    );
+
     // ===== RESOURCES =====
 
     // Static text resource
@@ -814,6 +1157,47 @@ function createMcpServer() {
                             type: 'text',
                             text: 'Please process the embedded resource above.'
                         }
+                    }
+                ]
+            };
+        }
+    );
+
+    // Multi-round-trip prompt (SEP-2322): prompts/get is one of the methods
+    // whose 2026-07-28 result vocabulary includes input_required, so a prompt
+    // can request elicitation input in-band before rendering.
+    mcpServer.registerPrompt(
+        'test_input_required_result_prompt',
+        {
+            title: 'MRTR Prompt',
+            description: 'MRTR (SEP-2322): prompt that requires elicitation input before rendering'
+        },
+        async (ctx): Promise<GetPromptResult | InputRequiredResult> => {
+            // A prompt registered without argsSchema receives the request
+            // context as its only callback argument, but the registerPrompt
+            // overloads only model the (args, ctx) form — so the parameter
+            // arrives untyped and is narrowed here.
+            const promptCtx = ctx as ServerContext;
+            const promptContext = acceptedContent<{ context: string }>(promptCtx.mcpReq.inputResponses, 'user_context')?.context;
+            if (typeof promptContext !== 'string') {
+                return inputRequired({
+                    inputRequests: {
+                        user_context: inputRequired.elicit({
+                            message: 'What context should the prompt use?',
+                            requestedSchema: {
+                                type: 'object',
+                                properties: { context: { type: 'string' } },
+                                required: ['context']
+                            }
+                        })
+                    }
+                });
+            }
+            return {
+                messages: [
+                    {
+                        role: 'user',
+                        content: { type: 'text', text: `Use the following context: ${promptContext}` }
                     }
                 ]
             };
