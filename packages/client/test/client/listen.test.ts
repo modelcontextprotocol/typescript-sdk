@@ -228,6 +228,42 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
+    it('a synchronously-delivered server-cancel during send does not leak a _listenState entry', async () => {
+        // In-process delivery: the server's notifications/cancelled arrives
+        // inside `_parkRequest`'s send (before `parked` is assigned). settle()
+        // must still drop the `_listenState` entry it registered via
+        // onBeforeSend.
+        const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+        serverTx.onmessage = m => {
+            const req = m as { id?: number | string; method?: string };
+            if (req.method === 'server/discover' && req.id !== undefined) {
+                void serverTx.send({
+                    jsonrpc: '2.0',
+                    id: req.id,
+                    result: {
+                        resultType: 'complete',
+                        supportedVersions: [MODERN],
+                        capabilities: {},
+                        serverInfo: { name: 's', version: '1' }
+                    }
+                });
+            }
+            if (req.method === 'subscriptions/listen' && req.id !== undefined) {
+                void serverTx.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: req.id } });
+            }
+        };
+        await serverTx.start();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const listenState = (client as unknown as { _listenState: Map<unknown, unknown> })._listenState;
+        const before = listenState.size;
+        const error = await client.listen({ toolsListChanged: true }).catch(e => e as Error);
+        expect((error as Error).message).toContain('server cancelled before acknowledging');
+        // No leaked _listenState entry for the listen id.
+        expect(listenState.size).toBe(before);
+        await client.close();
+    });
+
     it('a synchronous transport.send throw does not leak a _responseHandlers entry', async () => {
         const { clientTx } = await scriptedModern();
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
@@ -242,6 +278,9 @@ describe('Client.listen()', () => {
         expect((error as Error).message).toContain('send blew up');
         // The park primitive unregistered before rethrowing — no leak.
         expect(handlers.size).toBe(before);
+        // settle() in the catch path also dropped the _listenState entry that
+        // onBeforeSend registered before send threw.
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
         clientTx.send = realSend;
         await client.close();
     });

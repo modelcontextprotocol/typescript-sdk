@@ -1274,6 +1274,12 @@ export class Client extends Protocol<ClientContext> {
         // before-ack / close-before-ack hangs are impossible by construction.
         let state: 'opening' | 'open' | 'closed' = 'opening';
         let parked: ReturnType<typeof this._parkRequest> | undefined;
+        // The listen request id, captured by `onBeforeSend` BEFORE the request
+        // goes out. `settle()` deletes `_listenState` by this id (not via
+        // `parked.messageId`), so a synchronously-delivered termination during
+        // `_parkRequest`'s send — when `parked` is still unassigned — does not
+        // leak the entry.
+        let listenMessageId: number | undefined;
         let ackTimer: ReturnType<typeof setTimeout> | undefined;
         let resolveOpening!: (honored: SubscriptionFilter) => void;
         let rejectOpening!: (error: Error) => void;
@@ -1297,10 +1303,10 @@ export class Client extends Protocol<ClientContext> {
                 return;
             }
             state = 'closed';
-            if (parked !== undefined) {
-                this._listenState.delete(parked.messageId);
-                parked.unpark();
+            if (listenMessageId !== undefined) {
+                this._listenState.delete(listenMessageId);
             }
+            parked?.unpark();
             if (wasOpening) {
                 rejectOpening(
                     outcome === 'closed'
@@ -1321,7 +1327,7 @@ export class Client extends Protocol<ClientContext> {
         // cancelled).
         const wireTeardown = async (): Promise<void> => {
             requestAbort.abort();
-            const id = parked?.messageId;
+            const id = listenMessageId;
             if (id !== undefined) {
                 await this.transport
                     ?.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id } })
@@ -1359,6 +1365,7 @@ export class Client extends Protocol<ClientContext> {
                 },
                 { requestSignal: requestAbort.signal },
                 messageId => {
+                    listenMessageId = messageId;
                     this._listenState.set(messageId, {
                         onAck: honored => settle({ ack: honored }),
                         onServerCancel: () => {
@@ -1369,8 +1376,10 @@ export class Client extends Protocol<ClientContext> {
             );
             // A synchronously-delivered termination during `send()` (an
             // in-process transport) ran `settle()` before `parked` was
-            // assigned — unpark now so the handler does not leak. (Cast: TS
-            // control-flow narrowing does not track closure mutation.)
+            // assigned; `settle()` already cleared `_listenState` via
+            // `listenMessageId` — unpark now so the response handler does not
+            // leak either. (Cast: TS control-flow narrowing does not track
+            // closure mutation.)
             if ((state as 'opening' | 'open' | 'closed') === 'closed') parked.unpark();
             // Pre-ack capacity / params rejection arrives as a JSON-RPC error
             // for the listen id; transport close is delivered the same way.
