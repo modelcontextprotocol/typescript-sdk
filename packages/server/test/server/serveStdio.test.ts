@@ -403,6 +403,41 @@ describe('server/discover probe window', () => {
         await handle.close();
     });
 
+    it('a pipelined cancellation of the probe followed by initialize still falls back to a working legacy session', async () => {
+        const { handle, request, notify, flush, eras, closed, errors } = await startEntry();
+
+        // The client pipelines all three messages without waiting for any
+        // answer: the probe, an enveloped cancellation naming the probe id
+        // (which aborts the in-flight discover handler, so the probe may
+        // legitimately never be answered), and the fallback 2025 handshake.
+        // The cancelled probe must not hold the connection: the handshake is
+        // answered and the legacy session is fully usable.
+        void request({ jsonrpc: '2.0', id: 'probe-1', method: 'server/discover', params: { _meta: envelope() } });
+        void notify({
+            jsonrpc: '2.0',
+            method: 'notifications/cancelled',
+            params: { requestId: 'probe-1', reason: 'negotiation aborted', _meta: envelope() }
+        });
+        const init = await request(initializeRequest(2));
+        expect(isJSONRPCResultResponse(init)).toBe(true);
+        if (isJSONRPCResultResponse(init)) {
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+        }
+
+        // The probe instance was discarded and the fallback is served end to
+        // end by a fresh legacy instance.
+        expect(eras).toEqual(['modern', 'legacy']);
+        expect(closed[0]).toBe(true);
+        expect(closed[1]).toBe(false);
+
+        const list = await request({ jsonrpc: '2.0', id: 3, method: 'tools/list', params: {} });
+        expect(isJSONRPCResultResponse(list)).toBe(true);
+        await flush();
+        expect(errors).toEqual([]);
+
+        await handle.close();
+    });
+
     it('an enveloped non-discover request after the probe still pins the modern era', async () => {
         const { handle, request, eras } = await startEntry();
 
