@@ -143,24 +143,21 @@ describe('serveStdio over a real child-process pipe (one connection per spawned 
             expect(outbound.some(message => (message as { method?: string }).method === 'initialize')).toBe(false);
             expect((outbound[0] as { method?: string }).method).toBe('server/discover');
 
-            // Modern vertical: list → call, every request carrying the per-request envelope.
-            // (Attaching it explicitly is the documented stop-gap until automatic
-            // per-request envelope emission lands client-side.)
-            const envelope = modernEnvelope('modern-pipe-client');
+            // Modern vertical: list → call. The raw list carries a hand-built
+            // envelope so the resultType marker can be read on the wire; the
+            // typed call goes through the client, which attaches the envelope
+            // itself on the modern-negotiated connection.
             const modernList = await rawRequest(transport, inbound, {
                 jsonrpc: '2.0',
                 id: 'raw-modern-list',
                 method: 'tools/list',
-                params: { _meta: envelope }
+                params: { _meta: modernEnvelope('modern-pipe-client') }
             });
             const modernListResult = (modernList as { result?: { tools?: Array<{ name: string }>; resultType?: string } }).result;
             expect(modernListResult?.tools?.map(tool => tool.name)).toEqual(['echo']);
             expect(modernListResult?.resultType).toBe('complete');
 
-            const result = await client.request({
-                method: 'tools/call',
-                params: { name: 'echo', arguments: { text: 'modern leg' }, _meta: envelope }
-            });
+            const result = await client.callTool({ name: 'echo', arguments: { text: 'modern leg' } });
             expect(result.content).toEqual([{ type: 'text', text: 'modern leg' }]);
 
             // The connection is pinned to the 2026 era: a late claim-less

@@ -17,8 +17,6 @@ import { fileURLToPath } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
-import type { CallToolResult } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 
 import { verifies } from '../helpers/verifies.js';
@@ -29,8 +27,6 @@ const FIXTURE_PATH = fileURLToPath(new URL('../fixtures/dual-era-stdio-server.ts
 
 /** E2E package root — spawn cwd so node/tsx resolve the local toolchain and workspace packages. */
 const E2E_ROOT = fileURLToPath(new URL('../', import.meta.url));
-
-const MODERN = '2026-07-28';
 
 verifies('typescript:transport:stdio:dual-era-serving', async ({ protocolVersion }: TestArgs) => {
     const transport = new StdioClientTransport({
@@ -75,15 +71,7 @@ verifies('typescript:transport:stdio:dual-era-serving', async ({ protocolVersion
         expect(sentMethods).not.toContain('initialize');
         expect(sentMethods[0]).toBe('server/discover');
 
-        const envelope = {
-            [PROTOCOL_VERSION_META_KEY]: MODERN,
-            [CLIENT_INFO_META_KEY]: { name: 'auto-client', version: '0' },
-            [CLIENT_CAPABILITIES_META_KEY]: {}
-        };
-        const result = (await client.request({
-            method: 'tools/call',
-            params: { name: 'echo', arguments: { text: 'modern leg' }, _meta: envelope }
-        })) as CallToolResult;
+        const result = await client.callTool({ name: 'echo', arguments: { text: 'modern leg' } });
         expect(result.content).toEqual([{ type: 'text', text: 'modern leg' }]);
     } finally {
         await client.close();
