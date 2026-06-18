@@ -8,7 +8,12 @@ import type { Server as HttpServer } from 'node:http';
 import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    PROTOCOL_VERSION_META_KEY,
+    SUBSCRIPTION_ID_META_KEY
+} from '@modelcontextprotocol/core';
 import type { CreateMcpHandlerOptions, McpHttpHandler, McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
@@ -137,5 +142,72 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
         expect(body.error.data.supported).toEqual([MODERN]);
         // The rejection echoes the request id it answers (it could be read from the body).
         expect(body.id).toBe(1);
+    });
+});
+
+describe('createMcpHandler over HTTP — subscriptions/listen honored filter', () => {
+    const cleanups: Array<() => Promise<void> | void> = [];
+    afterEach(async () => {
+        while (cleanups.length > 0) await cleanups.pop()!();
+    });
+
+    it("drops a requested type the server's declared capabilities do not advertise", async () => {
+        // Factory declares tools.listChanged but NOT prompts.listChanged: a listen
+        // request that asks for both must be acknowledged with prompts dropped —
+        // the honored filter is narrowed against the per-serve instance's
+        // capabilities, not echoed verbatim.
+        const handler = createMcpHandler(
+            () => new McpServer({ name: 'caps-gated', version: '1' }, { capabilities: { tools: { listChanged: true } } }),
+            { keepAliveMs: 0 }
+        );
+        const httpServer: HttpServer = createServer((req, res) => void handler.node(req, res));
+        const baseUrl = await listenOnRandomPort(httpServer);
+        cleanups.push(async () => {
+            await handler.close();
+            httpServer.close();
+        });
+
+        const response = await fetch(new URL('/mcp', baseUrl), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 'sub-1',
+                method: 'subscriptions/listen',
+                params: {
+                    _meta: {
+                        [PROTOCOL_VERSION_META_KEY]: MODERN,
+                        [CLIENT_INFO_META_KEY]: { name: 'integration-client', version: '1.0.0' },
+                        [CLIENT_CAPABILITIES_META_KEY]: {}
+                    },
+                    notifications: { toolsListChanged: true, promptsListChanged: true }
+                }
+            })
+        });
+        expect(response.status).toBe(200);
+        expect(response.headers.get('Content-Type')).toBe('text/event-stream');
+
+        // Read the first SSE frame (the ack) and stop.
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let ack: { method: string; params: { notifications: Record<string, unknown>; _meta: Record<string, unknown> } } | undefined;
+        while (ack === undefined) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const idx = buffer.indexOf('\n\n');
+            if (idx !== -1) {
+                const frame = buffer.slice(0, idx);
+                const dataLine = frame.split('\n').find(l => l.startsWith('data: '));
+                if (dataLine) ack = JSON.parse(dataLine.slice(6));
+            }
+        }
+        await reader.cancel();
+
+        expect(ack?.method).toBe('notifications/subscriptions/acknowledged');
+        expect(ack?.params.notifications).toEqual({ toolsListChanged: true });
+        expect(ack?.params.notifications).not.toHaveProperty('promptsListChanged');
+        expect(ack?.params._meta[SUBSCRIPTION_ID_META_KEY]).toBe('sub-1');
     });
 });

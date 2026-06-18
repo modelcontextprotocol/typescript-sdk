@@ -34,8 +34,6 @@ import type {
     InboundLadderRejection,
     InboundLegacyRoute,
     InboundModernRoute,
-    JSONRPCNotification,
-    JSONRPCRequest,
     RequestId
 } from '@modelcontextprotocol/core';
 import {
@@ -56,10 +54,13 @@ import {
 } from '@modelcontextprotocol/core';
 
 import { invoke } from './invoke.js';
+import { createListenRouter, DEFAULT_LISTEN_KEEPALIVE_MS, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter.js';
 import { McpServer } from './mcp.js';
 import type { PerRequestResponseMode } from './perRequestTransport.js';
 import type { Server } from './server.js';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope } from './server.js';
+import type { ServerEventBus, ServerNotifier } from './serverEventBus.js';
+import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus.js';
 import { WebStandardStreamableHTTPServerTransport } from './streamableHttp.js';
 
 /* ------------------------------------------------------------------------ *
@@ -171,6 +172,28 @@ export interface CreateMcpHandlerOptions {
      *   always served over SSE regardless of this setting.
      */
     responseMode?: PerRequestResponseMode;
+    /**
+     * The change-event bus `subscriptions/listen` streams subscribe to.
+     *
+     * When omitted, an in-process {@link InMemoryServerEventBus} is created
+     * and the returned handler's `notify` sugar publishes onto it.
+     * Multi-process deployments supply their own implementation over their
+     * pub/sub backend; the same instance can be shared across handlers.
+     */
+    bus?: ServerEventBus;
+    /**
+     * Reject a new `subscriptions/listen` with `-32603` 'Subscription limit
+     * reached' (in-band, HTTP 200, before the ack) when this many subscription
+     * streams are already open on this handler.
+     * @default 1024
+     */
+    maxSubscriptions?: number;
+    /**
+     * SSE comment-frame keepalive interval for `subscriptions/listen` streams,
+     * in milliseconds. Set to `0` to disable.
+     * @default 15000
+     */
+    keepAliveMs?: number;
 }
 
 /**
@@ -216,6 +239,20 @@ export interface McpHttpHandler {
      * between exchanges.
      */
     close: () => Promise<void>;
+    /**
+     * Typed publish-side facade over the handler's `subscriptions/listen` bus:
+     * each method publishes the corresponding change event to every open
+     * subscription stream that opted in to that notification type.
+     *
+     * Safe to call when no subscription is open (no-op).
+     */
+    notify: ServerNotifier;
+    /**
+     * The change-event bus this handler's `subscriptions/listen` streams
+     * subscribe to (the supplied `bus` option, or the auto-created in-process
+     * default).
+     */
+    bus: ServerEventBus;
 }
 
 /* ------------------------------------------------------------------------ *
@@ -258,16 +295,6 @@ function rejectionResponse(rejection: InboundLadderRejection, id: RequestId | nu
 
 function toError(value: unknown): Error {
     return value instanceof Error ? value : new Error(String(value));
-}
-
-/**
- * Whether the given factory product has the (forthcoming) subscriptions feature
- * configured. The subscriptions registry does not exist yet, so this currently
- * always reports `false`; the subscriptions feature replaces this predicate
- * when it lands, which arms the `responseMode: 'json'` startup warning below.
- */
-function hasConfiguredSubscriptions(_product: McpServer | Server): boolean {
-    return false;
 }
 
 function internalServerErrorResponse(id: RequestId | null = null): Response {
@@ -572,7 +599,6 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     /** Modern per-request instances with an exchange still in flight (close() tears these down). */
     const inflight = new Set<Server>();
     let closed = false;
-    let warnedJsonModeSubscriptions = false;
 
     const reportError = (error: Error) => {
         try {
@@ -582,16 +608,27 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         }
     };
 
+    const bus: ServerEventBus = options.bus ?? new InMemoryServerEventBus(reportError);
+    const notify = createServerNotifier(bus);
+    const listenRouter = createListenRouter({
+        bus,
+        maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
+        keepAliveMs: options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS,
+        onerror: reportError
+    });
+    if (responseMode === 'json') {
+        // eslint-disable-next-line no-console
+        console.warn(
+            "responseMode: 'json' drops mid-call notifications. subscriptions/listen streams are always served over SSE regardless; " +
+                'other notifications emitted before a result are dropped.'
+        );
+    }
+
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
     const legacyHandler: LegacyHttpHandler | undefined = legacy === 'reject' ? undefined : legacyStatelessFallback(factory, reportError);
 
-    async function serveModern(
-        route: InboundModernRoute,
-        message: JSONRPCRequest | JSONRPCNotification,
-        request: Request,
-        authInfo: AuthInfo | undefined
-    ): Promise<Response> {
+    async function serveModern(route: InboundModernRoute, request: Request, authInfo: AuthInfo | undefined): Promise<Response> {
         const claimedRevision = route.classification.revision;
         if (claimedRevision === undefined || !SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedRevision)) {
             // The claim names a revision this endpoint does not serve (an
@@ -602,10 +639,10 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                 requested: claimedRevision ?? 'unknown'
             });
             reportError(error);
-            return jsonRpcErrorResponse(400, error.code, error.message, error.data, echoableRequestId(message));
+            return jsonRpcErrorResponse(400, error.code, error.message, error.data, echoableRequestId(route.message));
         }
 
-        const meta = route.messageKind === 'request' ? requestMetaOf((message as JSONRPCRequest).params) : undefined;
+        const meta = route.messageKind === 'request' ? requestMetaOf(route.message.params) : undefined;
         const declaredClientCapabilities = meta?.[CLIENT_CAPABILITIES_META_KEY] as ClientCapabilities | undefined;
 
         // Pre-dispatch capability gate: a request to a method whose processing
@@ -615,7 +652,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // spec-mandated HTTP 400 for this error; a handler-time emission would
         // surface in-band on HTTP 200.
         if (route.messageKind === 'request') {
-            const required = requiredClientCapabilitiesForRequest((message as JSONRPCRequest).method);
+            const required = requiredClientCapabilitiesForRequest(route.message.method);
             if (required !== undefined) {
                 const missing = missingClientCapabilities(required, declaredClientCapabilities);
                 if (missing !== undefined) {
@@ -626,7 +663,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                         error.code,
                         error.message,
                         error.data,
-                        (message as JSONRPCRequest).id
+                        route.message.id
                     );
                 }
             }
@@ -638,6 +675,23 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             requestInfo: request
         });
         const server = product instanceof McpServer ? product.server : product;
+
+        // Entry-handled `subscriptions/listen`: the router owns ack-first /
+        // per-stream filtering / subscription-id stamping / keepalive /
+        // capacity / teardown. The factory IS constructed for listen — to read
+        // the instance's declared capabilities only, so the acknowledged
+        // filter reflects what the server can actually deliver. Unlike the
+        // discover path (which connects via the per-request transport and tears
+        // down with it), the probe instance is never connected: capabilities
+        // are read off the unconnected instance and it is closed immediately.
+        // Authorization the consumer performs inside the factory therefore DOES
+        // see listen requests, although token verification still belongs at the
+        // middleware layer mounted in front of this entry.
+        if (route.messageKind === 'request' && route.message.method === 'subscriptions/listen') {
+            const capabilities = server.getCapabilities();
+            void product.close().catch(reportError);
+            return listenRouter.serve(route.message, request.signal, capabilities);
+        }
 
         // Era-write at instance binding, then modern-only handler installation —
         // both before the instance is connected to the per-request transport.
@@ -651,15 +705,6 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             });
         }
 
-        if (responseMode === 'json' && !warnedJsonModeSubscriptions && hasConfiguredSubscriptions(product)) {
-            warnedJsonModeSubscriptions = true;
-            // eslint-disable-next-line no-console
-            console.warn(
-                "Warning: responseMode: 'json' drops mid-call notifications, but this server configures subscriptions. " +
-                    'Subscription (listen) streams are always served over SSE; other notifications emitted before a result will be dropped.'
-            );
-        }
-
         // Track the instance until its exchange tears down so close() can abort it.
         const previousOnClose = server.onclose;
         inflight.add(server);
@@ -668,19 +713,12 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             previousOnClose?.();
         };
 
-        // Listen-class streams are always SSE: even under 'json', a listen
-        // request's per-request transport keeps the lazy upgrade available.
-        const effectiveResponseMode: PerRequestResponseMode | undefined =
-            responseMode === 'json' && route.messageKind === 'request' && (message as JSONRPCRequest).method === 'subscriptions/listen'
-                ? 'auto'
-                : responseMode;
-
         try {
-            const response = await invoke(product, message, {
+            const response = await invoke(product, route.message, {
                 classification: route.classification,
                 request,
                 ...(authInfo !== undefined && { authInfo }),
-                ...(effectiveResponseMode !== undefined && { responseMode: effectiveResponseMode })
+                ...(responseMode !== undefined && { responseMode })
             });
             if (route.messageKind === 'notification') {
                 // Notification exchanges have no terminal response to ride the
@@ -701,7 +739,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             await server.close().catch(() => {});
             inflight.delete(server);
             reportError(toError(error));
-            return internalServerErrorResponse(echoableRequestId(message));
+            return internalServerErrorResponse(echoableRequestId(route.message));
         }
     }
 
@@ -753,7 +791,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                     return rejectionResponse(outcome, echoableRequestId(body));
                 }
                 case 'modern': {
-                    return await serveModern(outcome, body as JSONRPCRequest | JSONRPCNotification, request, authInfo);
+                    return await serveModern(outcome, request, authInfo);
                 }
                 case 'legacy': {
                     return await serveLegacyRoute(outcome, forwardRequest, authInfo, parsedBody);
@@ -854,8 +892,11 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     return {
         fetch: fetchFace,
         node: nodeFace,
+        notify,
+        bus,
         close: async () => {
             closed = true;
+            listenRouter.closeAll();
             const closing = [...inflight].map(server => server.close().catch(() => {}));
             inflight.clear();
             await Promise.all(closing);

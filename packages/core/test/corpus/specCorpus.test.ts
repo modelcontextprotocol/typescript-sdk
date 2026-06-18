@@ -65,8 +65,8 @@ const ERROR_OBJECT_DIRS = new Set([
  * fails loudly. These burn down as the corresponding features land.
  */
 const PENDING_2026: Record<string, string> = {
-    SubscriptionsAcknowledgedNotification: 'subscriptions/listen vocabulary (SEP-1865) is not modeled yet',
-    SubscriptionsListenRequest: 'subscriptions/listen vocabulary (SEP-1865) is not modeled yet'
+    // (empty — the subscriptions/listen vocabulary (SEP-1865) burned when
+    // the entry-handled listen routers landed.)
 };
 
 /**

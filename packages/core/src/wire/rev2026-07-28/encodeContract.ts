@@ -41,9 +41,9 @@ export const DEFAULT_CACHE_SCOPE = 'private';
  * Request methods whose spec result vocabulary goes beyond `'complete'` on the
  * 2026-07-28 revision: their results may be `input_required` (multi
  * round-trip requests), so a handler-provided `resultType` passes through the
- * stamp untouched. `subscriptions/listen` joins this set when the
- * subscriptions feature is served (its terminal result uses the same
- * mechanism).
+ * stamp untouched. `subscriptions/listen` is NOT in this set: it never emits
+ * a JSON-RPC result — termination is stream close (HTTP) or
+ * `notifications/cancelled` (stdio) per the spec.
  */
 export const EXTENDED_RESULT_TYPE_METHODS: readonly string[] = ['tools/call', 'prompts/get', 'resources/read'];
 

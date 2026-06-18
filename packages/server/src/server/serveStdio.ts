@@ -75,6 +75,7 @@ import {
 } from '@modelcontextprotocol/core';
 
 import type { McpServerFactory } from './createMcpHandler.js';
+import { DEFAULT_MAX_SUBSCRIPTIONS, StdioListenRouter } from './listenRouter.js';
 import { McpServer } from './mcp.js';
 import type { Server } from './server.js';
 import { installModernOnlyHandlers } from './server.js';
@@ -106,6 +107,13 @@ export interface ServeStdioOptions {
     transport?: Transport;
     /** Callback for out-of-band errors (reporting only; it never alters what is written to the wire). */
     onerror?: (error: Error) => void;
+    /**
+     * Reject a new `subscriptions/listen` with `-32603` 'Subscription limit
+     * reached' (in-band, before the ack) when this many subscriptions are
+     * already open on this connection.
+     * @default 1024
+     */
+    maxSubscriptions?: number;
 }
 
 /** The handle returned by {@linkcode serveStdio}. */
@@ -147,7 +155,15 @@ class StdioConnectionChannel implements Transport {
 
     constructor(
         private readonly _wire: Transport,
-        private readonly _onInstanceClose: () => void
+        private readonly _onInstanceClose: () => void,
+        /**
+         * Optional first-look on outbound messages. When set and returning
+         * `'handled'`, the channel does not write the message to the wire
+         * (the entry already wrote whatever was appropriate). Used by the
+         * modern-era listen router to fan a change notification out onto the
+         * active subscriptions instead of broadcasting it unsolicited.
+         */
+        private readonly _outboundIntercept?: (message: JSONRPCMessage) => 'handled' | undefined
     ) {}
 
     async start(): Promise<void> {
@@ -168,6 +184,9 @@ class StdioConnectionChannel implements Transport {
         if (this._closed) {
             // A discarded or torn-down instance has nowhere to write; late
             // sends are dropped.
+            return;
+        }
+        if (this._outboundIntercept?.(message) === 'handled') {
             return;
         }
         return this._wire.send(message, options);
@@ -383,6 +402,86 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             .send({ jsonrpc: '2.0', id, error: { code, message, ...(data !== undefined && { data }) } })
             .catch(error => reportError(toError(error)));
 
+    /**
+     * Entry-handled `subscriptions/listen` for this connection: holds the
+     * active subscriptions, serves inbound listen / cancelled-of-listen
+     * before the pinned instance is consulted, and rewrites the instance's
+     * outbound change notifications onto the active subscriptions. Only
+     * consulted on a modern-pinned connection — on a legacy connection
+     * change notifications pass straight through (the 2025 unsolicited
+     * delivery model is unchanged).
+     */
+    const listenRouter = new StdioListenRouter(options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS);
+
+    /** Outbound intercept installed on a modern instance's channel. */
+    const modernOutboundIntercept = (message: JSONRPCMessage): 'handled' | undefined => {
+        if (!isJSONRPCNotification(message)) return undefined;
+        const routed = listenRouter.routeOutbound(message);
+        if (routed === 'passthrough') return undefined;
+        // A subscription-gated change notification on the modern era: one
+        // stamped copy per subscription that opted in (an empty array means
+        // it is dropped — the modern era never delivers an un-requested
+        // change type unsolicited). Nothing else from the instance is
+        // affected.
+        for (const stamped of routed) {
+            void wire.send({ jsonrpc: '2.0', ...stamped }).catch(error => reportError(toError(error)));
+        }
+        return 'handled';
+    };
+
+    /**
+     * Entry-handled inbound listen routing for a modern-pinned connection.
+     * Returns `true` when the message was served at the entry and must NOT
+     * be delivered to the pinned instance.
+     */
+    const tryServeListen = async (message: JSONRPCMessage): Promise<boolean> => {
+        if (isJSONRPCRequest(message) && message.method === 'subscriptions/listen') {
+            // Entry-handled listen is its own request-handling subsystem; it
+            // applies the same per-request envelope rung the instance's
+            // `_onrequest` would (method-existence is N/A here — the entry
+            // recognized the method — so envelope validation is the first
+            // applicable rung) and the same supported-revision check the
+            // opening classifier and the HTTP entry apply per request. Reuses
+            // the same validators the opening classifier uses.
+            const meta = requestMetaOf(message.params);
+            const issue = hasEnvelopeClaim(message.params)
+                ? (meta === undefined ? [] : validateEnvelopeMeta(meta))[0]
+                : { key: '_meta', problem: 'the per-request envelope is required on protocol revision 2026-07-28' };
+            const claimedVersion = envelopeClaimVersion(message.params);
+            let reply;
+            if (issue !== undefined) {
+                reply = {
+                    jsonrpc: '2.0' as const,
+                    id: message.id,
+                    error: { code: -32_602, message: `Invalid _meta envelope: ${issue.key}: ${issue.problem}` }
+                };
+            } else if (claimedVersion === undefined || !SUPPORTED_MODERN_PROTOCOL_VERSIONS.includes(claimedVersion)) {
+                const error = new UnsupportedProtocolVersionError({
+                    supported: [...SUPPORTED_MODERN_PROTOCOL_VERSIONS],
+                    requested: claimedVersion ?? 'unknown'
+                });
+                reply = { jsonrpc: '2.0' as const, id: message.id, error: { code: error.code, message: error.message, data: error.data } };
+            } else {
+                reply = listenRouter.serve(message);
+            }
+            await wire
+                .send('error' in reply ? reply : { jsonrpc: '2.0', method: reply.method, params: reply.params })
+                .catch(error => reportError(toError(error)));
+            return true;
+        }
+        if (isJSONRPCNotification(message) && message.method === 'notifications/cancelled') {
+            const cancelledId = (message.params as CancelledNotificationParams | undefined)?.requestId;
+            // Inbound cancel of a parked listen: tear the subscription down
+            // and DO NOT deliver to the instance (it never saw the listen
+            // request). After this point nothing further is delivered for
+            // that subscription id (post-cancel hardening).
+            if (cancelledId !== undefined && listenRouter.cancel(cancelledId)) {
+                return true;
+            }
+        }
+        return false;
+    };
+
     /** Answers a 2025-era request the entry will not serve (the modern-only rejection cells). */
     const answerLegacyRejection = (
         request: JSONRPCRequest,
@@ -418,8 +517,16 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
             // uses, before the instance is connected.
             setNegotiatedProtocolVersion(server, revision);
             installModernOnlyHandlers(server, SUPPORTED_MODERN_PROTOCOL_VERSIONS);
+            // The listen router was created before this instance existed; now
+            // that capabilities are known, hand them over so the acknowledged
+            // filter is narrowed against what the server actually advertises.
+            listenRouter.setServerCapabilities(server.getCapabilities());
         }
-        const channel: StdioConnectionChannel = new StdioConnectionChannel(wire, () => onInstanceClosed(channel));
+        const channel: StdioConnectionChannel = new StdioConnectionChannel(
+            wire,
+            () => onInstanceClosed(channel),
+            era === 'modern' ? modernOutboundIntercept : undefined
+        );
         await product.connect(channel);
         return { product, channel };
     };
@@ -485,6 +592,9 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                         ? ((message.params as { protocolVersion: string }).protocolVersion as string)
                         : undefined;
                 await answerLegacyRejection(message, 'initialize', requestedVersion);
+                return;
+            }
+            if (state.era === 'modern' && (await tryServeListen(message))) {
                 return;
             }
             state.instance.channel.deliver(message);
@@ -578,6 +688,9 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                     }
                     state = { phase: 'pinned', era: 'modern', instance };
                 }
+                if (await tryServeListen(message)) {
+                    return;
+                }
                 state.instance.channel.deliver(message, { classification: opening.classification });
                 return;
             }
@@ -661,6 +774,12 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
         closing = true;
         const current = state;
         state = { phase: 'closed' };
+        // Stdio server-side teardown: emit ONE `notifications/cancelled` per
+        // active listen subscription referencing the listen request id (the
+        // spec MUST), before the wire is closed.
+        for (const cancelled of listenRouter.teardownAll()) {
+            await wire.send(cancelled).catch(error => reportError(toError(error)));
+        }
         if (current.phase === 'probe' || current.phase === 'pinned') {
             await current.instance.product.close().catch(error => reportError(toError(error)));
         }

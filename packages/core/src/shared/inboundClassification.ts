@@ -67,7 +67,7 @@ import { PROTOCOL_VERSION_META_KEY } from '../types/constants.js';
 import { ProtocolErrorCode } from '../types/enums.js';
 import { ProtocolError, UnsupportedProtocolVersionError } from '../types/errors.js';
 import { isJSONRPCErrorResponse, isJSONRPCNotification, isJSONRPCRequest, isJSONRPCResultResponse } from '../types/guards.js';
-import type { MessageClassification } from '../types/types.js';
+import type { JSONRPCNotification, JSONRPCRequest, MessageClassification } from '../types/types.js';
 import { envelopeClaimVersion, hasEnvelopeClaim, requestMetaOf, validateEnvelopeMeta } from './envelope.js';
 import { isModernProtocolVersion } from './protocolEras.js';
 
@@ -126,17 +126,32 @@ export interface InboundLegacyRoute {
     requestedVersion?: string;
 }
 
-/** The request claims the per-request envelope mechanism and is served on the modern path. */
-export interface InboundModernRoute {
-    kind: 'modern';
-    /** Whether the classified message is a request or a notification. */
-    messageKind: 'request' | 'notification';
-    /**
-     * The classification handed to the per-request transport and validated by
-     * the protocol layer against the serving instance's negotiated era.
-     */
-    classification: MessageClassification;
-}
+/**
+ * The request claims the per-request envelope mechanism and is served on the
+ * modern path. Discriminated by `messageKind` so the typed `message` narrows
+ * with it — the classifier has already proved the JSON-RPC shape via the
+ * `isJSONRPCRequest` / `isJSONRPCNotification` guards, so consumers never
+ * cast the body again.
+ */
+export type InboundModernRoute =
+    | {
+          kind: 'modern';
+          messageKind: 'request';
+          /** The classified body — guard-proved {@linkcode JSONRPCRequest} shape. */
+          message: JSONRPCRequest;
+          /**
+           * The classification handed to the per-request transport and validated by
+           * the protocol layer against the serving instance's negotiated era.
+           */
+          classification: MessageClassification;
+      }
+    | {
+          kind: 'modern';
+          messageKind: 'notification';
+          /** The classified body — guard-proved {@linkcode JSONRPCNotification} shape. */
+          message: JSONRPCNotification;
+          classification: MessageClassification;
+      };
 
 /** The named steps of the inbound validation ladder, in evaluation order. */
 export type InboundValidationRung =
@@ -461,9 +476,9 @@ function classifyBatch(body: readonly unknown[]): InboundClassificationOutcome {
     return { kind: 'legacy', reason: 'batch' };
 }
 
-function classifyRequestBody(request: InboundHttpRequest, body: Record<string, unknown>): InboundClassificationOutcome {
-    const params = body['params'];
-    const method = body['method'] as string;
+function classifyRequestBody(request: InboundHttpRequest, body: JSONRPCRequest): InboundClassificationOutcome {
+    const params = body.params;
+    const method = body.method;
     const headerVersion = request.protocolVersionHeader;
     const headerNamesModern = headerVersion !== undefined && isModernProtocolVersion(headerVersion);
 
@@ -523,7 +538,7 @@ function classifyRequestBody(request: InboundHttpRequest, body: Record<string, u
                 `the body names method ${method} but the Mcp-Method header names ${request.mcpMethodHeader}`
             );
         }
-        return { kind: 'modern', messageKind: 'request', classification: classificationForClaim(claimedVersion) };
+        return { kind: 'modern', messageKind: 'request', message: body, classification: classificationForClaim(claimedVersion) };
     }
 
     // No claim: legacy-era traffic — unless the protocol-version header names a
@@ -554,9 +569,9 @@ function classifyRequestBody(request: InboundHttpRequest, body: Record<string, u
     return { kind: 'legacy', reason: 'no-claim', ...(headerVersion !== undefined && { requestedVersion: headerVersion }) };
 }
 
-function classifyNotificationBody(request: InboundHttpRequest, body: Record<string, unknown>): InboundClassificationOutcome {
-    const params = body['params'];
-    const method = body['method'] as string;
+function classifyNotificationBody(request: InboundHttpRequest, body: JSONRPCNotification): InboundClassificationOutcome {
+    const params = body.params;
+    const method = body.method;
     const headerVersion = request.protocolVersionHeader;
     const headerNamesModern = headerVersion !== undefined && isModernProtocolVersion(headerVersion);
 
@@ -603,7 +618,7 @@ function classifyNotificationBody(request: InboundHttpRequest, body: Record<stri
                 `the notification body names method ${method} but the Mcp-Method header names ${request.mcpMethodHeader}`
             );
         }
-        return { kind: 'modern', messageKind: 'notification', classification };
+        return { kind: 'modern', messageKind: 'notification', message: body, classification };
     }
 
     // Notifications carry no body claim under the current spec, so the
@@ -623,6 +638,7 @@ function classifyNotificationBody(request: InboundHttpRequest, body: Record<stri
         return {
             kind: 'modern',
             messageKind: 'notification',
+            message: body,
             classification: { era: 'modern', revision: headerVersion }
         };
     }

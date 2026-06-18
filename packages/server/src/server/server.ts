@@ -1097,26 +1097,14 @@ export class Server extends Protocol<ServerContext> {
 }
 
 /**
- * The capability set a server advertises on `server/discover`: until the
- * `subscriptions/listen` flow ships, the advertisement excludes the
- * listChanged/subscribe-class capabilities, which a modern-era connection
- * cannot be served yet. Pure — never mutates the input; the legacy
- * `initialize` advertisement is untouched.
+ * The capability set a server advertises on `server/discover`. Pure — never
+ * mutates the input; the legacy `initialize` advertisement is untouched.
+ *
+ * The serving entries serve `subscriptions/listen` themselves, so the
+ * `listChanged` and `resources.subscribe` capability bits are advertised
+ * as-is: a modern-era client uses them to decide which notification types to
+ * request on its listen filter.
  */
 export function discoverAdvertisedCapabilities(capabilities: ServerCapabilities): ServerCapabilities {
-    const advertised: ServerCapabilities = { ...capabilities };
-    if (capabilities.tools) {
-        advertised.tools = { ...capabilities.tools };
-        delete advertised.tools.listChanged;
-    }
-    if (capabilities.prompts) {
-        advertised.prompts = { ...capabilities.prompts };
-        delete advertised.prompts.listChanged;
-    }
-    if (capabilities.resources) {
-        advertised.resources = { ...capabilities.resources };
-        delete advertised.resources.listChanged;
-        delete advertised.resources.subscribe;
-    }
-    return advertised;
+    return { ...capabilities };
 }

@@ -80,8 +80,9 @@ describe('server/discover round-trip against a modern server', () => {
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
         expect(client.getServerVersion()).toEqual({ name: 'dual-era-server', version: '2.0.0' });
         expect(client.getInstructions()).toBe('dual era');
-        // The advertisement excludes listChanged-class capabilities, visible end to end.
-        expect(client.getServerCapabilities()).toEqual({ tools: {} });
+        // The advertisement carries listChanged-class capabilities now that
+        // the serving entries serve subscriptions/listen, visible end to end.
+        expect(client.getServerCapabilities()).toEqual({ tools: { listChanged: true } });
 
         expect(bodies.some(b => b.includes('"initialize"'))).toBe(false);
         expect(bodies[0]).toContain('server/discover');

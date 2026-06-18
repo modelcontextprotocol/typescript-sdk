@@ -4,9 +4,9 @@
  * - the handler is installed ONLY when the server's supported-versions list
  *   carries a modern (2026-07-28+) revision; default servers keep answering
  *   -32601 byte-identically to the deployed fleet
- * - the advertisement is modern-only (DV-30) and excludes the
- *   listChanged/subscribe-class capabilities (A11 rider — until the
- *   subscriptions/listen milestone lands)
+ * - the advertisement is modern-only (DV-30) and carries the
+ *   listChanged/subscribe-class capabilities (the spec keeps the bits at
+ *   2026-07-28; A11 rider discharged with the subscriptions/listen milestone)
  * - counter-offer ordering: with era-aware list semantics in place, a legacy
  *   initialize can never meet a modern version string at the counter-offer
  *   site, even when the supported list carries one — the guard that must hold
@@ -129,7 +129,7 @@ describe('discover advertisement constraints', () => {
         await server.close();
     });
 
-    it('excludes listChanged/subscribe-class capabilities (A11 rider, until subscriptions/listen lands)', async () => {
+    it('advertises listChanged/subscribe-class capabilities (A11 rider discharged: subscriptions/listen is served)', async () => {
         const server = new Server(
             { name: 'test', version: '1.0.0' },
             {
@@ -147,22 +147,21 @@ describe('discover advertisement constraints', () => {
         if (!isJSONRPCResultResponse(response)) throw new Error('expected result');
         const result = DiscoverResultSchema.parse(response.result) as DiscoverResult;
 
-        expect(result.capabilities.tools).toEqual({});
-        expect(result.capabilities.prompts).toEqual({});
-        expect(result.capabilities.resources).toEqual({});
+        expect(result.capabilities.tools).toEqual({ listChanged: true });
+        expect(result.capabilities.prompts).toEqual({ listChanged: true });
+        expect(result.capabilities.resources).toEqual({ listChanged: true, subscribe: true });
         expect(result.capabilities.logging).toEqual({});
         expect(result.capabilities.completions).toEqual({});
-        expect(JSON.stringify(result.capabilities)).not.toContain('listChanged');
-        expect(JSON.stringify(result.capabilities)).not.toContain('subscribe');
 
         await server.close();
     });
 
     it('discoverAdvertisedCapabilities is pure and leaves the initialize advertisement untouched', async () => {
         const capabilities = { tools: { listChanged: true }, resources: { subscribe: true, listChanged: true } };
-        const stripped = discoverAdvertisedCapabilities(capabilities);
-        expect(stripped).toEqual({ tools: {}, resources: {} });
-        // No mutation of the input.
+        const advertised = discoverAdvertisedCapabilities(capabilities);
+        expect(advertised).toEqual({ tools: { listChanged: true }, resources: { subscribe: true, listChanged: true } });
+        // No mutation / aliasing of the input.
+        expect(advertised).not.toBe(capabilities);
         expect(capabilities).toEqual({ tools: { listChanged: true }, resources: { subscribe: true, listChanged: true } });
 
         // The legacy initialize advertisement still carries the full capability set.
