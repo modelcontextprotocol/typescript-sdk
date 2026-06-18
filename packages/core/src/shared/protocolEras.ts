@@ -12,6 +12,13 @@
  */
 
 /**
+ * The protocol era of a connection: `'legacy'` for the 2025-11-25 family and
+ * earlier (negotiated via `initialize`), `'modern'` for 2026-07-28 and later
+ * (negotiated via `server/discover`; every request carries a `_meta` envelope).
+ */
+export type ProtocolEra = 'legacy' | 'modern';
+
+/**
  * The first protocol revision of the modern (2026-07-28) era. Revision identifiers
  * are ISO dates, so lexicographic comparison orders them chronologically.
  */
