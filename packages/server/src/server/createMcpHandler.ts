@@ -602,13 +602,21 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     const inflight = new Set<Server>();
     let closed = false;
 
-    const bus: ServerEventBus = options.bus ?? new InMemoryServerEventBus(onerror);
+    const reportError = (error: Error) => {
+        try {
+            onerror?.(error);
+        } catch {
+            // Reporting must never alter the response.
+        }
+    };
+
+    const bus: ServerEventBus = options.bus ?? new InMemoryServerEventBus(reportError);
     const notify = createNotifySugar(bus);
     const listenRouter = createListenRouter({
         bus,
         maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,
         keepAliveMs: options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS,
-        ...(onerror !== undefined && { onerror })
+        onerror: reportError
     });
     if (responseMode === 'json') {
         // eslint-disable-next-line no-console
@@ -617,14 +625,6 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
                 'other notifications emitted before a result are dropped.'
         );
     }
-
-    const reportError = (error: Error) => {
-        try {
-            onerror?.(error);
-        } catch {
-            // Reporting must never alter the response.
-        }
-    };
 
     // The default posture is the stateless fallback; 'reject' is the only way
     // to turn legacy serving off (modern-only strict).
