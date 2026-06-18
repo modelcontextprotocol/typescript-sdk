@@ -553,10 +553,9 @@ These can require code changes:
 ### Server (stdio / long-lived connections)
 
 - A hand-constructed `Server`/`McpServer` connected to a `StdioServerTransport` serves only the 2025-era protocol it was written for: today's behavior, byte-identical — no change required during a mechanical migration.
-- Serving the 2026-07-28 draft revision on stdio goes through the connection-pinned entry: `serveStdio(() => new McpServer(info, options))` from `@modelcontextprotocol/server/stdio`. The opening exchange selects the connection's era (2025 `initialize` vs 2026 per-request
-  envelope, with `server/discover` answered as a probe); one factory instance is pinned per connection. `serveStdio(factory, { legacy: 'reject' })` refuses 2025-era openings with the unsupported-protocol-version error.
-- REMOVED (was only in earlier 2.0 alphas): `ServerOptions.eraSupport`. Replace `new McpServer(info, { eraSupport: 'dual-era' })` + `connect(new StdioServerTransport())` with `serveStdio(() => new McpServer(info))`; replace `eraSupport: 'modern'` with
-  `serveStdio(factory, { legacy: 'reject' })`.
+- Serving the 2026-07-28 draft revision (or both eras) on stdio goes through the connection-pinned entry: `serveStdio(() => new McpServer(info, options))` from `@modelcontextprotocol/server/stdio`. The opening exchange selects the connection's era (2025 `initialize` vs
+  2026 per-request envelope, with `server/discover` answered as a probe); one factory instance is pinned per connection. There is no per-instance option that makes a hand-constructed server serve the 2026 revision: move the v1 `server.connect(new StdioServerTransport())`
+  call into `serveStdio(() => buildServer())`. `serveStdio(factory, { legacy: 'reject' })` refuses 2025-era openings with the unsupported-protocol-version error.
 - On 2026-pinned stdio connections `getClientCapabilities()` / `getClientVersion()` return `undefined` (no `initialize` ever runs there) and handlers read per-request identity from `ctx.mcpReq.envelope`; `getNegotiatedProtocolVersion()` reports the pinned revision
   (`2026-07-28`), as on instances served through `createMcpHandler`. 2025-pinned connections keep the `initialize`-scoped semantics for all three accessors.
 - A client whose connection negotiated a modern era drops inbound server→client JSON-RPC requests (the 2026 era has no such channel) instead of answering them; legacy-era connections are unchanged.

@@ -1099,9 +1099,10 @@ Because the entry may construct an instance for a probe that is later discarded 
 Directionality follows the connection's era: the 2026-07-28 revision has no server→client JSON-RPC request channel, so handlers serving a 2026-pinned connection cannot emit `sampling`/`elicitation`/`roots` wire requests (they fail locally with a typed error), while a
 2025-pinned connection keeps today's behavior. Symmetrically, a client whose connection negotiated a modern era drops inbound JSON-RPC requests instead of answering them.
 
-**Removed: `ServerOptions.eraSupport`.** The earlier 2.0 alpha briefly accepted `eraSupport: 'dual-era' | 'modern'` on `Server`/`McpServer`, selecting the era per message on one instance. That option is gone: replace `new McpServer(info, { eraSupport: 'dual-era' })` +
-`connect(new StdioServerTransport())` with `serveStdio(() => new McpServer(info))` (and `eraSupport: 'modern'` with `serveStdio(factory, { legacy: 'reject' })`). A hand-constructed `Server`/`McpServer` connected directly to a transport serves only the 2025-era protocol it
-was written for — upgrading the SDK changes nothing about what it puts on the wire, and serving the 2026-07-28 revision always goes through one of the serving entries (`createMcpHandler` for HTTP, `serveStdio` for stdio).
+**The v1 stdio pattern keeps working and stays 2025-only.** A hand-constructed `Server`/`McpServer` connected directly to a `StdioServerTransport` — the way every v1 stdio server is written — still works and serves only the 2025-era protocol it was written for: upgrading
+the SDK changes nothing about what it puts on the wire, and no per-instance option turns such a server into a 2026-era server. Serving the 2026-07-28 revision (or both eras) on stdio always goes through `serveStdio`. To migrate an existing v1 stdio server, move its
+construction into the factory: replace `await server.connect(new StdioServerTransport())` with `serveStdio(() => buildServer())`, registering tools/resources/prompts inside the factory as before — and pass `{ legacy: 'reject' }` if 2025-era clients should be refused
+instead of served.
 
 ### Cache fields and cache hints for cacheable 2026-07-28 results
 
