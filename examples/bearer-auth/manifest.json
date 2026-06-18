@@ -1,0 +1,4 @@
+{
+    "transport": "http",
+    "path": "/mcp"
+}
