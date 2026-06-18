@@ -354,14 +354,14 @@ export class Client extends Protocol<ClientContext> {
         // Settle every live per-listen state machine before clearing the map:
         // a fresh connect (or close) on a connection whose prior transport
         // never fired onclose would otherwise leave an in-flight listen()
-        // promise hanging forever. Each entry's settle() deletes itself from
-        // the map, so iterate over a snapshot.
+        // promise hanging forever. Each entry's settle() deletes only itself
+        // (Map self-delete during iteration is well-defined).
         if (this._listenState.size > 0) {
             const reason = new SdkError(
                 SdkErrorCode.ConnectionClosed,
                 'subscriptions/listen: client reconnected or closed; subscription state from the previous connection was reset'
             );
-            for (const entry of [...this._listenState.values()]) {
+            for (const entry of this._listenState.values()) {
                 entry.onConnectionReset(reason);
             }
         }
@@ -1485,8 +1485,8 @@ export class Client extends Protocol<ClientContext> {
             }
             // An ack referencing no parked listen on this connection is NOT
             // consumed: pass it through so a stray/foreign ack reaches
-            // setNotificationHandler / fallthroughNotificationHandler instead
-            // of being silently swallowed.
+            // setNotificationHandler / fallbackNotificationHandler instead of
+            // being silently swallowed.
             return undefined;
         }
         if (raw.method === 'notifications/cancelled') {

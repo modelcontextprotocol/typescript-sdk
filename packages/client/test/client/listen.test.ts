@@ -8,7 +8,7 @@
  */
 import type { JSONRPCMessage, JSONRPCNotification } from '@modelcontextprotocol/core';
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION, SdkError, SdkErrorCode, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Client } from '../../src/client/client.js';
 
@@ -42,6 +42,33 @@ async function scriptedModern(onListen?: (id: number | string, filter: unknown, 
             };
             void serverTx.send(ack);
             onListen?.(req.id, filter, m => void serverTx.send(m));
+        }
+    };
+    await serverTx.start();
+    return { clientTx, serverTx, written };
+}
+
+/**
+ * Like `scriptedModern` but does NOT auto-ack `subscriptions/listen`: the
+ * test drives ack / cancel / transport-close itself.
+ */
+async function scriptedModernNoAck() {
+    const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+    const written: JSONRPCMessage[] = [];
+    serverTx.onmessage = message => {
+        written.push(message);
+        const req = message as { id?: number | string; method?: string };
+        if (req.method === 'server/discover' && req.id !== undefined) {
+            void serverTx.send({
+                jsonrpc: '2.0',
+                id: req.id,
+                result: {
+                    resultType: 'complete',
+                    supportedVersions: [MODERN],
+                    capabilities: { tools: { listChanged: true }, prompts: { listChanged: true } },
+                    serverInfo: { name: 'scripted', version: '1' }
+                }
+            });
         }
     };
     await serverTx.start();
@@ -453,6 +480,181 @@ describe('Client.listen()', () => {
         expect(client.autoOpenedSubscription).toBeUndefined();
         expect(errors).toHaveLength(1);
         expect((errors[0] as { code?: number }).code).toBe(-32_603);
+        await client.close();
+    });
+
+    it('transport closes BEFORE the ack: listen() rejects fast', async () => {
+        const { clientTx, serverTx } = await scriptedModernNoAck();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const t0 = Date.now();
+        const pending = client.listen({ toolsListChanged: true });
+        await flush();
+        // Server-side transport closes before ever acking → Protocol._onclose
+        // errors every parked _responseHandlers entry → settle({error}).
+        await serverTx.close();
+        const error = await pending.catch(e => e as Error);
+        expect(error).toBeInstanceOf(Error);
+        expect(Date.now() - t0).toBeLessThan(1000);
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
+    });
+
+    it('transport closes WHILE the subscription is open: subscription transitions to closed; close() is a no-op', async () => {
+        const { clientTx, serverTx, written } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const sub = await client.listen({ toolsListChanged: true });
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(1);
+        await serverTx.close();
+        await flush();
+        // Transport-close settled the per-listen machine; nothing leaks.
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        // sub.close() after transport-close is a no-op (state already 'closed'):
+        // no notifications/cancelled lands on a future connection.
+        written.length = 0;
+        await sub.close();
+        expect(written.some(m => (m as { method?: string }).method === 'notifications/cancelled')).toBe(false);
+    });
+
+    it('concurrent listens are independent (each ack resolves its own promise; closing one leaves the other open)', async () => {
+        const ids: (number | string)[] = [];
+        const { clientTx, written } = await scriptedModern(id => ids.push(id));
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const [a, b] = await Promise.all([client.listen({ toolsListChanged: true }), client.listen({ promptsListChanged: true })]);
+        expect(a.honoredFilter).toEqual({ toolsListChanged: true });
+        expect(b.honoredFilter).toEqual({ promptsListChanged: true });
+        expect(ids).toHaveLength(2);
+        expect(ids[0]).not.toBe(ids[1]);
+        const listenState = (client as unknown as { _listenState: Map<unknown, unknown> })._listenState;
+        expect(listenState.size).toBe(2);
+        written.length = 0;
+        await a.close();
+        // Only `a`'s id is cancelled; `b` stays open.
+        expect(written).toEqual([{ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: ids[0] } }]);
+        expect(listenState.size).toBe(1);
+        await b.close();
+        expect(listenState.size).toBe(0);
+        await client.close();
+    });
+
+    it('after close(): nothing further dispatched into the per-listen machine; late ack passes through unconsumed', async () => {
+        let listenId!: number | string;
+        let send!: (m: JSONRPCMessage) => void;
+        const { clientTx } = await scriptedModern((id, _f, s) => {
+            listenId = id;
+            send = s;
+        });
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const sub = await client.listen({ toolsListChanged: true });
+        await sub.close();
+        // The per-listen entry is gone; a late server-side ack and a late
+        // server-side cancel for this id are NOT consumed by the first-look
+        // hook (no parked entry matches) and reach the fallback handler.
+        const fallback: string[] = [];
+        client.fallbackNotificationHandler = async n => {
+            fallback.push(n.method);
+        };
+        send({
+            jsonrpc: '2.0',
+            method: 'notifications/subscriptions/acknowledged',
+            params: { _meta: { [SUBSCRIPTION_ID_META_KEY]: listenId }, notifications: {} }
+        });
+        send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } } as JSONRPCNotification);
+        await flush();
+        expect(fallback).toContain('notifications/subscriptions/acknowledged');
+        // The state machine stayed closed throughout (no leak, no resurrection).
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        await client.close();
+    });
+
+    it('an unmatched ack passes through to fallbackNotificationHandler (not silently swallowed)', async () => {
+        const { clientTx, serverTx } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        const fallback: string[] = [];
+        client.fallbackNotificationHandler = async n => {
+            fallback.push(n.method);
+        };
+        await client.connect(clientTx);
+        // One listen is active; a stray ack referencing a FOREIGN id must
+        // reach the fallback handler instead of being silently swallowed.
+        const sub = await client.listen({ toolsListChanged: true });
+        await serverTx.send({
+            jsonrpc: '2.0',
+            method: 'notifications/subscriptions/acknowledged',
+            params: { _meta: { [SUBSCRIPTION_ID_META_KEY]: 'foreign-id' }, notifications: {} }
+        });
+        await flush();
+        expect(fallback).toEqual(['notifications/subscriptions/acknowledged']);
+        await sub.close();
+        await client.close();
+    });
+
+    it('a fresh connect without an intervening close settles in-flight listen() from the prior connection', async () => {
+        // Edge: prior transport never fires onclose; consumer calls connect()
+        // again. The in-flight listen() promise from the old connection must
+        // reject with a clear "client reconnected/closed" error rather than
+        // hang on the (now-discarded) ack timer.
+        const { clientTx } = await scriptedModernNoAck();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const pending = client.listen({ toolsListChanged: true });
+        await flush();
+        const handlers = (client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers;
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(1);
+        // Fresh connect on a new transport — _resetConnectionState runs.
+        const { clientTx: clientTx2 } = await scriptedModern();
+        await client.connect(clientTx2);
+        const error = await pending.catch(e => e as Error);
+        expect(error).toBeInstanceOf(SdkError);
+        expect((error as SdkError).code).toBe(SdkErrorCode.ConnectionClosed);
+        expect((error as SdkError).message).toContain('reconnected or closed');
+        // No leaked parked handler from the old connection.
+        expect(handlers.size).toBe(0);
+        await client.close();
+    });
+
+    it('close() resets per-connection state even when transport.close() rejects', async () => {
+        const { clientTx } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
+        clientTx.close = () => Promise.reject(new Error('close blew up'));
+        await expect(client.close()).rejects.toThrow('close blew up');
+        // Per-connection state was cleared regardless.
+        expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+    });
+});
+
+describe('Client.listen() — ack timeout (fake timers)', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+
+    it('ack timer firing rejects with RequestTimeout and tears the wire down', async () => {
+        const { clientTx, written } = await scriptedModernNoAck();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        const connecting = client.connect(clientTx);
+        await vi.runAllTimersAsync();
+        await connecting;
+        const pending = client.listen({ toolsListChanged: true }, { timeout: 1000 });
+        // Capture rejection to avoid an unhandled-rejection on the timer tick.
+        const settled = pending.catch(e => e as SdkError);
+        await vi.advanceTimersByTimeAsync(1000);
+        const error = await settled;
+        expect(error).toBeInstanceOf(SdkError);
+        expect((error as SdkError).code).toBe(SdkErrorCode.RequestTimeout);
+        // wireTeardown sent notifications/cancelled referencing the listen id.
+        const listenId = (written.find(m => (m as { method?: string }).method === 'subscriptions/listen') as { id: number | string }).id;
+        const cancelled = written.find(m => (m as JSONRPCNotification).method === 'notifications/cancelled');
+        expect(cancelled).toMatchObject({ params: { requestId: listenId } });
+        // No leaked state.
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        expect((client as unknown as { _responseHandlers: Map<unknown, unknown> })._responseHandlers.size).toBe(0);
+        // Restore real timers before close to avoid hanging on transport timers.
+        vi.useRealTimers();
         await client.close();
     });
 });
