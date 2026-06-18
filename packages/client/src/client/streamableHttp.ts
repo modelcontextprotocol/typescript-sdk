@@ -375,6 +375,15 @@ export class StreamableHTTPClientTransport implements Transport {
                 // 405 indicates that the server does not offer an SSE stream at GET endpoint
                 // This is an expected case that should not trigger an error
                 if (response.status === 405) {
+                    // A 405 on the standalone-GET path is benign (the caller
+                    // never had a per-request stream). On the POST→GET resume
+                    // path it is a TERMINAL non-resumable outcome for a
+                    // per-request stream the caller is observing — fire the
+                    // stream-end callback so the caller can settle (otherwise
+                    // a resumed listen subscription dead-ends silently). The
+                    // standalone-GET callers never pass `onRequestStreamEnd`,
+                    // so this is a no-op for them.
+                    options.onRequestStreamEnd?.();
                     return;
                 }
 
@@ -463,6 +472,11 @@ export class StreamableHTTPClientTransport implements Transport {
 
     private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions, isReconnectable: boolean): void {
         if (!stream) {
+            // A null body on a per-request stream (or its GET resume) is the
+            // same terminal non-resumable outcome as a 405 — fire the
+            // stream-end callback so the caller can settle. No-op for
+            // standalone-GET callers (they never pass `onRequestStreamEnd`).
+            options.onRequestStreamEnd?.();
             return;
         }
         const { onresumptiontoken, replayMessageId, requestSignal, onRequestStreamEnd } = options;

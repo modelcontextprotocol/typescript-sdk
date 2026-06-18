@@ -553,6 +553,31 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
+    it('a misconfigured listChanged handler surfaces via onerror and SKIPS auto-open (no wire write)', async () => {
+        // Regression: when handler registration threw (the soft-fail catch),
+        // the auto-open filter was still built from the same `effective`,
+        // opening a listen stream for types whose handler never registered —
+        // delivered notifications dropped on the floor while consuming a
+        // server slot. Now a registration failure skips auto-open entirely.
+        const { clientTx, written } = await scriptedModernNoAck();
+        const onChanged = () => {};
+        const client = new Client(
+            { name: 'c', version: '1' },
+            { versionNegotiation: { mode: 'auto' }, listChanged: { tools: { onChanged, debounceMs: -1 } } }
+        );
+        const errors: Error[] = [];
+        client.onerror = e => errors.push(e);
+        // connect MUST resolve: the modern connection is usable without listen.
+        await client.connect(clientTx);
+        expect(errors).toHaveLength(1);
+        expect(errors[0]!.message).toContain('Invalid tools listChanged options');
+        // Auto-open SKIPPED: no listen request hit the wire, no subscription.
+        expect(client.autoOpenedSubscription).toBeUndefined();
+        expect(written.some(m => (m as { method?: string }).method === 'subscriptions/listen')).toBe(false);
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        await client.close();
+    });
+
     it('connect-scoped signal does NOT bind to the auto-opened subscription lifetime', async () => {
         // Regression: forwarding connect()'s full RequestOptions into the
         // auto-open listen() call meant a connect-scoped signal — typically
@@ -591,6 +616,7 @@ describe('Client.listen()', () => {
         // meant connect()'s signal could not cancel the in-connect ack wait —
         // an aborted connect blocked here for the full ack timeout.
         const { clientTx } = await scriptedModernNoAck();
+        const closeSpy = vi.spyOn(clientTx, 'close');
         const onChanged = () => {};
         const client = new Client(
             { name: 'c', version: '1' },
@@ -607,6 +633,11 @@ describe('Client.listen()', () => {
         expect(Date.now() - t0).toBeLessThan(1000);
         // No leaked per-listen state on the aborted connect.
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        // A connect() rejection MUST NOT leave a half-open connection: the
+        // transport was closed before rethrowing (b142b80ea regression assertion).
+        await flush();
+        expect(closeSpy).toHaveBeenCalled();
+        expect(client.transport).toBeUndefined();
         await client.close();
     });
 

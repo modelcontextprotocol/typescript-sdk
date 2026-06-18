@@ -735,6 +735,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
         await this._transport.start();
     }
 
+    /**
+     * Transport-close hook. Subclass overrides MUST call `super._onclose()`
+     * after their own cleanup — base teardown (response-handler settlement,
+     * timeout clearing, in-flight request abort) does not run otherwise.
+     */
     protected _onclose(): void {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
@@ -770,6 +775,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
         this.onerror?.(error);
     }
 
+    /**
+     * Inbound-notification dispatch. Subclass overrides MUST delegate
+     * unmatched traffic to `super._onnotification(rawNotification, extra)` —
+     * an override that consumes only what it owns and falls through to base
+     * dispatch for everything else.
+     */
     protected _onnotification(rawNotification: JSONRPCNotification, extra?: MessageExtraInfo): void {
         // Hide wire-only material from notification handlers too — but ONLY
         // the reserved envelope `_meta` keys (the retry params names are
@@ -1086,6 +1097,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
         handler(params);
     }
 
+    /**
+     * Inbound-response dispatch. Subclass overrides MUST delegate unmatched
+     * traffic to `super._onresponse(response)` — an override that consumes
+     * only what it owns and falls through to base dispatch for everything
+     * else.
+     */
     protected _onresponse(response: JSONRPCResponse | JSONRPCErrorResponse): void {
         const messageId = Number(response.id);
 

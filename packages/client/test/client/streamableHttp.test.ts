@@ -1241,6 +1241,197 @@ describe('StreamableHTTPClientTransport', () => {
             expect(onStreamEnd).not.toHaveBeenCalled();
         });
 
+        it('onRequestStreamEnd fires when reconnection attempts are exhausted (maxRetries reached)', async () => {
+            // ARRANGE — a primed POST stream (so a non-deliberate close
+            // schedules a GET resume); every GET resume fails; maxRetries 1
+            // means the second schedule hits the exhausted branch.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 5,
+                    maxRetries: 1,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const primedStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                    controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: primedStream
+            });
+            // The GET resume fails with a 5xx → reconnect catch reschedules → exhausted.
+            fetchMock.mockResolvedValue({ ok: false, status: 503, statusText: 'unavailable', headers: new Headers() });
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: new AbortController().signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+            expect(onStreamEnd).not.toHaveBeenCalled();
+
+            // ACT — server closes the primed POST stream non-deliberately.
+            streamController.close();
+            await vi.advanceTimersByTimeAsync(100);
+
+            // ASSERT — exhausted: onRequestStreamEnd fired exactly once (the
+            // max-retries branch); the exhausted onerror surfaced.
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+            expect(errorSpy).toHaveBeenCalledWith(
+                expect.objectContaining({ message: expect.stringContaining('Maximum reconnection attempts') })
+            );
+        });
+
+        it('onRequestStreamEnd fires when the per-request POST stream ERRORS without reconnecting', async () => {
+            // ARRANGE — a POST stream with NO priming event id; the body
+            // errors (network drop). The error-branch `else` (no reconnect,
+            // not intentional-abort) must fire onRequestStreamEnd.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const failingStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    controller.enqueue(
+                        new TextEncoder().encode(
+                            'data: {"jsonrpc":"2.0","method":"notifications/subscriptions/acknowledged","params":{}}\n\n'
+                        )
+                    );
+                    queueMicrotask(() => controller.error(new Error('network drop')));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: failingStream
+            });
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: new AbortController().signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT — error-branch fired exactly once; no reconnection
+            // attempted (POST stream wasn't primed).
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+        });
+
+        it('onRequestStreamEnd does NOT fire on transport.close()', async () => {
+            // The transport-wide abort is the OTHER deliberate teardown
+            // (`isIntentionalAbort()` checks both signals): a per-request
+            // stream-end callback must not fire when close() tore the stream
+            // down — `_onclose` is the settle path for that.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const stream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                    controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce((_url, init: RequestInit) => {
+                init.signal?.addEventListener('abort', () => streamController.error(init.signal?.reason), { once: true });
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    headers: new Headers({ 'content-type': 'text/event-stream' }),
+                    body: stream
+                });
+            });
+
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: new AbortController().signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            // ACT — transport-wide close.
+            await transport.close();
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT — deliberate transport close: onRequestStreamEnd never fires.
+            expect(onStreamEnd).not.toHaveBeenCalled();
+        });
+
+        it('onRequestStreamEnd fires when a primed POST→GET resume hits 405 (non-resumable terminal)', async () => {
+            // R1 regression: against a server that stamps SSE event ids on the
+            // listen POST stream but returns 405 on the GET resume,
+            // `_startOrAuthSse` resolved without a stream and nothing fired —
+            // the subscription dead-ended silently. The 405 is now a terminal
+            // per-request stream-end. ALSO asserts the GET resume carried the
+            // per-request `requestSignal` (the close-after-reconnect path).
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 5,
+                    maxRetries: 3,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+            let streamController!: ReadableStreamDefaultController<Uint8Array>;
+            const primedStream = new ReadableStream<Uint8Array>({
+                start(controller) {
+                    streamController = controller;
+                    controller.enqueue(new TextEncoder().encode('id: ev-1\ndata: \n\n'));
+                }
+            });
+            const fetchMock = globalThis.fetch as Mock;
+            let getSignal: AbortSignal | null | undefined;
+            fetchMock.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                headers: new Headers({ 'content-type': 'text/event-stream' }),
+                body: primedStream
+            });
+            fetchMock.mockImplementationOnce((_url, init: RequestInit) => {
+                getSignal = init.signal;
+                return Promise.resolve({ ok: false, status: 405, headers: new Headers() });
+            });
+
+            const requestAbort = new AbortController();
+            const onStreamEnd = vi.fn();
+            await transport.start();
+            await transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen:0', params: {} },
+                { requestSignal: requestAbort.signal, onRequestStreamEnd: onStreamEnd }
+            );
+            await vi.advanceTimersByTimeAsync(5);
+
+            // ACT — server closes the primed POST stream → schedules a GET resume → 405.
+            streamController.close();
+            await vi.advanceTimersByTimeAsync(50);
+
+            // ASSERT — onRequestStreamEnd fired exactly once on the 405; the
+            // resume was a single GET (no further retries — 405 resolves).
+            expect(onStreamEnd).toHaveBeenCalledTimes(1);
+            expect(fetchMock).toHaveBeenCalledTimes(2);
+            expect(fetchMock.mock.calls[1]![1]?.method).toBe('GET');
+            // requestSignal threaded through the GET reconnect: aborting the
+            // per-request signal aborts the resume's fetch signal.
+            expect(getSignal).toBeDefined();
+            expect(getSignal?.aborted).toBe(false);
+            requestAbort.abort();
+            expect(getSignal?.aborted).toBe(true);
+        });
+
         it('per-request requestSignal abort BEFORE response headers: no misleading onerror; send() still rejects', async () => {
             // ARRANGE — fetch is in flight (pending promise) when the
             // requestSignal aborts; fetch rejects with AbortError before the

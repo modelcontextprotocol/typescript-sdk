@@ -932,17 +932,24 @@ export class Client extends Protocol<ClientContext> {
             // throw on misconfiguration; the modern connection IS established
             // at this point and is fully usable without listChanged handlers,
             // so a misconfiguration surfaces via onerror and connect resolves
-            // (matching the auto-open soft-fail posture).
+            // (matching the auto-open soft-fail posture). When registration
+            // fails the auto-open is SKIPPED — opening a listen stream for
+            // types whose handler never registered would consume a server
+            // slot to deliver notifications nothing handles.
+            let handlersRegistered = true;
             try {
                 this._setupListChangedHandlers(effective);
             } catch (error) {
+                handlersRegistered = false;
                 this.onerror?.(error instanceof Error ? error : new Error(String(error)));
             }
-            const filter: SubscriptionFilter = {
-                ...(effective.tools && { toolsListChanged: true as const }),
-                ...(effective.prompts && { promptsListChanged: true as const }),
-                ...(effective.resources && { resourcesListChanged: true as const })
-            };
+            const filter: SubscriptionFilter = handlersRegistered
+                ? {
+                      ...(effective.tools && { toolsListChanged: true as const }),
+                      ...(effective.prompts && { promptsListChanged: true as const }),
+                      ...(effective.resources && { resourcesListChanged: true as const })
+                  }
+                : {};
             if (Object.keys(filter).length > 0) {
                 // A failed auto-open MUST NOT fail connect: the modern
                 // connection is fully usable without a listen stream (the
@@ -980,7 +987,7 @@ export class Client extends Protocol<ClientContext> {
                     // half-open connection. A server-side refusal stays a
                     // soft onerror (connect succeeds, no listen stream).
                     if (options?.signal?.aborted) {
-                        void this.close();
+                        await this.close().catch(() => {});
                         throw error;
                     }
                     this.onerror?.(error instanceof Error ? error : new Error(String(error)));
