@@ -300,7 +300,13 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
-        const { resumptionToken } = options;
+        const { resumptionToken, requestSignal } = options;
+        // Same guard as `_handleSseStream`: a resurrected listen stream (the
+        // POST-SSE → GET reconnect path threads `requestSignal` through
+        // `StartSSEOptions`) must honour the per-request abort exactly as the
+        // original POST did — both as a fetch signal and as a "do not surface
+        // onerror" gate.
+        const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
 
         try {
             // Try to open an initial SSE stream with GET to listen for server messages
@@ -315,11 +321,16 @@ export class StreamableHTTPClientTransport implements Transport {
                 headers.set('last-event-id', resumptionToken);
             }
 
+            const transportSignal = this._abortController?.signal;
+            const signal =
+                requestSignal !== undefined && transportSignal !== undefined
+                    ? anySignal(transportSignal, requestSignal)
+                    : (requestSignal ?? transportSignal);
             const response = await (this._fetch ?? fetch)(this._url, {
                 ...this._requestInit,
                 method: 'GET',
                 headers,
-                signal: this._abortController?.signal
+                signal
             });
 
             if (!response.ok) {
@@ -366,7 +377,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
             this._handleSseStream(response.body, options, true);
         } catch (error) {
-            this.onerror?.(error as Error);
+            if (!isIntentionalAbort()) {
+                this.onerror?.(error as Error);
+            }
             throw error;
         }
     }
@@ -413,8 +426,12 @@ export class StreamableHTTPClientTransport implements Transport {
 
         const reconnect = (): void => {
             this._cancelReconnection = undefined;
-            if (this._abortController?.signal.aborted) return;
+            // Honour BOTH the transport-wide abort and the per-request abort
+            // (a listen subscription closed during the backoff delay): do not
+            // resurrect a stream the caller already tore down.
+            if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
             this._startOrAuthSse(options).catch(error => {
+                if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
                 try {
                     this._scheduleReconnection(options, attemptCount + 1);
@@ -780,7 +797,14 @@ export class StreamableHTTPClientTransport implements Transport {
                 await response.text?.().catch(() => {});
             }
         } catch (error) {
-            this.onerror?.(error as Error);
+            // Intentional per-request abort BEFORE response headers (the
+            // `subscriptions/listen` driver aborting its `requestSignal`):
+            // fetch rejects with AbortError. Same guard as
+            // `_handleSseStream`'s `isIntentionalAbort` — do not surface a
+            // misleading onerror; still rethrow so `parked.sent` settles.
+            if (options?.requestSignal?.aborted !== true) {
+                this.onerror?.(error as Error);
+            }
             throw error;
         }
     }

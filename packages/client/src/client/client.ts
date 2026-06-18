@@ -927,20 +927,37 @@ export class Client extends Protocol<ClientContext> {
                 // server may not support it, or refuse on capacity). Surface
                 // via onerror; the consumer can call listen() later.
                 //
-                // Forward ONLY the ack timeout from connect()'s options.
                 // listen() binds RequestOptions.signal to the SUBSCRIPTION
-                // lifetime, so a connect-scoped signal (e.g.
-                // `AbortSignal.timeout(30_000)` for the handshake) would tear
-                // the auto-opened stream down the moment it fires after
-                // connect has already resolved. Connect's signal governs the
-                // handshake only; the auto-opened subscription outlives it.
+                // lifetime, so connect()'s signal must NOT be forwarded
+                // verbatim — a connect-scoped `AbortSignal.timeout(30_000)`
+                // would silently tear the auto-opened stream down the moment
+                // it fires after connect has resolved. But connect()'s signal
+                // MUST still cancel the in-connect ack WAIT (otherwise an
+                // aborted connect blocks here for the full ack timeout).
+                // Derived one-shot: bound to connect()'s signal only for the
+                // duration of the listen() await; the listener is removed in
+                // `finally` so the auto-opened subscription outlives connect's
+                // signal.
+                const ackAbort = new AbortController();
+                const onConnectAbort = (): void => ackAbort.abort(options?.signal?.reason);
+                // Handle the already-aborted case (aborted between the
+                // discover leg resolving and now): the listener never fires
+                // for a past event.
+                if (options?.signal?.aborted) onConnectAbort();
+                options?.signal?.addEventListener('abort', onConnectAbort);
                 try {
-                    this._autoOpenedSubscription = await this.listen(
-                        filter,
-                        options?.timeout === undefined ? undefined : { timeout: options.timeout }
-                    );
+                    this._autoOpenedSubscription = await this.listen(filter, {
+                        timeout: options?.timeout,
+                        signal: ackAbort.signal
+                    });
                 } catch (error) {
+                    // Connect-signal abort during the ack wait propagates as a
+                    // connect() rejection (caller asked to abort connect); a
+                    // server-side refusal stays a soft onerror.
+                    if (options?.signal?.aborted) throw error;
                     this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                } finally {
+                    options?.signal?.removeEventListener('abort', onConnectAbort);
                 }
             }
         }
@@ -1404,8 +1421,16 @@ export class Client extends Protocol<ClientContext> {
             requestAbort.abort();
             const id = listenMessageId;
             if (id !== undefined) {
+                // Carry the same modern auto-envelope as every other outbound
+                // (request()'s cancel and Protocol.notification() both go via
+                // `_envelopeOutbound`); the listen path was the only outbound
+                // bypassing it.
                 await this.transport
-                    ?.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id } })
+                    ?.send({
+                        jsonrpc: '2.0',
+                        method: 'notifications/cancelled',
+                        params: { _meta: { ...this._outboundMetaEnvelope() }, requestId: id }
+                    })
                     .catch(() => {});
             }
         };
@@ -1485,9 +1510,22 @@ export class Client extends Protocol<ClientContext> {
             // Pre-ack capacity / params rejection arrives as a JSON-RPC error
             // for the listen id; transport close is delivered the same way.
             // A 'response' (the spec defines listen as never receiving a
-            // result) is treated as the server having ended the stream.
+            // result) surfaces as a typed protocol-shape error so a server
+            // bug — answering listen with a JSON-RPC result instead of the
+            // acknowledged notification — is diagnosable, not a 60s ack
+            // timeout.
             void parked.terminated.then(({ reason, error }) => {
                 if (reason === 'unparked') return;
+                if (reason === 'response') {
+                    settle({
+                        cause: 'remote',
+                        error: new SdkError(
+                            SdkErrorCode.InvalidResult,
+                            'server answered subscriptions/listen with a result; expected the acknowledged notification'
+                        )
+                    });
+                    return;
+                }
                 settle({ cause: 'remote', error: error ?? new Error('subscriptions/listen: stream ended') });
             });
             parked.sent.catch(error => {

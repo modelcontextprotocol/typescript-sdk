@@ -1155,6 +1155,40 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock).toHaveBeenCalledTimes(1);
         });
 
+        it('per-request requestSignal abort BEFORE response headers: no misleading onerror; send() still rejects', async () => {
+            // ARRANGE — fetch is in flight (pending promise) when the
+            // requestSignal aborts; fetch rejects with AbortError before the
+            // SSE stream handler ever runs. _send's catch must apply the same
+            // intentional-abort guard as _handleSseStream.
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+            const errorSpy = vi.fn();
+            transport.onerror = errorSpy;
+            const fetchMock = globalThis.fetch as Mock;
+            fetchMock.mockImplementationOnce(
+                (_url, init: RequestInit) =>
+                    new Promise((_resolve, reject) => {
+                        init.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+                    })
+            );
+
+            const requestAbort = new AbortController();
+            await transport.start();
+            const sent = transport.send(
+                { jsonrpc: '2.0', method: 'subscriptions/listen', id: 'listen-1', params: {} },
+                { requestSignal: requestAbort.signal }
+            );
+            // Let _send reach the in-flight fetch.
+            await vi.advanceTimersByTimeAsync(0);
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+
+            // ACT — abort before headers.
+            requestAbort.abort(new Error('intentional'));
+
+            // ASSERT — send() rejects (so parked.sent settles), but no onerror.
+            await expect(sent).rejects.toThrow();
+            expect(errorSpy).not.toHaveBeenCalled();
+        });
+
         it('anySignal fallback removes the sibling listener (no leak on the transport-lifetime signal)', async () => {
             // ARRANGE — force the manual fallback path (Node 20.0–20.2).
             const nativeAny = AbortSignal.any;

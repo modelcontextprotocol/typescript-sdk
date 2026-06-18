@@ -7,7 +7,14 @@
  * connection.
  */
 import type { JSONRPCMessage, JSONRPCNotification } from '@modelcontextprotocol/core';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION, SdkError, SdkErrorCode, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core';
+import {
+    InMemoryTransport,
+    LATEST_PROTOCOL_VERSION,
+    PROTOCOL_VERSION_META_KEY,
+    SdkError,
+    SdkErrorCode,
+    SUBSCRIPTION_ID_META_KEY
+} from '@modelcontextprotocol/core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Client } from '../../src/client/client.js';
@@ -143,7 +150,13 @@ describe('Client.listen()', () => {
         const listenId = (written.find(m => (m as { method?: string }).method === 'subscriptions/listen') as { id: number | string }).id;
         written.length = 0;
         await sub.close();
-        expect(written).toEqual([{ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } }]);
+        expect(written).toHaveLength(1);
+        const cancel = written[0] as unknown as { method: string; params: { requestId: unknown; _meta?: Record<string, unknown> } };
+        expect(cancel.method).toBe('notifications/cancelled');
+        expect(cancel.params.requestId).toBe(listenId);
+        // The listen-path cancel carries the same modern auto-envelope as
+        // every other outbound (request()'s cancel, Protocol.notification()).
+        expect(cancel.params._meta?.[PROTOCOL_VERSION_META_KEY]).toBe(MODERN);
         // Idempotent.
         await sub.close();
         expect(written).toHaveLength(1);
@@ -422,7 +435,9 @@ describe('Client.listen()', () => {
         written.length = 0;
         ac.abort();
         await flush();
-        expect(written).toEqual([{ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } }]);
+        expect(written).toHaveLength(1);
+        expect((written[0] as JSONRPCNotification).method).toBe('notifications/cancelled');
+        expect((written[0] as unknown as { params: { requestId: unknown } }).params.requestId).toBe(listenId);
         // Caller-signal abort is consumer-initiated → 'local'.
         await expect(sub.closed).resolves.toBe('local');
         // close() after signal-abort is idempotent.
@@ -575,6 +590,66 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
+    it('connect-scoped signal aborted DURING the auto-open ack wait: connect rejects fast (no 60s hang)', async () => {
+        // Regression: forwarding only {timeout} into the auto-open listen()
+        // meant connect()'s signal could not cancel the in-connect ack wait —
+        // an aborted connect blocked here for the full ack timeout.
+        const { clientTx } = await scriptedModernNoAck();
+        const onChanged = () => {};
+        const client = new Client(
+            { name: 'c', version: '1' },
+            { versionNegotiation: { mode: 'auto' }, listChanged: { tools: { onChanged } } }
+        );
+        const connectScoped = new AbortController();
+        const t0 = Date.now();
+        const pending = client.connect(clientTx, { signal: connectScoped.signal });
+        // discover resolves; connect is now awaiting the auto-open ack.
+        await flush();
+        connectScoped.abort(new Error('connect-abort'));
+        const error = await pending.catch(e => e as Error);
+        expect(error).toBeInstanceOf(Error);
+        expect(Date.now() - t0).toBeLessThan(1000);
+        // No leaked per-listen state on the aborted connect.
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        await client.close();
+    });
+
+    it('server answers listen with a JSON-RPC RESULT during opening: rejects with a typed InvalidResult (not 60s)', async () => {
+        const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+        serverTx.onmessage = m => {
+            const req = m as { id?: number | string; method?: string };
+            if (req.method === 'server/discover' && req.id !== undefined) {
+                void serverTx.send({
+                    jsonrpc: '2.0',
+                    id: req.id,
+                    result: {
+                        resultType: 'complete',
+                        supportedVersions: [MODERN],
+                        capabilities: { tools: { listChanged: true } },
+                        serverInfo: { name: 's', version: '1' }
+                    }
+                });
+            }
+            if (req.method === 'subscriptions/listen' && req.id !== undefined) {
+                // Buggy server: answers with a result instead of the
+                // acknowledged notification. Spec defines listen as never
+                // receiving a result.
+                void serverTx.send({ jsonrpc: '2.0', id: req.id, result: {} });
+            }
+        };
+        await serverTx.start();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const t0 = Date.now();
+        const error = await client.listen({ toolsListChanged: true }).catch(e => e as SdkError);
+        expect(error).toBeInstanceOf(SdkError);
+        expect((error as SdkError).code).toBe(SdkErrorCode.InvalidResult);
+        expect((error as SdkError).message).toContain('expected the acknowledged notification');
+        expect(Date.now() - t0).toBeLessThan(1000);
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        await client.close();
+    });
+
     it('transport closes BEFORE the ack: listen() rejects fast', async () => {
         const { clientTx, serverTx } = await scriptedModernNoAck();
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
@@ -624,7 +699,9 @@ describe('Client.listen()', () => {
         written.length = 0;
         await a.close();
         // Only `a`'s id is cancelled; `b` stays open.
-        expect(written).toEqual([{ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: ids[0] } }]);
+        expect(written).toHaveLength(1);
+        expect((written[0] as JSONRPCNotification).method).toBe('notifications/cancelled');
+        expect((written[0] as unknown as { params: { requestId: unknown } }).params.requestId).toBe(ids[0]);
         expect(listenState.size).toBe(1);
         await b.close();
         expect(listenState.size).toBe(0);
