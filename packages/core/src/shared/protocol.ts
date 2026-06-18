@@ -570,6 +570,39 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
+     * The per-request `_meta` envelope this instance attaches to every outgoing
+     * request and notification, when one applies. The base implementation
+     * returns `undefined` (no envelope — the 2025-era posture, so legacy-era
+     * outbound traffic is byte-identical to a build without this seam).
+     * `Client` overrides it on a connection that negotiated a modern (2026-07-28+)
+     * era to return the reserved protocol-version / client-info /
+     * client-capabilities keys. User-supplied `_meta` keys take precedence over
+     * the auto-attached ones.
+     */
+    protected _outboundMetaEnvelope(): Readonly<Record<string, unknown>> | undefined {
+        return undefined;
+    }
+
+    /**
+     * Attach this instance's outbound `_meta` envelope (when one is configured)
+     * to a request or notification. A no-op when the seam returns `undefined`
+     * — the message returns by reference, so the legacy-era wire stays
+     * byte-identical. User-supplied `_meta` keys are spread last so they win
+     * over the auto-attached envelope keys.
+     */
+    private _envelopeOutbound<T extends JSONRPCRequest | JSONRPCNotification>(message: T): T {
+        const envelope = this._outboundMetaEnvelope();
+        if (envelope === undefined) {
+            return message;
+        }
+        const params = (message.params ?? {}) as { _meta?: Record<string, unknown> };
+        return {
+            ...message,
+            params: { ...params, _meta: { ...envelope, ...params._meta } }
+        };
+    }
+
+    /**
      * Extension point for non-`complete` decoded results in the response
      * funnel: a result the wire codec discriminated into a kind other than
      * `'complete'` or `'invalid'` is handed here for the role class to
@@ -1262,6 +1295,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 };
             }
 
+            // Per-request envelope auto-attach (after the progressToken merge so
+            // both share the same `_meta`): a no-op on the legacy era — the
+            // envelope seam returns undefined and the request goes out exactly as
+            // built above.
+            const outbound = this._envelopeOutbound(jsonrpcRequest);
+
             let responseReceived = false;
 
             const cancel = (reason: unknown) => {
@@ -1272,14 +1311,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
                 this._transport
                     ?.send(
-                        {
+                        this._envelopeOutbound({
                             jsonrpc: '2.0',
                             method: 'notifications/cancelled',
                             params: {
                                 requestId: messageId,
                                 reason: String(reason)
                             }
-                        },
+                        }),
                         { relatedRequestId, resumptionToken, onresumptiontoken }
                     )
                     .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
@@ -1367,7 +1406,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-            this._transport.send(jsonrpcRequest, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
+            this._transport.send(outbound, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
                 this._progressHandlers.delete(messageId);
                 reject(error);
             });
@@ -1415,7 +1454,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         this.assertNotificationCapability(notification.method);
 
-        const jsonrpcNotification: JSONRPCNotification = { jsonrpc: '2.0', ...notification };
+        const jsonrpcNotification = this._envelopeOutbound({ jsonrpc: '2.0' as const, ...notification });
 
         const debouncedMethods = this._options?.debouncedNotificationMethods ?? [];
         // A notification can only be debounced if it's in the list AND it's "simple"

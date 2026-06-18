@@ -98,7 +98,7 @@ function wireResultWith(bodies: string[], key: string): Record<string, unknown> 
 }
 
 verifies('typescript:hosting:entry:modern-cacheable-stamping', async ({ transport }: TestArgs) => {
-    const client = new Client({ name: 'e2e-stamping-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+    const client = new Client({ name: 'e2e-stamping-client', version: '1.0.0' });
     await using wired = await wire(transport, cacheConfiguredFactory, client);
 
     expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);

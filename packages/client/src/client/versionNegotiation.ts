@@ -49,6 +49,17 @@ export interface VersionNegotiationProbeOptions {
      * @default the standard request timeout (`DEFAULT_REQUEST_TIMEOUT_MSEC`, or the `timeout` passed to `connect()`)
      */
     timeoutMs?: number;
+
+    /**
+     * Number of times to re-send the probe after a timeout before reaching the
+     * timeout verdict. Governs timeout re-sends only — the spec-mandated
+     * `-32004` corrective continuation (select-and-continue with a mutual
+     * version) is a separate negotiation step and is never counted against
+     * `maxRetries`.
+     *
+     * @default 0 (no retries)
+     */
+    maxRetries?: number;
 }
 
 /**
@@ -323,6 +334,7 @@ export async function negotiateEra(
     deps: NegotiationDeps
 ): Promise<NegotiationResult> {
     const timeoutMs = negotiation.probe.timeoutMs ?? deps.defaultTimeoutMs;
+    const maxRetries = Math.max(0, negotiation.probe.maxRetries ?? 0);
     const clientModernVersions = negotiation.kind === 'pin' ? [negotiation.version] : negotiation.modernVersions;
     const fallbackAvailable = negotiation.kind === 'auto' && negotiation.fallbackAvailable;
 
@@ -334,11 +346,19 @@ export async function negotiateEra(
         // mutual version equals the just-rejected one); the loop guard arms on
         // the second rejection.
         let correctiveUsed = false;
+        // `maxRetries` governs timeout re-sends only — independent of (and
+        // never counted against) the corrective continuation.
+        let timeoutRetriesRemaining = maxRetries;
         for (;;) {
             const reply = await window.exchange(
                 id => buildProbeRequest(id, requestedVersion, deps.clientInfo, deps.capabilities),
                 timeoutMs
             );
+
+            if (reply.kind === 'timeout' && timeoutRetriesRemaining > 0) {
+                timeoutRetriesRemaining--;
+                continue;
+            }
 
             const outcome = normalizeReply(reply, timeoutMs);
             const verdict: ProbeVerdict = classifyProbeOutcome(outcome, {

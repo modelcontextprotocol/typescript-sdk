@@ -11,8 +11,9 @@
  * - `responseMode: 'json'` never streams and drops mid-call notifications —
  *   only the terminal result is delivered.
  *
- * Every body drives the harness-hosted entry with the auto-negotiating client;
- * the typed result and the raw wire bytes (status, content-type, SSE frames)
+ * Every body drives the harness-hosted entry through the wired client (the
+ * entryModern arm pins it to 2026-07-28); the typed result and the raw wire
+ * bytes (status, content-type, SSE frames)
  * are asserted side by side via the arm-recorded `wired.httpLog`.
  */
 import { Client } from '@modelcontextprotocol/client';
@@ -71,8 +72,8 @@ function sseDataFrames(body: string): Array<Record<string, unknown>> {
         .map(line => JSON.parse(line.slice('data: '.length)) as Record<string, unknown>);
 }
 
-function newAutoClient(): Client {
-    return new Client({ name: 'e2e-streaming-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+function newClient(): Client {
+    return new Client({ name: 'e2e-streaming-client', version: '1.0.0' });
 }
 
 function callTool(client: Client, name: 'quiet' | 'chatty'): Promise<CallToolResult> {
@@ -80,7 +81,7 @@ function callTool(client: Client, name: 'quiet' | 'chatty'): Promise<CallToolRes
 }
 
 verifies('typescript:hosting:entry:modern-lazy-sse-upgrade', async ({ transport }: TestArgs) => {
-    const client = newAutoClient();
+    const client = newClient();
     await using wired = await wire(transport, streamingFactory, client);
     expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
 
@@ -116,7 +117,7 @@ verifies('typescript:hosting:entry:modern-response-mode', async ({ transport }: 
 
     // responseMode 'sse': even a handler that emits nothing streams its result.
     {
-        const client = newAutoClient();
+        const client = newClient();
         await using wired = await wire(transport, streamingFactory, client, { entry: { responseMode: 'sse' } });
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
 
@@ -136,7 +137,7 @@ verifies('typescript:hosting:entry:modern-response-mode', async ({ transport }: 
     // responseMode 'json': mid-call notifications are dropped — the response
     // is a plain JSON body whose only payload is the terminal result.
     {
-        const client = newAutoClient();
+        const client = newClient();
         await using wired = await wire(transport, streamingFactory, client, { entry: { responseMode: 'json' } });
         expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
 

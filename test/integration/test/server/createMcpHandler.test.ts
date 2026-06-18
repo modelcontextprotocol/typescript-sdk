@@ -9,7 +9,7 @@ import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
-import type { CallToolResult, CreateMcpHandlerOptions, McpHttpHandler, McpRequestContext } from '@modelcontextprotocol/server';
+import type { CreateMcpHandlerOptions, McpHttpHandler, McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -47,14 +47,6 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
         return { baseUrl, handler };
     }
 
-    function modernEnvelope() {
-        return {
-            [PROTOCOL_VERSION_META_KEY]: MODERN,
-            [CLIENT_INFO_META_KEY]: { name: 'integration-client', version: '1.0.0' },
-            [CLIENT_CAPABILITIES_META_KEY]: {}
-        };
-    }
-
     it('serves the modern era to an auto-negotiating client (default endpoint)', async () => {
         const { baseUrl } = await startEndpoint();
 
@@ -66,13 +58,7 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
         expect(client.getServerVersion()).toEqual({ name: 'dual-era-endpoint', version: '1.0.0' });
         expect(client.getInstructions()).toBe('dual era endpoint');
 
-        // A typed tools/call round trip; the per-request envelope is attached
-        // explicitly here (automatic envelope emission for every modern request
-        // is a client-side follow-up).
-        const result = (await client.request({
-            method: 'tools/call',
-            params: { name: 'greet', arguments: { name: 'modern' }, _meta: modernEnvelope() }
-        })) as CallToolResult;
+        const result = await client.callTool({ name: 'greet', arguments: { name: 'modern' } });
         expect(result.content).toEqual([{ type: 'text', text: 'hello modern (modern)' }]);
     });
 
@@ -100,10 +86,7 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
         cleanups.push(() => modernClient.close());
 
         expect(modernClient.getNegotiatedProtocolVersion()).toBe(MODERN);
-        const modernResult = (await modernClient.request({
-            method: 'tools/call',
-            params: { name: 'greet', arguments: { name: 'new friend' }, _meta: modernEnvelope() }
-        })) as CallToolResult;
+        const modernResult = await modernClient.callTool({ name: 'greet', arguments: { name: 'new friend' } });
         expect(modernResult.content).toEqual([{ type: 'text', text: 'hello new friend (modern)' }]);
     });
 
@@ -140,7 +123,11 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
                 params: {
                     name: 'greet',
                     arguments: { name: 'x' },
-                    _meta: { ...modernEnvelope(), [PROTOCOL_VERSION_META_KEY]: '2030-01-01' }
+                    _meta: {
+                        [PROTOCOL_VERSION_META_KEY]: '2030-01-01',
+                        [CLIENT_INFO_META_KEY]: { name: 'integration-client', version: '1.0.0' },
+                        [CLIENT_CAPABILITIES_META_KEY]: {}
+                    }
                 }
             })
         });

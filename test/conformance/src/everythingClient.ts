@@ -14,12 +14,9 @@
 
 import {
     Client,
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
     ClientCredentialsProvider,
     CrossAppAccessProvider,
     PrivateKeyJwtProvider,
-    PROTOCOL_VERSION_META_KEY,
     requestJwtAuthorizationGrant,
     StreamableHTTPClientTransport
 } from '@modelcontextprotocol/client';
@@ -118,19 +115,6 @@ function isModernConformanceRun(): boolean {
     return version !== undefined && MODERN_SPEC_VERSIONS.has(version);
 }
 
-/**
- * The per-request `_meta` envelope every 2026-era request carries on the wire.
- * Automatic envelope emission is not implemented in the client yet (it is a
- * client-side follow-up), so modern-era requests attach it explicitly.
- */
-function modernEnvelope(clientInfo: { name: string; version: string }, capabilities: object, protocolVersion: string | undefined) {
-    return {
-        [PROTOCOL_VERSION_META_KEY]: protocolVersion ?? '2026-07-28',
-        [CLIENT_INFO_META_KEY]: clientInfo,
-        [CLIENT_CAPABILITIES_META_KEY]: capabilities
-    };
-}
-
 // ============================================================================
 // Basic scenarios (initialize, tools_call)
 // ============================================================================
@@ -181,27 +165,25 @@ async function runToolsCallClient(serverUrl: string): Promise<void> {
 }
 
 // tools_call under a 2026-07-28 run: negotiate the modern era via
-// server/discover (versionNegotiation), then drive the same tool flow with
-// the per-request _meta envelope attached to every request.
+// server/discover (versionNegotiation), then drive the same tool flow — the
+// client attaches the per-request _meta envelope to every request itself.
 async function runToolsCallModernClient(serverUrl: string): Promise<void> {
-    const clientInfo = { name: 'test-client', version: '1.0.0' };
-    const client = new Client(clientInfo, { capabilities: {}, versionNegotiation: { mode: 'auto' } });
+    const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {}, versionNegotiation: { mode: 'auto' } });
 
     const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
 
     await client.connect(transport);
     logger.debug('Negotiated protocol version:', client.getNegotiatedProtocolVersion());
 
-    const envelope = modernEnvelope(clientInfo, {}, client.getNegotiatedProtocolVersion());
-    const tools = await client.request({ method: 'tools/list', params: { _meta: envelope } });
+    const tools = await client.listTools();
     logger.debug('Successfully listed tools');
 
     // Call the add_numbers tool
     const addTool = tools.tools.find(t => t.name === 'add_numbers');
     if (addTool) {
-        const result = await client.request({
-            method: 'tools/call',
-            params: { name: 'add_numbers', arguments: { a: 5, b: 3 }, _meta: envelope }
+        const result = await client.callTool({
+            name: 'add_numbers',
+            arguments: { a: 5, b: 3 }
         });
         logger.debug('Tool call result:', JSON.stringify(result, null, 2));
     }
@@ -302,21 +284,19 @@ async function runMrtrClient(serverUrl: string): Promise<void> {
     await client.connect(transport);
     logger.debug('Negotiated protocol version:', client.getNegotiatedProtocolVersion());
 
-    const envelope = modernEnvelope(clientInfo, capabilities, client.getNegotiatedProtocolVersion());
-
     // requestState echo flow: the driver must echo the opaque state byte-exact
     // and retry on a fresh JSON-RPC id.
-    const echoResult = await client.callTool({ name: 'test_mrtr_echo_state', arguments: {}, _meta: envelope });
+    const echoResult = await client.callTool({ name: 'test_mrtr_echo_state', arguments: {} });
     logger.debug('test_mrtr_echo_state result:', JSON.stringify(echoResult));
 
     // No-state flow: the InputRequiredResult carries no requestState, so the
     // retry must not include one.
-    const noStateResult = await client.callTool({ name: 'test_mrtr_no_state', arguments: {}, _meta: envelope });
+    const noStateResult = await client.callTool({ name: 'test_mrtr_no_state', arguments: {} });
     logger.debug('test_mrtr_no_state result:', JSON.stringify(noStateResult));
 
     // Unrelated call: must not carry inputResponses or requestState from the
     // multi-round-trip flows above.
-    const unrelatedResult = await client.callTool({ name: 'test_mrtr_unrelated', arguments: {}, _meta: envelope });
+    const unrelatedResult = await client.callTool({ name: 'test_mrtr_unrelated', arguments: {} });
     logger.debug('test_mrtr_unrelated result:', JSON.stringify(unrelatedResult));
 
     // Result without resultType: the check passes as long as the client does
@@ -324,7 +304,7 @@ async function runMrtrClient(serverUrl: string): Promise<void> {
     // a 2026-negotiated server as a protocol violation and rejects locally
     // without retrying, so this call is expected to throw.
     try {
-        const noResultTypeResult = await client.callTool({ name: 'test_mrtr_no_result_type', arguments: {}, _meta: envelope });
+        const noResultTypeResult = await client.callTool({ name: 'test_mrtr_no_result_type', arguments: {} });
         logger.debug('test_mrtr_no_result_type result:', JSON.stringify(noResultTypeResult));
     } catch (error) {
         logger.debug('test_mrtr_no_result_type rejected locally (no retry):', error instanceof Error ? error.message : String(error));

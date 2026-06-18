@@ -16,32 +16,12 @@
  * Start the server first, then:
  *
  *     tsx examples/client/src/multiRoundTripClient.ts
- *
- * (Attaching the per-request `_meta` envelope explicitly is a stop-gap;
- * automatic envelope emission for every request is a client-side follow-up.)
  */
 import type { CallToolResult, InputRequiredResult } from '@modelcontextprotocol/client';
-import {
-    Client,
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
-    isInputRequiredResult,
-    PROTOCOL_VERSION_META_KEY,
-    StreamableHTTPClientTransport
-} from '@modelcontextprotocol/client';
+import { Client, isInputRequiredResult, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
 const URL = process.env.MCP_SERVER_URL ?? 'http://localhost:3000/';
 const CLIENT_INFO = { name: 'mrtr-example-client', version: '1.0.0' };
-
-// Per-request envelope every 2026-era request carries on the wire. The
-// declared client capabilities are what the server's −32003 check reads.
-function envelope(negotiated: string): Record<string, unknown> {
-    return {
-        [PROTOCOL_VERSION_META_KEY]: negotiated,
-        [CLIENT_INFO_META_KEY]: CLIENT_INFO,
-        [CLIENT_CAPABILITIES_META_KEY]: { elicitation: { form: {}, url: {} } }
-    };
-}
 
 async function autoFulfilLeg(): Promise<void> {
     console.log('--- auto-fulfilment (the default) ---');
@@ -62,15 +42,11 @@ async function autoFulfilLeg(): Promise<void> {
     });
 
     await client.connect(new StreamableHTTPClientTransport(new globalThis.URL(URL)));
-    const negotiated = client.getNegotiatedProtocolVersion()!;
-    console.log('negotiated protocol version:', negotiated);
+    console.log('negotiated protocol version:', client.getNegotiatedProtocolVersion());
 
     // callTool returns a plain CallToolResult — the interactive rounds happen
     // inside the call.
-    const result = await client.request({
-        method: 'tools/call',
-        params: { name: 'deploy', arguments: { env: 'prod' }, _meta: envelope(negotiated) }
-    });
+    const result = await client.callTool({ name: 'deploy', arguments: { env: 'prod' } });
     console.log('deploy result:', JSON.stringify(result.content));
     await client.close();
 }
@@ -83,7 +59,6 @@ async function manualLeg(): Promise<void> {
         inputRequired: { autoFulfill: false }
     });
     await client.connect(new StreamableHTTPClientTransport(new globalThis.URL(URL)));
-    const negotiated = client.getNegotiatedProtocolVersion()!;
 
     let inputResponses: Record<string, unknown> | undefined;
     let requestState: string | undefined;
@@ -98,7 +73,6 @@ async function manualLeg(): Promise<void> {
                 params: {
                     name: 'deploy',
                     arguments: { env: 'staging' },
-                    _meta: envelope(negotiated),
                     ...(inputResponses && { inputResponses }),
                     ...(requestState && { requestState })
                 }
