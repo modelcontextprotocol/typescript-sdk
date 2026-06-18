@@ -2267,7 +2267,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         note: 'This exercises the HTTP hosting layer; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs. The allowed-host control asserts initialize semantics per spec version: a 2026-era request is answered with the latest legacy version, since 2026-era revisions are never negotiated via initialize.'
     },
 
-    // v2 features: dual-era serving (createMcpHandler entry, eraSupport stdio, result stamping)
+    // v2 features: dual-era serving (createMcpHandler entry, serveStdio stdio entry, result stamping)
 
     'typescript:hosting:entry:dual-era-one-factory': {
         source: 'sdk',
@@ -2342,9 +2342,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:transport:stdio:dual-era-serving': {
         source: 'sdk',
         behavior:
-            'A hand-constructed stdio server declaring eraSupport "dual-era" (transport line unchanged) serves a plain 2025 client via initialize and an auto-negotiating client on 2026-07-28 via server/discover, over a real child-process pipe.',
+            'A stdio server hosted by the connection-pinned serveStdio entry serves a plain 2025 client via initialize and an auto-negotiating client on 2026-07-28 via server/discover, each on its own connection against the same factory, over a real child-process pipe.',
         transports: ['stdio'],
-        note: 'Dual-era stdio serving is exercised against a real spawned child process (fixtures/dual-era-stdio-server.ts), so the matrix transport arg is ignored and the requirement lists stdio only; the spec-version axis selects which client drives the cell.'
+        note: 'Dual-era stdio serving is exercised against a real spawned child process (fixtures/dual-era-stdio-server.ts), so the matrix transport arg is ignored and the requirement lists stdio only; the spec-version axis selects which client opens the connection.'
     },
     'custom-methods:server-handler:roundtrip': {
         source: 'sdk',

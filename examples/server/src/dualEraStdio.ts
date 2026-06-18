@@ -1,30 +1,33 @@
 /**
- * Dual-era stdio serving with `eraSupport: 'dual-era'`: one server process,
- * one long-lived pipe, both protocol eras.
+ * Dual-era stdio serving with `serveStdio`: one server process, both protocol
+ * eras, one factory.
  *
- * The same construction backs both legs — nothing about the transport or the
- * tool changes per era:
+ * The entry owns the era decision per connection: the client's opening
+ * exchange selects the era, one instance from the factory is pinned for the
+ * connection lifetime, and that instance serves only that era.
  *
  * - a plain 2025 client connects with the `initialize` handshake and is served
- *   exactly as today;
- * - a 2026-capable client (`versionNegotiation: { mode: 'auto' }`) negotiates
- *   the 2026-07-28 revision via `server/discover` on the same pipe and is
- *   served on the modern era, message by message.
+ *   by a 2025-era instance exactly as today;
+ * - a 2026-capable client (`versionNegotiation: { mode: 'auto' }`) probes with
+ *   `server/discover`, negotiates the 2026-07-28 revision, and is served by a
+ *   2026-era instance — every request carrying the per-request `_meta`
+ *   envelope.
  *
- * Opting in is the single `eraSupport` option; the default (`'legacy'`)
- * preserves today's behavior exactly.
+ * The same factory backs both: tools are defined once and served identically
+ * to either kind of client.
  *
  * Run with `tsx examples/server/src/dualEraStdio.ts` (or point any stdio MCP
  * client at it). `examples/client/src/dualEraStdioClient.ts` drives both legs
- * against the built version of this file.
+ * against this file.
  */
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
-import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 
-// One construction for both legs: tools are defined once and served
-// identically to 2025-era and 2026-era clients.
+// One factory for both eras: tools are defined once and served identically to
+// 2025-era and 2026-era clients. The entry constructs one instance per
+// connection, for the era that connection's client opened with.
 const buildServer = () => {
     const server = new McpServer(
         {
@@ -33,9 +36,7 @@ const buildServer = () => {
         },
         {
             capabilities: { tools: {} },
-            instructions: 'A small dual-era stdio demo server.',
-            // The one declared act: serve both protocol eras on this long-lived pipe.
-            eraSupport: 'dual-era'
+            instructions: 'A small dual-era stdio demo server.'
         }
     );
 
@@ -53,13 +54,13 @@ const buildServer = () => {
     return server;
 };
 
-const server = buildServer();
-// The transport is unchanged: dual-era support is purely a server-options declaration.
-await server.connect(new StdioServerTransport());
+// The entry owns the stdio transport and the era decision; 2025-era clients
+// are served by default (`legacy: 'serve'`).
+const handle = serveStdio(buildServer);
 console.error('dual-era stdio server ready (serving 2025-era initialize and 2026-07-28 envelope traffic)');
 
 const exit = async () => {
-    await server.close();
+    await handle.close();
     // eslint-disable-next-line unicorn/no-process-exit
     process.exit(0);
 };

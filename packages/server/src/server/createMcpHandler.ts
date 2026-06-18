@@ -59,7 +59,13 @@ import { WebStandardStreamableHTTPServerTransport } from './streamableHttp.js';
  * ------------------------------------------------------------------------ */
 
 /**
- * Per-request construction context handed to an {@linkcode McpServerFactory}.
+ * Construction context handed to an {@linkcode McpServerFactory}.
+ *
+ * Both serving entries call the factory with this context whenever they need
+ * a fresh instance: {@linkcode createMcpHandler} once per HTTP request, and
+ * `serveStdio` (from `@modelcontextprotocol/server/stdio`) once per
+ * connection — plus once for a `server/discover` probe instance that is
+ * discarded again if the client falls back to `initialize`.
  *
  * Zero-argument factories remain assignable unchanged; the context exists for
  * factories that vary by principal or era (for example multi-tenant servers
@@ -68,22 +74,30 @@ import { WebStandardStreamableHTTPServerTransport } from './streamableHttp.js';
  */
 export interface McpRequestContext {
     /**
-     * The protocol era of the request the constructed instance will serve:
-     * `modern` for 2026-07-28 (per-request envelope) traffic, `legacy` for
-     * 2025-era traffic served through the `legacy: 'stateless'` slot.
+     * The protocol era the constructed instance will serve: `modern` for
+     * 2026-07-28 (per-request envelope) traffic, `legacy` for 2025-era
+     * traffic. Under {@linkcode createMcpHandler} a `legacy` instance serves
+     * one request through the `legacy: 'stateless'` slot; under `serveStdio`
+     * it serves a connection that opened with the 2025 handshake and stays
+     * pinned to that era for its lifetime.
      */
     era: 'legacy' | 'modern';
-    /** Validated authentication information passed by the caller of the handler face (pass-through). */
+    /**
+     * Validated authentication information passed by the caller of the
+     * handler face (pass-through; HTTP only — `serveStdio` never sets it).
+     */
     authInfo?: AuthInfo;
-    /** The original HTTP request being served, when available. */
+    /** The original HTTP request being served, when available (HTTP only — `serveStdio` never sets it). */
     requestInfo?: Request;
 }
 
 /**
  * A factory producing a fresh {@linkcode McpServer} (or low-level
- * {@linkcode Server}) instance for one request. The same factory backs both
- * the modern path and the `legacy: 'stateless'` slot — define your tools,
- * resources and prompts once and serve them to both eras.
+ * {@linkcode Server}) instance for one serving unit: one HTTP request under
+ * {@linkcode createMcpHandler}, or one connection (or one discarded
+ * `server/discover` probe) under `serveStdio`. The same factory backs every
+ * era either entry serves — define your tools, resources and prompts once and
+ * serve them to both eras.
  */
 export type McpServerFactory = (ctx: McpRequestContext) => McpServer | Server | Promise<McpServer | Server>;
 

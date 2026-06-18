@@ -11,8 +11,8 @@
  *   version" literal and the 400/−32000 session-required body). Recognition
  *   is a typed allowlist — codes and structured data — never message-text
  *   sniffing.
- * - the era predicate's per-message form is bound by
- *   `packages/core/test/shared/classifyInboundMessage.test.ts` (T11).
+ * - the server-side opening classification (the era a connection's first
+ *   exchange selects) is bound by `packages/server/test/server/serveStdio.test.ts`.
  *
  * Probe RUNTIME (timeout/retry policy and the connect loop) is covered by the
  * negotiation engine suites; this corpus pins classification only, plus the
