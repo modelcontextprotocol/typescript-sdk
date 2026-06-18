@@ -327,6 +327,14 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
     let discarding: StdioConnectionChannel | undefined;
     let closing = false;
 
+    /**
+     * Whether the connection has been torn down (`handle.close()` or the wire
+     * closing). The opening arms re-check this after every await: a close can
+     * race factory construction, and the continuation must neither resurrect
+     * the connection state nor keep a late-resolved instance around.
+     */
+    const isTornDown = (): boolean => closing || state.phase === 'closed';
+
     const reportError = (error: Error) => {
         try {
             options.onerror?.(error);
@@ -380,6 +388,10 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
         await product.connect(channel);
         return { product, channel };
     };
+
+    /** Closes an instance whose factory resolved only after the connection was torn down. */
+    const disposeLateInstance = (instance: ConnectedInstance): Promise<void> =>
+        instance.product.close().catch(error => reportError(toError(error)));
 
     const discardProbeInstance = async (instance: ConnectedInstance): Promise<void> => {
         // The probe instance served only the discover exchange; closing its
@@ -483,6 +495,14 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                     // client may still fall back to `initialize` when it
                     // shares no modern revision with the advertisement.
                     const instance = await connectInstance('modern', opening.revision);
+                    if (isTornDown()) {
+                        // The connection was torn down while the factory was
+                        // building the probe instance: dispose of it and stay
+                        // closed instead of resurrecting the negotiation
+                        // window; nothing is delivered or answered.
+                        await disposeLateInstance(instance);
+                        return;
+                    }
                     state = { phase: 'probe', instance };
                     instance.channel.deliver(message, { classification: opening.classification });
                     return;
@@ -493,6 +513,12 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                     state = { phase: 'pinned', era: 'modern', instance: state.instance };
                 } else {
                     const instance = await connectInstance('modern', opening.revision);
+                    if (isTornDown()) {
+                        // Closed while the factory was building the modern
+                        // instance: dispose of it and stay closed.
+                        await disposeLateInstance(instance);
+                        return;
+                    }
                     state = { phase: 'pinned', era: 'modern', instance };
                 }
                 state.instance.channel.deliver(message, { classification: opening.classification });
@@ -515,9 +541,19 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                     // instance is discarded; a fresh legacy instance serves
                     // the handshake.
                     await discardProbeInstance(state.instance);
+                    if (isTornDown()) {
+                        // Closed while the probe was being discarded: stay closed.
+                        return;
+                    }
                     state = { phase: 'opening' };
                 }
                 const instance = await connectInstance('legacy');
+                if (isTornDown()) {
+                    // Closed while the factory was building the legacy
+                    // instance: dispose of it and stay closed.
+                    await disposeLateInstance(instance);
+                    return;
+                }
                 state = { phase: 'pinned', era: 'legacy', instance };
                 state.instance.channel.deliver(message);
                 return;

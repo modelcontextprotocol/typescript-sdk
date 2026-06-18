@@ -20,7 +20,14 @@
  * - malformed and unsupported envelope claims are answered by the entry,
  *   consistent with the HTTP entry's treatment, without pinning.
  */
-import type { JSONRPCErrorResponse, JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core';
+import type {
+    JSONRPCErrorResponse,
+    JSONRPCMessage,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    MessageExtraInfo,
+    Transport
+} from '@modelcontextprotocol/core';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -566,6 +573,90 @@ describe('factory or connect failure during the opening exchange (entry-answered
         expect(eras).toEqual(['legacy']);
 
         await handle.close();
+    });
+});
+
+describe('a close racing the opening factory', () => {
+    /**
+     * A factory that suspends until released and exposes what happens to its
+     * product afterwards: whether it was closed, and every message that is
+     * delivered to it after it has been connected.
+     */
+    function gatedObservableFactory() {
+        let release!: () => void;
+        const gate = new Promise<void>(resolve => {
+            release = resolve;
+        });
+        let entered!: () => void;
+        const constructionStarted = new Promise<void>(resolve => {
+            entered = resolve;
+        });
+        const eras: Array<'legacy' | 'modern'> = [];
+        const productClosed: boolean[] = [];
+        const delivered: JSONRPCMessage[] = [];
+        const factory: McpServerFactory = async ctx => {
+            const index = eras.length;
+            eras.push(ctx.era);
+            productClosed.push(false);
+            entered();
+            await gate;
+            const server = new McpServer({ name: 'serve-stdio-test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+            server.server.onclose = () => {
+                productClosed[index] = true;
+            };
+            const realConnect = server.connect.bind(server);
+            server.connect = async (transport: Transport) => {
+                await realConnect(transport);
+                const forward = transport.onmessage;
+                transport.onmessage = (message: JSONRPCMessage, extra?: MessageExtraInfo) => {
+                    delivered.push(message);
+                    forward?.(message, extra);
+                };
+            };
+            return server;
+        };
+        return { factory, constructionStarted, release, eras, productClosed, delivered };
+    }
+
+    it('handle.close() during the legacy factory build stays closed: the late instance is closed and never delivered to', async () => {
+        const { factory, constructionStarted, release, eras, productClosed, delivered } = gatedObservableFactory();
+        const { handle, flush, inbound, peerTx } = await startEntryWith(factory);
+
+        // The opening handshake arrives and the entry starts building the
+        // legacy instance; the connection is closed while the factory is
+        // still mid-construction.
+        void peerTx.send(initializeRequest(1));
+        await constructionStarted;
+        await handle.close();
+
+        // The factory resolves only after the connection is gone.
+        release();
+        await flush();
+
+        // The connection stays closed: the late-resolved instance is closed,
+        // the opening message is never delivered to it, nothing further
+        // reaches the wire, and no other instance is built.
+        expect(eras).toEqual(['legacy']);
+        expect(productClosed).toEqual([true]);
+        expect(delivered).toEqual([]);
+        expect(inbound).toEqual([]);
+    });
+
+    it('handle.close() during the probe-instance build does not resurrect the negotiation window', async () => {
+        const { factory, constructionStarted, release, eras, productClosed, delivered } = gatedObservableFactory();
+        const { handle, flush, inbound, peerTx } = await startEntryWith(factory);
+
+        void peerTx.send({ jsonrpc: '2.0', id: 'probe-1', method: 'server/discover', params: { _meta: envelope() } });
+        await constructionStarted;
+        await handle.close();
+
+        release();
+        await flush();
+
+        expect(eras).toEqual(['modern']);
+        expect(productClosed).toEqual([true]);
+        expect(delivered).toEqual([]);
+        expect(inbound).toEqual([]);
     });
 });
 
