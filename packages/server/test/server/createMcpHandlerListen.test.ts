@@ -129,6 +129,23 @@ describe('createMcpHandler — subscriptions/listen', () => {
         await handler.close();
     });
 
+    it("rejects with -32602 when params.notifications is absent (spec marks 'notifications' REQUIRED)", async () => {
+        const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0 });
+        const response = await handler.fetch(
+            new Request('http://localhost/mcp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'subscriptions/listen', params: { _meta: ENVELOPE } })
+            })
+        );
+        expect(response.headers.get('Content-Type')).toContain('application/json');
+        const body = (await response.json()) as { error: { code: number; message: string }; id: unknown };
+        expect(body.error.code).toBe(-32_602);
+        expect(body.error.message).toContain("'notifications' is required");
+        expect(body.id).toBe(9);
+        await handler.close();
+    });
+
     it('handler.close() tears down every open listen stream (HTTP teardown is stream close)', async () => {
         const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0 });
         const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }));

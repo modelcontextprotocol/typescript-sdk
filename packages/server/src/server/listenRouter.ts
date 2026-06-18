@@ -72,11 +72,13 @@ function stampSubscriptionId(
 /**
  * Read the requested filter off a `subscriptions/listen` request body.
  * Returns the validated filter, or `undefined` when `params.notifications`
- * fails the schema (the caller answers `-32602`).
+ * is absent or fails the schema (the caller answers `-32602` — the spec
+ * marks `notifications` REQUIRED on the listen request).
  */
 export function parseListenFilter(message: JSONRPCRequest): SubscriptionFilter | undefined {
     const raw = (message.params as { notifications?: unknown } | undefined)?.notifications;
-    const parsed = SubscriptionFilterSchema.safeParse(raw ?? {});
+    if (raw === undefined) return undefined;
+    const parsed = SubscriptionFilterSchema.safeParse(raw);
     return parsed.success ? parsed.data : undefined;
 }
 
@@ -115,7 +117,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
         }
         const filter = parseListenFilter(message);
         if (filter === undefined) {
-            return jsonRpcError(message.id, -32_602, "Invalid params: 'notifications' is not a valid SubscriptionFilter");
+            return jsonRpcError(message.id, -32_602, "Invalid params: 'notifications' is required and must be a valid SubscriptionFilter");
         }
         const honored = honoredSubset(filter);
         // The spec carries the listen request's JSON-RPC id verbatim as the
@@ -265,7 +267,7 @@ export class StdioListenRouter {
             return {
                 jsonrpc: '2.0',
                 id: message.id,
-                error: { code: -32_602, message: "Invalid params: 'notifications' is not a valid SubscriptionFilter" }
+                error: { code: -32_602, message: "Invalid params: 'notifications' is required and must be a valid SubscriptionFilter" }
             };
         }
         const honored = honoredSubset(filter);
