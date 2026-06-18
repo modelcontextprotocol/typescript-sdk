@@ -85,7 +85,7 @@ function stampSubscriptionId(
  * marks `notifications` REQUIRED on the listen request).
  */
 export function parseListenFilter(message: JSONRPCRequest): SubscriptionFilter | undefined {
-    const raw = (message.params as { notifications?: unknown } | undefined)?.notifications;
+    const raw: unknown = message.params?.['notifications'];
     if (raw === undefined) return undefined;
     const parsed = SubscriptionFilterSchema.safeParse(raw);
     return parsed.success ? parsed.data : undefined;
@@ -192,7 +192,10 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
 
                 if (keepAliveMs > 0) {
                     keepAliveTimer = setInterval(() => writeFrame(': keepalive\n\n'), keepAliveMs);
-                    // Do not hold the event loop open on idle subscriptions.
+                    // Do not hold the event loop open on idle subscriptions. Node's
+                    // setInterval returns a Timeout with .unref(); browsers/Workers
+                    // return a number — the cast is an environment shim, not a
+                    // workaround for SDK typing.
                     (keepAliveTimer as { unref?: () => void }).unref?.();
                 }
 
@@ -331,7 +334,8 @@ export class StdioListenRouter {
         if (!CHANGE_NOTIFICATION_METHODS.has(message.method)) {
             return 'passthrough';
         }
-        const uri = typeof message.params?.['uri'] === 'string' ? (message.params['uri'] as string) : undefined;
+        const uriParam: unknown = message.params?.['uri'];
+        const uri = typeof uriParam === 'string' ? uriParam : undefined;
         const event = notificationToServerEvent(message.method, uri);
         const out: NotificationBody[] = [];
         for (const [subscriptionId, filter] of this._subs) {
