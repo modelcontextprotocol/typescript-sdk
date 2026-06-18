@@ -7,5 +7,5 @@ For URL-mode elicitation see `../oauth/` (excluded from the harness; browser flo
 **stdio-only** in the harness: push server→client requests need either a stdio connection or a sessionful HTTP transport (see `../legacy-routing/`); the harness's `--http` arm is the stateless per-request `createMcpHandler`.
 
 ```bash
-pnpm tsx examples/elicitation-form/client.ts
+pnpm tsx examples/elicitation-form/client.ts --legacy
 ```

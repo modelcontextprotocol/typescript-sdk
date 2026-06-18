@@ -59,3 +59,115 @@ Some stories mount at a different path (e.g. `/`); check the story's `package.js
 The interactive OAuth set lives under [`oauth/`](./oauth/README.md) and is excluded from the harness (browser authorization-code flow); the headless machine-to-machine grant is covered by `oauth-client-credentials/`. The [`guides/`](./guides/README.md) directory holds the snippet
 collections synced into `docs/server.md` and `docs/client.md` — typecheck-only, not runnable. `shared/` is the demo OAuth provider library used by the OAuth examples. The `server-quickstart/` and `client-quickstart/` packages are the website-tutorial sources (external network /
 API key; typecheck-only).
+
+## Multi-node deployment patterns
+
+When deploying MCP servers in a horizontally scaled environment (multiple server instances), there are a few different options that can be useful for different use cases:
+
+- **Stateless mode** - no need to maintain state between calls.
+- **Persistent storage mode** - state stored in a database; any node can handle a session.
+- **Local state with message routing** - stateful nodes + pub/sub routing for a session.
+
+### Stateless mode
+
+To enable stateless mode, configure the `NodeStreamableHTTPServerTransport` with:
+
+```typescript
+sessionIdGenerator: undefined;
+```
+
+```
+┌─────────────────────────────────────────────┐
+│                  Client                     │
+└─────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────┐
+│                Load Balancer                │
+└─────────────────────────────────────────────┘
+          │                       │
+          ▼                       ▼
+┌─────────────────┐     ┌─────────────────────┐
+│  MCP Server #1  │     │    MCP Server #2    │
+│ (Node.js)       │     │  (Node.js)          │
+└─────────────────┘     └─────────────────────┘
+```
+
+### Persistent storage mode
+
+Configure the transport with session management, but use an external event store:
+
+```typescript
+sessionIdGenerator: () => randomUUID(),
+eventStore: databaseEventStore
+```
+
+```
+┌─────────────────────────────────────────────┐
+│                  Client                     │
+└─────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────┐
+│                Load Balancer                │
+└─────────────────────────────────────────────┘
+          │                       │
+          ▼                       ▼
+┌─────────────────┐     ┌─────────────────────┐
+│  MCP Server #1  │     │    MCP Server #2    │
+│ (Node.js)       │     │  (Node.js)          │
+└─────────────────┘     └─────────────────────┘
+          │                       │
+          │                       │
+          ▼                       ▼
+┌─────────────────────────────────────────────┐
+│           Database (PostgreSQL)             │
+│                                             │
+│  • Session state                            │
+│  • Event storage for resumability           │
+└─────────────────────────────────────────────┘
+```
+
+### Streamable HTTP with distributed message routing
+
+For scenarios where local in-memory state must be maintained on specific nodes, combine Streamable HTTP with pub/sub routing so one node can terminate the client connection while another node owns the session state.
+
+```
+┌─────────────────────────────────────────────┐
+│                  Client                     │
+└─────────────────────────────────────────────┘
+                     │
+                     ▼
+┌─────────────────────────────────────────────┐
+│                Load Balancer                │
+└─────────────────────────────────────────────┘
+          │                       │
+          ▼                       ▼
+┌─────────────────┐     ┌─────────────────────┐
+│  MCP Server #1  │◄───►│    MCP Server #2    │
+│ (Has Session A) │     │  (Has Session B)    │
+└─────────────────┘     └─────────────────────┘
+          ▲│                     ▲│
+          │▼                     │▼
+┌─────────────────────────────────────────────┐
+│         Message Queue / Pub-Sub             │
+│                                             │
+│  • Session ownership registry               │
+│  • Bidirectional message routing            │
+│  • Request/response forwarding              │
+└─────────────────────────────────────────────┘
+```
+
+## Backwards compatibility (Streamable HTTP ↔ legacy SSE)
+
+Start the server:
+
+```bash
+pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts
+```
+
+Then run the backwards-compatible client:
+
+```bash
+pnpm --filter @modelcontextprotocol/examples-client exec tsx src/streamableHttpWithSseFallbackClient.ts
+```

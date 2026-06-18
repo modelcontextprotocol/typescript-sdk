@@ -161,7 +161,9 @@ async function runHttpLeg(story: string, dir: string, config: ExampleConfig, era
     } finally {
         server.kill('SIGTERM');
         await new Promise(r => setTimeout(r, 100));
-        if (!server.killed) server.kill('SIGKILL');
+        // `.killed` flips true the moment kill() is called, so it can't gate
+        // the backstop; check whether the process actually exited instead.
+        if (server.exitCode === null && server.signalCode === null) server.kill('SIGKILL');
     }
 }
 
