@@ -39,22 +39,35 @@ import type {
 import {
     assertValidCacheHint,
     attachCacheHintFallback,
+    CLIENT_CAPABILITIES_META_KEY,
     codecForVersion,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    isInputRequiredResult,
+    isModernProtocolVersion,
     LATEST_PROTOCOL_VERSION,
     legacyProtocolVersions,
     LoggingLevelSchema,
     mergeCapabilities,
+    missingClientCapabilities,
+    MissingRequiredClientCapabilityError,
     modernProtocolVersions,
     parseSchema,
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
+    requiredClientCapabilitiesForInputRequest,
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
+
+/**
+ * The request methods whose 2026-07-28 result vocabulary includes
+ * `input_required` (the multi round-trip methods). Returning an
+ * input-required result from any other handler is a server bug.
+ */
+const INPUT_REQUIRED_CAPABLE_METHODS: ReadonlySet<string> = new Set(['tools/call', 'prompts/get', 'resources/read']);
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -307,9 +320,15 @@ export class Server extends Protocol<ServerContext> {
 
     /**
      * Enforces server-side validation for `tools/call` results regardless of how the
-     * handler was registered, and attaches the configured per-operation cache hint
+     * handler was registered, attaches the configured per-operation cache hint
      * (when one exists) so the 2026-07-28 encode seam can fill `ttlMs`/`cacheScope`
-     * for results that do not provide their own. The hint rides a symbol-keyed
+     * for results that do not provide their own, and owns the multi-round-trip
+     * seam: on the methods whose 2026-07-28 result vocabulary includes
+     * `input_required` (`tools/call`, `prompts/get`, `resources/read`) an
+     * input-required return skips result-schema validation and is checked
+     * against the served era, the at-least-one rule, and the request's own
+     * declared client capabilities; on every other method an input-required
+     * return is a server bug and fails loudly. The hint rides a symbol-keyed
      * property that is never serialized, so 2025-era responses are unaffected.
      */
     protected override _wrapHandler(
@@ -318,10 +337,41 @@ export class Server extends Protocol<ServerContext> {
     ): (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result> {
         if (method !== 'tools/call') {
             const cacheHint = (this._cacheHints as Record<string, CacheHint | undefined> | undefined)?.[method];
-            if (cacheHint === undefined) {
-                return handler;
+            const isInputRequiredCapable = INPUT_REQUIRED_CAPABLE_METHODS.has(method);
+            if (cacheHint === undefined && !isInputRequiredCapable) {
+                // Server-bug guard: an input-required return from a method
+                // whose result vocabulary does not include it is never
+                // mis-typed onto the wire.
+                return async (request, ctx) => {
+                    const result = await handler(request, ctx);
+                    if (isInputRequiredResult(result)) {
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InternalError,
+                            `Handler for ${method} returned an input-required result, but only tools/call, prompts/get and ` +
+                                `resources/read support input_required (protocol revision 2026-07-28)`
+                        );
+                    }
+                    return result;
+                };
             }
-            return async (request, ctx) => attachCacheHintFallback(await handler(request, ctx), cacheHint);
+            return async (request, ctx) => {
+                const result = isInputRequiredCapable
+                    ? await this._invokeInputRequiredCapableHandler(method, handler, request, ctx)
+                    : await handler(request, ctx);
+                if (isInputRequiredResult(result)) {
+                    if (!isInputRequiredCapable) {
+                        throw new ProtocolError(
+                            ProtocolErrorCode.InternalError,
+                            `Handler for ${method} returned an input-required result, but only tools/call, prompts/get and ` +
+                                `resources/read support input_required (protocol revision 2026-07-28)`
+                        );
+                    }
+                    // Never cache-stamped (the encode contract skips
+                    // non-complete results); the hint is not attached.
+                    return result;
+                }
+                return cacheHint === undefined ? result : attachCacheHintFallback(result, cacheHint);
+            };
         }
         return async (request, ctx) => {
             // Era-exact validation: the request and result schemas come from
@@ -343,7 +393,13 @@ export class Server extends Protocol<ServerContext> {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
             }
 
-            const result = await handler(request, ctx);
+            const result = await this._invokeInputRequiredCapableHandler('tools/call', handler, request, ctx);
+            if (isInputRequiredResult(result)) {
+                // Already checked by the seam; the CallToolResult schema does
+                // not apply to it (no widening — InputRequiredResult travels
+                // alongside).
+                return result;
+            }
 
             const validationResult = parseSchema(callToolResultSchema, result);
             if (!validationResult.success) {
@@ -354,6 +410,152 @@ export class Server extends Protocol<ServerContext> {
 
             return validationResult.data;
         };
+    }
+
+    /**
+     * Whether this instance is bound to a 2026-07-28-or-later protocol
+     * revision. Era is instance state — a serving entry (`createMcpHandler`,
+     * `serveStdio`) marks the instance modern at construction; a 2025-era
+     * `initialize` handshake binds it legacy. The multi-round-trip seam reads
+     * this directly: there is no per-request era consult.
+     */
+    private _servedModernEra(): boolean {
+        return this._negotiatedProtocolVersion !== undefined && isModernProtocolVersion(this._negotiatedProtocolVersion);
+    }
+
+    /**
+     * Invokes a handler for one of the multi-round-trip methods and applies
+     * the input-required seam:
+     *
+     * - a `UrlElicitationRequiredError` (or any 2025-style server→client
+     *   request idiom) escaping the handler on a request served on the
+     *   2026-07-28 era fails LOUDLY with a clear steer to
+     *   `inputRequired.elicitUrl(...)` — the `-32042` error never reaches the
+     *   2026-07-28 wire and the throw is not silently converted. Requests
+     *   served on the 2025 era keep today's `-32042` behavior byte-exact (the
+     *   error is rethrown unchanged).
+     * - an input-required RETURN is only legal toward the 2026-07-28 era; it
+     *   must satisfy the at-least-one rule (`inputRequests` or
+     *   `requestState`), and every embedded request must be covered by the
+     *   capabilities the client declared on this request's envelope
+     *   (violations answer with the typed `-32003` error).
+     */
+    private async _invokeInputRequiredCapableHandler(
+        method: string,
+        handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>,
+        request: JSONRPCRequest,
+        ctx: ServerContext
+    ): Promise<Result> {
+        const servedModern = this._servedModernEra();
+
+        let result: Result;
+        try {
+            result = await handler(request, ctx);
+        } catch (error) {
+            if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
+                if (!servedModern) {
+                    // 2025-era behavior is frozen: the error reaches the wire
+                    // exactly as it does today.
+                    throw error;
+                }
+                // 2026-era requests do not carry the -32042 surface. A
+                // 2025-style throw fails loudly with a clear steer rather than
+                // being converted: the handler should return
+                // inputRequired.elicitUrl(...) instead.
+                throw new ProtocolError(
+                    ProtocolErrorCode.InternalError,
+                    `URL elicitation cannot be signalled by throwing UrlElicitationRequiredError on protocol revision ` +
+                        `${this._negotiatedProtocolVersion}: return inputRequired({ inputRequests: { …: inputRequired.elicitUrl(...) } }) ` +
+                        `from the handler instead. The urlElicitationRequired error (-32042) of earlier revisions is not ` +
+                        `available on this revision.`
+                );
+            }
+            throw error;
+        }
+
+        if (!isInputRequiredResult(result)) {
+            return result;
+        }
+
+        if (!servedModern) {
+            // The 2025-era wire has no input_required vocabulary: fail loudly
+            // rather than putting a mis-typed result on the wire. A handler
+            // that serves both eras branches on the served era and uses the
+            // push-style APIs toward 2025-era requests.
+            throw new ProtocolError(
+                ProtocolErrorCode.InternalError,
+                `Handler for ${method} returned an input-required result, but this request is served on protocol revision ` +
+                    `${this._negotiatedProtocolVersion ?? LATEST_PROTOCOL_VERSION}, which has no input_required vocabulary`
+            );
+        }
+
+        // F7 at-least-one re-check (hand-built results are legal; the rule is
+        // re-checked at the seam).
+        const inputRequests = result.inputRequests as Record<string, unknown> | undefined;
+        const hasInputRequests = inputRequests !== undefined && Object.keys(inputRequests).length > 0;
+        const hasRequestState = typeof result.requestState === 'string';
+        if (!hasInputRequests && !hasRequestState) {
+            throw new ProtocolError(
+                ProtocolErrorCode.InternalError,
+                `Handler for ${method} returned an input-required result with neither inputRequests nor requestState ` +
+                    `(every InputRequiredResult must include at least one of the two)`
+            );
+        }
+
+        // Per-embedded-request capability check against the capabilities the
+        // client declared on THIS request's envelope (-32003 on violation).
+        if (hasInputRequests) {
+            const declared = ctx.mcpReq.envelope?.[CLIENT_CAPABILITIES_META_KEY] as ClientCapabilities | undefined;
+            for (const [key, entry] of Object.entries(inputRequests)) {
+                if (entry === null || typeof entry !== 'object' || typeof (entry as { method?: unknown }).method !== 'string') {
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InternalError,
+                        `Handler for ${method} returned an invalid input request '${key}': each inputRequests entry must be an ` +
+                            `embedded elicitation/create, sampling/createMessage, or roots/list request`
+                    );
+                }
+                const embedded = entry as { method: string; params?: Record<string, unknown> };
+                const required = requiredClientCapabilitiesForInputRequest(embedded);
+                if (required === undefined) {
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InternalError,
+                        `Handler for ${method} returned an input request '${key}' of kind '${embedded.method}', which is not an ` +
+                            `embedded request the 2026-07-28 revision defines`
+                    );
+                }
+                const missing = missingClientCapabilities(required, declared);
+                if (missing !== undefined) {
+                    throw new MissingRequiredClientCapabilityError(
+                        { requiredCapabilities: missing },
+                        `Cannot request input '${key}' (${embedded.method}): the request's client capabilities do not declare ` +
+                            `the required capability`
+                    );
+                }
+            }
+        }
+
+        return result;
+    }
+
+    /**
+     * Guard for the push-style server→client request APIs ({@linkcode createMessage},
+     * {@linkcode elicitInput}, {@linkcode listRoots}, {@linkcode ping}) on a
+     * modern-era instance: the 2026-07-28 revision has no server→client request
+     * channel, so the call fails before any wire traffic with a typed error
+     * whose message steers to `inputRequired(...)`. The base era gate would
+     * also reject it; this guard runs first to carry the steer.
+     */
+    private _assertPushApiInServedEra(method: string): void {
+        if (this._servedModernEra()) {
+            throw new SdkError(
+                SdkErrorCode.MethodNotSupportedByProtocolVersion,
+                `Server-to-client requests are not available on protocol revision ${this._negotiatedProtocolVersion}: ` +
+                    `'${method}' cannot be sent while serving a request on that revision. ` +
+                    `Return inputRequired({ ... }) from the handler instead — the client fulfils the embedded ` +
+                    `requests and retries the original request (multi round-trip requests).`,
+                { method, era: '2026-07-28' }
+            );
+        }
     }
 
     protected assertCapabilityForMethod(method: RequestMethod | string): void {
@@ -592,6 +794,7 @@ export class Server extends Protocol<ServerContext> {
     }
 
     async ping(): Promise<EmptyResult> {
+        this._assertPushApiInServedEra('ping');
         return this.request({ method: 'ping' });
     }
 
@@ -633,6 +836,7 @@ export class Server extends Protocol<ServerContext> {
         params: CreateMessageRequest['params'],
         options?: RequestOptions
     ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
+        this._assertPushApiInServedEra('sampling/createMessage');
         // Capability check - only required when tools/toolChoice are provided
         if ((params.tools || params.toolChoice) && !this._clientCapabilities?.sampling?.tools) {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
@@ -702,6 +906,7 @@ export class Server extends Protocol<ServerContext> {
      * @returns The result of the elicitation request.
      */
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
+        this._assertPushApiInServedEra('elicitation/create');
         const mode = (params.mode ?? 'form') as 'form' | 'url';
 
         switch (mode) {
@@ -792,6 +997,7 @@ export class Server extends Protocol<ServerContext> {
      * Migrate to passing paths via tool parameters, resource URIs, or configuration.
      */
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions): Promise<ListRootsResult> {
+        this._assertPushApiInServedEra('roots/list');
         return this.request({ method: 'roots/list', params }, options);
     }
 
