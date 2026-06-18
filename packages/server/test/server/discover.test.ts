@@ -4,9 +4,9 @@
  * - the handler is installed ONLY when the server's supported-versions list
  *   carries a modern (2026-07-28+) revision; default servers keep answering
  *   -32601 byte-identically to the deployed fleet
- * - the advertisement is modern-only (DV-30) and excludes the
- *   listChanged/subscribe-class capabilities (A11 rider — until the
- *   subscriptions/listen milestone lands)
+ * - the advertisement is modern-only (DV-30) and carries the
+ *   listChanged/subscribe-class capabilities (the spec keeps the bits at
+ *   2026-07-28; A11 rider discharged with the subscriptions/listen milestone)
  * - counter-offer ordering: with era-aware list semantics in place, a legacy
  *   initialize can never meet a modern version string at the counter-offer
  *   site, even when the supported list carries one — the guard that must hold
