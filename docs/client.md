@@ -92,13 +92,10 @@ For a complete example with error reporting, see [`streamableHttpWithSseFallback
 
 By default the client negotiates a 2025-era protocol version via the `initialize` handshake — exactly the v1.x behavior, byte for byte. To talk to a server on the 2026-07-28 revision, opt into version negotiation via `ClientOptions.versionNegotiation`:
 
-```ts
+```ts source="../examples/client/src/clientGuide.examples.ts#Client_versionNegotiation"
 // Auto-negotiate: probe with server/discover, fall back to the 2025 handshake
 // against a 2025-only server.
-const client = new Client(
-    { name: 'my-client', version: '1.0.0' },
-    { versionNegotiation: { mode: 'auto' } }
-);
+const client = new Client({ name: 'my-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
 await client.connect(transport);
 
 client.getProtocolEra(); // 'modern' or 'legacy'
