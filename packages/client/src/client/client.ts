@@ -909,8 +909,19 @@ export class Client extends Protocol<ClientContext> {
                 // connection is fully usable without a listen stream (the
                 // server may not support it, or refuse on capacity). Surface
                 // via onerror; the consumer can call listen() later.
+                //
+                // Forward ONLY the ack timeout from connect()'s options.
+                // listen() binds RequestOptions.signal to the SUBSCRIPTION
+                // lifetime, so a connect-scoped signal (e.g.
+                // `AbortSignal.timeout(30_000)` for the handshake) would tear
+                // the auto-opened stream down the moment it fires after
+                // connect has already resolved. Connect's signal governs the
+                // handshake only; the auto-opened subscription outlives it.
                 try {
-                    this._autoOpenedSubscription = await this.listen(filter, options);
+                    this._autoOpenedSubscription = await this.listen(
+                        filter,
+                        options?.timeout === undefined ? undefined : { timeout: options.timeout }
+                    );
                 } catch (error) {
                     this.onerror?.(error instanceof Error ? error : new Error(String(error)));
                 }

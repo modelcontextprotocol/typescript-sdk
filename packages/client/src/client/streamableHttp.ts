@@ -188,9 +188,25 @@ function anySignal(a: AbortSignal, b: AbortSignal): AbortSignal {
     const controller = new AbortController();
     if (a.aborted) return (controller.abort(a.reason), controller.signal);
     if (b.aborted) return (controller.abort(b.reason), controller.signal);
-    const forward = (source: AbortSignal) => () => controller.abort(source.reason);
-    a.addEventListener('abort', forward(a), { once: true });
-    b.addEventListener('abort', forward(b), { once: true });
+    // Standard polyfill shape: when EITHER input fires, remove the listener
+    // registered on the OTHER input too. `{once:true}` alone leaks the
+    // sibling listener — for `_send()`, `a` is the transport-lifetime signal,
+    // so every request-scoped `b` that aborts would otherwise leave one
+    // listener + closure pinned on `a` for the life of the transport.
+    const cleanup = (): void => {
+        a.removeEventListener('abort', onA);
+        b.removeEventListener('abort', onB);
+    };
+    function onA(): void {
+        cleanup();
+        controller.abort(a.reason);
+    }
+    function onB(): void {
+        cleanup();
+        controller.abort(b.reason);
+    }
+    a.addEventListener('abort', onA, { once: true });
+    b.addEventListener('abort', onB, { once: true });
     return controller.signal;
 }
 
@@ -501,7 +517,8 @@ export class StreamableHTTPClientTransport implements Transport {
                         {
                             resumptionToken: lastEventId,
                             onresumptiontoken,
-                            replayMessageId
+                            replayMessageId,
+                            requestSignal
                         },
                         0
                     );
@@ -527,7 +544,8 @@ export class StreamableHTTPClientTransport implements Transport {
                             {
                                 resumptionToken: lastEventId,
                                 onresumptiontoken,
-                                replayMessageId
+                                replayMessageId,
+                                requestSignal
                             },
                             0
                         );

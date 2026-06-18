@@ -1155,6 +1155,43 @@ describe('StreamableHTTPClientTransport', () => {
             expect(fetchMock).toHaveBeenCalledTimes(1);
         });
 
+        it('anySignal fallback removes the sibling listener (no leak on the transport-lifetime signal)', async () => {
+            // ARRANGE — force the manual fallback path (Node 20.0–20.2).
+            const nativeAny = AbortSignal.any;
+            (AbortSignal as { any?: unknown }).any = undefined;
+            try {
+                transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'));
+                const fetchMock = globalThis.fetch as Mock;
+                fetchMock.mockResolvedValue({ ok: true, status: 202, headers: new Headers() });
+                await transport.start();
+
+                const transportSignal = (transport as unknown as { _abortController: AbortController })._abortController.signal;
+                const addSpy = vi.spyOn(transportSignal, 'addEventListener');
+                const removeSpy = vi.spyOn(transportSignal, 'removeEventListener');
+
+                // ACT — N sends each with a fresh request-scoped signal that
+                // aborts after the send completes (the McpSubscription.close()
+                // pattern). Each send registers one fallback listener on the
+                // transport-lifetime signal; aborting the request-scoped
+                // signal must remove it.
+                for (let i = 0; i < 5; i++) {
+                    const requestAbort = new AbortController();
+                    await transport.send(
+                        { jsonrpc: '2.0', method: 'subscriptions/listen', id: `listen-${i}`, params: {} },
+                        { requestSignal: requestAbort.signal }
+                    );
+                    requestAbort.abort();
+                }
+
+                // ASSERT — every listener registered on the transport-lifetime
+                // signal was removed; nothing accrues per send().
+                expect(addSpy.mock.calls.length).toBeGreaterThan(0);
+                expect(removeSpy.mock.calls.length).toBe(addSpy.mock.calls.length);
+            } finally {
+                (AbortSignal as { any?: unknown }).any = nativeAny;
+            }
+        });
+
         it('should NOT reconnect a POST stream when error response was received', async () => {
             // ARRANGE
             transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {

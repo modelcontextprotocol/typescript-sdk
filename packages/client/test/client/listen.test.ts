@@ -483,6 +483,39 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
+    it('connect-scoped signal does NOT bind to the auto-opened subscription lifetime', async () => {
+        // Regression: forwarding connect()'s full RequestOptions into the
+        // auto-open listen() call meant a connect-scoped signal — typically
+        // `AbortSignal.timeout(30_000)` for the handshake — was bound to the
+        // SUBSCRIPTION lifetime. When it fired after connect resolved, the
+        // auto-opened stream was silently torn down.
+        const { clientTx, written } = await scriptedModern();
+        const onChanged = () => {};
+        const client = new Client(
+            { name: 'c', version: '1' },
+            { versionNegotiation: { mode: 'auto' }, listChanged: { tools: { onChanged } } }
+        );
+        const errors: Error[] = [];
+        client.onerror = e => errors.push(e);
+        const connectScoped = new AbortController();
+        await client.connect(clientTx, { signal: connectScoped.signal });
+        expect(client.autoOpenedSubscription).toBeDefined();
+        written.length = 0;
+
+        // The connect-scoped signal fires AFTER connect resolved (as a
+        // handshake `AbortSignal.timeout` would).
+        connectScoped.abort();
+        await flush();
+
+        // The auto-opened subscription is still live: no wire teardown
+        // (`notifications/cancelled`) was sent, and the per-listen state
+        // entry is still registered.
+        expect(written.some(m => (m as JSONRPCNotification).method === 'notifications/cancelled')).toBe(false);
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(1);
+        expect(errors).toHaveLength(0);
+        await client.close();
+    });
+
     it('transport closes BEFORE the ack: listen() rejects fast', async () => {
         const { clientTx, serverTx } = await scriptedModernNoAck();
         const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
