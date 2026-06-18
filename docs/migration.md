@@ -1057,15 +1057,12 @@ How the `legacy` option behaves:
 - **`legacy: 'reject'`** — modern-only strict. 2026-07-28 (per-request `_meta` envelope) requests are served; 2025-era requests are rejected with `-32004` naming the supported revisions, and 2025-era notifications are acknowledged with `202` and dropped. **There is no
   2025 serving in this mode.**
 
-> **Changed since the earlier 2.0 alpha (default flip):** the earlier alpha made modern-only strict the default and required `legacy: 'stateless'` to opt in to 2025 serving. The default is now the stateless fallback — `createMcpHandler(factory)` serves both eras out of
-> the box. Pass `legacy: 'reject'` to keep a strict, modern-only endpoint.
-
-> **Removed: the handler-valued `legacy` option.** The earlier 2.0 alpha also accepted any fetch-shaped handler as the `legacy` value (bring-your-own legacy serving). That option is gone: route in user land with the exported `isLegacyRequest(request)` predicate instead.
-> The predicate is the entry's own classification step (the same code `createMcpHandler` runs to decide a request is not on the modern path), so a composition that branches on it can never disagree with the entry:
+> **If you have an existing sessionful 1.x Streamable HTTP setup** (a `StreamableHTTPServerTransport` wiring with session IDs that your deployed 2025-era clients depend on), keep that handler serving 2025 traffic and route it in front of a strict (`legacy: 'reject'`)
+> entry with the exported `isLegacyRequest(request)` predicate. The predicate is the entry's own classification step (the same code `createMcpHandler` runs to decide a request is not on the modern path), so a composition that branches on it can never disagree with the
+> entry:
 >
 > ```typescript
-> // before (earlier 2.0 alpha): const handler = createMcpHandler(factory, { legacy: myExistingLegacyHandler });
-> // after: explicit user-land routing in front of a strict entry
+> // An existing sessionful 1.x streamable HTTP wiring keeps serving 2025 clients, routed in front of a strict entry.
 > import { createMcpHandler, isLegacyRequest } from '@modelcontextprotocol/server';
 >
 > const modern = createMcpHandler(factory, { legacy: 'reject' });
