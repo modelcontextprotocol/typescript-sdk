@@ -23,8 +23,7 @@ import type {
     JSONRPCMessage,
     McpRequestContext,
     McpServer,
-    Server,
-    Transport as SdkTransport
+    Server
 } from '@modelcontextprotocol/server';
 import {
     createMcpHandler,
@@ -140,9 +139,11 @@ export async function wire(
             // client through the entry's stateless legacy fallback (the default,
             // passed explicitly to keep the arm era-pinned); `entryModern` hosts the
             // endpoint modern-only strict (`legacy: 'reject'` — strict is no longer
-            // the entry default) and connects the client on the 2026-07-28 revision
-            // (pin-mode negotiation + the per-request envelope stop-gap). Every HTTP
-            // exchange is recorded on `httpLog`.
+            // the entry default) and pins the scenario's client to the 2026-07-28
+            // revision via the public negotiation setter. The client attaches the
+            // per-request `_meta` envelope itself once a modern era is negotiated,
+            // so no harness wrap is needed. Every HTTP exchange is recorded on
+            // `httpLog`.
             const handler = createMcpHandler(
                 makeServer,
                 transport === 'entryStateless' ? { legacy: 'stateless', ...sniff.entry } : { legacy: 'reject', ...sniff.entry }
@@ -161,14 +162,13 @@ export async function wire(
                 });
                 return response;
             };
-            let clientTx = new StreamableHTTPClientTransport(url, { fetch });
+            const clientTx = new StreamableHTTPClientTransport(url, { fetch });
             // entryModern is the era-fixed 2026-07-28 arm: it is the only arm
             // whose wire may legitimately carry input_required results, so it
             // opts the sniffer into accepting them (other arms stay strict).
             let armSniff: WireOptions = sniff;
             if (transport === 'entryModern') {
-                pinModernNegotiation(client);
-                clientTx = attachModernEnvelope(clientTx);
+                client.setVersionNegotiation({ mode: { pin: MODERN_REVISION } });
                 armSniff = { allowInputRequiredResults: true, ...sniff };
             }
             await client.connect(sniffTransport(clientTx, 'client', armSniff));
@@ -336,8 +336,8 @@ const MODERN_REVISION: SpecVersion = '2026-07-28';
  * The per-request `_meta` envelope of a 2026-07-28 request, for scenario bodies
  * that put raw HTTP requests on the wire (via `wired.fetch`) rather than going
  * through the wired client. Typed calls through the wired client never need
- * this — the entryModern arm attaches the envelope itself (see
- * {@linkcode attachModernEnvelope}).
+ * this — the client attaches the envelope itself once a modern era is
+ * negotiated.
  */
 export function modernEnvelopeMeta(clientInfo?: Implementation): Record<string, unknown> {
     return {
@@ -345,19 +345,6 @@ export function modernEnvelopeMeta(clientInfo?: Implementation): Record<string, 
         [CLIENT_INFO_META_KEY]: clientInfo ?? { name: 'e2e-entry-client', version: '1.0.0' },
         [CLIENT_CAPABILITIES_META_KEY]: {}
     };
-}
-
-/**
- * Put the (already constructed) scenario client into pinned 2026-07-28
- * negotiation. Version negotiation is a constructor-only option and the
- * scenario corpus constructs era-agnostic clients, so the entryModern arm flips
- * the option on the instance before `connect()` — a harness stop-gap, not a
- * public API. Clients that already opted into a negotiation mode are left
- * untouched (their cells deliberately exercise that mode).
- */
-function pinModernNegotiation(client: Client): void {
-    const internals = client as unknown as { _versionNegotiation?: { mode?: unknown } };
-    internals._versionNegotiation ??= { mode: { pin: MODERN_REVISION } };
 }
 
 /**
@@ -374,45 +361,6 @@ function assertModernNegotiation(client: Client): void {
             `entryModern arm: expected the connection to negotiate protocol version ${MODERN_REVISION}, but it negotiated ${negotiated ?? 'no version'}`
         );
     }
-}
-
-/**
- * The per-request `_meta` envelope stop-gap for the entryModern arm: the
- * negotiating client only attaches the envelope to its `server/discover` probe
- * today (automatic per-request emission is a client-side follow-up), so the
- * harness re-attaches the same envelope to every later request and notification
- * the scenario's typed calls put on the wire. The envelope is captured from the
- * latest enveloped message the client sent (normally the probe), so it always
- * matches the most recent claim the client actually made — a connection that
- * renegotiated would not keep stamping a stale version; messages that already
- * carry a protocol-version claim (the probe, or a scenario's explicitly
- * enveloped request) pass through untouched.
- *
- * Applied beneath the wire sniffer and `tapWire`, so recorded traffic shows the
- * messages exactly as the scenario sent them while the wire carries the
- * envelope the entry requires.
- */
-function attachModernEnvelope<T extends SdkTransport>(transport: T): T {
-    let envelope: Record<string, unknown> | undefined;
-    const origSend = transport.send.bind(transport);
-    transport.send = async (message, opts) => {
-        let outbound = message;
-        if ('method' in message) {
-            const params = (message.params ?? {}) as { _meta?: Record<string, unknown> };
-            const meta = params._meta;
-            if (meta?.[PROTOCOL_VERSION_META_KEY] !== undefined) {
-                envelope = {
-                    [PROTOCOL_VERSION_META_KEY]: meta[PROTOCOL_VERSION_META_KEY],
-                    [CLIENT_INFO_META_KEY]: meta[CLIENT_INFO_META_KEY],
-                    [CLIENT_CAPABILITIES_META_KEY]: meta[CLIENT_CAPABILITIES_META_KEY]
-                };
-            } else if (envelope !== undefined) {
-                outbound = { ...message, params: { ...params, _meta: { ...envelope, ...meta } } };
-            }
-        }
-        return origSend(outbound, opts);
-    };
-    return transport;
 }
 
 // ───────────────────────────────────────────────────────────────────────────────

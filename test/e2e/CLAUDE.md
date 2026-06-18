@@ -63,8 +63,8 @@ entry points back via `supersededBy` (requires `removedInSpecVersion`). A covera
 Two transport arms host the dual-era HTTP entry (`createMcpHandler`) in process via an injected fetch, exactly like the other HTTP arms. They are era-fixed (`TRANSPORT_SPEC_VERSIONS`), so each registers cells on exactly one spec-version axis:
 
 - `entryStateless` — the entry with its stateless legacy fallback (`legacy: 'stateless'`, the entry's default posture, passed explicitly so the arm stays era-pinned); the scenario's plain client is served per request through the fallback. Cells run on the 2025-11-25 axis only.
-- `entryModern` — the entry hosted modern-only strict (`legacy: 'reject'`); the scenario's client is put into pinned 2026-07-28 negotiation by the arm and the per-request `_meta` envelope is attached to every outgoing request/notification by the arm (a harness stop-gap until the
-  client emits it itself). Cells run on the 2026-07-28 axis only.
+- `entryModern` — the entry hosted modern-only strict (`legacy: 'reject'`); the arm pins the scenario's client to the 2026-07-28 revision via `setVersionNegotiation()`, and the client attaches the per-request `_meta` envelope to every outgoing request/notification itself. Cells
+  run on the 2026-07-28 axis only.
 
 Both arms are part of the default transport list, so unrestricted requirements run through the entry automatically. When a requirement cannot run on an entry arm, annotate it with a machine-readable reason instead of bending the test:
 
