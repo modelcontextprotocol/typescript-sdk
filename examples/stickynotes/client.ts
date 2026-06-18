@@ -20,6 +20,7 @@ runClient('stickynotes', async () => {
     // flow; the harness pins this story to the legacy era so
     // `ctx.mcpReq.elicitInput` reaches this handler (the 2026-07-28 path uses
     // multi-round-trip `inputRequired` instead — see ../mrtr/).
+    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const client = await connectFromArgs(import.meta.dirname, { capabilities: { elicitation: { form: {} } } });
     let elicitAnswer: 'cancel' | 'unchecked' | 'confirm' = 'cancel';
     client.setRequestHandler('elicitation/create', async () => {

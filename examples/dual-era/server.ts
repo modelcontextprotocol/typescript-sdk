@@ -40,4 +40,5 @@ const buildServer = (ctx: McpRequestContext) => {
     return server;
 };
 
+// runServerFromArgs is the example harness's transport selector (default stdio, --http for HTTP). In your own server you'd call serveStdio(buildServer) or createMcpHandler(buildServer) directly.
 runServerFromArgs(buildServer);

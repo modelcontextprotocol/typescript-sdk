@@ -28,6 +28,7 @@ async function until(pred: () => boolean, timeoutMs = 5000): Promise<void> {
 
 async function autoOpenLeg(): Promise<void> {
     let count = 0;
+    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const client = await connectFromArgs(import.meta.dirname, {
         listChanged: {
             tools: {

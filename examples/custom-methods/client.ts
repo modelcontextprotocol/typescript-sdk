@@ -16,6 +16,7 @@ runClient('custom-methods', async () => {
     // Custom methods carry no envelope semantics — connect as a plain 2025
     // client so the request reaches the server's setRequestHandler exactly as
     // a hand-wired stdio client would.
+    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const client = await connectFromArgs(import.meta.dirname, { versionNegotiation: undefined });
 
     const stages: string[] = [];

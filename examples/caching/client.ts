@@ -12,6 +12,7 @@ interface Cacheable {
 }
 
 runClient('caching', async () => {
+    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const client = await connectFromArgs(import.meta.dirname);
     check.equal(client.getNegotiatedProtocolVersion(), '2026-07-28');
 

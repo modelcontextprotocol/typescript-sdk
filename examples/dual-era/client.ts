@@ -16,6 +16,7 @@ import { check, connectFromArgs, runClient } from '../harness.js';
 
 runClient('dual-era', async () => {
     // --- leg 1: plain 2025 client (initialize handshake) ---
+    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const legacy = await connectFromArgs(import.meta.dirname, { versionNegotiation: undefined });
     const legacyTools = await legacy.listTools();
     check.ok(legacyTools.tools.some(t => t.name === 'greet'));

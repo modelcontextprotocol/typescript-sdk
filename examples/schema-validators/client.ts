@@ -6,6 +6,7 @@
 import { check, connectFromArgs, runClient } from '../harness.js';
 
 runClient('schema-validators', async () => {
+    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const client = await connectFromArgs(import.meta.dirname);
 
     const list = await client.listTools();

@@ -9,6 +9,7 @@ runClient('sampling', async () => {
     // Push-style sampling is a 2025-era flow (and is deprecated as of
     // 2026-07-28). The harness pins this story to the legacy era so the
     // server's `ctx.mcpReq.requestSampling` reaches this handler.
+    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const client = await connectFromArgs(import.meta.dirname, { capabilities: { sampling: {} } });
     client.setRequestHandler('sampling/createMessage', async () => ({
         role: 'assistant',

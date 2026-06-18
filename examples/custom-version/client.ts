@@ -7,6 +7,7 @@ import { check, connectFromArgs, runClient } from '../harness.js';
 runClient('custom-version', async () => {
     // A plain (2025-handshake) client; the server supports the SDK's stock
     // 2025 version so this negotiates that.
+    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const client = await connectFromArgs(import.meta.dirname, { versionNegotiation: undefined });
 
     // The server should advertise its supportedProtocolVersions in its

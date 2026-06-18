@@ -13,6 +13,7 @@ import type { Client } from '@modelcontextprotocol/client';
 import { check, connectFromArgs, runClient } from '../harness.js';
 
 async function makeClient(): Promise<{ client: Client; notifications: string[] }> {
+    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const client = await connectFromArgs(import.meta.dirname);
     const notifications: string[] = [];
     client.setNotificationHandler('notifications/message', n => {

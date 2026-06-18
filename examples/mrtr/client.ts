@@ -21,6 +21,7 @@ import { check, connectFromArgs, runClient } from '../harness.js';
 
 runClient('mrtr', async () => {
     // --- auto-fulfilment (the default) ---
+    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const auto = await connectFromArgs(import.meta.dirname, {
         capabilities: { elicitation: { form: {}, url: {} } }
     });
