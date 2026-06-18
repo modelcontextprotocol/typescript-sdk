@@ -236,6 +236,107 @@ registerScenario('tools_call', runToolsCallClient);
 registerScenario('request-metadata', runRequestMetadataClient);
 
 // ============================================================================
+// Multi-round-trip client scenario (SEP-2322, protocol revision 2026-07-28)
+// ============================================================================
+
+/**
+ * The multi-round-trip client scenario's mock server only implements
+ * `tools/list`, `tools/call` and `notifications/initialized`; it answers both
+ * `server/discover` and `initialize` with -32601, so neither connect-time
+ * negotiation path can establish the 2026-07-28 era against it. The scenario
+ * is pinned to 2026-07-28 (the runner resolves it there even on the
+ * default-version leg), so the fixture answers the connect-time
+ * `server/discover` probe locally through the transport's custom fetch and
+ * lets every other request reach the real mock. Everything the scenario
+ * measures — auto-fulfilment of the embedded elicitation, the byte-exact
+ * requestState echo, fresh JSON-RPC ids on retries, isolation of unrelated
+ * calls, and not retrying complete results — is the SDK driver's behavior
+ * against the real mock.
+ */
+function withLocalDiscoverResponse(serverInfo: { name: string; version: string }): typeof fetch {
+    return async (input, init) => {
+        if (typeof init?.body === 'string') {
+            try {
+                const message = JSON.parse(init.body) as { method?: string; id?: unknown };
+                if (message.method === 'server/discover') {
+                    return Response.json(
+                        {
+                            jsonrpc: '2.0',
+                            id: message.id,
+                            result: {
+                                supportedVersions: ['2026-07-28'],
+                                capabilities: { tools: { listChanged: true } },
+                                serverInfo
+                            }
+                        },
+                        { status: 200, headers: { 'Content-Type': 'application/json' } }
+                    );
+                }
+            } catch {
+                // Not a JSON-RPC body — fall through to the real fetch.
+            }
+        }
+        return fetch(input, init);
+    };
+}
+
+async function runMrtrClient(serverUrl: string): Promise<void> {
+    const clientInfo = { name: 'test-client', version: '1.0.0' };
+    const capabilities = { elicitation: {} };
+    const client = new Client(clientInfo, {
+        capabilities,
+        versionNegotiation: { mode: 'auto' }
+    });
+
+    // The auto-fulfilment driver dispatches the embedded elicitation requests
+    // to this handler, exactly like a server-initiated elicitation.
+    client.setRequestHandler('elicitation/create', async request => {
+        logger.debug('Fulfilling embedded elicitation request:', JSON.stringify(request.params));
+        return { action: 'accept' as const, content: { confirmed: true } };
+    });
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+        fetch: withLocalDiscoverResponse(clientInfo)
+    });
+
+    await client.connect(transport);
+    logger.debug('Negotiated protocol version:', client.getNegotiatedProtocolVersion());
+
+    const envelope = modernEnvelope(clientInfo, capabilities, client.getNegotiatedProtocolVersion());
+
+    // requestState echo flow: the driver must echo the opaque state byte-exact
+    // and retry on a fresh JSON-RPC id.
+    const echoResult = await client.callTool({ name: 'test_mrtr_echo_state', arguments: {}, _meta: envelope });
+    logger.debug('test_mrtr_echo_state result:', JSON.stringify(echoResult));
+
+    // No-state flow: the InputRequiredResult carries no requestState, so the
+    // retry must not include one.
+    const noStateResult = await client.callTool({ name: 'test_mrtr_no_state', arguments: {}, _meta: envelope });
+    logger.debug('test_mrtr_no_state result:', JSON.stringify(noStateResult));
+
+    // Unrelated call: must not carry inputResponses or requestState from the
+    // multi-round-trip flows above.
+    const unrelatedResult = await client.callTool({ name: 'test_mrtr_unrelated', arguments: {}, _meta: envelope });
+    logger.debug('test_mrtr_unrelated result:', JSON.stringify(unrelatedResult));
+
+    // Result without resultType: the check passes as long as the client does
+    // not retry with inputResponses. The SDK treats a missing resultType from
+    // a 2026-negotiated server as a protocol violation and rejects locally
+    // without retrying, so this call is expected to throw.
+    try {
+        const noResultTypeResult = await client.callTool({ name: 'test_mrtr_no_result_type', arguments: {}, _meta: envelope });
+        logger.debug('test_mrtr_no_result_type result:', JSON.stringify(noResultTypeResult));
+    } catch (error) {
+        logger.debug('test_mrtr_no_result_type rejected locally (no retry):', error instanceof Error ? error.message : String(error));
+    }
+
+    await client.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenario('sep-2322-client-request-state', runMrtrClient);
+
+// ============================================================================
 // Auth scenarios - well-behaved client
 // ============================================================================
 
