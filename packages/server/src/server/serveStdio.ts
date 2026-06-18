@@ -436,7 +436,24 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
      */
     const tryServeListen = async (message: JSONRPCMessage): Promise<boolean> => {
         if (isJSONRPCRequest(message) && message.method === 'subscriptions/listen') {
-            const reply = listenRouter.serve(message);
+            // Entry-handled listen is its own request-handling subsystem; it
+            // applies the same per-request envelope rung the instance's
+            // `_onrequest` would (method-existence is N/A here — the entry
+            // recognized the method — so envelope validation is the first
+            // applicable rung). Reuses the same validators the opening
+            // classifier and the HTTP entry use.
+            const meta = requestMetaOf(message.params);
+            const issue = hasEnvelopeClaim(message.params)
+                ? (meta === undefined ? [] : validateEnvelopeMeta(meta))[0]
+                : { key: '_meta', problem: 'the per-request envelope is required on protocol revision 2026-07-28' };
+            const reply =
+                issue === undefined
+                    ? listenRouter.serve(message)
+                    : {
+                          jsonrpc: '2.0' as const,
+                          id: message.id,
+                          error: { code: -32_602, message: `Invalid _meta envelope: ${issue.key}: ${issue.problem}` }
+                      };
             await wire
                 .send('error' in reply ? reply : { jsonrpc: '2.0', method: reply.method, params: reply.params })
                 .catch(error => reportError(toError(error)));
