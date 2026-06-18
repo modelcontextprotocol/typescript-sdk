@@ -1,14 +1,18 @@
 #!/usr/bin/env tsx
 /**
- * Build-and-e2e-run every story under `examples/` over every transport it
- * supports. Each story's `client.ts` is a self-verifying e2e test (it asserts
- * the server's behaviour and exits non-zero on any mismatch).
+ * Build-and-e2e-run every story under `examples/` over every transport × era
+ * leg it supports. Each story's `client.ts` is a self-verifying e2e test (it
+ * asserts the server's behaviour and exits non-zero on any mismatch).
  *
  *   - **stdio** (default for dual-transport stories): run `client.ts` with no
  *     transport flag; it spawns the sibling server binary itself and speaks
  *     MCP over the pipe.
  *   - **HTTP**: start `server.ts --http --port <P>`, poll until ready, run
  *     `client.ts --http http://127.0.0.1:<P>/<path>`, kill the server.
+ *   - **modern** (default): the client negotiates the 2026-07-28 era
+ *     (`versionNegotiation: { mode: 'auto' }`).
+ *   - **legacy**: pass `--legacy` to the client so it uses the 2025
+ *     `initialize` handshake (`versionNegotiation: { mode: 'legacy' }`).
  *
  * A per-directory `manifest.json` overrides defaults — most stories have none.
  * `excluded` stories are listed (with their reason) but not run. Stories
@@ -19,16 +23,20 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { connect } from 'node:net';
 import { join, resolve } from 'node:path';
 
+type Era = 'modern' | 'legacy';
+
 interface Manifest {
     /** `'dual'` (stdio + http; the default), `'http'`, or `'stdio'`. */
     transport?: 'dual' | 'http' | 'stdio';
+    /** `'dual'` (modern + legacy; the default), `'modern'`, or `'legacy'`. */
+    era?: 'dual' | Era;
     /** HTTP port (default: a per-story port assigned below). */
     port?: number;
     /** Endpoint path (default: `'/'`). */
     path?: string;
     /** Extra environment for the server process. */
     env?: Record<string, string>;
-    /** Per-transport timeout in milliseconds (default: 30000). */
+    /** Per-leg timeout in milliseconds (default: 30000). */
     timeoutMs?: number;
     /** Optional substring the client's stdout must contain. */
     expects?: { stdout?: string };
@@ -101,24 +109,26 @@ async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
 
 interface LegResult {
     story: string;
-    leg: 'stdio' | 'http';
+    leg: string;
     ok: boolean;
     detail: string;
 }
 
-async function runStdioLeg(story: string, dir: string, manifest: Manifest): Promise<LegResult> {
+const eraArgs = (era: Era): string[] => (era === 'legacy' ? ['--legacy'] : []);
+
+async function runStdioLeg(story: string, dir: string, manifest: Manifest, era: Era): Promise<LegResult> {
     const timeoutMs = manifest.timeoutMs ?? 30_000;
-    const result = await run(TSX, [join(dir, 'client.ts')], { cwd: ROOT, timeoutMs });
+    const result = await run(TSX, [join(dir, 'client.ts'), ...eraArgs(era)], { cwd: ROOT, timeoutMs });
     const ok = result.code === 0 && (!manifest.expects?.stdout || result.stdout.includes(manifest.expects.stdout));
     return {
         story,
-        leg: 'stdio',
+        leg: `stdio/${era}`,
         ok,
         detail: ok ? (result.stdout.trim().split('\n').pop() ?? '') : `exit ${result.code}\n${result.stderr || result.stdout}`
     };
 }
 
-async function runHttpLeg(story: string, dir: string, manifest: Manifest): Promise<LegResult> {
+async function runHttpLeg(story: string, dir: string, manifest: Manifest, era: Era): Promise<LegResult> {
     const timeoutMs = manifest.timeoutMs ?? 30_000;
     const port = assignPort(story, manifest);
     const path = manifest.path ?? '/';
@@ -133,13 +143,13 @@ async function runHttpLeg(story: string, dir: string, manifest: Manifest): Promi
     try {
         const ready = await waitForPort(port, 15_000);
         if (!ready) {
-            return { story, leg: 'http', ok: false, detail: `server never bound :${port}\n--- server log ---\n${serverStderr}` };
+            return { story, leg: `http/${era}`, ok: false, detail: `server never bound :${port}\n--- server log ---\n${serverStderr}` };
         }
-        const result = await run(TSX, [join(dir, 'client.ts'), '--http', url], { cwd: ROOT, timeoutMs });
+        const result = await run(TSX, [join(dir, 'client.ts'), '--http', url, ...eraArgs(era)], { cwd: ROOT, timeoutMs });
         const ok = result.code === 0 && (!manifest.expects?.stdout || result.stdout.includes(manifest.expects.stdout));
         return {
             story,
-            leg: 'http',
+            leg: `http/${era}`,
             ok,
             detail: ok
                 ? (result.stdout.trim().split('\n').pop() ?? '')
@@ -171,18 +181,17 @@ async function main(): Promise<void> {
             continue;
         }
         const transport = manifest.transport ?? 'dual';
-        console.log(`\n::group::example ${story} (${transport})`);
-        if (transport === 'stdio' || transport === 'dual') {
-            const r = await runStdioLeg(story, dir, manifest);
-            results.push(r);
-            console.log(`[stdio] ${r.ok ? 'PASS' : 'FAIL'}: ${r.detail.split('\n')[0]}`);
-            if (!r.ok) console.log(r.detail);
-        }
-        if (transport === 'http' || transport === 'dual') {
-            const r = await runHttpLeg(story, dir, manifest);
-            results.push(r);
-            console.log(`[http]  ${r.ok ? 'PASS' : 'FAIL'}: ${r.detail.split('\n')[0]}`);
-            if (!r.ok) console.log(r.detail);
+        const era = manifest.era ?? 'dual';
+        const transports: Array<'stdio' | 'http'> = transport === 'dual' ? ['stdio', 'http'] : [transport];
+        const eras: Era[] = era === 'dual' ? ['modern', 'legacy'] : [era];
+        console.log(`\n::group::example ${story} (${transport} × ${era})`);
+        for (const t of transports) {
+            for (const e of eras) {
+                const r = t === 'stdio' ? await runStdioLeg(story, dir, manifest, e) : await runHttpLeg(story, dir, manifest, e);
+                results.push(r);
+                console.log(`[${r.leg}] ${r.ok ? 'PASS' : 'FAIL'}: ${r.detail.split('\n')[0]}`);
+                if (!r.ok) console.log(r.detail);
+            }
         }
         console.log('::endgroup::');
     }

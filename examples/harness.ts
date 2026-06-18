@@ -5,10 +5,12 @@
  * calls {@linkcode runServerFromArgs} so one binary serves stdio (default) or
  * HTTP under `--http --port <N>`; its `client.ts` calls
  * {@linkcode connectFromArgs} so one binary spawns the sibling server over
- * stdio (default) or connects to a running endpoint under `--http <url>`. The
- * client's body is wrapped in {@linkcode runClient} so any thrown assertion
- * exits non-zero with a `FAIL:` line, making each example a self-verifying e2e
- * test that `scripts/run-examples.ts` can iterate.
+ * stdio (default) or connects to a running endpoint under `--http <url>`, and
+ * negotiates the modern (2026-07-28) era by default or the 2025 `initialize`
+ * handshake under `--legacy`. The client's body is wrapped in
+ * {@linkcode runClient} so any thrown assertion exits non-zero with a `FAIL:`
+ * line, making each example a self-verifying e2e test that
+ * `scripts/run-examples.ts` can iterate over the transport × era matrix.
  *
  * Re-exported `check` is `node:assert/strict` for readable inline assertions.
  */
@@ -68,16 +70,19 @@ export function runServerFromArgs(factory: McpServerFactory, defaultPort = 3000)
  * via Streamable HTTP; otherwise it spawns the sibling `server.ts` (resolved
  * relative to the calling client's `import.meta.dirname`) via stdio.
  *
- * The client defaults to `versionNegotiation: { mode: 'auto' }` so the modern
+ * The protocol era is selected from `process.argv` too: under `--legacy` the
+ * client uses `versionNegotiation: { mode: 'legacy' }` (the plain 2025
+ * `initialize` handshake); otherwise `{ mode: 'auto' }` so the
  * `server/discover` probe negotiates the 2026-07-28 revision against either
  * transport without per-story envelope plumbing. Pass
- * `options.versionNegotiation` explicitly to opt out for legacy-only stories.
+ * `options.versionNegotiation` explicitly to opt out (for stories that drive
+ * both eras within one body).
  */
 export async function connectFromArgs(siblingDir: string, options: ClientOptions = {}): Promise<Client> {
     const argv = process.argv.slice(2);
     const client = new Client(
         { name: `${path.basename(siblingDir)}-example-client`, version: '1.0.0' },
-        { versionNegotiation: { mode: 'auto' }, ...options }
+        { versionNegotiation: { mode: argv.includes('--legacy') ? 'legacy' : 'auto' }, ...options }
     );
     const httpIdx = argv.indexOf('--http');
     if (httpIdx === -1) {
@@ -95,6 +100,11 @@ export function transportLeg(): 'stdio' | 'http' {
     return process.argv.includes('--http') ? 'http' : 'stdio';
 }
 
+/** Protocol-era leg the client is running on this invocation. */
+export function eraLeg(): 'modern' | 'legacy' {
+    return process.argv.includes('--legacy') ? 'legacy' : 'modern';
+}
+
 /**
  * Run a self-verifying client scenario. Any thrown error (including
  * `node:assert/strict` failures) prints a `FAIL:` line to stderr and exits
@@ -103,13 +113,14 @@ export function transportLeg(): 'stdio' | 'http' {
  */
 export function runClient(name: string, scenario: () => Promise<void>): void {
     void (async () => {
+        const leg = `${transportLeg()}/${eraLeg()}`;
         try {
             await scenario();
-            console.log(`OK: ${name} (${transportLeg()})`);
+            console.log(`OK: ${name} (${leg})`);
             process.exit(0);
         } catch (error) {
             const message = error instanceof Error ? (error.stack ?? error.message) : String(error);
-            console.error(`FAIL: ${name} (${transportLeg()}): ${message}`);
+            console.error(`FAIL: ${name} (${leg}): ${message}`);
             process.exit(1);
         }
     })();

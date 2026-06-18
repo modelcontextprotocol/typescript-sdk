@@ -7,9 +7,9 @@ import { check, connectFromArgs, runClient } from '../harness.js';
 
 runClient('sampling', async () => {
     // Push-style sampling is a 2025-era flow (and is deprecated as of
-    // 2026-07-28). Connect as a plain 2025 client so the server's
-    // `ctx.mcpReq.requestSampling` reaches this handler.
-    const client = await connectFromArgs(import.meta.dirname, { versionNegotiation: undefined, capabilities: { sampling: {} } });
+    // 2026-07-28). The harness pins this story to the legacy era so the
+    // server's `ctx.mcpReq.requestSampling` reaches this handler.
+    const client = await connectFromArgs(import.meta.dirname, { capabilities: { sampling: {} } });
     client.setRequestHandler('sampling/createMessage', async () => ({
         role: 'assistant',
         content: { type: 'text', text: '[canned summary]' },

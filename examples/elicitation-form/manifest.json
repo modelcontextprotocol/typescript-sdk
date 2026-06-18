@@ -1,3 +1,5 @@
 {
-    "transport": "stdio"
+    "transport": "stdio",
+    "era": "legacy",
+    "//": "Push-style server→client requests need a long-lived bidirectional connection AND a 2025 initialize handshake to advertise the elicitation capability; createMcpHandler's per-request/stateless posture has neither. The 2026-07-28 path is the multi-round-trip story (../mrtr/)."
 }

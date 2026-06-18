@@ -6,12 +6,10 @@ import { check, connectFromArgs, runClient } from '../harness.js';
 
 runClient('elicitation-form', async () => {
     // Push-style elicitation is the 2025-era flow (the 2026-07-28 revision uses
-    // multi-round-trip `inputRequired` instead — see ../mrtr/). Connect as a
-    // plain 2025 client so `ctx.mcpReq.elicitInput` reaches this handler.
-    const client = await connectFromArgs(import.meta.dirname, {
-        versionNegotiation: undefined,
-        capabilities: { elicitation: { form: {} } }
-    });
+    // multi-round-trip `inputRequired` instead — see ../mrtr/). The harness
+    // pins this story to the legacy era so `ctx.mcpReq.elicitInput` reaches
+    // this handler.
+    const client = await connectFromArgs(import.meta.dirname, { capabilities: { elicitation: { form: {} } } });
 
     let action: 'accept' | 'decline' = 'accept';
     client.setRequestHandler('elicitation/create', async request => {

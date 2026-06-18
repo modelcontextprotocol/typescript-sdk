@@ -1,0 +1,4 @@
+{
+    "era": "legacy",
+    "//": "Custom methods carry no envelope semantics; the example connects as a plain 2025 client so the request reaches setRequestHandler exactly as a hand-wired client would."
+}

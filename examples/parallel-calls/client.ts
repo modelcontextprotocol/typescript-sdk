@@ -2,27 +2,28 @@
  * Two clients in parallel, each calling the notification-emitting tool, and
  * one client making two parallel tool calls — asserts every result returns
  * and that notifications were attributed back to the right caller.
+ *
+ * Over HTTP every client connects to the one running endpoint; over stdio
+ * each `connectFromArgs` spawns its own server process (so the
+ * "multiple clients" leg is per-process, while the "one client / parallel
+ * calls" leg exercises one server's per-call attribution either way).
  */
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import type { Client } from '@modelcontextprotocol/client';
 
-import { check, runClient } from '../harness.js';
+import { check, connectFromArgs, runClient } from '../harness.js';
 
-const argv = process.argv.slice(2);
-const URL = argv[argv.indexOf('--http') + 1] ?? 'http://127.0.0.1:3000/';
-
-async function makeClient(id: string): Promise<{ client: Client; notifications: string[] }> {
-    const client = new Client({ name: `parallel-${id}`, version: '1.0.0' });
+async function makeClient(): Promise<{ client: Client; notifications: string[] }> {
+    const client = await connectFromArgs(import.meta.dirname);
     const notifications: string[] = [];
     client.setNotificationHandler('notifications/message', n => {
         notifications.push(String(n.params.data));
     });
-    await client.connect(new StreamableHTTPClientTransport(new globalThis.URL(URL)));
     return { client, notifications };
 }
 
 runClient('parallel-calls', async () => {
     // --- multiple clients, one call each ---
-    const [a, b] = await Promise.all([makeClient('A'), makeClient('B')]);
+    const [a, b] = await Promise.all([makeClient(), makeClient()]);
     const [ra, rb] = await Promise.all([
         a.client.callTool({ name: 'start-notification-stream', arguments: { caller: 'A', count: 3 } }),
         b.client.callTool({ name: 'start-notification-stream', arguments: { caller: 'B', count: 3 } })
@@ -36,7 +37,7 @@ runClient('parallel-calls', async () => {
     await b.client.close();
 
     // --- one client, parallel tool calls ---
-    const c = await makeClient('C');
+    const c = await makeClient();
     const results = await Promise.all([
         c.client.callTool({ name: 'start-notification-stream', arguments: { caller: 'C1', count: 2 } }),
         c.client.callTool({ name: 'start-notification-stream', arguments: { caller: 'C2', count: 2 } })

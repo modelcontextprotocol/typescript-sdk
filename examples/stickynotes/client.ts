@@ -4,7 +4,7 @@
  * three ways (cancel, accept-unchecked, accept-confirmed) to prove the board
  * is cleared only on an explicit confirmation.
  */
-import { check, connectFromArgs, runClient } from '../harness.js';
+import { check, connectFromArgs, runClient, transportLeg } from '../harness.js';
 
 interface AddResult {
     id: string;
@@ -17,13 +17,10 @@ interface RemoveAllResult {
 
 runClient('stickynotes', async () => {
     // Push-style elicitation (the `remove_all` confirmation) is a 2025-era
-    // flow; connect as a plain 2025 client so `ctx.mcpReq.elicitInput` reaches
-    // this handler (the 2026-07-28 path uses multi-round-trip `inputRequired`
-    // instead — see ../mrtr/).
-    const client = await connectFromArgs(import.meta.dirname, {
-        versionNegotiation: undefined,
-        capabilities: { elicitation: { form: {} } }
-    });
+    // flow; the harness pins this story to the legacy era so
+    // `ctx.mcpReq.elicitInput` reaches this handler (the 2026-07-28 path uses
+    // multi-round-trip `inputRequired` instead — see ../mrtr/).
+    const client = await connectFromArgs(import.meta.dirname, { capabilities: { elicitation: { form: {} } } });
     let elicitAnswer: 'cancel' | 'unchecked' | 'confirm' = 'cancel';
     client.setRequestHandler('elicitation/create', async () => {
         if (elicitAnswer === 'cancel') return { action: 'cancel' };
@@ -51,6 +48,19 @@ runClient('stickynotes', async () => {
     check.equal((removed.structuredContent as { removed?: boolean } | undefined)?.removed, true);
     const after = await client.listResources();
     check.ok(!after.resources.some(r => r.uri === firstNote.uri));
+
+    // The elicitation-confirmed `remove_all` path is stdio-only: push-style
+    // server→client requests need a long-lived bidirectional connection;
+    // `createMcpHandler`'s per-request/stateless posture has neither a durable
+    // client-capability record nor a return path for the elicitation response.
+    if (transportLeg() === 'http') {
+        const removedSecond = await client.callTool({ name: 'remove_note', arguments: { id: secondNote.id } });
+        check.equal((removedSecond.structuredContent as { removed?: boolean } | undefined)?.removed, true);
+        const afterClear = await client.listResources();
+        check.equal(afterClear.resources.filter(r => r.uri.startsWith('note:///')).length, 0);
+        await client.close();
+        return;
+    }
 
     // CANCEL — board untouched.
     elicitAnswer = 'cancel';

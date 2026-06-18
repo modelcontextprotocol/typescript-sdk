@@ -1,14 +1,15 @@
 /**
- * A small `createMcpHandler` server with one notification-emitting tool, used
- * by the parallel-calls client to drive multiple concurrent clients / parallel
- * tool calls and attribute notifications back to their caller. HTTP-only.
+ * One notification-emitting tool that the parallel-calls client drives with
+ * multiple concurrent clients (HTTP) or one client / multiple concurrent
+ * calls (both transports), asserting in-flight notifications are attributed
+ * back to the right caller. One binary, either transport.
  */
-import { createServer } from 'node:http';
-
-import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
-const handler = createMcpHandler(() => {
+import { runServerFromArgs } from '../harness.js';
+
+function buildServer(): McpServer {
     const server = new McpServer({ name: 'parallel-calls-example', version: '1.0.0' }, { capabilities: { logging: {} } });
     server.registerTool(
         'start-notification-stream',
@@ -30,11 +31,6 @@ const handler = createMcpHandler(() => {
         }
     );
     return server;
-});
+}
 
-const argv = process.argv.slice(2);
-const portIdx = argv.indexOf('--port');
-const port = portIdx === -1 ? 3000 : Number(argv[portIdx + 1]);
-createServer((req, res) => void handler.node(req, res)).listen(port, () => {
-    console.error(`parallel-calls example server listening on http://127.0.0.1:${port}/`);
-});
+runServerFromArgs(buildServer);

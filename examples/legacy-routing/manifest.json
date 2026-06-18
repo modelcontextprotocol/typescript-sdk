@@ -1,3 +1,5 @@
 {
-    "transport": "http"
+    "transport": "http",
+    "era": "modern",
+    "//": "The story body manages its own era internally (or does not use connectFromArgs); pinned so the harness runs it once per transport."
 }

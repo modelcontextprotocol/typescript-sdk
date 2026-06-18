@@ -28,15 +28,16 @@ pnpm tsx examples/<story>/client.ts --http http://127.0.0.1:3000/
 | Story                                                 | What it teaches                                                                                         | Transports   |
 | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------ |
 | [`mrtr/`](./mrtr/README.md)                           | Multi-round-trip write-once tool, secure `requestState`                                                 | stdio + http |
+| [`subscriptions/`](./subscriptions/README.md)         | `subscriptions/listen`: `client.listen()` + auto-open, `handler.notify` / `ServerEventBus`              | stdio + http |
 | [`streaming/`](./streaming/README.md)                 | In-flight progress, logging, cancellation                                                               | stdio + http |
 | [`elicitation-form/`](./elicitation-form/README.md)   | Form-mode elicitation (server requests user input)                                                      | stdio        |
 | [`sampling/`](./sampling/README.md)                   | Tool that requests LLM sampling from the client                                                         | stdio        |
-| [`stickynotes/`](./stickynotes/README.md)             | "Real app" capstone: tools mutate state, a resource per note, listChanged, elicitation-confirmed clear  | stdio        |
+| [`stickynotes/`](./stickynotes/README.md)             | "Real app" capstone: tools mutate state, a resource per note, listChanged, elicitation-confirmed clear  | stdio + http |
 | [`caching/`](./caching/README.md)                     | `cacheHints` stamping on cacheable results (2026-07-28)                                                 | stdio + http |
 | [`custom-methods/`](./custom-methods/README.md)       | Vendor-prefixed methods + custom notifications                                                          | stdio + http |
 | [`schema-validators/`](./schema-validators/README.md) | ArkType, Valibot, Zod, and `outputSchema`                                                               | stdio + http |
 | [`custom-version/`](./custom-version/README.md)       | `supportedProtocolVersions` / version negotiation                                                       | stdio + http |
-| [`parallel-calls/`](./parallel-calls/README.md)       | Multiple clients / parallel tool calls, per-client notifications                                        | http         |
+| [`parallel-calls/`](./parallel-calls/README.md)       | Multiple clients / parallel tool calls, per-client notifications                                        | stdio + http |
 | [`legacy-routing/`](./legacy-routing/README.md)       | `isLegacyRequest` in front of an existing sessionful 1.x deployment + a strict modern entry on one port | http         |
 | [`bearer-auth/`](./bearer-auth/README.md)             | Resource server with bearer token; `401` + `WWW-Authenticate`                                           | http         |
 
