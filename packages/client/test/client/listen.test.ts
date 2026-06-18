@@ -195,6 +195,22 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
+    it('autoOpenedSubscription is cleared on close() and on a fresh reconnect', async () => {
+        const onChanged = () => {};
+        const client = new Client(
+            { name: 'c', version: '1' },
+            { versionNegotiation: { mode: 'auto' }, listChanged: { tools: { onChanged } } }
+        );
+        const { clientTx } = await scriptedModern();
+        await client.connect(clientTx);
+        expect(client.autoOpenedSubscription).toBeDefined();
+        await client.close();
+        // close() clears every per-connection field.
+        expect(client.autoOpenedSubscription).toBeUndefined();
+        expect(client.getServerCapabilities()).toBeUndefined();
+        expect(client.getNegotiatedProtocolVersion()).toBeUndefined();
+    });
+
     it('a failed auto-open surfaces via onerror and does NOT fail connect', async () => {
         const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
         serverTx.onmessage = m => {

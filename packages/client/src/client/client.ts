@@ -333,6 +333,27 @@ export class Client extends Protocol<ClientContext> {
     private _autoOpenedSubscription?: McpSubscription;
 
     /**
+     * Clears every per-connection field in one place. Called at the start of
+     * each fresh (non-resuming) connect and from `close()`, so a stale
+     * negotiated era / server identity / auto-opened subscription cannot
+     * survive a reconnect.
+     */
+    private _resetConnectionState(): void {
+        this._negotiatedProtocolVersion = undefined;
+        this._serverCapabilities = undefined;
+        this._serverVersion = undefined;
+        this._instructions = undefined;
+        this._autoOpenedSubscription = undefined;
+        this._listenState.clear();
+        this._cachedToolOutputValidators.clear();
+    }
+
+    override async close(): Promise<void> {
+        await super.close();
+        this._resetConnectionState();
+    }
+
+    /**
      * Initializes this client with the given name and version information.
      */
     constructor(
@@ -689,15 +710,15 @@ export class Client extends Protocol<ClientContext> {
             }
             return;
         }
-        // Fresh connect: the negotiated protocol version is connection state —
-        // a value left over from a previous connection must not survive into a
-        // new handshake. Clearing it puts the instance back in the
-        // pre-negotiation phase, so the initialize exchange below rides the
-        // bootstrap method pins (legacy era) instead of a dead session's era.
-        // Without this, an instance that once negotiated a modern era could
-        // never re-run a fresh handshake: `initialize` is physically absent
-        // from the modern registry. (The resume branch above keeps it instead.)
-        this._negotiatedProtocolVersion = undefined;
+        // Fresh connect: per-connection state left over from a previous
+        // connection must not survive into a new handshake. Clearing it puts
+        // the instance back in the pre-negotiation phase, so the initialize
+        // exchange below rides the bootstrap method pins (legacy era) instead
+        // of a dead session's era. Without this, an instance that once
+        // negotiated a modern era could never re-run a fresh handshake:
+        // `initialize` is physically absent from the modern registry. (The
+        // resume branch above keeps it instead.)
+        this._resetConnectionState();
         await this._legacyHandshake(transport, options);
     }
 
@@ -797,7 +818,7 @@ export class Client extends Protocol<ClientContext> {
 
         // Fresh connect: stale connection state must not survive into a new
         // negotiation — every fresh negotiated connect re-runs the probe.
-        this._negotiatedProtocolVersion = undefined;
+        this._resetConnectionState();
 
         let result: Awaited<ReturnType<typeof negotiateEra>>;
         try {
