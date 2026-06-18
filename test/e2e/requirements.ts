@@ -2684,6 +2684,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['entryModern'],
         note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify.'
     },
+    'subscriptions:listen:honored-filter-narrows-to-advertised': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/subscriptions#acknowledgment',
+        behavior:
+            "The acknowledged filter on a subscriptions/listen stream is the requested set narrowed against the server's declared listChanged/subscribe capability bits — a requested type the server does not advertise is dropped from honoredFilter and is never delivered.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify. A stdio e2e of the modern listen path is not yet feasible without harness changes (the e2e stdio arms wire the standard child-process StdioServerTransport, not the serveStdio entry); stdio narrowing is covered at unit level in serveStdioListen.test.ts.'
+    },
     'subscriptions:listen:capacity-guard': {
         source: 'sdk',
         behavior:

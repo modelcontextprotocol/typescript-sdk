@@ -114,6 +114,26 @@ verifies('typescript:subscriptions:listen:legacy-era-steer', async ({ transport 
     expect((error as SdkError).message).toContain('resources/subscribe');
 });
 
+verifies('subscriptions:listen:honored-filter-narrows-to-advertised', async () => {
+    // makeServer registers a tool but no prompts/resources: a listen requesting
+    // toolsListChanged + promptsListChanged + resourcesListChanged must come
+    // back honored as toolsListChanged only — the ack reflects only what the
+    // server advertises.
+    await using h = await hostListen();
+    const sub = await h.client.listen({ toolsListChanged: true, promptsListChanged: true, resourcesListChanged: true });
+    expect(sub.honoredFilter).toEqual({ toolsListChanged: true });
+    // And nothing the server doesn't advertise reaches the stream: the entry
+    // delivers via the same narrowed filter it acknowledged.
+    const seen: string[] = [];
+    h.client.setNotificationHandler('notifications/prompts/list_changed', () => void seen.push('prompts'));
+    h.client.setNotificationHandler('notifications/tools/list_changed', () => void seen.push('tools'));
+    h.handler.notify.promptsChanged();
+    h.handler.notify.toolsChanged();
+    await new Promise(r => setTimeout(r, 30));
+    expect(seen).toEqual(['tools']);
+    await sub.close();
+});
+
 verifies('subscriptions:listen:capacity-guard', async () => {
     const handler = createMcpHandler(() => makeServer(), { legacy: 'reject', keepAliveMs: 0, maxSubscriptions: 1 });
     const post = (id: number) =>
