@@ -83,6 +83,36 @@ type WCancelledNotification = z4.infer<typeof Wire2026.CancelledNotificationSche
 type WCancelledNotificationParams = z4.infer<typeof Wire2026.CancelledNotificationParamsSchema>;
 type WNotificationMeta = z4.infer<typeof Wire2026.NotificationMetaSchema>;
 
+/* Subscriptions vocabulary (SEP-1865) — modeled by the 2026-era wire module. */
+type WSubscriptionFilter = z4.infer<typeof Wire2026.SubscriptionFilterSchema>;
+type WSubscriptionsListenRequest = z4.infer<typeof Wire2026.SubscriptionsListenRequestSchema>;
+type WSubscriptionsListenRequestParams = WSubscriptionsListenRequest['params'];
+type WSubscriptionsAcknowledgedNotification = z4.infer<typeof Wire2026.SubscriptionsAcknowledgedNotificationSchema>;
+type WSubscriptionsAcknowledgedNotificationParams = WSubscriptionsAcknowledgedNotification['params'];
+// The anchor's ClientRequest union, composed from the era module's wire requests.
+type WClientRequest =
+    | WCompleteRequest
+    | WListPromptsRequest
+    | WListResourceTemplatesRequest
+    | WListResourcesRequest
+    | WListToolsRequest
+    | WDiscoverRequest
+    | WCallToolRequest
+    | WGetPromptRequest
+    | WReadResourceRequest
+    | WSubscriptionsListenRequest;
+// The anchor's ServerNotification union (cancelled fork; the four
+// subscription-gated change notifications use neutral params shapes).
+type WServerNotification =
+    | WCancelledNotification
+    | SDKTypes.ProgressNotification
+    | SDKTypes.LoggingMessageNotification
+    | SDKTypes.ResourceListChangedNotification
+    | (Omit<SDKTypes.ResourceUpdatedNotification, 'params'> & { params: { _meta?: WNotificationMeta; uri: string } })
+    | SDKTypes.ToolListChangedNotification
+    | SDKTypes.PromptListChangedNotification
+    | WSubscriptionsAcknowledgedNotification;
+
 /* Multi-round-trip vocabulary (SEP-2322) — modeled by the 2026-era wire module. */
 type WInputRequest = z4.infer<typeof Wire2026.InputRequestSchema>;
 type WInputRequests = z4.infer<typeof Wire2026.InputRequestsSchema>;
@@ -733,6 +763,40 @@ const wireParityChecks = {
     ServerResult: (sdk: WServerResult, spec: SpecTypes.ServerResult) => {
         sdk = spec;
         spec = sdk;
+    },
+    SubscriptionFilter: (sdk: WSubscriptionFilter, spec: SpecTypes.SubscriptionFilter) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SubscriptionsListenRequest: (sdk: WithJSONRPCRequest<WSubscriptionsListenRequest>, spec: SpecTypes.SubscriptionsListenRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SubscriptionsListenRequestParams: (sdk: WSubscriptionsListenRequestParams, spec: SpecTypes.SubscriptionsListenRequestParams) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SubscriptionsAcknowledgedNotification: (
+        sdk: WithJSONRPC<WSubscriptionsAcknowledgedNotification>,
+        spec: SpecTypes.SubscriptionsAcknowledgedNotification
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SubscriptionsAcknowledgedNotificationParams: (
+        sdk: WSubscriptionsAcknowledgedNotificationParams,
+        spec: SpecTypes.SubscriptionsAcknowledgedNotificationParams
+    ) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ClientRequest: (sdk: WithJSONRPCRequest<WClientRequest>, spec: SpecTypes.ClientRequest) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    ServerNotification: (sdk: WithJSONRPC<WServerNotification>, spec: SpecTypes.ServerNotification) => {
+        sdk = spec;
+        spec = sdk;
     }
 };
 
@@ -751,18 +815,9 @@ const FEATURE_OWNED_PENDING_2026: Record<string, string> = {
     // Inlined in the SDK (same as the 2025-11-25 comparison):
     Error: 'the inner error object of a JSONRPCError is inlined in the SDK',
 
-    // (The M4.1 MRTR partition burned down when the multi-round-trip wire
-    // vocabulary landed in wire/rev2026-07-28 — see the wireParityChecks
-    // entries for InputRequest/InputRequiredResult/… above.)
-
-    // M6.1 subscriptions/listen (#14):
-    SubscriptionFilter: 'M6.1 subscriptions/listen (#14)',
-    SubscriptionsAcknowledgedNotification: 'M6.1 subscriptions/listen (#14)',
-    SubscriptionsAcknowledgedNotificationParams: 'M6.1 subscriptions/listen (#14)',
-    SubscriptionsListenRequest: 'M6.1 subscriptions/listen (#14)',
-    SubscriptionsListenRequestParams: 'M6.1 subscriptions/listen (#14)',
-    ClientRequest: 'M6.1 subscriptions/listen (#14) — the union gains SubscriptionsListenRequest',
-    ServerNotification: 'M6.1 subscriptions/listen (#14) — the union gains the acknowledged notification',
+    // (The M4.1 MRTR and M6.1 subscriptions/listen partitions burned down
+    // when their wire vocabulary landed in wire/rev2026-07-28 — see the
+    // wireParityChecks entries above.)
 
     // M1.2 validation ladder (#8): the per-code error response envelopes:
     HeaderMismatchError: 'M1.2 validation ladder (#8)',
