@@ -132,6 +132,20 @@ export interface WireCodec {
     notificationSchema(method: string): z.ZodType | undefined;
 
     /**
+     * In-band (de-JSON-RPC'd) input-request vocabulary of this era — the
+     * embedded requests a multi-round-trip `input_required` result may carry
+     * and the bare responses that answer them. `undefined` means the method
+     * is not in-band vocabulary on this era (the 2025-era codec has none:
+     * elicitation/sampling/roots are wire request methods there). These do
+     * NOT grant registry membership — a peer sending one of these as a wire
+     * request on an era that demoted it still gets −32601 by absence.
+     */
+    inputRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]> | undefined;
+    inputRequestSchema(method: string): z.ZodType | undefined;
+    inputResponseSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]> | undefined;
+    inputResponseSchema(method: string): z.ZodType | undefined;
+
+    /**
      * Step 1 of result decoding: RAW `resultType` handling BEFORE any schema
      * validation (V-1's structural home). Era postures (Q1-SD3):
      * - 2026 era: required discriminator — absent ⇒ typed error naming the

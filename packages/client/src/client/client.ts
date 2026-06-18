@@ -14,6 +14,7 @@ import type {
     GetPromptRequest,
     GetPromptResult,
     Implementation,
+    InputRequiredOptions,
     JSONRPCNotification,
     JSONRPCRequest,
     JsonSchemaType,
@@ -31,14 +32,17 @@ import type {
     ListToolsResult,
     LoggingLevel,
     MessageExtraInfo,
+    NonCompleteResultFlow,
     NotificationMethod,
     ProtocolOptions,
     ReadResourceRequest,
     ReadResourceResult,
     RequestMethod,
     RequestOptions,
+    ResolvedInputRequiredDriverConfig,
     Result,
     ServerCapabilities,
+    StandardSchemaV1,
     SubscribeRequest,
     Tool,
     Transport,
@@ -59,6 +63,8 @@ import {
     Protocol,
     ProtocolError,
     ProtocolErrorCode,
+    resolveInputRequiredDriverConfig,
+    runInputRequiredFlow,
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
@@ -179,6 +185,31 @@ export type ClientOptions = ProtocolOptions & {
     versionNegotiation?: VersionNegotiationOptions;
 
     /**
+     * Multi-round-trip auto-fulfilment (protocol revision 2026-07-28).
+     *
+     * On the 2026-07-28 era, servers obtain client input (elicitation,
+     * sampling, roots) by answering `tools/call`, `prompts/get`, or
+     * `resources/read` with an `input_required` result instead of sending a
+     * server→client request. By default the client fulfils those embedded
+     * requests automatically through the SAME handlers registered via
+     * {@linkcode Client.setRequestHandler | setRequestHandler} (e.g.
+     * `elicitation/create`), then retries the original call with the
+     * collected `inputResponses` and a byte-exact echo of the opaque
+     * `requestState`, on a fresh request id, up to `maxRounds` rounds.
+     * `client.callTool()` (and its siblings) keep returning their plain
+     * result type — the interactive rounds happen inside the call.
+     *
+     * Set `autoFulfill: false` for manual mode: an `input_required` response
+     * then surfaces as a typed error unless the individual call passes
+     * `allowInputRequired: true` (pair it with `withInputRequired()` on the
+     * explicit-schema path to type both outcomes).
+     *
+     * Has no effect on 2025-era connections, which have no `input_required`
+     * vocabulary.
+     */
+    inputRequired?: InputRequiredOptions;
+
+    /**
      * Configure handlers for list changed notifications (tools, prompts, resources).
      *
      * @example
@@ -253,6 +284,7 @@ export class Client extends Protocol<ClientContext> {
     private _enforceStrictCapabilities: boolean;
     private _versionNegotiation?: VersionNegotiationOptions;
     private _supportedProtocolVersionsOption?: string[];
+    private _inputRequiredDriverConfig: ResolvedInputRequiredDriverConfig;
 
     /**
      * Initializes this client with the given name and version information.
@@ -267,6 +299,9 @@ export class Client extends Protocol<ClientContext> {
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
         this._versionNegotiation = options?.versionNegotiation;
         this._supportedProtocolVersionsOption = options?.supportedProtocolVersions;
+        // Multi-round-trip auto-fulfilment driver (2026-07-28): on by default,
+        // configurable via ClientOptions.inputRequired.
+        this._inputRequiredDriverConfig = resolveInputRequiredDriverConfig(options?.inputRequired);
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -297,6 +332,42 @@ export class Client extends Protocol<ClientContext> {
             return 'drop';
         }
         return undefined;
+    }
+
+    /**
+     * Wires the multi-round-trip auto-fulfilment engine (protocol revision
+     * 2026-07-28) into the response funnel: an `input_required` answer is
+     * fulfilled through the registered elicitation/sampling/roots handlers
+     * and the original request retried via `flow.retry`, up to
+     * `inputRequired.maxRounds` rounds. With auto-fulfilment disabled the
+     * response surfaces as a typed error steering to manual mode.
+     */
+    protected override _resolveNonCompleteResult<T extends StandardSchemaV1>(
+        decoded: { kind: 'input_required'; inputRequests: Record<string, unknown>; requestState?: string },
+        flow: NonCompleteResultFlow<T>
+    ): Promise<unknown> {
+        if (!this._inputRequiredDriverConfig.autoFulfill) {
+            return Promise.reject(
+                new SdkError(
+                    SdkErrorCode.UnsupportedResultType,
+                    `Unsupported result type 'input_required' for ${flow.request.method}: ` +
+                        `multi-round-trip auto-fulfilment is not enabled on this instance — ` +
+                        `pass allowInputRequired: true to handle it manually, or enable inputRequired.autoFulfill`,
+                    { resultType: 'input_required', method: flow.request.method }
+                )
+            );
+        }
+        return runInputRequiredFlow(
+            {
+                getRequestHandler: method =>
+                    this._getRequestHandler(method) as ((request: JSONRPCRequest, ctx: unknown) => Promise<Result>) | undefined,
+                buildContext: baseCtx => this.buildContext(baseCtx, undefined),
+                sessionId: this.transport?.sessionId
+            },
+            this._inputRequiredDriverConfig,
+            decoded,
+            flow
+        );
     }
 
     /**
@@ -352,14 +423,16 @@ export class Client extends Protocol<ClientContext> {
         if (method === 'elicitation/create') {
             return async (request, ctx) => {
                 // Era-exact validation: the schemas are resolved from the
-                // instance era at dispatch time (the era gate guarantees the
-                // method exists on the serving era before we get here).
+                // instance era at dispatch time. On the 2025 era the method
+                // is a wire request (registry schemas); on the 2026 era it is
+                // in-band vocabulary reached only via the multi-round-trip
+                // driver, so the in-band schemas apply.
                 const codec = codecForVersion(this._negotiatedProtocolVersion);
-                const elicitRequestSchema = codec.requestSchema('elicitation/create');
+                const elicitRequestSchema = codec.requestSchema('elicitation/create') ?? codec.inputRequestSchema('elicitation/create');
                 // The era registry entry IS the plain ElicitResult schema
                 // (the result map is aligned to the typed map — no widened
                 // unions), so no narrower surface is needed.
-                const elicitResultSchema = codec.resultSchema('elicitation/create');
+                const elicitResultSchema = codec.resultSchema('elicitation/create') ?? codec.inputResponseSchema('elicitation/create');
                 if (!elicitRequestSchema || !elicitResultSchema) {
                     throw new ProtocolError(ProtocolErrorCode.InternalError, 'No wire schema for elicitation/create in the resolved era');
                 }
@@ -416,9 +489,13 @@ export class Client extends Protocol<ClientContext> {
 
         if (method === 'sampling/createMessage') {
             return async (request, ctx) => {
-                // Era-exact validation via the instance era (see above).
+                // Era-exact validation via the instance era (see above): wire
+                // request schema on the 2025 era, in-band schema on the 2026
+                // era (where sampling reaches the handler only as an embedded
+                // input request).
                 const codec = codecForVersion(this._negotiatedProtocolVersion);
-                const samplingRequestSchema = codec.requestSchema('sampling/createMessage');
+                const wireSamplingRequestSchema = codec.requestSchema('sampling/createMessage');
+                const samplingRequestSchema = wireSamplingRequestSchema ?? codec.inputRequestSchema('sampling/createMessage');
                 if (!samplingRequestSchema) {
                     throw new ProtocolError(
                         ProtocolErrorCode.InternalError,
@@ -436,13 +513,28 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
-                // The result schema depends on the REQUEST params (tools vs
-                // no tools) — something a method-keyed registry entry cannot
-                // express, so the pair is picked here. The era gate keeps
-                // this era-correct: sampling/createMessage is only ever
-                // dispatched on an era whose registry defines it.
+                // The result-side schema mirrors the request-side selection so
+                // both stay on the same era's vocabulary. On the 2025 era the
+                // schema depends on the REQUEST params (tools vs no tools) —
+                // something a method-keyed registry entry cannot express, so
+                // the pair is picked here. When the request schema came from
+                // the in-band fallback (2026 era, where sampling reaches the
+                // handler only as an embedded input request), the embedded
+                // response schema applies — it covers plain and tool-bearing
+                // responses alike.
                 const hasTools = params.tools || params.toolChoice;
-                const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
+                const resultSchema =
+                    wireSamplingRequestSchema === undefined
+                        ? codec.inputResponseSchema('sampling/createMessage')
+                        : hasTools
+                          ? CreateMessageResultWithToolsSchema
+                          : CreateMessageResultSchema;
+                if (!resultSchema) {
+                    throw new ProtocolError(
+                        ProtocolErrorCode.InternalError,
+                        'No result schema for sampling/createMessage in the resolved era'
+                    );
+                }
                 const validationResult = parseSchema(resultSchema, result);
                 if (!validationResult.success) {
                     const errorMessage =

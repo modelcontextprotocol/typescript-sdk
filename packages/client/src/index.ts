@@ -75,5 +75,11 @@ export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
 export { fromJsonSchema } from './fromJsonSchema.js';
 
+// Multi-round-trip requests (protocol revision 2026-07-28): the client-side
+// auto-fulfilment knobs (ClientOptions.inputRequired) and the manual-mode
+// schema wrapper for callers that opt out of auto-fulfilment per call.
+export type { InputRequiredOptions } from '@modelcontextprotocol/core';
+export { withInputRequired } from '@modelcontextprotocol/core';
+
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core/public';

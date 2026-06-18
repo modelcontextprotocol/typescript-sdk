@@ -90,6 +90,42 @@ describe('client inbound-drop on modern-era connections (TS-01)', () => {
         await client.close();
     });
 
+    it('refuses a wire elicitation/create request on a modern connection even when an elicitation handler is registered (the in-band vocabulary grants no wire dispatch)', async () => {
+        const { clientTx, serverTx, written } = await scriptedServerSide('modern');
+        const client = new Client(
+            { name: 'drop-client', version: '1.0.0' },
+            { versionNegotiation: { mode: 'auto' }, capabilities: { elicitation: { form: {} } } }
+        );
+        const handled: unknown[] = [];
+        client.setRequestHandler('elicitation/create', async request => {
+            handled.push(request.params);
+            return { action: 'accept', content: {} };
+        });
+        const errors: Error[] = [];
+        client.onerror = error => void errors.push(error);
+        await client.connect(clientTx);
+        expect(client.getNegotiatedProtocolVersion()).toBe(MODERN);
+
+        const before = written.length;
+        // elicitation/create exists on the 2026-07-28 era only as in-band
+        // (embedded) vocabulary inside input_required results. A wire request
+        // for it must never reach the registered handler or be answered with a
+        // result — the era gate is not bypassed by the in-band schema fallback.
+        await serverTx.send({
+            jsonrpc: '2.0',
+            id: 'rogue-elicit-1',
+            method: 'elicitation/create',
+            params: { mode: 'form', message: 'Name?', requestedSchema: { type: 'object', properties: {} } }
+        });
+        await flush();
+
+        expect(handled).toHaveLength(0);
+        expect(written).toHaveLength(before);
+        expect(errors.some(error => error.message.includes('Dropped inbound request'))).toBe(true);
+
+        await client.close();
+    });
+
     it('keeps answering inbound requests on legacy-era connections (control arm)', async () => {
         const { clientTx, serverTx, written } = await scriptedServerSide('legacy');
         const client = new Client({ name: 'legacy-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
