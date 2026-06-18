@@ -536,8 +536,8 @@ server.registerTool(
 );
 ```
 
-For runnable examples, see [`elicitation-form/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/elicitation-form/server.ts) (form) and [`mrtr/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/mrtr/server.ts)
-(URL).
+For runnable examples, see [`elicitation/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/elicitation/server.ts) (form + URL mode, both protocol eras) and
+[`mrtr/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/mrtr/server.ts) (the secure `requestState` round-trip pattern).
 
 ### Roots
 

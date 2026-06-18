@@ -514,8 +514,8 @@ client.setRequestHandler('elicitation/create', async request => {
 });
 ```
 
-For a full form-based elicitation handler with AJV validation, see [`repl/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/repl/client.ts). For URL elicitation mode, see
-[`mrtr/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/mrtr/client.ts).
+For a full form-based elicitation handler with AJV validation, see [`repl/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/repl/client.ts). For URL elicitation mode (both the 2025-era push/throw style and the 2026-07-28 `inputRequired`
+return), see [`elicitation/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/elicitation/client.ts).
 
 ### Roots
 
@@ -720,4 +720,4 @@ For an end-to-end example of server-initiated SSE disconnection and automatic cl
 | Parallel tool calls           | Run multiple tool calls concurrently via `Promise.all`                       | [`parallelToolCallsClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts) |
 | SSE disconnect / reconnection | Server-initiated SSE disconnect with automatic reconnection and event replay | [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/client.ts)           |
 | Multiple clients              | Independent client lifecycles to the same server                             | [`multipleClientsParallel.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts) |
-| URL elicitation               | Handle sensitive data collection via browser                                 | [`mrtr/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/mrtr/client.ts)                       |
+| URL elicitation               | Handle sensitive data collection via browser                                 | [`elicitation/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/elicitation/client.ts)         |

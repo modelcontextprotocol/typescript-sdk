@@ -32,7 +32,12 @@ let publishResourcesChanged: () => void = () => {};
 
 function buildServer(): McpServer {
     const server = new McpServer(
-        { name: 'repl-playground-server', version: '1.0.0' },
+        {
+            name: 'repl-playground-server',
+            version: '1.0.0',
+            icons: [{ src: 'https://modelcontextprotocol.io/favicon.svg', sizes: ['any'], mimeType: 'image/svg+xml' }],
+            websiteUrl: 'https://github.com/modelcontextprotocol/typescript-sdk'
+        },
         { capabilities: { logging: {}, resources: { listChanged: true } } }
     );
 

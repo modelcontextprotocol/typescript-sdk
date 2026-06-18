@@ -32,7 +32,7 @@ Some stories mount at a different path (e.g. `/`); check the story's `package.js
 | [`mrtr/`](./mrtr/README.md)                                         | Multi-round-trip write-once tool, secure `requestState`                                                 | stdio + http |
 | [`subscriptions/`](./subscriptions/README.md)                       | `subscriptions/listen`: `client.listen()` + auto-open, `handler.notify` / `ServerEventBus`              | stdio + http |
 | [`streaming/`](./streaming/README.md)                               | In-flight progress, logging, cancellation                                                               | stdio + http |
-| [`elicitation-form/`](./elicitation-form/README.md)                 | Form-mode elicitation (server requests user input)                                                      | stdio        |
+| [`elicitation/`](./elicitation/README.md)                           | Elicitation (form + URL mode), both eras: push-style on 2025, `inputRequired` on 2026                   | stdio        |
 | [`sampling/`](./sampling/README.md)                                 | Tool that requests LLM sampling from the client                                                         | stdio        |
 | [`stickynotes/`](./stickynotes/README.md)                           | "Real app" capstone: tools mutate state, a resource per note, listChanged, elicitation-confirmed clear  | stdio + http |
 | [`caching/`](./caching/README.md)                                   | `cacheHints` stamping on cacheable results (2026-07-28)                                                 | stdio + http |
@@ -56,9 +56,14 @@ Some stories mount at a different path (e.g. `/`); check the story's `package.js
 
 ## Excluded
 
-The interactive OAuth set lives under [`oauth/`](./oauth/README.md) and is excluded from the harness (browser authorization-code flow); the headless machine-to-machine grant is covered by `oauth-client-credentials/`. The [`guides/`](./guides/README.md) directory holds the snippet
-collections synced into `docs/server.md` and `docs/client.md` — typecheck-only, not runnable. `shared/` is the demo OAuth provider library used by the OAuth examples. The `server-quickstart/` and `client-quickstart/` packages are the website-tutorial sources (external network /
-API key; typecheck-only).
+| Directory                                                                                  | What it is                                                                                                      | Why not in CI                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`oauth/`](./oauth/README.md)                                                              | Interactive authorization-code OAuth flow (`simpleOAuthClient.ts`, `dualModeAuth.ts`, `simpleTokenProvider.ts`) | Opens a real browser and runs a callback server on `:8090`. The headless machine-to-machine grant is covered by [`oauth-client-credentials/`](./oauth-client-credentials/README.md).                          |
+| [`repl/`](./repl/README.md)                                                                | Fully-featured HTTP playground server + readline client                                                         | Interactive — `client.ts` reads from stdin. Run manually in two terminals.                                                                                                                                    |
+| [`sse-polling/`](./sse-polling/README.md), [`standalone-get/`](./standalone-get/README.md) | Legacy sessionful-2025 SSE stories (SEP-1699 reconnect/replay; standalone GET stream)                           | Kept for reference; long-running reconnect/timer flows that need a longer per-leg readiness wait than the harness default. Self-verifying — flip the `excluded` flag once the harness has bounded-wait knobs. |
+| [`guides/`](./guides/README.md)                                                            | Snippet collections synced into `docs/server.md` and `docs/client.md`                                           | Typecheck-only; not a runnable pair.                                                                                                                                                                          |
+| `server-quickstart/`, `client-quickstart/`                                                 | Website-tutorial sources                                                                                        | External network / API key; typecheck-only.                                                                                                                                                                   |
+| `shared/`                                                                                  | Demo OAuth provider helper library                                                                              | Not a story — imported by the OAuth examples.                                                                                                                                                                 |
 
 ## Multi-node deployment patterns
 
@@ -160,14 +165,5 @@ For scenarios where local in-memory state must be maintained on specific nodes, 
 
 ## Backwards compatibility (Streamable HTTP ↔ legacy SSE)
 
-Start the server:
-
-```bash
-pnpm --filter @modelcontextprotocol/examples-server exec tsx src/simpleStreamableHttp.ts
-```
-
-Then run the backwards-compatible client:
-
-```bash
-pnpm --filter @modelcontextprotocol/examples-client exec tsx src/streamableHttpWithSseFallbackClient.ts
-```
+A client that needs to fall back from Streamable HTTP to the legacy HTTP+SSE transport (for servers that only implement the older transport) follows the [`connect_sseFallback`](../docs/client.md#backwards-compatibility) recipe in the client guide — try
+`StreamableHTTPClientTransport` first, fall back to `SSEClientTransport` on a 4xx. There is no runnable pair for this in `examples/` (the legacy SSE server transport is deprecated); the snippet in `guides/clientGuide.examples.ts` is the complete pattern.

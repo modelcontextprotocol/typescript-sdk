@@ -9,7 +9,7 @@
  * - Uses `eventStore` to persist events for replay after reconnection
  * - Uses `ctx.http?.closeSSE()` callback to gracefully disconnect clients mid-operation
  *
- * Run with: pnpm tsx src/ssePollingExample.ts
+ * Run with: pnpm tsx examples/sse-polling/server.ts
  * Test with: curl or the MCP Inspector
  */
 import { randomUUID } from 'node:crypto';

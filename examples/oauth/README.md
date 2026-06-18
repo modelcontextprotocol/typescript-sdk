@@ -6,4 +6,4 @@ The interactive authorization-code OAuth set, typecheck-only. Excluded from the 
 - `dualModeAuth.ts` — two auth patterns through the one `authProvider` option: host-managed bearer token vs a built-in `OAuthClientProvider`.
 - `simpleTokenProvider.ts` — the minimal `AuthProvider` (just `token()`) for externally-managed bearer tokens.
 
-For the headless bearer-token resource-server case see `../bearer-auth/`; for the machine-to-machine `client_credentials` grant see `../oauth-client-credentials/`; for URL-mode elicitation see `../mrtr/`; for the interactive readline playground see `../repl/`.
+For the headless bearer-token resource-server case see `../bearer-auth/`; for the machine-to-machine `client_credentials` grant see `../oauth-client-credentials/`; for URL-mode elicitation see `../elicitation/`; for the interactive readline playground see `../repl/`.
