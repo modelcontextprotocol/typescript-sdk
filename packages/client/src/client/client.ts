@@ -267,9 +267,10 @@ export interface McpSubscription {
      */
     readonly honoredFilter: SubscriptionFilter;
     /**
-     * Tears the subscription down. Idempotent. On Streamable HTTP this closes
-     * the listen request's SSE stream; on stdio it sends
-     * `notifications/cancelled` referencing the listen request id.
+     * Tears the subscription down. Idempotent. Aborts the listen request's
+     * stream (where the transport supports it) AND sends
+     * `notifications/cancelled` referencing the listen request id — both,
+     * always, so close works on any transport.
      */
     close(): Promise<void>;
 }
@@ -322,7 +323,11 @@ export class Client extends Protocol<ClientContext> {
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-    private _pendingListChangedConfig?: ListChangedHandlers;
+    /**
+     * The constructor `listChanged` configuration. Durable across reconnects:
+     * read fresh on every connect (legacy or modern), never consumed.
+     */
+    private readonly _listChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
     private _versionNegotiation?: VersionNegotiationOptions;
     private _supportedProtocolVersionsOption?: string[];
@@ -372,7 +377,7 @@ export class Client extends Protocol<ClientContext> {
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
-            this._pendingListChangedConfig = options.listChanged;
+            this._listChangedConfig = options.listChanged;
         }
     }
 
@@ -784,9 +789,8 @@ export class Client extends Protocol<ClientContext> {
             this._negotiatedProtocolVersion = result.protocolVersion;
 
             // Set up list changed handlers now that we know server capabilities
-            if (this._pendingListChangedConfig) {
-                this._setupListChangedHandlers(this._pendingListChangedConfig);
-                this._pendingListChangedConfig = undefined;
+            if (this._listChangedConfig) {
+                this._setupListChangedHandlers(this._listChangedConfig);
             }
         } catch (error) {
             // Disconnect if initialization fails.
@@ -860,9 +864,8 @@ export class Client extends Protocol<ClientContext> {
         // subscriptions/listen stream (the modern era never delivers change
         // notifications unsolicited); on a legacy connection they fire on the
         // 2025-era unsolicited notifications, no listen needed.
-        if (this._pendingListChangedConfig) {
-            const config = this._pendingListChangedConfig;
-            this._pendingListChangedConfig = undefined;
+        if (this._listChangedConfig) {
+            const config = this._listChangedConfig;
             // Compute configured ∩ server-advertised ONCE and use that single
             // value for BOTH handler registration and the auto-open filter, so
             // a configured-but-not-advertised type is neither subscribed to
