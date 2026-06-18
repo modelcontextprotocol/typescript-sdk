@@ -60,6 +60,24 @@ describe('honoredSubset', () => {
         requested.resourceSubscriptions.push('file:///b');
         expect(honored.resourceSubscriptions).toEqual(['file:///a']);
     });
+
+    it('narrows against the supplied server capabilities', () => {
+        const requested = {
+            toolsListChanged: true as const,
+            promptsListChanged: true as const,
+            resourcesListChanged: true as const,
+            resourceSubscriptions: ['file:///a']
+        };
+        // Only tools.listChanged advertised → only toolsListChanged honored.
+        expect(honoredSubset(requested, { tools: { listChanged: true } })).toEqual({ toolsListChanged: true });
+        // resources.subscribe gates resourceSubscriptions; resources.listChanged gates resourcesListChanged.
+        expect(honoredSubset(requested, { resources: { subscribe: true } })).toEqual({ resourceSubscriptions: ['file:///a'] });
+        expect(honoredSubset(requested, { resources: { listChanged: true } })).toEqual({ resourcesListChanged: true });
+        // No relevant capability advertised → empty.
+        expect(honoredSubset(requested, {})).toEqual({});
+        // Omitted capabilities → requested set honored as-is (back-compat).
+        expect(honoredSubset(requested)).toEqual(requested);
+    });
 });
 
 describe('serverEventToNotification', () => {

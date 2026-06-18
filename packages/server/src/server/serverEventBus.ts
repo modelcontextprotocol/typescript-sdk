@@ -1,4 +1,4 @@
-import type { SubscriptionFilter } from '@modelcontextprotocol/core';
+import type { ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core';
 
 /**
  * A change event a server publishes for delivery on open `subscriptions/listen`
@@ -143,19 +143,31 @@ export function listenFilterAccepts(filter: SubscriptionFilter, event: ServerEve
 
 /**
  * The honored subset of a requested filter: keeps only the fields the client
- * explicitly opted in to (drops `false` and absent fields). The serving entry
- * sends this back in `notifications/subscriptions/acknowledged`.
+ * explicitly opted in to (drops `false` and absent fields), narrowed against
+ * the server's declared capabilities when supplied. The serving entry sends
+ * this back in `notifications/subscriptions/acknowledged` so the ack reflects
+ * what the server can actually deliver.
  *
- * The entry-handled listen router does not narrow the requested set further —
- * the bus only emits events the consumer publishes, so honoring the full
- * request is harmless when the server never publishes a given type.
+ * - `toolsListChanged` is honored only when `capabilities.tools.listChanged`
+ *   is advertised; likewise `promptsListChanged` / `resourcesListChanged`.
+ * - `resourceSubscriptions` is honored only when
+ *   `capabilities.resources.subscribe` is advertised.
+ *
+ * When `capabilities` is omitted the requested set is honored as-is (the
+ * pre-existing behavior, for callers that cannot supply capabilities at
+ * router creation time).
  */
-export function honoredSubset(requested: SubscriptionFilter): SubscriptionFilter {
+export function honoredSubset(requested: SubscriptionFilter, capabilities?: ServerCapabilities): SubscriptionFilter {
     const honored: SubscriptionFilter = {};
-    if (requested.toolsListChanged === true) honored.toolsListChanged = true;
-    if (requested.promptsListChanged === true) honored.promptsListChanged = true;
-    if (requested.resourcesListChanged === true) honored.resourcesListChanged = true;
-    if (requested.resourceSubscriptions !== undefined && requested.resourceSubscriptions.length > 0) {
+    const allow = (bit: unknown): boolean => capabilities === undefined || bit === true;
+    if (requested.toolsListChanged === true && allow(capabilities?.tools?.listChanged)) honored.toolsListChanged = true;
+    if (requested.promptsListChanged === true && allow(capabilities?.prompts?.listChanged)) honored.promptsListChanged = true;
+    if (requested.resourcesListChanged === true && allow(capabilities?.resources?.listChanged)) honored.resourcesListChanged = true;
+    if (
+        requested.resourceSubscriptions !== undefined &&
+        requested.resourceSubscriptions.length > 0 &&
+        allow(capabilities?.resources?.subscribe)
+    ) {
         honored.resourceSubscriptions = [...requested.resourceSubscriptions];
     }
     return honored;

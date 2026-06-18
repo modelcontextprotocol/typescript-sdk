@@ -18,7 +18,7 @@
  * - The server MUST NOT deliver a notification type the client did not request.
  * - Termination is stream close (HTTP); no JSON-RPC result is ever emitted.
  */
-import type { JSONRPCRequest, RequestId, SubscriptionFilter } from '@modelcontextprotocol/core';
+import type { JSONRPCRequest, RequestId, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core';
 import { SUBSCRIPTION_ID_META_KEY, SubscriptionFilterSchema } from '@modelcontextprotocol/core';
 
 import type { ServerEventBus } from './serverEventBus.js';
@@ -38,6 +38,13 @@ export interface ListenRouterOptions {
     maxSubscriptions?: number;
     /** SSE comment-frame keepalive interval; `0` disables keepalive (default 15000). */
     keepAliveMs?: number;
+    /**
+     * The server's declared capabilities. When supplied, the honored filter
+     * the ack carries is narrowed against these (a requested type the server
+     * does not advertise is dropped from the ack); when omitted, the requested
+     * set is honored as-is.
+     */
+    serverCapabilities?: ServerCapabilities;
     /** Out-of-band error reporting (never alters the response). */
     onerror?: (error: Error) => void;
 }
@@ -103,7 +110,7 @@ export interface ListenRouter {
 }
 
 export function createListenRouter(options: ListenRouterOptions): ListenRouter {
-    const { bus, onerror } = options;
+    const { bus, onerror, serverCapabilities } = options;
     const maxSubscriptions = options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS;
     const keepAliveMs = options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS;
 
@@ -119,7 +126,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
         if (filter === undefined) {
             return jsonRpcError(message.id, -32_602, "Invalid params: 'notifications' is required and must be a valid SubscriptionFilter");
         }
-        const honored = honoredSubset(filter);
+        const honored = honoredSubset(filter, serverCapabilities);
         // The spec carries the listen request's JSON-RPC id verbatim as the
         // subscription id; demux is per-connection (each HTTP listen has its
         // own SSE stream) so client-chosen ids cannot route across requests.
@@ -246,7 +253,10 @@ export class StdioListenRouter {
     /** Active subscriptions, keyed by the listen request's JSON-RPC id verbatim. */
     private readonly _subs = new Map<RequestId, SubscriptionFilter>();
 
-    constructor(private readonly _maxSubscriptions: number = DEFAULT_MAX_SUBSCRIPTIONS) {}
+    constructor(
+        private readonly _maxSubscriptions: number = DEFAULT_MAX_SUBSCRIPTIONS,
+        private readonly _serverCapabilities?: ServerCapabilities
+    ) {}
 
     /** Whether `id` is an active listen subscription on this connection. */
     has(id: RequestId): boolean {
@@ -270,7 +280,7 @@ export class StdioListenRouter {
                 error: { code: -32_602, message: "Invalid params: 'notifications' is required and must be a valid SubscriptionFilter" }
             };
         }
-        const honored = honoredSubset(filter);
+        const honored = honoredSubset(filter, this._serverCapabilities);
         this._subs.set(message.id, honored);
         return stampSubscriptionId({ method: 'notifications/subscriptions/acknowledged', params: { notifications: honored } }, message.id);
     }
