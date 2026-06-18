@@ -35,6 +35,7 @@ Most clients expect a server to be running. Start one from [`../server/README.md
 | OAuth provider helper                               | Demonstrates reusable OAuth providers.                                             | [`src/simpleOAuthClientProvider.ts`](src/simpleOAuthClientProvider.ts)                     |
 | Client credentials (M2M)                            | Machine-to-machine OAuth client credentials example.                               | [`src/simpleClientCredentials.ts`](src/simpleClientCredentials.ts)                         |
 | URL elicitation client                              | Drives URL-mode elicitation flows (sensitive input in a browser).                  | [`src/elicitationUrlExample.ts`](src/elicitationUrlExample.ts)                             |
+| Multi-round-trip client (2026-07-28)                | Calls a write-once tool twice: default auto-fulfilment, then manual mode.          | [`src/multiRoundTripClient.ts`](src/multiRoundTripClient.ts)                               |
 
 ## URL elicitation example (server + client)
 
