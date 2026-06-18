@@ -25,7 +25,7 @@
         "fetch:spec-examples": "tsx scripts/fetch-spec-examples.ts",
         "fetch:spec-types": "tsx scripts/fetch-spec-types.ts",
         "sync:snippets": "tsx scripts/sync-snippets.ts",
-        "examples:simple-server:w": "pnpm --filter @modelcontextprotocol/examples exec tsx --watch oauth/simpleStreamableHttpServer.ts --oauth",
+        "examples:oauth-server:w": "pnpm --filter @mcp-examples/oauth exec tsx --watch server.ts",
         "run:examples": "tsx scripts/run-examples.ts",
         "docs": "typedoc",
         "docs:multi": "bash scripts/generate-multidoc.sh",

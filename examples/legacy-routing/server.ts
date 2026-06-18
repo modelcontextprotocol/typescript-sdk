@@ -16,6 +16,7 @@ import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, isInitializeRequest, isLegacyRequest, McpServer } from '@modelcontextprotocol/server';
+import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
@@ -56,7 +57,19 @@ const handleLegacy = async (req: Request, res: Response) => {
 const modern = createMcpHandler((ctx: McpRequestContext) => buildServer(ctx.era), { legacy: 'reject' });
 
 const app = createMcpExpressApp();
-app.all('/', async (req: Request, res: Response) => {
+// Browser-client CORS recipe: expose the response headers a browser-based MCP
+// client must be able to read (`Mcp-Session-Id` for session correlation,
+// `WWW-Authenticate` for the auth challenge, `Last-Event-Id` for resumability,
+// `Mcp-Protocol-Version` for negotiation). DEMO ONLY — restrict `origin` in
+// production.
+app.use(
+    cors({
+        origin: '*',
+        exposedHeaders: ['Mcp-Session-Id', 'WWW-Authenticate', 'Last-Event-Id', 'Mcp-Protocol-Version']
+    })
+);
+
+app.post('/', async (req: Request, res: Response) => {
     // The predicate inspects the same headers + body the entry does. Express
     // has parsed the JSON body; pass it as `parsedBody` so the predicate need
     // not re-read the stream.
@@ -66,6 +79,11 @@ app.all('/', async (req: Request, res: Response) => {
     });
     await ((await isLegacyRequest(probe, req.body)) ? handleLegacy(req, res) : modern.node(req, res, req.body));
 });
+// GET (standalone SSE stream / reconnect with Last-Event-ID) and DELETE
+// (explicit session termination per the MCP spec) are sessionful-2025-only —
+// route them straight to the legacy arm; the transport handles each verb.
+app.get('/', (req, res) => void handleLegacy(req, res));
+app.delete('/', (req, res) => void handleLegacy(req, res));
 
 const argv = process.argv.slice(2);
 const portIdx = argv.indexOf('--port');

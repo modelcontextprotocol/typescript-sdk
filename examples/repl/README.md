@@ -1,7 +1,7 @@
 # repl (excluded)
 
-The interactive playground. A fully-featured HTTP server (tools with input/output schemas + annotations, prompts with completion, direct + templated resources, `notifications/message` logging, `resources/list_changed` published via `handler.notify`) paired with a readline REPL
-client that can drive every primitive by hand — `list-tools`, `call-tool`, `list-prompts`, `get-prompt`, `list-resources`, `read-resource`, form elicitation, resumable notification streams.
+The interactive playground. A fully-featured **sessionful** HTTP server (tools with input/output schemas + annotations, prompts with completion, direct + templated resources, `notifications/message` logging, `resources/list_changed`, in-memory `eventStore` for resumability)
+paired with a readline REPL client that can drive every primitive by hand — `list-tools`, `call-tool`, `list-prompts`, `get-prompt`, `list-resources`, `read-resource`, form elicitation, resumable notification streams (`reconnect`, `run-notifications-tool-with-resumability`).
 
 Excluded from the harness (`package.json#example.excluded`); run manually:
 

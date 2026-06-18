@@ -23,3 +23,19 @@ pnpm --filter @mcp-examples/oauth-client-credentials client -- --http http://127
 ```
 
 HTTP-only, modern-era only.
+
+## `private_key_jwt` client authentication
+
+To authenticate the `client_credentials` grant with a signed JWT assertion (RFC 7523 §2.2) instead of a shared secret, swap `ClientCredentialsProvider` for `PrivateKeyJwtProvider`:
+
+```ts
+import { PrivateKeyJwtProvider } from '@modelcontextprotocol/client';
+
+const authProvider = new PrivateKeyJwtProvider({
+    clientId: 'my-service',
+    privateKey: pemEncodedKey,
+    algorithm: 'RS256'
+});
+```
+
+The full snippet lives in the client guide (`docs/client.md` → `auth_privateKeyJwt`). There is no runnable leg for it in this story — the in-repo `client_credentials` AS only implements `client_secret_basic`/`client_secret_post`.

@@ -89,6 +89,61 @@ function buildServer(reqCtx: McpRequestContext): McpServer {
         }
     );
 
+    // ---- Multi-step / chained form elicitation (two sequential prompts) ------
+    server.registerTool(
+        'plan_trip',
+        { description: 'Plan a trip by collecting a destination and then dates for that destination' },
+        async (ctx): Promise<CallToolResult | InputRequiredResult> => {
+            const DEST: ElicitRequestFormParams['requestedSchema'] = {
+                type: 'object',
+                properties: { destination: { type: 'string', title: 'Destination' } },
+                required: ['destination']
+            };
+            const datesFor = (dest: string): ElicitRequestFormParams['requestedSchema'] => ({
+                type: 'object',
+                properties: {
+                    departure: { type: 'string', title: `Departure date for ${dest}`, format: 'date' },
+                    nights: { type: 'integer', title: 'Nights', minimum: 1, maximum: 30 }
+                },
+                required: ['departure', 'nights']
+            });
+            if (reqCtx.era === 'legacy') {
+                // 2025-era: two sequential `elicitation/create` pushes inside one tool call.
+                const step1 = await ctx.mcpReq.elicitInput({ mode: 'form', message: 'Where to?', requestedSchema: DEST });
+                if (step1.action !== 'accept' || !step1.content) {
+                    return { content: [{ type: 'text', text: `trip ${step1.action}` }] };
+                }
+                const dest = step1.content.destination as string;
+                const step2 = await ctx.mcpReq.elicitInput({ mode: 'form', message: 'When?', requestedSchema: datesFor(dest) });
+                if (step2.action !== 'accept' || !step2.content) {
+                    return { content: [{ type: 'text', text: `trip ${step2.action}` }] };
+                }
+                return {
+                    content: [
+                        { type: 'text', text: `trip planned: ${dest} on ${step2.content.departure} for ${step2.content.nights} nights` }
+                    ]
+                };
+            }
+            // 2026-07-28: two `inputRequired` rounds — the second carries the
+            // first answer back via `requestState` (an opaque server-minted
+            // string) so the chain survives the stateless retry. See ../mrtr/
+            // for integrity-protecting `requestState` in production.
+            const dates = acceptedContent<{ departure: string; nights: number }>(ctx.mcpReq.inputResponses, 'dates');
+            const destination =
+                ctx.mcpReq.requestState ?? acceptedContent<{ destination: string }>(ctx.mcpReq.inputResponses, 'dest')?.destination;
+            if (!destination) {
+                return inputRequired({ inputRequests: { dest: inputRequired.elicit({ message: 'Where to?', requestedSchema: DEST }) } });
+            }
+            if (!dates) {
+                return inputRequired({
+                    requestState: destination,
+                    inputRequests: { dates: inputRequired.elicit({ message: 'When?', requestedSchema: datesFor(destination) }) }
+                });
+            }
+            return { content: [{ type: 'text', text: `trip planned: ${destination} on ${dates.departure} for ${dates.nights} nights` }] };
+        }
+    );
+
     // ---- URL-mode elicitation (push style + completion notification) ---------
     server.registerTool(
         'link_account',

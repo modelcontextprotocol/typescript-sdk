@@ -44,6 +44,12 @@ runClient('elicitation', async () => {
             }
             return { action: 'accept' };
         }
+        if (params.requestedSchema?.properties?.['destination']) {
+            return { action: 'accept', content: { destination: 'Tokyo' } };
+        }
+        if (params.requestedSchema?.properties?.['departure']) {
+            return { action: 'accept', content: { departure: '2026-09-01', nights: 7 } };
+        }
         check.ok(params.requestedSchema?.properties?.['username'], 'elicitation should carry the requestedSchema');
         if (formAction === 'decline') return { action: 'decline' };
         return { action: 'accept', content: { username: 'alice', email: 'alice@example.com', plan: 'pro' } };
@@ -59,6 +65,10 @@ runClient('elicitation', async () => {
     formAction = 'decline';
     const declined = await client.callTool({ name: 'register_user' });
     check.match(declined.content?.[0]?.type === 'text' ? declined.content[0].text : '', /registration decline/);
+
+    // ---- Multi-step form (two chained elicitations inside one tool call) -----
+    const trip = await client.callTool({ name: 'plan_trip' });
+    check.match(trip.content?.[0]?.type === 'text' ? trip.content[0].text : '', /trip planned: Tokyo on 2026-09-01 for 7 nights/);
 
     // ---- URL mode (push-style on 2025, inputRequired.elicitUrl on 2026) ------
     const linked = await client.callTool({ name: 'link_account', arguments: { provider: 'github' } });

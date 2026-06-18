@@ -1,8 +1,8 @@
 /**
- * Drives the sticky-notes board end to end on a 2026-07-28 connection: add
- * two notes, list/read their resources, remove one, then attempt `remove_all`
- * three ways (cancel, accept-unchecked, accept-confirmed) to prove the board
- * is cleared only on an explicit confirmation.
+ * Drives the sticky-notes board end to end on a 2025-era (legacy) connection:
+ * add two notes, list/read their resources, remove one, then attempt
+ * `remove_all` three ways (cancel, accept-unchecked, accept-confirmed) to prove
+ * the board is cleared only on an explicit confirmation.
  */
 import { check, connectFromArgs, runClient, transportLeg } from '../harness.js';
 

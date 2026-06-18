@@ -1,34 +1,35 @@
 /**
- * Fully-featured HTTP playground server for the interactive REPL client.
+ * Fully-featured **sessionful** HTTP playground server for the interactive
+ * REPL client.
  *
  * Exposes every primitive the REPL client (`./client.ts`) can drive: tools
  * (typed input/output schemas + annotations + form elicitation +
  * `ResourceLink`s), prompts (with `completable()` argument completion),
  * resources (direct + `ResourceTemplate`), `notifications/message` logging,
- * and `notifications/resources/list_changed` published over the handler's
- * cross-request {@link ServerNotifier} so the client's `list_changed` handler
- * fires after `add-resource`.
+ * and `notifications/resources/list_changed`.
+ *
+ * Hosted on `NodeStreamableHTTPServerTransport` with an in-memory
+ * `eventStore` so the REPL client's `reconnect` and
+ * `run-notifications-tool-with-resumability` commands actually replay missed
+ * events on reconnect with `Last-Event-ID`.
  *
  * HTTP-only — pair with `pnpm run client` in a second terminal.
  */
-import { createServer } from 'node:http';
+import { randomUUID } from 'node:crypto';
 
-import type {
-    CallToolResult,
-    PrimitiveSchemaDefinition,
-    ReadResourceResult,
-    ResourceLink,
-    ServerNotifier
-} from '@modelcontextprotocol/server';
-import { completable, createMcpHandler, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { createMcpExpressApp } from '@modelcontextprotocol/express';
+import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import type { CallToolResult, PrimitiveSchemaDefinition, ReadResourceResult, ResourceLink } from '@modelcontextprotocol/server';
+import { completable, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
+
+import { InMemoryEventStore } from '../sse-polling/inMemoryEventStore.js';
 
 const PORT = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 3000;
 
-/** Dynamic resources added via the `add-resource` tool (shared across requests). */
+/** Dynamic resources added via the `add-resource` tool (shared across sessions). */
 const dynamicResources = new Map<string, string>();
-/** Publishes `resources/list_changed` to every open subscription. Bound below from `handler.notify`. */
-let publishResourcesChanged: () => void = () => {};
 
 function buildServer(): McpServer {
     const server = new McpServer(
@@ -160,8 +161,8 @@ function buildServer(): McpServer {
         }
     );
 
-    // Mutates the resource set and publishes `resources/list_changed` over the
-    // handler's cross-request bus (handler.notify.resourcesChanged()).
+    // Mutates the resource set and publishes `resources/list_changed` on this
+    // session's standalone SSE stream.
     server.registerTool(
         'add-resource',
         {
@@ -171,7 +172,7 @@ function buildServer(): McpServer {
         },
         async ({ name, text }): Promise<CallToolResult> => {
             dynamicResources.set(name, text);
-            publishResourcesChanged();
+            server.sendResourceListChanged();
             return { content: [{ type: 'text', text: `Added note://${name}` }] };
         }
     );
@@ -248,17 +249,38 @@ function buildServer(): McpServer {
     return server;
 }
 
-// HTTP-only entry. `createMcpHandler` answers on any path; the REPL client
-// connects to `http://localhost:3000/mcp` by default.
-const handler = createMcpHandler(buildServer, { onerror: e => console.error('[server] handler error:', e.message) });
-const notify: ServerNotifier = handler.notify;
-publishResourcesChanged = () => notify.resourcesChanged();
+// Sessionful 2025-era hosting with an in-memory event store so the REPL
+// client's resumability commands work (reconnect with `Last-Event-ID` replays
+// missed `notifications/message` events).
+const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
+const eventStore = new InMemoryEventStore();
 
-const httpServer = createServer((req, res) => void handler.node(req, res));
-httpServer.listen(PORT, () => console.error(`[server] REPL playground listening on http://localhost:${PORT}/mcp`));
+const app = createMcpExpressApp();
+app.all('/mcp', async (req: Request, res: Response) => {
+    const sid = req.headers['mcp-session-id'] as string | undefined;
+    if (sid && sessions.has(sid)) {
+        await sessions.get(sid)!.handleRequest(req, res, req.body);
+    } else if (!sid && isInitializeRequest(req.body)) {
+        const transport = new NodeStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            eventStore, // resumability — events are persisted for replay on GET reconnect
+            onsessioninitialized: id => {
+                sessions.set(id, transport);
+            }
+        });
+        transport.onclose = () => transport.sessionId && sessions.delete(transport.sessionId);
+        await buildServer().connect(transport);
+        await transport.handleRequest(req, res, req.body);
+    } else if (sid) {
+        res.status(404).json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null });
+    } else {
+        res.status(400).json({ jsonrpc: '2.0', error: { code: -32_000, message: 'Bad Request: Session ID required' }, id: null });
+    }
+});
+
+app.listen(PORT, () => console.error(`[server] REPL playground listening on http://localhost:${PORT}/mcp`));
 
 process.on('SIGINT', async () => {
-    await handler.close();
-    httpServer.close();
+    for (const t of sessions.values()) await t.close();
     process.exit(0);
 });
