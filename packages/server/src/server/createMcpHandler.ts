@@ -61,8 +61,8 @@ import { McpServer } from './mcp.js';
 import type { PerRequestResponseMode } from './perRequestTransport.js';
 import type { Server } from './server.js';
 import { installModernOnlyHandlers, seedClientIdentityFromEnvelope } from './server.js';
-import type { ServerEventBus, ServerNotifySugar } from './serverEventBus.js';
-import { createNotifySugar, InMemoryServerEventBus } from './serverEventBus.js';
+import type { ServerEventBus, ServerNotifier } from './serverEventBus.js';
+import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus.js';
 import { WebStandardStreamableHTTPServerTransport } from './streamableHttp.js';
 
 /* ------------------------------------------------------------------------ *
@@ -242,13 +242,13 @@ export interface McpHttpHandler {
      */
     close: () => Promise<void>;
     /**
-     * Typed publish-side sugar over the handler's `subscriptions/listen` bus:
+     * Typed publish-side facade over the handler's `subscriptions/listen` bus:
      * each method publishes the corresponding change event to every open
      * subscription stream that opted in to that notification type.
      *
      * Safe to call when no subscription is open (no-op).
      */
-    notify: ServerNotifySugar;
+    notify: ServerNotifier;
     /**
      * The change-event bus this handler's `subscriptions/listen` streams
      * subscribe to (the supplied `bus` option, or the auto-created in-process
@@ -611,7 +611,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
     };
 
     const bus: ServerEventBus = options.bus ?? new InMemoryServerEventBus(reportError);
-    const notify = createNotifySugar(bus);
+    const notify = createServerNotifier(bus);
     const listenRouter = createListenRouter({
         bus,
         maxSubscriptions: options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS,

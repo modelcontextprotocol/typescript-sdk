@@ -8,8 +8,8 @@
 
 New public surface:
 
-- `@modelcontextprotocol/server`: `ServerEventBus`, `ServerEvent`, `ServerNotifySugar` (types); `InMemoryServerEventBus` (class).
-- `McpHttpHandler` gains `.notify` (`ServerNotifySugar`: `toolsChanged()`, `promptsChanged()`, `resourcesChanged()`, `resourceUpdated(uri)`) and `.bus` (the `ServerEventBus` listen streams subscribe to).
+- `@modelcontextprotocol/server`: `ServerEventBus`, `ServerEvent`, `ServerNotifier` (types); `InMemoryServerEventBus` (class).
+- `McpHttpHandler` gains `.notify` (`ServerNotifier`: `toolsChanged()`, `promptsChanged()`, `resourcesChanged()`, `resourceUpdated(uri)`) and `.bus` (the `ServerEventBus` listen streams subscribe to).
 - `CreateMcpHandlerOptions` gains `bus?: ServerEventBus` (an in-process `InMemoryServerEventBus` is created when omitted), `maxSubscriptions?: number` (default 1024), and `keepAliveMs?: number` (default 15000).
 - `ServeStdioOptions` gains `maxSubscriptions?: number` (default 1024). On a modern-pinned connection `serveStdio` routes the pinned instance's existing `send*ListChanged()` calls onto active subscriptions; legacy connections are unchanged.
 - `@modelcontextprotocol/core`: `SUBSCRIPTION_ID_META_KEY` (const); `SubscriptionFilter`, `SubscriptionsListenRequest`, `SubscriptionsListenRequestParams`, `SubscriptionsAcknowledgedNotification`, `SubscriptionsAcknowledgedNotificationParams` (types).

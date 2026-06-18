@@ -89,11 +89,11 @@ export class InMemoryServerEventBus implements ServerEventBus {
 }
 
 /**
- * Typed publish-side sugar over `bus.publish` returned by `createMcpHandler`:
+ * Typed publish-side facade over `bus.publish` returned by `createMcpHandler`:
  * each method publishes the corresponding {@linkcode ServerEvent}. Prefer this
  * over calling `bus.publish` directly — the names match the wire methods.
  */
-export interface ServerNotifySugar {
+export interface ServerNotifier {
     /** Publish `notifications/tools/list_changed` to every open subscription that opted in. */
     toolsChanged(): void;
     /** Publish `notifications/prompts/list_changed` to every open subscription that opted in. */
@@ -104,8 +104,8 @@ export interface ServerNotifySugar {
     resourceUpdated(uri: string): void;
 }
 
-/** Build a {@linkcode ServerNotifySugar} over a bus. */
-export function createNotifySugar(bus: ServerEventBus): ServerNotifySugar {
+/** Build a {@linkcode ServerNotifier} over a bus. */
+export function createServerNotifier(bus: ServerEventBus): ServerNotifier {
     return {
         toolsChanged: () => bus.publish({ kind: 'tools_list_changed' }),
         promptsChanged: () => bus.publish({ kind: 'prompts_list_changed' }),

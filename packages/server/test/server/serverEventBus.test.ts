@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     InMemoryServerEventBus,
-    createNotifySugar,
+    createServerNotifier,
     honoredSubset,
     listenFilterAccepts,
     serverEventToNotification
@@ -114,11 +114,11 @@ describe('InMemoryServerEventBus', () => {
         expect(errors[0]!.message).toBe('boom');
     });
 
-    it('createNotifySugar publishes the matching event kind', () => {
+    it('createServerNotifier publishes the matching event kind', () => {
         const bus = new InMemoryServerEventBus();
         const seen: unknown[] = [];
         bus.subscribe(e => seen.push(e));
-        const notify = createNotifySugar(bus);
+        const notify = createServerNotifier(bus);
         notify.toolsChanged();
         notify.promptsChanged();
         notify.resourcesChanged();
