@@ -508,7 +508,18 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
                     return;
                 }
                 if (state.phase === 'probe') {
-                    // The probe was followed by a modern message: the client
+                    if (isJSONRPCNotification(message)) {
+                        // An enveloped notification during the negotiation
+                        // window (for example a notifications/cancelled for
+                        // the probe itself) is delivered to the probe instance
+                        // without committing the era: only a non-discover
+                        // enveloped request pins the connection, so a later
+                        // fallback `initialize` is still served by a fresh
+                        // legacy instance.
+                        state.instance.channel.deliver(message, { classification: opening.classification });
+                        return;
+                    }
+                    // The probe was followed by a modern request: the client
                     // committed to the modern era — pin the probe instance.
                     state = { phase: 'pinned', era: 'modern', instance: state.instance };
                 } else {

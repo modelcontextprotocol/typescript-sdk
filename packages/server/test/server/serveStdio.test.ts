@@ -370,6 +370,66 @@ describe('server/discover probe window', () => {
         await handle.close();
     });
 
+    it('an enveloped notification during the probe window does not pin the era and a later initialize still falls back to legacy', async () => {
+        const { handle, request, notify, flush, eras, closed, errors } = await startEntry();
+
+        const discover = await request({ jsonrpc: '2.0', id: 'probe-1', method: 'server/discover', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(discover)).toBe(true);
+
+        // The client cancels its probe (for example on a local timeout) with
+        // an enveloped notification before falling back to the 2025
+        // handshake. The notification is delivered to the probe instance but
+        // does not commit the connection to the modern era.
+        await notify({
+            jsonrpc: '2.0',
+            method: 'notifications/cancelled',
+            params: { requestId: 'probe-1', reason: 'probe timed out', _meta: envelope() }
+        });
+        await flush();
+
+        const init = await request(initializeRequest(2));
+        expect(isJSONRPCResultResponse(init)).toBe(true);
+        if (isJSONRPCResultResponse(init)) {
+            expect((init.result as { protocolVersion?: string }).protocolVersion).toBe(LATEST_PROTOCOL_VERSION);
+        }
+
+        // The fallback handshake was served by a fresh legacy instance and
+        // the probe instance was discarded; nothing was reported as dropped.
+        expect(eras).toEqual(['modern', 'legacy']);
+        expect(closed[0]).toBe(true);
+        expect(closed[1]).toBe(false);
+        expect(errors).toEqual([]);
+
+        await handle.close();
+    });
+
+    it('an enveloped non-discover request after the probe still pins the modern era', async () => {
+        const { handle, request, eras } = await startEntry();
+
+        const discover = await request({ jsonrpc: '2.0', id: 'probe-1', method: 'server/discover', params: { _meta: envelope() } });
+        expect(isJSONRPCResultResponse(discover)).toBe(true);
+
+        const call = await request({
+            jsonrpc: '2.0',
+            id: 2,
+            method: 'tools/call',
+            params: { name: 'echo', arguments: { text: 'commit' }, _meta: envelope() }
+        });
+        expect(isJSONRPCResultResponse(call)).toBe(true);
+
+        // The enveloped request committed the connection: a later claim-less
+        // initialize is rejected instead of falling back to a legacy instance.
+        const init = await request(initializeRequest(3));
+        expect(isJSONRPCErrorResponse(init)).toBe(true);
+        if (isJSONRPCErrorResponse(init)) {
+            expect(init.error.code).toBe(-32_004);
+        }
+        // The probe instance is the pinned instance: the factory ran exactly once.
+        expect(eras).toEqual(['modern']);
+
+        await handle.close();
+    });
+
     it('a repeated server/discover probe followed by an enveloped request pins the modern era', async () => {
         const { handle, request, eras } = await startEntry();
 
