@@ -49,6 +49,7 @@ const FIXTURES_ROOT = join(__dirname, 'fixtures');
 
 /** JSON-RPC error-object example directories (bare `{code, message, data?}` shapes). */
 const ERROR_OBJECT_DIRS = new Set([
+    'HeaderMismatchError',
     'InternalError',
     'InvalidParamsError',
     'MethodNotFoundError',
@@ -78,9 +79,13 @@ const PENDING_2026: Record<string, string> = {
  * parse, so the entry is removed the moment the widening lands.
  */
 const PENDING_2026_FILES: Record<string, string> = {
-    // (empty — the SEP-2549 array-shape widenings burned when the 2026-era
-    // wire module landed anchor-exact Tool/CallToolResult forks; the two
-    // examples are real pins now.)
+    // The draft removed elicitationId from ElicitRequestURLParams; the SDK's
+    // shared schema keeps it (it is required on the frozen 2025-11-25
+    // revision), and the 2026-era in-band elicitation surface that will model
+    // the new shape is MRTR scope (#13). Until then the upstream example
+    // (which carries no elicitationId) does not parse.
+    'ElicitRequestURLParams/elicit-sensitive-data.json':
+        'URL-mode elicitation without elicitationId is modeled with the MRTR in-band surface (SEP-2322, #13)'
 };
 
 type AnyZod = z.ZodType;
