@@ -541,14 +541,14 @@ export class StreamableHTTPClientTransport implements Transport {
 
     async send(
         message: JSONRPCMessage | JSONRPCMessage[],
-        options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }
+        options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void; requestSignal?: AbortSignal }
     ): Promise<void> {
         return this._send(message, options, false);
     }
 
     private async _send(
         message: JSONRPCMessage | JSONRPCMessage[],
-        options: { resumptionToken?: string; onresumptiontoken?: (token: string) => void } | undefined,
+        options: { resumptionToken?: string; onresumptiontoken?: (token: string) => void; requestSignal?: AbortSignal } | undefined,
         isAuthRetry: boolean
     ): Promise<void> {
         try {
@@ -569,12 +569,21 @@ export class StreamableHTTPClientTransport implements Transport {
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
 
+            // Per-request abort: when the caller supplies a request-scoped
+            // signal (the `subscriptions/listen` driver), aborting it cancels
+            // this POST and its SSE response stream without closing the
+            // transport. AbortSignal.any is the standard combinator.
+            const transportSignal = this._abortController?.signal;
+            const signal =
+                options?.requestSignal !== undefined && transportSignal !== undefined
+                    ? AbortSignal.any([transportSignal, options.requestSignal])
+                    : (options?.requestSignal ?? transportSignal);
             const init = {
                 ...this._requestInit,
                 method: 'POST',
                 headers,
                 body: JSON.stringify(message),
-                signal: this._abortController?.signal
+                signal
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);

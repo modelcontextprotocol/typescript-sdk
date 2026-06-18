@@ -45,6 +45,7 @@ import type {
     ServerCapabilities,
     StandardSchemaV1,
     SubscribeRequest,
+    SubscriptionFilter,
     Tool,
     Transport,
     UnsubscribeRequest
@@ -63,6 +64,7 @@ import {
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
     parseSchema,
+    PROTOCOL_VERSION_META_KEY,
     Protocol,
     PROTOCOL_VERSION_META_KEY,
     ProtocolError,
@@ -70,7 +72,9 @@ import {
     resolveInputRequiredDriverConfig,
     runInputRequiredFlow,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    SUBSCRIPTION_ID_META_KEY,
+    SubscriptionFilterSchema
 } from '@modelcontextprotocol/core';
 
 import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation.js';
@@ -253,6 +257,31 @@ export type ClientOptions = ProtocolOptions & {
 };
 
 /**
+ * A handle to an open `subscriptions/listen` stream (protocol revision
+ * 2026-07-28). Change notifications delivered on the stream dispatch to the
+ * existing {@linkcode Client.setNotificationHandler} registrations.
+ */
+export interface McpSubscription {
+    /**
+     * The subset of the requested filter the server agreed to honor (from
+     * `notifications/subscriptions/acknowledged`).
+     */
+    readonly honoredFilter: SubscriptionFilter;
+    /**
+     * Tears the subscription down. Idempotent. On Streamable HTTP this closes
+     * the listen request's SSE stream; on stdio it sends
+     * `notifications/cancelled` referencing the listen request id.
+     */
+    close(): Promise<void>;
+}
+
+/** @internal */
+interface ListenStateEntry {
+    onAck: ((honored: SubscriptionFilter) => void) | undefined;
+    onServerCancel: () => void;
+}
+
+/**
  * An MCP client on top of a pluggable transport.
  *
  * The client will automatically begin the initialization flow with the server when {@linkcode connect} is called.
@@ -299,6 +328,10 @@ export class Client extends Protocol<ClientContext> {
     private _versionNegotiation?: VersionNegotiationOptions;
     private _supportedProtocolVersionsOption?: string[];
     private _inputRequiredDriverConfig: ResolvedInputRequiredDriverConfig;
+    /** Active subscriptions/listen state, keyed by subscription id (= the listen request's JSON-RPC id). */
+    private _listenState = new Map<number, ListenStateEntry>();
+    /** The auto-opened subscription backing ClientOptions.listChanged on a modern connection. */
+    private _autoOpenedSubscription?: McpSubscription;
 
     /**
      * Initializes this client with the given name and version information.
@@ -802,10 +835,23 @@ export class Client extends Protocol<ClientContext> {
             transport.setProtocolVersion(result.version);
         }
         // The modern era has no notifications/initialized; list-changed handlers
-        // are configured straight from the advertised capabilities.
+        // are configured straight from the advertised capabilities. On a modern
+        // connection the configured handlers are fed by an auto-opened
+        // subscriptions/listen stream (the modern era never delivers change
+        // notifications unsolicited); on a legacy connection they fire on the
+        // 2025-era unsolicited notifications, no listen needed.
         if (this._pendingListChangedConfig) {
-            this._setupListChangedHandlers(this._pendingListChangedConfig);
+            const config = this._pendingListChangedConfig;
+            this._setupListChangedHandlers(config);
             this._pendingListChangedConfig = undefined;
+            const filter: SubscriptionFilter = {
+                ...(config.tools && { toolsListChanged: true as const }),
+                ...(config.prompts && { promptsListChanged: true as const }),
+                ...(config.resources && { resourcesListChanged: true as const })
+            };
+            if (Object.keys(filter).length > 0) {
+                this._autoOpenedSubscription = await this.listen(filter, options);
+            }
         }
     }
 
@@ -1132,6 +1178,160 @@ export class Client extends Protocol<ClientContext> {
     /** Unsubscribes from change notifications for a resource. */
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions): Promise<EmptyResult> {
         return this.request({ method: 'resources/unsubscribe', params }, options);
+    }
+
+    /**
+     * Opens a `subscriptions/listen` stream (protocol revision 2026-07-28).
+     *
+     * Resolves once the server's `notifications/subscriptions/acknowledged`
+     * arrives (the standard request timeout applies to this ack phase). Change
+     * notifications delivered on the stream are dispatched to the existing
+     * {@linkcode setNotificationHandler} registrations — the same handlers the
+     * 2025-era unsolicited notifications fire on a legacy connection — so
+     * `listen()` is era-transparent for consumers that already register those.
+     *
+     * `close()` tears the subscription down: on Streamable HTTP it closes the
+     * listen request's SSE stream; on stdio it sends `notifications/cancelled`
+     * referencing the listen request id. No automatic re-listen — call
+     * `listen()` again to re-establish.
+     *
+     * On a 2025-era connection this throws a typed
+     * {@linkcode SdkErrorCode.MethodNotSupportedByProtocolVersion} steering to
+     * `resources/subscribe` and `ClientOptions.listChanged` (the legacy
+     * unsolicited delivery model still applies there); no transparent shim.
+     */
+    async listen(filter: SubscriptionFilter, options?: RequestOptions): Promise<McpSubscription> {
+        const negotiated = this._negotiatedProtocolVersion;
+        if (negotiated === undefined || !isModernProtocolVersion(negotiated)) {
+            throw new SdkError(
+                SdkErrorCode.MethodNotSupportedByProtocolVersion,
+                `subscriptions/listen requires a 2026-07-28-era connection (negotiated: ${negotiated ?? 'none'}). ` +
+                    'On a 2025-era connection, change notifications are delivered unsolicited: use ClientOptions.listChanged ' +
+                    'and resources/subscribe instead.',
+                { method: 'subscriptions/listen', protocolVersion: negotiated }
+            );
+        }
+
+        if (this._onParkedNotification === undefined) {
+            this._onParkedNotification = raw => this._listenFirstLook(raw);
+        }
+
+        const requestAbort = new AbortController();
+        const transportKind = this.transport !== undefined ? detectProbeTransportKind(this.transport) : 'http';
+
+        let closed = false;
+        let parked!: ReturnType<typeof this._parkRequest>;
+        const close = async (): Promise<void> => {
+            if (closed) return;
+            closed = true;
+            this._listenState.delete(parked.messageId);
+            // Per-transport teardown: HTTP closes the request's SSE stream;
+            // stdio sends notifications/cancelled referencing the listen id.
+            if (transportKind === 'stdio') {
+                await this.transport
+                    ?.send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: parked.messageId } })
+                    .catch(() => {});
+            } else {
+                requestAbort.abort();
+            }
+            parked.unpark();
+        };
+
+        const honored = await new Promise<SubscriptionFilter>((resolve, reject) => {
+            const ackTimeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
+            const timer = setTimeout(() => {
+                void close();
+                reject(new SdkError(SdkErrorCode.RequestTimeout, 'subscriptions/listen ack timed out', { timeout: ackTimeout }));
+            }, ackTimeout);
+            // The per-subscription state is registered BEFORE the request is
+            // sent (`onBeforeSend`) so a synchronously-delivered ack (an
+            // in-process transport) cannot race the registration.
+            parked = this._parkRequest(
+                {
+                    method: 'subscriptions/listen',
+                    params: {
+                        _meta: {
+                            [PROTOCOL_VERSION_META_KEY]: negotiated,
+                            [CLIENT_INFO_META_KEY]: this._clientInfo,
+                            [CLIENT_CAPABILITIES_META_KEY]: this._capabilities
+                        },
+                        notifications: filter
+                    }
+                },
+                { requestSignal: requestAbort.signal },
+                messageId => {
+                    this._listenState.set(messageId, {
+                        onAck: honored => {
+                            clearTimeout(timer);
+                            resolve(honored);
+                        },
+                        onServerCancel: () => void close()
+                    });
+                }
+            );
+            // Pre-ack capacity / params rejection arrives as a JSON-RPC error
+            // for the listen id — surfaced via terminated.
+            void parked.terminated.then(({ reason, error }) => {
+                if (reason === 'error') {
+                    clearTimeout(timer);
+                    this._listenState.delete(parked.messageId);
+                    closed = true;
+                    reject(error ?? new Error('subscriptions/listen failed'));
+                }
+            });
+            parked.sent.catch(err => {
+                clearTimeout(timer);
+                void close();
+                reject(err instanceof Error ? err : new Error(String(err)));
+            });
+        });
+
+        return { honoredFilter: honored, close };
+    }
+
+    /**
+     * The subscription auto-opened by `ClientOptions.listChanged` on a modern
+     * connection (the listen filter derived from which sub-options were set),
+     * or `undefined` on a legacy connection or before connect. Exposed so the
+     * consumer can `close()` it.
+     */
+    get autoOpenedSubscription(): McpSubscription | undefined {
+        return this._autoOpenedSubscription;
+    }
+
+    /**
+     * The first-look notification hook installed by `listen()`. Consumes the
+     * leading `notifications/subscriptions/acknowledged` (resolves the ack
+     * waiter) and an inbound `notifications/cancelled` referencing a parked
+     * listen id (stdio server-side teardown). Change notifications carrying a
+     * subscription id pass through to the existing registered handlers.
+     */
+    private _listenFirstLook(raw: JSONRPCNotification): 'consumed' | undefined {
+        if (raw.method === 'notifications/subscriptions/acknowledged') {
+            const params = raw.params as { _meta?: Record<string, unknown>; notifications?: unknown } | undefined;
+            const subscriptionId = params?._meta?.[SUBSCRIPTION_ID_META_KEY];
+            // Tolerant read: subscription id may be string or number; match by
+            // String() coercion against this connection's parked listen ids.
+            for (const [id, entry] of this._listenState) {
+                if (String(id) === String(subscriptionId) && entry.onAck !== undefined) {
+                    const honored = SubscriptionFilterSchema.safeParse(params?.notifications ?? {});
+                    entry.onAck(honored.success ? honored.data : {});
+                    entry.onAck = undefined;
+                    return 'consumed';
+                }
+            }
+            return 'consumed';
+        }
+        if (raw.method === 'notifications/cancelled') {
+            const cancelledId = (raw.params as { requestId?: unknown } | undefined)?.requestId;
+            for (const [id, entry] of this._listenState) {
+                if (String(id) === String(cancelledId)) {
+                    entry.onServerCancel();
+                    return 'consumed';
+                }
+            }
+        }
+        return undefined;
     }
 
     /**

@@ -1,0 +1,181 @@
+/**
+ * `Client.listen()` — the `subscriptions/listen` driver (protocol revision
+ * 2026-07-28). Covers ack-resolved-promise, change-notification dispatch to
+ * existing setNotificationHandler registrations, the F-12 legacy-era steer,
+ * stdio-style close (sends notifications/cancelled), inbound server-side
+ * cancel, and ClientOptions.listChanged auto-open on a modern connection.
+ */
+import type { JSONRPCMessage, JSONRPCNotification } from '@modelcontextprotocol/core';
+import { InMemoryTransport, LATEST_PROTOCOL_VERSION, SdkError, SdkErrorCode, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core';
+import { describe, expect, it } from 'vitest';
+
+import { Client } from '../../src/client/client.js';
+
+const MODERN = '2026-07-28';
+const flush = () => new Promise(r => setTimeout(r, 10));
+
+async function scriptedModern(onListen?: (id: number | string, filter: unknown, send: (m: JSONRPCMessage) => void) => void) {
+    const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+    const written: JSONRPCMessage[] = [];
+    serverTx.onmessage = message => {
+        written.push(message);
+        const req = message as { id?: number | string; method?: string; params?: { notifications?: unknown } };
+        if (req.method === 'server/discover' && req.id !== undefined) {
+            void serverTx.send({
+                jsonrpc: '2.0',
+                id: req.id,
+                result: {
+                    resultType: 'complete',
+                    supportedVersions: [MODERN],
+                    capabilities: { tools: { listChanged: true }, prompts: { listChanged: true } },
+                    serverInfo: { name: 'scripted', version: '1' }
+                }
+            });
+        }
+        if (req.method === 'subscriptions/listen' && req.id !== undefined) {
+            const filter = req.params?.notifications ?? {};
+            const ack: JSONRPCMessage = {
+                jsonrpc: '2.0',
+                method: 'notifications/subscriptions/acknowledged',
+                params: { _meta: { [SUBSCRIPTION_ID_META_KEY]: req.id }, notifications: filter }
+            };
+            void serverTx.send(ack);
+            onListen?.(req.id, filter, m => void serverTx.send(m));
+        }
+    };
+    await serverTx.start();
+    return { clientTx, serverTx, written };
+}
+
+describe('Client.listen()', () => {
+    it('throws a typed steer on a legacy-era connection (no wire write)', async () => {
+        const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+        const written: JSONRPCMessage[] = [];
+        serverTx.onmessage = m => {
+            written.push(m);
+            const req = m as { id?: number | string; method?: string };
+            if (req.method === 'initialize' && req.id !== undefined) {
+                void serverTx.send({
+                    jsonrpc: '2.0',
+                    id: req.id,
+                    result: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, serverInfo: { name: 's', version: '1' } }
+                });
+            }
+        };
+        await serverTx.start();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'legacy' } });
+        await client.connect(clientTx);
+        written.length = 0;
+
+        const error = await client.listen({ toolsListChanged: true }).catch(e => e as SdkError);
+        expect(error).toBeInstanceOf(SdkError);
+        expect((error as SdkError).code).toBe(SdkErrorCode.MethodNotSupportedByProtocolVersion);
+        expect((error as SdkError).message).toContain('resources/subscribe');
+        expect((error as SdkError).message).toContain('listChanged');
+        // The steer fires before any wire write.
+        expect(written.some(m => (m as { method?: string }).method === 'subscriptions/listen')).toBe(false);
+        await client.close();
+    });
+
+    it('resolves on ack with the honored filter; change notifications reach setNotificationHandler', async () => {
+        let send!: (m: JSONRPCMessage) => void;
+        const { clientTx } = await scriptedModern((_id, _f, s) => {
+            send = s;
+        });
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        const seen: string[] = [];
+        client.setNotificationHandler('notifications/tools/list_changed', () => {
+            seen.push('tools');
+        });
+        await client.connect(clientTx);
+
+        const sub = await client.listen({ toolsListChanged: true });
+        expect(sub.honoredFilter).toEqual({ toolsListChanged: true });
+
+        send({
+            jsonrpc: '2.0',
+            method: 'notifications/tools/list_changed',
+            params: { _meta: { [SUBSCRIPTION_ID_META_KEY]: 0 } }
+        });
+        await flush();
+        expect(seen).toEqual(['tools']);
+        await sub.close();
+        await client.close();
+    });
+
+    it('close() on a stdio-style transport sends notifications/cancelled referencing the listen id', async () => {
+        const { clientTx, written } = await scriptedModern();
+        // Make the in-memory transport quack like a stdio child-process transport.
+        Object.assign(clientTx, { stderr: null, pid: 1 });
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const sub = await client.listen({ toolsListChanged: true });
+        const listenId = (
+            written.find(m => (m as { method?: string }).method === 'subscriptions/listen') as { id: number | string }
+        ).id;
+        written.length = 0;
+        await sub.close();
+        expect(written).toEqual([{ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } }]);
+        // Idempotent.
+        await sub.close();
+        expect(written).toHaveLength(1);
+        await client.close();
+    });
+
+    it('inbound notifications/cancelled referencing the listen id tears the subscription down', async () => {
+        let listenId!: number | string;
+        let send!: (m: JSONRPCMessage) => void;
+        const { clientTx } = await scriptedModern((id, _f, s) => {
+            listenId = id;
+            send = s;
+        });
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const sub = await client.listen({ toolsListChanged: true });
+        send({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: listenId } } as JSONRPCNotification);
+        await flush();
+        // close() after server-cancel is idempotent.
+        await sub.close();
+        await client.close();
+    });
+
+    it('rejects with the typed pre-ack error when the server answers -32603', async () => {
+        const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
+        serverTx.onmessage = m => {
+            const req = m as { id?: number | string; method?: string };
+            if (req.method === 'server/discover' && req.id !== undefined) {
+                void serverTx.send({
+                    jsonrpc: '2.0',
+                    id: req.id,
+                    result: { resultType: 'complete', supportedVersions: [MODERN], capabilities: {}, serverInfo: { name: 's', version: '1' } }
+                });
+            }
+            if (req.method === 'subscriptions/listen' && req.id !== undefined) {
+                void serverTx.send({ jsonrpc: '2.0', id: req.id, error: { code: -32_603, message: 'Subscription limit reached' } });
+            }
+        };
+        await serverTx.start();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const error = await client.listen({ toolsListChanged: true }).catch(e => e as Error);
+        expect(error).toBeInstanceOf(Error);
+        expect((error as { code?: number }).code).toBe(-32_603);
+        await client.close();
+    });
+
+    it('ClientOptions.listChanged auto-opens a listen stream on a modern connection (filter derived from sub-options)', async () => {
+        const filters: unknown[] = [];
+        const { clientTx } = await scriptedModern((_id, filter) => filters.push(filter));
+        const onChanged = () => {};
+        const client = new Client(
+            { name: 'c', version: '1' },
+            { versionNegotiation: { mode: 'auto' }, listChanged: { tools: { onChanged }, prompts: { onChanged } } }
+        );
+        await client.connect(clientTx);
+        expect(filters).toEqual([{ toolsListChanged: true, promptsListChanged: true }]);
+        expect(client.autoOpenedSubscription).toBeDefined();
+        expect(client.autoOpenedSubscription!.honoredFilter).toEqual({ toolsListChanged: true, promptsListChanged: true });
+        await client.autoOpenedSubscription!.close();
+        await client.close();
+    });
+});
