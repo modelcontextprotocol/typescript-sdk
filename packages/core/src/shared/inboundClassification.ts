@@ -177,8 +177,9 @@ export type InboundClassificationOutcome = InboundLegacyRoute | InboundModernRou
  * with the body's classification), and the `Mcp-Method` header disagreeing
  * with the body method.
  *
- * `-32001` is the SEP-2243 `HeaderMismatch` code, as asserted by the published
- * conformance suite for header-validation failures. It has no
+ * `-32001` is the draft schema's `HEADER_MISMATCH` constant (the SEP-2243
+ * `HeaderMismatch` code; the spec requires HTTP 400 for it), as also asserted
+ * by the published conformance suite for header-validation failures. It has no
  * {@linkcode ProtocolErrorCode} member because it is not part of the 2025-era
  * wire vocabulary; the validation ladder is its only emitter.
  */

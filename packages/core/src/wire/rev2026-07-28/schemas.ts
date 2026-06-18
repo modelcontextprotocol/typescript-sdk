@@ -25,11 +25,9 @@ import {
     AudioContentSchema,
     BaseMetadataSchema,
     BlobResourceContentsSchema,
-    CancelledNotificationSchema,
     ClientCapabilitiesSchema,
     ContentBlockSchema,
     CursorSchema,
-    ElicitationCompleteNotificationSchema,
     IconsSchema,
     ImageContentSchema,
     ImplementationSchema,
@@ -41,6 +39,7 @@ import {
     PromptMessageSchema,
     PromptReferenceSchema,
     PromptSchema,
+    RequestIdSchema,
     ResourceContentsSchema,
     ResourceListChangedNotificationSchema,
     ResourceSchema,
@@ -434,11 +433,57 @@ export const dispatchResultSchemas: { readonly [M in Rev2026RequestMethod]: z.Zo
 /* ------------------------------------------------------------------------ *
  * Notifications. The 2026 notification set: cancelled, progress, message,
  * resources/updated, resources/list_changed, tools/list_changed,
- * prompts/list_changed, elicitation/complete. Deleted: initialized,
- * roots/list_changed, tasks/status. The shapes are revision-identical to the
- * shared schemas, which are composed by reference. (The 2026-only
- * subscriptions/acknowledged notification is #14 scope — see registry.ts.)
+ * prompts/list_changed. Deleted: initialized, roots/list_changed,
+ * tasks/status, elicitation/complete (removed from the draft together with
+ * URL-elicitation's elicitationId — both remain 2025-11-25 vocabulary only).
+ * The shapes are revision-identical to the shared schemas, which are
+ * composed by reference, EXCEPT cancelled, which forks below: this revision
+ * requires `requestId`. (The 2026-only subscriptions/acknowledged
+ * notification is #14 scope — see registry.ts.)
  * ------------------------------------------------------------------------ */
+
+/**
+ * Notification `_meta` (anchor `NotificationMetaObject`): loose, with the
+ * subscriptions/listen demux key typed when present. Only the anchor-exact
+ * SHAPE is modeled here — listen delivery itself (filter gating, demux,
+ * teardown) is #14 scope and not implemented by this module.
+ */
+export const NotificationMetaSchema = z.looseObject({
+    /**
+     * The JSON-RPC ID of the `subscriptions/listen` request that opened the
+     * stream a notification was delivered on; absent on notifications not
+     * delivered via a subscription stream.
+     */
+    'io.modelcontextprotocol/subscriptionId': RequestIdSchema.optional()
+});
+
+/**
+ * 2026-era `notifications/cancelled` params (anchor-exact fork): `requestId`
+ * is REQUIRED on this revision — the shared schema keeps it optional because
+ * the frozen 2025-11-25 shape declares it optional (task cancellation goes
+ * through `tasks/cancel` there). Requiredness is bare because no 2025-era
+ * traffic touches this module.
+ */
+export const CancelledNotificationParamsSchema = z.object({
+    _meta: NotificationMetaSchema.optional(),
+    /**
+     * The ID of the request to cancel. This MUST correspond to the ID of a
+     * request the client previously issued.
+     */
+    requestId: RequestIdSchema,
+    /**
+     * An optional string describing the reason for the cancellation. This MAY
+     * be logged or presented to the user.
+     */
+    reason: z.string().optional()
+});
+
+/** 2026-era `notifications/cancelled` (see the params fork above). */
+export const CancelledNotificationSchema = z.object({
+    method: z.literal('notifications/cancelled'),
+    params: CancelledNotificationParamsSchema
+});
+
 /** The 2026-era notification-method set (the hand-registry seed; see the deletion list above). */
 export type Rev2026NotificationMethod =
     | 'notifications/cancelled'
@@ -447,8 +492,7 @@ export type Rev2026NotificationMethod =
     | 'notifications/resources/updated'
     | 'notifications/resources/list_changed'
     | 'notifications/tools/list_changed'
-    | 'notifications/prompts/list_changed'
-    | 'notifications/elicitation/complete';
+    | 'notifications/prompts/list_changed';
 
 export const notificationSchemas2026: { readonly [M in Rev2026NotificationMethod]: z.ZodType<{ method: M }> } = {
     'notifications/cancelled': CancelledNotificationSchema,
@@ -457,8 +501,7 @@ export const notificationSchemas2026: { readonly [M in Rev2026NotificationMethod
     'notifications/resources/updated': ResourceUpdatedNotificationSchema,
     'notifications/resources/list_changed': ResourceListChangedNotificationSchema,
     'notifications/tools/list_changed': ToolListChangedNotificationSchema,
-    'notifications/prompts/list_changed': PromptListChangedNotificationSchema,
-    'notifications/elicitation/complete': ElicitationCompleteNotificationSchema
+    'notifications/prompts/list_changed': PromptListChangedNotificationSchema
 };
 
 /* ------------------------------------------------------------------------ *
