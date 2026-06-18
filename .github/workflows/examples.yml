@@ -1,0 +1,42 @@
+on:
+    push:
+        branches:
+            - main
+            - v2-2026-07-28
+    pull_request:
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.ref }}
+    cancel-in-progress: true
+
+jobs:
+    # Builds the workspace + examples and e2e-runs every examples/<story>/ pair
+    # over every transport it supports. Each client.ts is a self-verifying test
+    # (asserts and exits non-zero on any mismatch). This is part of the per-PR
+    # gate basket — a red examples run blocks merge.
+    examples:
+        name: examples (build + e2e)
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5.0.0
+              with:
+                  run_install: false
+
+            - uses: actions/setup-node@v6
+              with:
+                  node-version: 24
+                  cache: pnpm
+                  cache-dependency-path: pnpm-lock.yaml
+
+            - run: pnpm install
+
+            # The workspace packages the examples import resolve to built dists
+            # (the gap that killed an earlier examples smoke suite).
+            - run: pnpm run build:all
+
+            - name: Run all example pairs (stdio + http)
+              run: pnpm tsx scripts/run-examples.ts
