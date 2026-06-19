@@ -50,6 +50,24 @@ export interface StartSSEOptions {
      * so that the response can be associated with the new resumed request.
      */
     replayMessageId?: string | number;
+
+    /**
+     * The per-request abort signal supplied by the caller via
+     * `TransportSendOptions.requestSignal`. When this signal is aborted the
+     * originating POST and its SSE response stream are torn down
+     * intentionally — `_handleSseStream` treats it exactly like the
+     * transport-level abort: no `onerror`, no reconnect.
+     */
+    requestSignal?: AbortSignal;
+
+    /**
+     * The per-request stream-end callback supplied via
+     * `TransportSendOptions.onRequestStreamEnd`. Fired when the SSE response
+     * stream for the originating POST ends or errors for any non-deliberate
+     * reason (server closed, network dropped, reconnection exhausted) — never
+     * when `requestSignal` was aborted.
+     */
+    onRequestStreamEnd?: () => void;
 }
 
 /**
@@ -165,6 +183,43 @@ export type StreamableHTTPClientTransportOptions = {
 };
 
 /**
+ * `AbortSignal.any` with a manual fallback. `AbortSignal.any` landed in
+ * Node 20.3; this package's `engines` floor is `>=20`, so 20.0–20.2 must be
+ * served by the fallback combinator (a controller that aborts on the first
+ * of `a` or `b`). The native path is preferred because it propagates the
+ * originating signal's `reason` and participates in GC the way the spec
+ * defines.
+ */
+function anySignal(a: AbortSignal, b: AbortSignal): AbortSignal {
+    if (typeof AbortSignal.any === 'function') {
+        return AbortSignal.any([a, b]);
+    }
+    const controller = new AbortController();
+    if (a.aborted) return (controller.abort(a.reason), controller.signal);
+    if (b.aborted) return (controller.abort(b.reason), controller.signal);
+    // Standard polyfill shape: when EITHER input fires, remove the listener
+    // registered on the OTHER input too. `{once:true}` alone leaks the
+    // sibling listener — for `_send()`, `a` is the transport-lifetime signal,
+    // so every request-scoped `b` that aborts would otherwise leave one
+    // listener + closure pinned on `a` for the life of the transport.
+    const cleanup = (): void => {
+        a.removeEventListener('abort', onA);
+        b.removeEventListener('abort', onB);
+    };
+    function onA(): void {
+        cleanup();
+        controller.abort(a.reason);
+    }
+    function onB(): void {
+        cleanup();
+        controller.abort(b.reason);
+    }
+    a.addEventListener('abort', onA, { once: true });
+    b.addEventListener('abort', onB, { once: true });
+    return controller.signal;
+}
+
+/**
  * Client transport for Streamable HTTP: this implements the MCP Streamable HTTP transport specification.
  * It will connect to a server using HTTP `POST` for sending messages and HTTP `GET` with Server-Sent Events
  * for receiving messages.
@@ -254,7 +309,13 @@ export class StreamableHTTPClientTransport implements Transport {
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
-        const { resumptionToken } = options;
+        const { resumptionToken, requestSignal } = options;
+        // Same guard as `_handleSseStream`: a resurrected listen stream (the
+        // POST-SSE → GET reconnect path threads `requestSignal` through
+        // `StartSSEOptions`) must honour the per-request abort exactly as the
+        // original POST did — both as a fetch signal and as a "do not surface
+        // onerror" gate.
+        const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
 
         try {
             // Try to open an initial SSE stream with GET to listen for server messages
@@ -269,11 +330,16 @@ export class StreamableHTTPClientTransport implements Transport {
                 headers.set('last-event-id', resumptionToken);
             }
 
+            const transportSignal = this._abortController?.signal;
+            const signal =
+                requestSignal !== undefined && transportSignal !== undefined
+                    ? anySignal(transportSignal, requestSignal)
+                    : (requestSignal ?? transportSignal);
             const response = await (this._fetch ?? fetch)(this._url, {
                 ...this._requestInit,
                 method: 'GET',
                 headers,
-                signal: this._abortController?.signal
+                signal
             });
 
             if (!response.ok) {
@@ -309,6 +375,15 @@ export class StreamableHTTPClientTransport implements Transport {
                 // 405 indicates that the server does not offer an SSE stream at GET endpoint
                 // This is an expected case that should not trigger an error
                 if (response.status === 405) {
+                    // A 405 on the standalone-GET path is benign (the caller
+                    // never had a per-request stream). On the POST→GET resume
+                    // path it is a TERMINAL non-resumable outcome for a
+                    // per-request stream the caller is observing — fire the
+                    // stream-end callback so the caller can settle (otherwise
+                    // a resumed listen subscription dead-ends silently). The
+                    // standalone-GET callers never pass `onRequestStreamEnd`,
+                    // so this is a no-op for them.
+                    options.onRequestStreamEnd?.();
                     return;
                 }
 
@@ -320,7 +395,9 @@ export class StreamableHTTPClientTransport implements Transport {
 
             this._handleSseStream(response.body, options, true);
         } catch (error) {
-            this.onerror?.(error as Error);
+            if (!isIntentionalAbort()) {
+                this.onerror?.(error as Error);
+            }
             throw error;
         }
     }
@@ -359,6 +436,8 @@ export class StreamableHTTPClientTransport implements Transport {
         // Check if we've exceeded maximum retry attempts
         if (attemptCount >= maxRetries) {
             this.onerror?.(new Error(`Maximum reconnection attempts (${maxRetries}) exceeded.`));
+            // The per-request stream is now definitively gone.
+            options.onRequestStreamEnd?.();
             return;
         }
 
@@ -367,8 +446,12 @@ export class StreamableHTTPClientTransport implements Transport {
 
         const reconnect = (): void => {
             this._cancelReconnection = undefined;
-            if (this._abortController?.signal.aborted) return;
+            // Honour BOTH the transport-wide abort and the per-request abort
+            // (a listen subscription closed during the backoff delay): do not
+            // resurrect a stream the caller already tore down.
+            if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
             this._startOrAuthSse(options).catch(error => {
+                if (this._abortController?.signal.aborted || options.requestSignal?.aborted) return;
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
                 try {
                     this._scheduleReconnection(options, attemptCount + 1);
@@ -389,9 +472,20 @@ export class StreamableHTTPClientTransport implements Transport {
 
     private _handleSseStream(stream: ReadableStream<Uint8Array> | null, options: StartSSEOptions, isReconnectable: boolean): void {
         if (!stream) {
+            // A null body on a per-request stream (or its GET resume) is the
+            // same terminal non-resumable outcome as a 405 — fire the
+            // stream-end callback so the caller can settle. No-op for
+            // standalone-GET callers (they never pass `onRequestStreamEnd`).
+            options.onRequestStreamEnd?.();
             return;
         }
-        const { onresumptiontoken, replayMessageId } = options;
+        const { onresumptiontoken, replayMessageId, requestSignal, onRequestStreamEnd } = options;
+        // An intentional abort — transport-wide close OR a per-request abort
+        // (McpSubscription.close() aborting its `requestSignal`) — must read as
+        // a clean shutdown: no misleading "SSE stream disconnected" onerror,
+        // and no GET+Last-Event-ID reconnect that would resurrect a stream the
+        // caller just tore down.
+        const isIntentionalAbort = (): boolean => this._abortController?.signal.aborted === true || requestSignal?.aborted === true;
 
         let lastEventId: string | undefined;
         // Track whether we've received a priming event (event with ID)
@@ -460,17 +554,29 @@ export class StreamableHTTPClientTransport implements Transport {
                 // BUT don't reconnect if we already received a response - the request is complete
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
-                if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
+                if (needsReconnect && this._abortController && !isIntentionalAbort()) {
                     this._scheduleReconnection(
                         {
                             resumptionToken: lastEventId,
                             onresumptiontoken,
-                            replayMessageId
+                            replayMessageId,
+                            requestSignal,
+                            onRequestStreamEnd
                         },
                         0
                     );
+                } else if (!isIntentionalAbort()) {
+                    // The per-request stream ended without reconnecting (no
+                    // priming event for a POST stream, or response already
+                    // received). Not a deliberate abort — notify the caller.
+                    onRequestStreamEnd?.();
                 }
             } catch (error) {
+                if (isIntentionalAbort()) {
+                    // The reader threw because we aborted it. Not an error; do
+                    // not surface onerror, do not reconnect.
+                    return;
+                }
                 // Handle stream errors - likely a network disconnect
                 this.onerror?.(new Error(`SSE stream disconnected: ${error}`));
 
@@ -479,20 +585,27 @@ export class StreamableHTTPClientTransport implements Transport {
                 // BUT don't reconnect if we already received a response - the request is complete
                 const canResume = isReconnectable || hasPrimingEvent;
                 const needsReconnect = canResume && !receivedResponse;
-                if (needsReconnect && this._abortController && !this._abortController.signal.aborted) {
+                if (needsReconnect && this._abortController && !isIntentionalAbort()) {
                     // Use the exponential backoff reconnection strategy
                     try {
                         this._scheduleReconnection(
                             {
                                 resumptionToken: lastEventId,
                                 onresumptiontoken,
-                                replayMessageId
+                                replayMessageId,
+                                requestSignal,
+                                onRequestStreamEnd
                             },
                             0
                         );
                     } catch (error) {
                         this.onerror?.(new Error(`Failed to reconnect: ${error instanceof Error ? error.message : String(error)}`));
+                        onRequestStreamEnd?.();
                     }
+                } else {
+                    // Non-deliberate stream error without reconnection: the
+                    // per-request stream is gone — notify the caller.
+                    onRequestStreamEnd?.();
                 }
             }
         };
@@ -541,14 +654,26 @@ export class StreamableHTTPClientTransport implements Transport {
 
     async send(
         message: JSONRPCMessage | JSONRPCMessage[],
-        options?: { resumptionToken?: string; onresumptiontoken?: (token: string) => void }
+        options?: {
+            resumptionToken?: string;
+            onresumptiontoken?: (token: string) => void;
+            requestSignal?: AbortSignal;
+            onRequestStreamEnd?: () => void;
+        }
     ): Promise<void> {
         return this._send(message, options, false);
     }
 
     private async _send(
         message: JSONRPCMessage | JSONRPCMessage[],
-        options: { resumptionToken?: string; onresumptiontoken?: (token: string) => void } | undefined,
+        options:
+            | {
+                  resumptionToken?: string;
+                  onresumptiontoken?: (token: string) => void;
+                  requestSignal?: AbortSignal;
+                  onRequestStreamEnd?: () => void;
+              }
+            | undefined,
         isAuthRetry: boolean
     ): Promise<void> {
         try {
@@ -569,12 +694,21 @@ export class StreamableHTTPClientTransport implements Transport {
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
             headers.set('accept', [...new Set(types)].join(', '));
 
+            // Per-request abort: when the caller supplies a request-scoped
+            // signal (the `subscriptions/listen` driver), aborting it cancels
+            // this POST and its SSE response stream without closing the
+            // transport.
+            const transportSignal = this._abortController?.signal;
+            const signal =
+                options?.requestSignal !== undefined && transportSignal !== undefined
+                    ? anySignal(transportSignal, options.requestSignal)
+                    : (options?.requestSignal ?? transportSignal);
             const init = {
                 ...this._requestInit,
                 method: 'POST',
                 headers,
                 body: JSON.stringify(message),
-                signal: this._abortController?.signal
+                signal
             };
 
             const response = await (this._fetch ?? fetch)(this._url, init);
@@ -690,7 +824,15 @@ export class StreamableHTTPClientTransport implements Transport {
                     // Handle SSE stream responses for requests
                     // We use the same handler as standalone streams, which now supports
                     // reconnection with the last event ID
-                    this._handleSseStream(response.body, { onresumptiontoken }, false);
+                    this._handleSseStream(
+                        response.body,
+                        {
+                            onresumptiontoken,
+                            requestSignal: options?.requestSignal,
+                            onRequestStreamEnd: options?.onRequestStreamEnd
+                        },
+                        false
+                    );
                 } else if (contentType?.includes('application/json')) {
                     // For non-streaming servers, we might get direct JSON responses
                     const data = await response.json();
@@ -712,7 +854,15 @@ export class StreamableHTTPClientTransport implements Transport {
                 await response.text?.().catch(() => {});
             }
         } catch (error) {
-            this.onerror?.(error as Error);
+            // Intentional per-request abort BEFORE response headers (the
+            // `subscriptions/listen` driver aborting its `requestSignal`):
+            // fetch rejects with AbortError. Same guard as
+            // `_handleSseStream`'s `isIntentionalAbort` — do not surface a
+            // misleading onerror; still rethrow so `listen()`'s send-catch
+            // settles the per-subscription state machine.
+            if (options?.requestSignal?.aborted !== true) {
+                this.onerror?.(error as Error);
+            }
             throw error;
         }
     }

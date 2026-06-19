@@ -23,7 +23,9 @@
  *   (SEP-1865): 2026-only vocabulary, present here as registry shells.
  *   Dispatch never reaches a registered handler — the serving entries
  *   (`createMcpHandler`, `serveStdio`) recognize listen at the entry layer
- *   and own ack/filter/stamp/teardown themselves.
+ *   and own ack/filter/stamp/teardown themselves; on the client side
+ *   `Client.listen()` sends directly on the transport (string-typed
+ *   request id, transport-level demux) rather than via `request()`.
  */
 import type * as z from 'zod/v4';
 
