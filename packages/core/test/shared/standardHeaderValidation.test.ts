@@ -54,7 +54,7 @@ function expectRejection(result: InboundLadderRejection | undefined, cell: strin
     expect(result).toBeDefined();
     expect(result?.kind).toBe('reject');
     expect(result?.cell).toBe(cell);
-    expect(result?.rung).toBe('era-classification');
+    expect(result?.rung).toBe('standard-header-validation');
     expect(result?.httpStatus).toBe(400);
     expect(result?.code).toBe(-32_001);
     expect(result?.settled).toBe(true);

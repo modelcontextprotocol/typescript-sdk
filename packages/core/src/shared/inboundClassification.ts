@@ -170,6 +170,7 @@ export type InboundValidationRung =
     | 'method-registry'
     | 'request-params'
     | 'client-capabilities'
+    | 'standard-header-validation'
     | 'param-header-validation';
 
 /** A ladder rejection: the JSON-RPC error to emit and the HTTP status to emit it with. */
@@ -327,8 +328,20 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
             'consult the method registry before the gate if the documented precedence is to stay observable.'
     },
     {
-        rung: 'param-header-validation',
+        rung: 'standard-header-validation',
         order: 8,
+        evaluatedAt: 'pre-dispatch',
+        codes: [HEADER_MISMATCH_ERROR_CODE],
+        conformance: ['http-header-validation'],
+        rationale:
+            'SEP-2243 standard `Mcp-Method` / `Mcp-Name` headers — presence, sentinel decoding, and `Mcp-Name` ↔ body cross-check ' +
+            '— are validated by the HTTP entry on a modern-classified request after the supported-revision gate and before ' +
+            'dispatch. The classifier’s own header-mismatch cells (protocol-version, `Mcp-Method` mismatch) stay on the edge ' +
+            '`era-classification` rung; this rung carries the entry-layer presence/`Mcp-Name` half.'
+    },
+    {
+        rung: 'param-header-validation',
+        order: 9,
         evaluatedAt: 'pre-dispatch',
         codes: [HEADER_MISMATCH_ERROR_CODE],
         conformance: ['http-custom-header-server-validation'],
@@ -404,9 +417,14 @@ function rejection(
     };
 }
 
-function crossCheckMismatch(cell: string, header: string, body: string): InboundLadderRejection {
+function crossCheckMismatch(
+    cell: string,
+    header: string,
+    body: string,
+    rung: InboundValidationRung = 'era-classification'
+): InboundLadderRejection {
     return rejection(
-        'era-classification',
+        rung,
         cell,
         400,
         new ProtocolError(HEADER_MISMATCH_ERROR_CODE, `Bad Request: the request headers and body disagree: ${body}`, {
@@ -433,9 +451,10 @@ export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, 'name' | 'uri'>> = 
  * {@linkcode classifyInboundRequest} returns a modern route.
  *
  * Returns the `-32001` (`HeaderMismatch`) ladder rejection (HTTP `400`,
- * `era-classification` rung — the same shape and rung
- * {@linkcode classifyInboundRequest} already emits for the
- * `MCP-Protocol-Version` and `Mcp-Method` *mismatch* cells) when:
+ * `standard-header-validation` rung — the same shape
+ * {@linkcode classifyInboundRequest} already emits on the edge
+ * `era-classification` rung for the `MCP-Protocol-Version` and
+ * `Mcp-Method` *mismatch* cells) when:
  *
  * - the required `Mcp-Method` header is absent;
  * - the required `Mcp-Name` header is absent on a `tools/call`,
@@ -466,7 +485,8 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
         return crossCheckMismatch(
             'method-header-missing',
             '(missing)',
-            `the body names method ${method} but the required Mcp-Method header is absent`
+            `the body names method ${method} but the required Mcp-Method header is absent`,
+            'standard-header-validation'
         );
     }
 
@@ -493,7 +513,8 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
         return crossCheckMismatch(
             'name-header-missing',
             '(missing)',
-            `the body carries params.${sourceField}="${bodyValue}" but the required Mcp-Name header is absent`
+            `the body carries params.${sourceField}="${bodyValue}" but the required Mcp-Name header is absent`,
+            'standard-header-validation'
         );
     }
 
@@ -502,14 +523,16 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
         return crossCheckMismatch(
             'name-header-invalid-encoding',
             request.mcpNameHeader,
-            'the Mcp-Name header carries an invalid Base64 sentinel value'
+            'the Mcp-Name header carries an invalid Base64 sentinel value',
+            'standard-header-validation'
         );
     }
     if (bodyValue !== undefined && decoded !== bodyValue) {
         return crossCheckMismatch(
             'name-header-mismatch',
             request.mcpNameHeader,
-            `the body carries params.${sourceField}="${bodyValue}" but the Mcp-Name header names "${decoded}"`
+            `the body carries params.${sourceField}="${bodyValue}" but the Mcp-Name header names "${decoded}"`,
+            'standard-header-validation'
         );
     }
     return undefined;
