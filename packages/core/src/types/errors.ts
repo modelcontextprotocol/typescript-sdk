@@ -80,12 +80,14 @@ export class ProtocolError extends Error {
  * SDK has always emitted on earlier revisions. The error data echoes the
  * requested URI.
  *
- * Recognise this error by checking `error.data.uri` is a string (a
- * `-32602` with `data.uri` is resource-not-found; any other `-32602` is an
- * ordinary Invalid Params). For backwards compatibility, clients should also
+ * Recognise this error by checking `error.data` is exactly `{ uri: string }`
+ * (a `-32602` whose data carries `uri` and nothing else is resource-not-found;
+ * any other `-32602` is an ordinary Invalid Params). For backwards compatibility, clients should also
  * accept `-32002` as resource not found — earlier SDK builds emitted that
- * code, and {@linkcode ProtocolError.fromError} recognises both. Do not rely
- * on `instanceof` — it does not work across separately bundled copies of the
+ * code, and {@linkcode ProtocolError.fromError} reconstructs this class for
+ * either code **when `error.data` carries `uri`** (a bare `-32002` without
+ * `data.uri` stays a generic {@linkcode ProtocolError}). Do not rely on
+ * `instanceof` — it does not work across separately bundled copies of the
  * SDK.
  */
 export class ResourceNotFoundError extends ProtocolError {

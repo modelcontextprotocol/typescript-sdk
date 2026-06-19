@@ -1308,11 +1308,11 @@ with the `allowInputRequired: true` request option plus the `withInputRequired()
 ### Resource not found is `-32602` on every revision; typed `ResourceNotFoundError`
 
 `resources/read` for an unknown URI now answers with JSON-RPC error code **`-32602` (Invalid Params)** on every protocol revision, with `error.data.uri` echoing the requested URI. The 2026-07-28 specification requires `-32602`; the v1.x SDK already emitted `-32602` on earlier
-revisions, so v1.x peers see no change. An interim `-32002` emission that shipped in earlier v2 alphas is reverted: the era encode seam maps any handler-thrown `-32002` to `-32602` on the wire, so a handler written against the older alpha behaves identically without changes.
+revisions, so v1.x peers see no change. An interim `-32002` emission that shipped in earlier v2 alphas is reverted: the era encode seam maps any handler-thrown `-32002` to `-32602` on the wire; note that a `-32002` thrown without `data.uri` is emitted as a bare `-32602` and is no longer recognizable as resource-not-found — throw `ResourceNotFoundError` (or include `data: { uri }`) to preserve the classification.
 
 `ProtocolErrorCode.ResourceNotFound` (`-32002`) **remains importable** as receive-tolerated vocabulary: clients should accept both `-32602` and `-32002` from peers (the specification's backwards-compatibility clause). The new typed `ResourceNotFoundError` class carries the URI on
-`.uri`, and `ProtocolError.fromError` recognizes both codes by the `data.uri` shape — recognize peers' errors by their code and `error.data`, not by `instanceof`, which does not survive bundling. Servers must not return an empty `contents` array for a non-existent resource (an
-empty array is ambiguous between "exists but empty" and "does not exist").
+`.uri`, and `ProtocolError.fromError` reconstructs it from a `-32602` only when `error.data` is exactly `{ uri: string }` (and nothing else), and from a legacy `-32002` whenever `data.uri` is a string (a bare `-32002` without `data.uri` stays a generic `ProtocolError`) — recognize peers' errors by their code and `error.data`, not by `instanceof`, which does not survive
+bundling. Servers must not return an empty `contents` array for a non-existent resource (an empty array is ambiguous between "exists but empty" and "does not exist").
 
 ```typescript
 import { ProtocolError, ResourceNotFoundError } from '@modelcontextprotocol/client';
@@ -1320,9 +1320,12 @@ import { ProtocolError, ResourceNotFoundError } from '@modelcontextprotocol/clie
 try {
     await client.readResource({ uri: 'file:///nope' });
 } catch (error) {
-    const typed = error instanceof ProtocolError ? ProtocolError.fromError(error.code, error.message, error.data) : undefined;
-    if (typed instanceof ResourceNotFoundError) {
-        console.log('not found:', typed.uri);
+    // fromError reconstructs the typed class from code + data alone, so this
+    // works even when `error` crossed a bundle boundary and `instanceof` on
+    // the thrown object would not match.
+    const e = error as ProtocolError;
+    if (ProtocolError.fromError(e.code, e.message, e.data) instanceof ResourceNotFoundError) {
+        console.log('not found:', (e.data as { uri: string }).uri);
     }
 }
 ```
