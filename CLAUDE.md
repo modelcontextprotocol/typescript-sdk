@@ -121,11 +121,15 @@ Pluggable JSON Schema validation (`packages/core/src/validators/`):
 
 ### Examples
 
-Runnable examples in `examples/`:
+Runnable examples in `examples/<story>/{server.ts,client.ts}` — each story is its own
+`@mcp-examples/<story>` workspace package and a self-verifying e2e test (the client connects,
+asserts results, exits non-zero on mismatch). `pnpm run:examples` runs every story over its
+configured transport×era legs; the `examples (build + e2e)` CI job is part of the per-PR gate
+basket. See `examples/README.md` for the full story matrix.
 
-- `examples/server/src/` - Various server configurations (stateful, stateless, OAuth, etc.)
-- `examples/client/src/` - Client examples (basic, OAuth, parallel calls, etc.)
-- `examples/shared/src/` - Shared utilities (OAuth demo provider, etc.)
+- `examples/harness.ts` — dual-transport scaffold (`connectFromArgs`, `runServerFromArgs`, `httpUrlFromArgs`, `runClient`)
+- `examples/shared/` — `@mcp-examples/shared` package (demo OAuth provider, `InMemoryEventStore`)
+- `examples/guides/` — typecheck-only snippet collections synced into `docs/{server,client}.md`
 
 ## Message Flow (Bidirectional Protocol)
 

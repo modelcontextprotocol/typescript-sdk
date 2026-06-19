@@ -1,0 +1,29 @@
+{
+    "name": "@mcp-examples/legacy-routing",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/express": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "cors": "catalog:runtimeServerOnly",
+        "express": "catalog:runtimeServerOnly",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "@types/cors": "catalog:devTools",
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "transports": [
+            "http"
+        ],
+        "era": "modern",
+        "//": "The story body drives BOTH eras itself (one legacy + one modern client against the same port); pinned so the harness runs it once."
+    }
+}

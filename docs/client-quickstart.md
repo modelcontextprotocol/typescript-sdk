@@ -420,5 +420,5 @@ If you see:
 Now that you have a working client, here are some ways to go further:
 
 - [**Client guide**](./client.md) — Add OAuth, middleware, sampling, and more to your client.
-- [**Example clients**](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/client) — Browse runnable client examples.
+- [**Example clients**](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples) — Browse runnable client examples.
 - [**FAQ**](./faq.md) — Troubleshoot common errors.

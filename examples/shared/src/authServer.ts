@@ -15,7 +15,7 @@ import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
 import { toNodeHandler } from 'better-auth/node';
 import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from 'better-auth/plugins';
 import cors from 'cors';
-import type { Request, Response as ExpressResponse, Router } from 'express';
+import type { NextFunction, Request, Response as ExpressResponse, Router } from 'express';
 import express from 'express';
 
 import type { DemoAuth } from './auth.js';
@@ -34,6 +34,22 @@ export interface SetupAuthServerOptions {
      * Only use for debugging purposes.
      */
     dangerousLoggingEnabled?: boolean;
+    /**
+     * DEMO ONLY. When `true`, the `/api/auth/mcp/authorize` endpoint skips the
+     * consent screen entirely and immediately 302s back to the client's
+     * `redirect_uri` with an authorization `code` — exactly what would happen
+     * after a real user clicked **Approve**. Mechanically this strips the OIDC
+     * `prompt` parameter from the request before it reaches better-auth, so the
+     * MCP plugin's authorize handler takes its no-consent fast path. Combined
+     * with the `/sign-in` page that auto-signs-in the demo user, the entire
+     * authorization-code flow becomes a deterministic chain of 302s a headless
+     * client can follow with `fetch(..., { redirect: 'manual' })`.
+     *
+     * The `examples/oauth/` server enables this when
+     * `OAUTH_DEMO_AUTO_CONSENT=1` so the CI client (`client.ts`) can drive the
+     * full browser flow without a browser. NEVER enable in production.
+     */
+    autoConsent?: boolean;
 }
 
 // Store auth instance globally so it can be used for token verification
@@ -88,7 +104,7 @@ async function ensureDemoUserExists(auth: DemoAuth): Promise<void> {
  * @param options - Server configuration
  */
 export function setupAuthServer(options: SetupAuthServerOptions): void {
-    const { authServerUrl, mcpServerUrl, demoMode, dangerousLoggingEnabled = false } = options;
+    const { authServerUrl, mcpServerUrl, demoMode, dangerousLoggingEnabled = false, autoConsent = false } = options;
 
     // Create better-auth instance with MCP plugin
     const auth = createDemoAuth({
@@ -115,6 +131,31 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
     // Create better-auth handler
     // toNodeHandler bypasses Express methods
     const betterAuthHandler = toNodeHandler(auth);
+
+    // DEMO ONLY: simulate the user clicking "Approve" on the consent screen.
+    // The SDK auth driver appends `prompt=consent` whenever it requests the
+    // `offline_access` scope (per OIDC §11). With a real user, better-auth
+    // would render a consent UI and wait for an explicit Approve; here we drop
+    // `prompt` from the query before it reaches better-auth so its authorize
+    // handler takes the no-consent fast path and 302s straight back to
+    // `redirect_uri?code=...`. See {@link SetupAuthServerOptions.autoConsent}.
+    if (autoConsent) {
+        authApp.use((req: Request, _res: ExpressResponse, next: NextFunction) => {
+            const qmark = req.url.indexOf('?');
+            if (req.path === '/api/auth/mcp/authorize' && qmark !== -1) {
+                const search = new URLSearchParams(req.url.slice(qmark + 1));
+                if (search.has('prompt')) {
+                    search.delete('prompt');
+                    const qs = search.toString();
+                    // toNodeHandler reconstructs the Fetch Request from req.url
+                    // (req.baseUrl is empty at the app level), so rewriting it
+                    // here is what better-auth's handler will see.
+                    req.url = `/api/auth/mcp/authorize${qs ? `?${qs}` : ''}`;
+                }
+            }
+            next();
+        });
+    }
 
     // Mount better-auth handler BEFORE body parsers
     // toNodeHandler reads the raw request body, so Express must not consume it first
