@@ -244,10 +244,16 @@ export interface RegisteredEvent {
  */
 export interface EventWebhookOptions {
     /**
-     * TTL (milliseconds) applied to webhook subscriptions. If unset, webhook
-     * mode is disabled entirely.
+     * Default TTL (milliseconds) applied to webhook subscriptions when the
+     * client omits `ttlMs` on `events/subscribe`. If unset, webhook mode is
+     * disabled entirely.
      */
     ttlMs?: number;
+    /**
+     * Maximum TTL (milliseconds) the server will grant. Client-suggested
+     * `ttlMs` values above this are clamped down. Defaults to {@link ttlMs}.
+     */
+    maxTtlMs?: number;
     /**
      * Safety validation for callback URLs. See {@linkcode isSafeWebhookUrl}.
      */
@@ -381,7 +387,8 @@ interface WebhookSubscription extends ActiveSubscription {
     secrets: string[];
     /** Log seq at or before which all deliveries are acked or abandoned. */
     acknowledgedSeq: number;
-    expiresAt: number;
+    /** ms since epoch, or `null` for a non-expiring subscription (client sent `ttlMs: null`). */
+    expiresAt: number | null;
     deliveryStatus: WebhookDeliveryStatus;
     pollTimer?: ReturnType<typeof setTimeout>;
 }
@@ -434,6 +441,13 @@ async function sha256Hex(input: string): Promise<string> {
  *
  * Normally you don't instantiate this directly — use
  * {@linkcode server/mcp.McpServer.registerEvent | McpServer.registerEvent()} and {@linkcode server/mcp.McpServer.emitEvent | McpServer.emitEvent()}.
+ *
+ * **Durability note:** webhook subscriptions are held in memory. The spec
+ * requires non-expiring subscriptions (client `ttlMs: null` → server
+ * `refreshBefore: null`) to persist across server restarts; this in-memory
+ * implementation honours `ttlMs: null` at the protocol level (the reaper skips
+ * it) but does NOT survive a process restart. Supply a durable store if your
+ * server accepts non-expiring subscriptions in production.
  */
 export class ServerEventManager {
     private _events = new Map<string, InternalRegisteredEvent>();
@@ -1152,7 +1166,11 @@ export class ServerEventManager {
     }
 
     private async _handleSubscribe(params: SubscribeEventRequestParams, ctx: ServerContext): Promise<SubscribeEventResult> {
-        const ttl = this._webhookOptions!.ttlMs!;
+        const defaultTtl = this._webhookOptions!.ttlMs!;
+        const maxTtl = this._webhookOptions!.maxTtlMs ?? defaultTtl;
+        // Spec: omitted → server default; null → no expiry; otherwise clamp to server max.
+        // The server MUST NOT return refreshBefore:null unless the client sent ttlMs:null.
+        const grantedTtl = params.ttlMs === null ? null : Math.min(params.ttlMs ?? defaultTtl, maxTtl);
 
         const event = this._events.get(params.name);
         if (!event || !event.enabled) {
@@ -1203,7 +1221,7 @@ export class ServerEventManager {
             cursor = backlog.at(-1)?.cursor ?? (truncated ? replay.headCursor : (params.cursor ?? null));
         }
 
-        const expiresAt = Date.now() + ttl;
+        const expiresAt = grantedTtl === null ? null : Date.now() + grantedTtl;
         const headSeq = event.log.nextSeq - 1;
         const sub: WebhookSubscription = existing ?? {
             id,
@@ -1258,7 +1276,7 @@ export class ServerEventManager {
 
         return {
             id,
-            refreshBefore: new Date(expiresAt).toISOString(),
+            refreshBefore: expiresAt === null ? null : new Date(expiresAt).toISOString(),
             cursor: sub.cursor,
             truncated,
             deliveryStatus: isNew ? undefined : priorStatus
@@ -1447,7 +1465,7 @@ export class ServerEventManager {
     private _reapExpiredWebhooks(): void {
         const now = Date.now();
         for (const [key, sub] of this._webhookSubs) {
-            if (sub.expiresAt <= now) {
+            if (sub.expiresAt !== null && sub.expiresAt <= now) {
                 void this._teardownWebhookSub(sub);
                 this._webhookSubs.delete(key);
             }

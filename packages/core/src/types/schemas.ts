@@ -2368,7 +2368,15 @@ export const SubscribeEventRequestParamsSchema = BaseRequestParamsSchema.extend(
      * Do not replay events older than this many milliseconds. See
      * {@linkcode PollEventsRequestParams.maxAgeMs}.
      */
-    maxAgeMs: z.number().int().nonnegative().optional()
+    maxAgeMs: z.number().int().nonnegative().optional(),
+    /**
+     * Suggested subscription lifetime in milliseconds. The server SHOULD return a
+     * `refreshBefore` no later than `now + ttlMs` (clamping down to its configured
+     * maximum), MAY clamp up to a floor, and MUST NOT return `refreshBefore: null`
+     * unless the client sent `ttlMs: null`. Omitted means the server applies its
+     * default TTL; `null` requests a non-expiring subscription.
+     */
+    ttlMs: z.number().int().positive().nullable().optional()
 });
 
 /**
@@ -2428,9 +2436,11 @@ export const SubscribeEventResultSchema = ResultSchema.extend({
     /**
      * ISO 8601 timestamp. The client MUST re-call `events/subscribe` before
      * this time to keep the subscription alive. The server resets the TTL on
-     * each refresh.
+     * each refresh. `null` means the subscription does not expire and needs no
+     * refresh; the server MUST NOT return `null` unless the client sent
+     * `ttlMs: null` in the request.
      */
-    refreshBefore: z.string(),
+    refreshBefore: z.string().nullable(),
     /**
      * The subscription's cursor position the server has checked up to. Advances
      * even when no events match, so the client's persisted cursor moves during

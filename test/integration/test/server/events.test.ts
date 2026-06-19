@@ -348,7 +348,10 @@ describe('Events', () => {
 
             const ctrl = new AbortController();
             client
-                .request({ method: 'events/stream', params: { name: 'inc', arguments: { sev: 'P1' }, cursor: null } }, { signal: ctrl.signal })
+                .request(
+                    { method: 'events/stream', params: { name: 'inc', arguments: { sev: 'P1' }, cursor: null } },
+                    { signal: ctrl.signal }
+                )
                 .catch(() => {});
             await vi.waitFor(() => expect(client).toBeDefined());
             await new Promise(r => setTimeout(r, 10));
@@ -559,6 +562,81 @@ describe('Events', () => {
             server.emitEvent('inc', { big: 'x'.repeat(300_000) });
             await new Promise(r => setTimeout(r, 30));
             expect(fetchMock).not.toHaveBeenCalled();
+        });
+
+        describe('client-suggested ttlMs', () => {
+            function makeTtlServer(opts: { ttlMs: number; maxTtlMs?: number }) {
+                const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+                const s = new McpServer(
+                    { name: 's', version: '1.0.0' },
+                    {
+                        events: {
+                            webhook: {
+                                ...opts,
+                                fetch: fetchMock as unknown as typeof fetch,
+                                resolveHost: async () => [{ address: '203.0.113.1', family: 4 }],
+                                getPrincipal: () => 'user-1'
+                            }
+                        }
+                    }
+                );
+                s.registerEvent('inc', { emitOnly: true });
+                return { s, fetchMock };
+            }
+
+            it('omitted ttlMs uses the server default', async () => {
+                const { s } = makeTtlServer({ ttlMs: 60_000, maxTtlMs: 600_000 });
+                server = s;
+                await connectPair(server, client);
+                const before = Date.now();
+                const r = await client.subscribeEvent({
+                    name: 'inc',
+                    delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                    cursor: null
+                });
+                expect(r.refreshBefore).not.toBeNull();
+                const granted = new Date(r.refreshBefore!).getTime() - before;
+                expect(granted).toBeGreaterThan(50_000);
+                expect(granted).toBeLessThanOrEqual(65_000);
+            });
+
+            it('clamps a ttlMs suggestion above maxTtlMs down to the server max', async () => {
+                const { s } = makeTtlServer({ ttlMs: 60_000, maxTtlMs: 120_000 });
+                server = s;
+                await connectPair(server, client);
+                const before = Date.now();
+                const r = await client.subscribeEvent({
+                    name: 'inc',
+                    delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                    cursor: null,
+                    ttlMs: 999_000
+                });
+                expect(r.refreshBefore).not.toBeNull();
+                const granted = new Date(r.refreshBefore!).getTime() - before;
+                expect(granted).toBeGreaterThan(110_000);
+                expect(granted).toBeLessThanOrEqual(125_000);
+            });
+
+            it('ttlMs:null returns refreshBefore:null and the reaper does not expire it', async () => {
+                const { s, fetchMock } = makeTtlServer({ ttlMs: 100 });
+                server = s;
+                await connectPair(server, client);
+                const r = await client.subscribeEvent({
+                    name: 'inc',
+                    delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                    cursor: null,
+                    ttlMs: null
+                });
+                expect(r.refreshBefore).toBeNull();
+
+                // Reaper interval floor is 1s; wait past it so a finite-TTL sub
+                // (default 100ms) would have been reaped, then verify delivery
+                // still reaches this non-expiring sub.
+                await new Promise(resolve => setTimeout(resolve, 1100));
+                fetchMock.mockClear();
+                server.emitEvent('inc', { n: 1 });
+                await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+            });
         });
 
         it('events/unsubscribe resolves by {name, params, delivery.url}', async () => {

@@ -73,6 +73,13 @@ export interface SubscribeOptions {
      * push and webhook delivery.
      */
     maxEvents?: number;
+    /**
+     * Suggested subscription lifetime (webhook delivery only). Omitted means the
+     * server applies its default; `null` requests a non-expiring subscription.
+     * The server may clamp the value; the granted expiry is exposed on
+     * {@linkcode EventSubscription.refreshBefore}.
+     */
+    ttlMs?: number | null;
 }
 
 /**
@@ -136,6 +143,12 @@ export class EventSubscription implements AsyncIterable<EventOccurrence> {
     truncated = false;
     /** Webhook signing secret (webhook delivery only). */
     secret: string | null = null;
+    /**
+     * ISO 8601 timestamp by which the SDK must refresh this webhook subscription,
+     * or `null` if the server granted a non-expiring subscription. Webhook
+     * delivery only; remains `null` for poll/push.
+     */
+    refreshBefore: string | null = null;
 
     /** @internal */
     constructor(
@@ -219,6 +232,7 @@ interface SubState {
     attempts: number;
     maxAgeMs?: number;
     maxEvents?: number;
+    ttlMs?: number | null;
 }
 
 /**
@@ -298,7 +312,7 @@ export class ClientEventManager {
         if (options.cursor !== undefined) sub.cursor = options.cursor;
         options.signal?.addEventListener('abort', () => void sub.cancel(), { once: true });
 
-        const state: SubState = { sub, attempts: 0, maxAgeMs: options.maxAgeMs, maxEvents: options.maxEvents };
+        const state: SubState = { sub, attempts: 0, maxAgeMs: options.maxAgeMs, maxEvents: options.maxEvents, ttlMs: options.ttlMs };
         this._states.set(sub.id, state);
         await this._activate(state);
         return sub;
@@ -518,7 +532,8 @@ export class ClientEventManager {
                         arguments: sub.params,
                         delivery: { mode: 'webhook', url: webhook.url, secret: this._webhookSecret! },
                         cursor: sub.cursor,
-                        maxAgeMs: state.maxAgeMs
+                        maxAgeMs: state.maxAgeMs,
+                        ttlMs: state.ttlMs
                     },
                     this._options.requestOptions
                 );
@@ -536,7 +551,10 @@ export class ClientEventManager {
                 }
 
                 state.attempts = 0;
+                sub.refreshBefore = result.refreshBefore;
                 if (!this._states.has(sub.id) && !this._byServerId.has(sub.id)) return;
+                // null → non-expiring; skip auto-refresh scheduling.
+                if (result.refreshBefore === null) return;
                 const ttlMs = new Date(result.refreshBefore).getTime() - Date.now();
                 const fraction = webhook.refreshFraction ?? 0.5;
                 const nextMs = Math.max(50, ttlMs * fraction);
