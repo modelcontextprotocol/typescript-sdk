@@ -974,7 +974,7 @@ export class ServerEventManager {
 
         const leaseKey = await this._pollLeaseKey(ctx, params.name, paramsResult.params);
         let lease = this._pollLeases.get(leaseKey);
-        const wireCursor = params.cursor;
+        const wireCursor = params.cursor ?? null;
         let truncated = false;
 
         if (!lease) {
@@ -1116,7 +1116,7 @@ export class ServerEventManager {
                 id: subId,
                 eventName: spec.name,
                 params: paramsResult.params,
-                cursor: spec.cursor,
+                cursor: spec.cursor ?? null,
                 internalCheckCursor: null,
                 ctx
             },
@@ -1126,7 +1126,7 @@ export class ServerEventManager {
         ctx.mcpReq.signal.addEventListener('abort', () => this._closeStream(stream), { once: true });
         this._pushStreams.add(stream);
 
-        const replay = await this._replayAfterCursor(event, paramsResult.params, spec.cursor, spec.maxAgeMs, subId);
+        const replay = await this._replayAfterCursor(event, paramsResult.params, spec.cursor ?? null, spec.maxAgeMs, subId);
         if (stream.closed) {
             await this._safeOnUnsubscribe(event, subId, paramsResult.params, ctx);
             return;

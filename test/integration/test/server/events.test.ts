@@ -155,6 +155,19 @@ describe('Events', () => {
             expect(result.nextPollMs).toBe(5000);
         });
 
+        it('treats an absent cursor field as cursor:null (bootstrap)', async () => {
+            await connectPair(server, client);
+            server.emitEvent('counter.tick', { value: 1 });
+
+            // Absent cursor MUST behave identically to cursor:null — bootstrap from now.
+            const r0 = await client.pollEvents({ name: 'counter.tick' });
+            expect(r0.truncated).toBe(false);
+
+            server.emitEvent('counter.tick', { value: 2 });
+            const r1 = await client.pollEvents({ name: 'counter.tick' });
+            expect(r1.events.map(e => e.data.value)).toEqual([2]);
+        });
+
         it('replays from a known cursor', async () => {
             await connectPair(server, client);
             const r0 = await client.pollEvents({ name: 'counter.tick', cursor: null });

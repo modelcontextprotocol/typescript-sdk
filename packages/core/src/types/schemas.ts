@@ -2224,9 +2224,10 @@ export const PollEventsRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     arguments: z.record(z.string(), z.unknown()).optional(),
     /**
-     * Resume cursor. `null` means "start from now" (bootstrap).
+     * Resume cursor. `null` means "start from now" (bootstrap). An absent
+     * `cursor` field MUST be treated identically to `cursor: null`.
      */
-    cursor: z.string().nullable(),
+    cursor: z.string().nullish(),
     /**
      * Do not replay events older than this many milliseconds. The server begins
      * from whichever is later: the supplied `cursor` or `now − maxAgeMs`. If the
@@ -2293,9 +2294,10 @@ export const StreamEventsRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     arguments: z.record(z.string(), z.unknown()).optional(),
     /**
-     * Resume cursor. `null` means "start from now" (bootstrap).
+     * Resume cursor. `null` means "start from now" (bootstrap). An absent
+     * `cursor` field MUST be treated identically to `cursor: null`.
      */
-    cursor: z.string().nullable(),
+    cursor: z.string().nullish(),
     /**
      * Do not replay events older than this many milliseconds. See
      * {@linkcode PollEventsRequestParams.maxAgeMs}.
