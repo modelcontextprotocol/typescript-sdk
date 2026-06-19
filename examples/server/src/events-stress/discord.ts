@@ -71,9 +71,19 @@ function requireEnv(name: string): string {
 
 // --- payload schemas ---------------------------------------------------------
 
+/** Discord snowflake IDs are 17–20 digit decimal strings. */
+const SNOWFLAKE = /^\d{17,20}$/;
+const snowflake = z.string().regex(SNOWFLAKE, 'must be a Discord snowflake (17–20 digits)');
+
+function assertSnowflake(value: string, field: string): void {
+    if (!SNOWFLAKE.test(value)) {
+        throw new ProtocolError(FORBIDDEN, `Invalid ${field}: must be a Discord snowflake`);
+    }
+}
+
 const filterSchema = z.object({
-    channelId: z.string().optional().describe('Only emit events from this channel'),
-    guildId: z.string().optional().describe('Only emit events from this guild (server)')
+    channelId: snowflake.optional().describe('Only emit events from this channel'),
+    guildId: snowflake.optional().describe('Only emit events from this guild (server)')
 });
 type Filter = z.infer<typeof filterSchema>;
 
@@ -246,6 +256,8 @@ class DiscordApi {
      * a per-(principal,channel) cache at subscribe time.
      */
     async getGuildChannelPermsForUser(guildId: string, userId: string): Promise<Map<string, bigint>> {
+        assertSnowflake(guildId, 'guildId');
+        assertSnowflake(userId, 'userId');
         const botAuth = `Bot ${this._botToken}`;
         const [channels, member, roles] = await Promise.all([
             this._call<DiscordChannel[]>(`/guilds/${guildId}/channels`, botAuth),
@@ -293,6 +305,8 @@ class DiscordApi {
     }
 
     async getChannelPermsForUser(channelId: string, userId: string): Promise<bigint> {
+        assertSnowflake(channelId, 'channelId');
+        assertSnowflake(userId, 'userId');
         const botAuth = `Bot ${this._botToken}`;
         const channel = await this._call<DiscordChannel>(`/channels/${channelId}`, botAuth);
         if (!channel.guild_id) return 0n;
