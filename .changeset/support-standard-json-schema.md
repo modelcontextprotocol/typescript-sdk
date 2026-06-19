@@ -21,10 +21,10 @@ server.registerTool('greet', {
 For raw JSON Schema (e.g. TypeBox output), use the new `fromJsonSchema` adapter:
 
 ```typescript
-import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/core';
+import { fromJsonSchema } from '@modelcontextprotocol/server';
 
 server.registerTool('greet', {
-  inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }, new AjvJsonSchemaValidator())
+  inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } })
 }, handler);
 ```
 

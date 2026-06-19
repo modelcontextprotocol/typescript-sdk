@@ -13,13 +13,15 @@ import { Validator } from '@cfworker/json-schema';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types.js';
 
 /**
- * JSON Schema draft version supported by @cfworker/json-schema
+ * JSON Schema draft version supported by `@cfworker/json-schema`.
  */
 export type CfWorkerSchemaDraft = '4' | '7' | '2019-09' | '2020-12';
 
 /**
+ * `@cfworker/json-schema`-backed JSON Schema validator. See
+ * `@modelcontextprotocol/{client,server}/validators/cf-worker` for the customisation entry point.
  *
- * @example Use with default configuration (2020-12, shortcircuit)
+ * @example Use with default configuration (draft 2020-12, shortcircuit on)
  * ```ts source="./cfWorkerProvider.examples.ts#CfWorkerJsonSchemaValidator_default"
  * const validator = new CfWorkerJsonSchemaValidator();
  * ```

@@ -17,14 +17,25 @@ import { process } from '@modelcontextprotocol/server/_shims';
  * ```
  */
 export class StdioServerTransport implements Transport {
-    private _readBuffer: ReadBuffer = new ReadBuffer();
+    private _readBuffer: ReadBuffer;
     private _started = false;
     private _closed = false;
 
     constructor(
         private _stdin: Readable = process.stdin,
-        private _stdout: Writable = process.stdout
-    ) {}
+        private _stdout: Writable = process.stdout,
+        options?: {
+            /**
+             * Maximum size of the read buffer in bytes. If a single message exceeds
+             * this size the transport will emit an error and close.
+             *
+             * Defaults to 10 MB.
+             */
+            maxBufferSize?: number;
+        }
+    ) {
+        this._readBuffer = new ReadBuffer({ maxBufferSize: options?.maxBufferSize });
+    }
 
     onclose?: () => void;
     onerror?: (error: Error) => void;
@@ -32,8 +43,13 @@ export class StdioServerTransport implements Transport {
 
     // Arrow functions to bind `this` properly, while maintaining function identity.
     _ondata = (chunk: Buffer) => {
-        this._readBuffer.append(chunk);
-        this.processReadBuffer();
+        try {
+            this._readBuffer.append(chunk);
+            this.processReadBuffer();
+        } catch (error) {
+            this.onerror?.(error as Error);
+            this.close().catch(() => {});
+        }
     };
     _onerror = (error: Error) => {
         this.onerror?.(error);
