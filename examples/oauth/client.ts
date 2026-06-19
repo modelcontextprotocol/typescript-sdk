@@ -48,7 +48,7 @@ const CALLBACK_URL = 'http://127.0.0.1:8090/callback';
  * would, and the demo AS's auto-sign-in + `autoConsent` collapse every
  * interactive step into a 302.
  */
-async function followAuthorizationRedirects(authorizationUrl: URL): Promise<string> {
+async function followAuthorizationRedirects(authorizationUrl: URL): Promise<URLSearchParams> {
     let next = authorizationUrl.href;
     // Crude cookie jar — enough for a single-origin demo AS.
     const jar = new Map<string, string>();
@@ -76,7 +76,7 @@ async function followAuthorizationRedirects(authorizationUrl: URL): Promise<stri
             const error = resolved.searchParams.get('error');
             if (error) throw new Error(`AS returned error on callback: ${error} ${resolved.searchParams.get('error_description') ?? ''}`);
             if (!code) throw new Error(`callback redirect missing ?code: ${resolved.href}`);
-            return code;
+            return resolved.searchParams;
         }
         next = resolved.href;
     }
@@ -121,14 +121,16 @@ runClient('oauth', async () => {
 
     // ---- 2. Follow the authorization URL headlessly ---------------------------
     // (the browser-and-user stand-in; see `followAuthorizationRedirects`).
-    const code = await followAuthorizationRedirects(capturedAuthorizationUrl!);
+    const callbackParams = await followAuthorizationRedirects(capturedAuthorizationUrl!);
 
     // ---- 3. Exchange the code for tokens --------------------------------------
-    // In the browser flow the local callback server hands this `code` to
-    // `transport.finishAuth`; we read it off the `Location` header instead. The
-    // SDK now POSTs `grant_type=authorization_code` (+ PKCE `code_verifier`) to
-    // the AS `/token` endpoint and saves the tokens on `provider`.
-    await firstTransport.finishAuth(code);
+    // In the browser flow the local callback server hands the redirect query to
+    // `transport.finishAuth`; we read it off the final `Location` header instead.
+    // The SDK reads `code` + `iss` (RFC 9207) from the params, validates `iss`
+    // against the recorded issuer, then POSTs `grant_type=authorization_code`
+    // (+ PKCE `code_verifier`) to the AS `/token` endpoint and saves the tokens
+    // on `provider`.
+    await firstTransport.finishAuth(callbackParams);
     const tokens = provider.tokens();
     check.ok(tokens?.access_token, 'token exchange should have yielded an access_token');
     check.equal(tokens?.token_type, 'Bearer');

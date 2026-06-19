@@ -2047,12 +2047,55 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'The client rejects authorization-server metadata whose issuer does not match the URL the metadata was retrieved from (RFC 8414 section 3.3).',
         transports: ['streamableHttp'],
-        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.',
-        knownFailures: [
-            {
-                note: 'discoverAuthorizationServerMetadata never validates that the returned issuer matches the authorization-server URL the metadata was fetched from (RFC 8414 section 3.3), so spoofed-issuer metadata is accepted and the OAuth flow proceeds to registration and redirect.'
-            }
-        ]
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:iss:match': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-response-issuer-validation',
+        behavior:
+            "When the authorization callback's iss exactly matches the issuer recorded from validated AS metadata, finishAuth() proceeds to redeem the authorization code (RFC 9207 §2.4, table row 1).",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:iss:mismatch-reject': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-response-issuer-validation',
+        behavior:
+            "When the authorization callback's iss differs from the recorded issuer, the client throws IssuerMismatchError (kind 'authorization_response') and does not transmit the authorization code to any token endpoint.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:iss:supported-missing-reject': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-response-issuer-validation',
+        behavior:
+            'When the AS metadata advertises authorization_response_iss_parameter_supported: true and the callback carries no iss, the client throws IssuerMismatchError before redeeming the code (table row 2).',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:iss:unadvertised-proceed': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-response-issuer-validation',
+        behavior:
+            'When the AS metadata does not advertise authorization_response_iss_parameter_supported and the callback carries no iss, the client proceeds with the code exchange (table row 4).',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:iss:no-normalize': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-response-issuer-validation',
+        behavior:
+            'iss comparison is simple string comparison only — scheme/host case folding, default-port elision, trailing-slash, and percent-encoding normalization are NOT applied; any such difference is rejected as a mismatch.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:iss:opt-out': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'AuthOptions.skipIssuerMetadataValidation: true suppresses only the RFC 8414 §3.3 metadata-issuer-echo check (AU-02) — it does not relax the RFC 9207 callback-iss validation, which continues to reject mismatches.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
     'client-auth:prm-discovery:no-prm-fallback': {
         source: 'sdk',

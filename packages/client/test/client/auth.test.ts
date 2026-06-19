@@ -15,10 +15,12 @@ import {
     exchangeAuthorization,
     extractWWWAuthenticateParams,
     isHttpsUrl,
+    IssuerMismatchError,
     refreshAuthorization,
     registerClient,
     selectClientAuthMethod,
     startAuthorization,
+    validateAuthorizationResponseIssuer,
     validateClientMetadataUrl
 } from '../../src/client/auth.js';
 import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
@@ -883,6 +885,7 @@ describe('OAuth Authorization', () => {
         };
 
         it('tries URLs in order and returns first successful metadata', async () => {
+            const tenantOidcMetadata = { ...validOpenIdMetadata, issuer: 'https://auth.example.com/tenant1' };
             // First OAuth URL (path before well-known) fails with 404
             mockFetch.mockResolvedValueOnce({
                 ok: false,
@@ -893,12 +896,12 @@ describe('OAuth Authorization', () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
                 status: 200,
-                json: async () => validOpenIdMetadata
+                json: async () => tenantOidcMetadata
             });
 
             const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com/tenant1');
 
-            expect(metadata).toEqual(validOpenIdMetadata);
+            expect(metadata).toEqual(tenantOidcMetadata);
 
             // Verify it tried the URLs in the correct order
             const calls = mockFetch.mock.calls;
@@ -919,9 +922,26 @@ describe('OAuth Authorization', () => {
                 json: async () => validOpenIdMetadata
             });
 
-            const metadata = await discoverAuthorizationServerMetadata('https://mcp.example.com');
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
 
             expect(metadata).toEqual(validOpenIdMetadata);
+        });
+
+        it('preserves authorization_response_iss_parameter_supported through OIDC discovery parse', async () => {
+            // OAuth well-known 404s; OIDC well-known returns metadata advertising RFC 9207 support.
+            // Regression-guard: OpenIdProviderDiscoveryMetadataSchema is a plain z.object(), so the
+            // field must be declared on the underlying schemas or it gets stripped — making the
+            // RFC 9207 §2.4 advertised-but-missing reject inert on the OIDC-only discovery path.
+            mockFetch.mockResolvedValueOnce({ ok: false, status: 404 });
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validOpenIdMetadata, authorization_response_iss_parameter_supported: true })
+            });
+
+            const metadata = await discoverAuthorizationServerMetadata('https://auth.example.com');
+
+            expect(metadata?.authorization_response_iss_parameter_supported).toBe(true);
         });
 
         it('continues on 502 and tries next URL', async () => {
@@ -1049,6 +1069,133 @@ describe('OAuth Authorization', () => {
 
             // Only one call — no CORS retry attempted in non-browser environments
             expect(mockFetch).toHaveBeenCalledTimes(1);
+        });
+
+        describe('RFC 8414 §3.3 issuer-echo validation', () => {
+            it('rejects metadata whose issuer does not match the discovery input', async () => {
+                mockFetch.mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ ...validOAuthMetadata, issuer: 'https://honest.example.com' })
+                });
+
+                const err = await discoverAuthorizationServerMetadata('https://attacker.example.com').catch(e => e);
+                expect(err).toBeInstanceOf(IssuerMismatchError);
+                expect(err).not.toBeInstanceOf(OAuthError);
+                expect(err.kind).toBe('metadata');
+                expect(err.expected).toBe('https://attacker.example.com');
+                expect(err.received).toBe('https://honest.example.com');
+            });
+
+            it('rejects when metadata issuer matches a different tenant on the same host', async () => {
+                mockFetch.mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ ...validOAuthMetadata, issuer: 'https://auth.example.com/tenant2' })
+                });
+
+                await expect(discoverAuthorizationServerMetadata('https://auth.example.com/tenant1')).rejects.toThrow(IssuerMismatchError);
+            });
+
+            it('accepts when issuer matches the discovery input exactly', async () => {
+                mockFetch.mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => validOAuthMetadata
+                });
+
+                await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).resolves.toEqual(validOAuthMetadata);
+            });
+
+            it('tolerates a trailing slash on the SDK-synthesized discovery input only', async () => {
+                // The legacy-fallback path synthesizes `String(new URL('/', serverUrl))` which always ends in `/`.
+                mockFetch.mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => validOAuthMetadata // issuer: 'https://auth.example.com'
+                });
+                await expect(discoverAuthorizationServerMetadata('https://auth.example.com/')).resolves.toEqual(validOAuthMetadata);
+
+                // The tolerance is one-directional: a slash on the *received* side is still a mismatch.
+                mockFetch.mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ ...validOAuthMetadata, issuer: 'https://auth.example.com/' })
+                });
+                await expect(discoverAuthorizationServerMetadata('https://auth.example.com')).rejects.toThrow(IssuerMismatchError);
+            });
+
+            it('skipIssuerValidation suppresses the check', async () => {
+                mockFetch.mockResolvedValueOnce({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({ ...validOAuthMetadata, issuer: 'https://honest.example.com' })
+                });
+
+                await expect(
+                    discoverAuthorizationServerMetadata('https://attacker.example.com', { skipIssuerValidation: true })
+                ).resolves.toMatchObject({ issuer: 'https://honest.example.com' });
+            });
+        });
+    });
+
+    describe('validateAuthorizationResponseIssuer', () => {
+        const expectedIssuer = 'https://auth.example.com';
+
+        // The spec's four-row decision table.
+        it.each([
+            { label: 'row 1: supported + present + match → proceed', supported: true, iss: expectedIssuer, throws: false },
+            { label: 'row 1: supported + present + mismatch → reject', supported: true, iss: 'https://attacker.example', throws: true },
+            { label: 'row 2: supported + absent → reject', supported: true, iss: undefined, throws: true },
+            { label: 'row 3: not advertised + present + match → proceed', supported: false, iss: expectedIssuer, throws: false },
+            {
+                label: 'row 3: not advertised + present + mismatch → reject',
+                supported: false,
+                iss: 'https://attacker.example',
+                throws: true
+            },
+            { label: 'row 4: not advertised + absent → proceed', supported: false, iss: undefined, throws: false }
+        ])('$label', ({ supported, iss, throws }) => {
+            const run = () => validateAuthorizationResponseIssuer({ iss, expectedIssuer, issParameterSupported: supported });
+            if (throws) {
+                expect(run).toThrow(IssuerMismatchError);
+                try {
+                    run();
+                } catch (e) {
+                    expect((e as IssuerMismatchError).kind).toBe('authorization_response');
+                }
+            } else {
+                expect(run).not.toThrow();
+            }
+        });
+
+        // Forbidden normalizations: every one of these MUST be a mismatch even though
+        // the values are URL-equivalent under RFC 3986 §6.2.2-6.2.3.
+        it.each([
+            { label: 'scheme case', iss: 'HTTPS://auth.example.com' },
+            { label: 'host case', iss: 'https://AUTH.example.com' },
+            { label: 'default port elision', iss: 'https://auth.example.com:443' },
+            { label: 'trailing slash', iss: 'https://auth.example.com/' },
+            { label: 'percent-encoding', iss: 'https://auth.example.co%6D' }
+        ])('rejects on $label difference (no normalization applied)', ({ iss }) => {
+            expect(() => validateAuthorizationResponseIssuer({ iss, expectedIssuer, issParameterSupported: true })).toThrow(
+                IssuerMismatchError
+            );
+        });
+
+        it('no-ops when there is no recorded issuer (no validated metadata)', () => {
+            expect(() =>
+                validateAuthorizationResponseIssuer({ iss: 'https://anything', expectedIssuer: undefined, issParameterSupported: true })
+            ).not.toThrow();
+            expect(() =>
+                validateAuthorizationResponseIssuer({ iss: undefined, expectedIssuer: undefined, issParameterSupported: true })
+            ).not.toThrow();
+        });
+
+        it('IssuerMismatchError JSON-encodes received value (log-injection guard)', () => {
+            const err = new IssuerMismatchError('authorization_response', expectedIssuer, 'https://a\nINFO: forged');
+            expect(err.message).not.toContain('\nINFO');
+            expect(err.message).toContain(String.raw`https://a\nINFO: forged`);
         });
     });
 
@@ -2277,7 +2424,7 @@ describe('OAuth Authorization', () => {
                         ok: true,
                         status: 200,
                         json: async () => ({
-                            issuer: 'https://auth.example.com',
+                            issuer: 'https://resource.example.com',
                             authorization_endpoint: 'https://auth.example.com/authorize',
                             token_endpoint: 'https://auth.example.com/token',
                             registration_endpoint: 'https://auth.example.com/register',
@@ -2730,7 +2877,7 @@ describe('OAuth Authorization', () => {
                         ok: true,
                         status: 200,
                         json: async () => ({
-                            issuer: 'https://auth.example.com',
+                            issuer: 'https://api.example.com',
                             authorization_endpoint: 'https://auth.example.com/authorize',
                             token_endpoint: 'https://auth.example.com/token',
                             response_types_supported: ['code'],
@@ -2786,7 +2933,7 @@ describe('OAuth Authorization', () => {
                         ok: true,
                         status: 200,
                         json: async () => ({
-                            issuer: 'https://auth.example.com',
+                            issuer: 'https://api.example.com',
                             authorization_endpoint: 'https://auth.example.com/authorize',
                             token_endpoint: 'https://auth.example.com/token',
                             response_types_supported: ['code'],
@@ -2850,7 +2997,7 @@ describe('OAuth Authorization', () => {
                         ok: true,
                         status: 200,
                         json: async () => ({
-                            issuer: 'https://auth.example.com',
+                            issuer: 'https://api.example.com',
                             authorization_endpoint: 'https://auth.example.com/authorize',
                             token_endpoint: 'https://auth.example.com/token',
                             response_types_supported: ['code'],

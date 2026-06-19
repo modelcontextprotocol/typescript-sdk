@@ -45,12 +45,14 @@ describe('SSEClientTransport', () => {
                 res.writeHead(200, {
                     'Content-Type': 'application/json'
                 });
+                // RFC 8414 §3.3: issuer must match the URL the metadata was fetched from.
+                const self = `http://${req.headers.host}`;
                 res.end(
                     JSON.stringify({
-                        issuer: 'https://auth.example.com',
-                        authorization_endpoint: 'https://auth.example.com/authorize',
-                        token_endpoint: 'https://auth.example.com/token',
-                        registration_endpoint: 'https://auth.example.com/register',
+                        issuer: self,
+                        authorization_endpoint: `${self}/authorize`,
+                        token_endpoint: `${self}/token`,
+                        registration_endpoint: `${self}/register`,
                         response_types_supported: ['code'],
                         code_challenge_methods_supported: ['S256']
                     })

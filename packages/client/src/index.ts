@@ -37,9 +37,10 @@ export {
     selectResourceURL,
     startAuthorization,
     UnauthorizedError,
+    validateAuthorizationResponseIssuer,
     validateClientMetadataUrl
 } from './client/auth.js';
-export { OAuthClientFlowError } from './client/authErrors.js';
+export { IssuerMismatchError, OAuthClientFlowError } from './client/authErrors.js';
 export type {
     AssertionCallback,
     ClientCredentialsProviderOptions,

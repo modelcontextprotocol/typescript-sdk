@@ -576,6 +576,10 @@ side: auto-fulfilment is on by default (`ClientOptions.inputRequired`, `maxRound
 
 Output-schema validator compilation is now lazy (first `callTool()` against the cached `tools/list` entry) and non-throwing (an uncompilable `outputSchema` is `console.warn`-ed and validation is skipped for that tool only); `listTools()` no longer throws on an uncompilable `outputSchema`. Applies on every era — the legacy-era `listTools()` path is unchanged at the wire level only.
 
+OAuth callback handling: pass the callback URL's `URLSearchParams` to `transport.finishAuth(url.searchParams)` (or pass `iss` alongside `authorizationCode` to `auth()` / `finishAuth(code, iss)`). The SDK now validates `iss` per RFC 9207: a mismatched `iss` throws `IssuerMismatchError` regardless of advertised support; a missing `iss` throws only when the AS advertised `authorization_response_iss_parameter_supported: true`. Do not surface `error_description` / `error_uri` from a callback that failed this check.
+
+`discoverAuthorizationServerMetadata()` now rejects metadata whose `issuer` does not exactly match the URL it was fetched for (RFC 8414 §3.3), throwing `IssuerMismatchError`. Pass `skipIssuerMetadataValidation: true` on `AuthOptions` (or `skipIssuerValidation: true` on the helper) only as a temporary workaround for a known-misconfigured AS.
+
 No code changes required; wire-behavior note: on a 2026-07-28 Streamable HTTP connection, aborting an in-flight client request (caller `signal` / timeout) closes that request's SSE response stream as the spec cancellation signal — `notifications/cancelled` is no longer POSTed
 there. 2025-era connections and stdio at any era still send `notifications/cancelled`. Custom `Transport` implementations that open one underlying request per outbound message and honor `TransportSendOptions.requestSignal` may declare `readonly hasPerRequestStream = true` to opt
 into the same routing.

@@ -54,14 +54,16 @@ client:
     # --- Same gaps as the 2025 baseline (fail identically when forced to 2026-07-28) ---
     # SEP-2106 (JSON Schema $ref handling): no fixture handler for the scenario yet.
     - json-schema-ref-no-deref
-    # SEP-2468 (authorization response iss parameter): not implemented in the client.
+    # SEP-2468 iss-* scenarios: the SEP-2468 check itself PASSES — these stay
+    # listed because the referee bundles a SEP-837 `application_type` DCR check
+    # into the same scenario. Burn alongside PR-B (SEP-837 heuristic-default).
+    # `auth/metadata-issuer-mismatch` burns (rejected before DCR).
     - auth/iss-supported
     - auth/iss-not-advertised
     - auth/iss-supported-missing
     - auth/iss-wrong-issuer
     - auth/iss-unexpected
     - auth/iss-normalized
-    - auth/metadata-issuer-mismatch
     # SEP-2352 (authorization server migration): client does not re-register
     # when PRM authorization_servers changes.
     - auth/authorization-server-migration

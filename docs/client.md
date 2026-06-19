@@ -192,8 +192,8 @@ Server only implements `client_secret_basic`/`client_secret_post`, so there is n
 ### Full OAuth with user authorization
 
 For user-facing applications, implement the {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface to handle the full authorization code flow (redirects, code verifiers, token storage, dynamic client registration). The {@linkcode
-@modelcontextprotocol/client!client/client.Client#connect | connect()} call will throw {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} when authorization is needed — catch it, complete the browser flow, call {@linkcode
-@modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport#finishAuth | transport.finishAuth(code)}, and reconnect.
+@modelcontextprotocol/client!client/client.Client#connect | connect()} call will throw {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} when authorization is needed — catch it, complete the browser flow, pass the redirect URL's query to {@linkcode
+@modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport#finishAuth | transport.finishAuth(url.searchParams)} (so the SDK can validate the RFC 9207 `iss` parameter), and reconnect.
 
 For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleOAuthClient.ts) and
 [`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleOAuthClientProvider.ts).
