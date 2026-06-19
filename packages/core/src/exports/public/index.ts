@@ -30,7 +30,9 @@ export type {
     OAuthTokenRevocationRequest,
     OAuthTokens,
     OpenIdProviderDiscoveryMetadata,
-    OpenIdProviderMetadata
+    OpenIdProviderMetadata,
+    StoredOAuthClientInformation,
+    StoredOAuthTokens
 } from '../../shared/auth.js';
 
 // Auth utilities
