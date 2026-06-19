@@ -604,19 +604,87 @@ describe('Events', () => {
             expect(r2.deliveryStatus?.lastError).toBeNull();
         });
 
-        it('classifies 4xx as non-retryable http_4xx in deliveryStatus.lastError', async () => {
+        it('drops a 4xx delivery without retry and keeps the subscription active (lastError:http_4xx)', async () => {
             fetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
             await connectPair(server, client);
             await client.subscribeEvent({ name: 'inc', delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET }, cursor: null });
             server.emitEvent('inc', { n: 1 });
             await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
-            // Next refresh surfaces the status.
+            // Exactly one POST attempt — 4xx is non-retryable for that delivery.
+            expect(fetchMock).toHaveBeenCalledTimes(1);
+            // Next refresh surfaces the status: per-delivery drop, NOT a full
+            // suspension — sub stays active.
             const r2 = await client.subscribeEvent({
                 name: 'inc',
                 delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
                 cursor: null
             });
             expect(r2.deliveryStatus?.lastError).toBe('http_4xx');
+            expect(r2.deliveryStatus?.active).toBe(true);
+        });
+
+        it('keeps delivering after a 4xx; a subsequent 2xx clears lastError', async () => {
+            fetchMock.mockResolvedValueOnce(new Response(null, { status: 410 })).mockResolvedValueOnce(new Response(null, { status: 200 }));
+            await connectPair(server, client);
+            await client.subscribeEvent({ name: 'inc', delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET }, cursor: null });
+
+            server.emitEvent('inc', { n: 1 });
+            await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+            server.emitEvent('inc', { n: 2 });
+            await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+
+            const r = await client.subscribeEvent({
+                name: 'inc',
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                cursor: null
+            });
+            expect(r.deliveryStatus?.active).toBe(true);
+            expect(r.deliveryStatus?.lastError).toBeNull();
+        });
+
+        it('suspends (active:false) only after the rolling-window failure threshold is crossed', async () => {
+            const fm = vi.fn(async () => new Response(null, { status: 500 }));
+            server = new McpServer(
+                { name: 's', version: '1.0.0' },
+                {
+                    events: {
+                        webhook: {
+                            ttlMs: 60_000,
+                            maxDeliveryAttempts: 1,
+                            fetch: fm as unknown as typeof fetch,
+                            resolveHost: async () => [{ address: '203.0.113.1', family: 4 }],
+                            getPrincipal: () => 'user-1',
+                            verification: { allowlist: ['hooks.example.com'] },
+                            suspension: { windowMs: 60_000, minAttempts: 5, failureRate: 0.8 }
+                        }
+                    }
+                }
+            );
+            server.registerEvent('inc', { emitOnly: true });
+            await connectPair(server, client);
+            await client.subscribeEvent({ name: 'inc', delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET }, cursor: null });
+
+            // 4 failures: rate=100% but attempts < minAttempts → still active.
+            for (let i = 0; i < 4; i++) server.emitEvent('inc', { n: i });
+            await vi.waitFor(() => expect(fm).toHaveBeenCalledTimes(4));
+            const r1 = await client.subscribeEvent({
+                name: 'inc',
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                cursor: null
+            });
+            expect(r1.deliveryStatus?.active).toBe(true);
+            expect(r1.deliveryStatus?.lastError).toBe('http_5xx');
+
+            // 5th failure: attempts >= minAttempts and 5/5 > 0.8 → suspended.
+            server.emitEvent('inc', { n: 4 });
+            await vi.waitFor(() => expect(fm).toHaveBeenCalledTimes(5));
+            const r2 = await client.subscribeEvent({
+                name: 'inc',
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                cursor: null
+            });
+            expect(r2.deliveryStatus?.active).toBe(false);
+            expect(r2.deliveryStatus?.failedSince).toBeTypeOf('string');
         });
 
         it('drops oversized bodies (>256KiB) without POSTing', async () => {

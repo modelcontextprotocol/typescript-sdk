@@ -287,6 +287,22 @@ export interface EventWebhookOptions {
      */
     getPrincipal?: (ctx: ServerContext) => string | undefined;
     /**
+     * Rolling-window thresholds that govern when a subscription is suspended
+     * (`deliveryStatus.active = false`). Per spec, individual 4xx/5xx failures
+     * drop only that delivery; the whole subscription is suspended only after
+     * sustained failure (default: >95% failure rate over a 60-minute window
+     * with at least 100 attempts). Exposed primarily so tests can lower the
+     * thresholds.
+     */
+    suspension?: {
+        /** Rolling window length in milliseconds. Defaults to 3_600_000 (60 min). */
+        windowMs?: number;
+        /** Minimum attempts in the window before suspension is considered. Defaults to 100. */
+        minAttempts?: number;
+        /** Failure-rate threshold (0..1, exclusive) above which the sub is suspended. Defaults to 0.95. */
+        failureRate?: number;
+    };
+    /**
      * Endpoint-verification gating. The server MUST verify a callback URL before
      * activating delivery via one of: (a) a challenge handshake — POST a signed
      * `{"type":"verification","challenge":<nonce>}` control envelope, the
@@ -413,6 +429,11 @@ interface WebhookSubscription extends ActiveSubscription {
     key: string;
     url: string;
     /**
+     * Rolling tally of delivery outcomes used to decide suspension. Reset when
+     * `now - windowStartMs` exceeds the configured `suspension.windowMs`.
+     */
+    failureWindow: { windowStartMs: number; attempts: number; failures: number };
+    /**
      * Secrets for HMAC signing. Newest first; up to two retained so the server
      * can dual-sign during rotation. Populated entirely from client-supplied
      * `delivery.secret` values across refreshes.
@@ -441,6 +462,9 @@ const DEFAULT_MAX_WEBHOOK_SUBS = 1000;
 const DEFAULT_MAX_EVENTS = 100;
 const DEFAULT_BUFFER_CAPACITY = 1000;
 const DEFAULT_VERIFY_CACHE_SIZE = 1000;
+const DEFAULT_SUSPENSION_WINDOW_MS = 3_600_000;
+const DEFAULT_SUSPENSION_MIN_ATTEMPTS = 100;
+const DEFAULT_SUSPENSION_FAILURE_RATE = 0.95;
 
 const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} };
 
@@ -515,6 +539,7 @@ export class ServerEventManager {
     private readonly _maxWebhookSubs: number;
     private readonly _pushOptions: Required<EventPushOptions>;
     private readonly _webhookOptions?: EventWebhookOptions;
+    private readonly _suspension: { windowMs: number; minAttempts: number; failureRate: number };
     private readonly _fetch: FetchLike;
     private readonly _resolveHost: HostResolver;
     private readonly _getPrincipal: (ctx: ServerContext) => string | undefined;
@@ -529,6 +554,11 @@ export class ServerEventManager {
             heartbeatIntervalMs: options.push?.heartbeatIntervalMs ?? DEFAULT_HEARTBEAT_MS
         };
         this._webhookOptions = options.webhook;
+        this._suspension = {
+            windowMs: options.webhook?.suspension?.windowMs ?? DEFAULT_SUSPENSION_WINDOW_MS,
+            minAttempts: options.webhook?.suspension?.minAttempts ?? DEFAULT_SUSPENSION_MIN_ATTEMPTS,
+            failureRate: options.webhook?.suspension?.failureRate ?? DEFAULT_SUSPENSION_FAILURE_RATE
+        };
         this._fetch = options.webhook?.fetch ?? fetch;
         this._resolveHost = options.webhook?.resolveHost ?? defaultHostResolver;
         this._getPrincipal = options.webhook?.getPrincipal ?? (ctx => ctx.http?.authInfo?.clientId);
@@ -1286,6 +1316,7 @@ export class ServerEventManager {
             secrets: [params.delivery.secret],
             acknowledgedSeq: headSeq,
             expiresAt,
+            failureWindow: { windowStartMs: Date.now(), attempts: 0, failures: 0 },
             deliveryStatus: { active: true, lastDeliveryAt: null, lastError: null, throttled: false }
         };
 
@@ -1521,12 +1552,7 @@ export class ServerEventManager {
     private async _postWebhook(sub: WebhookSubscription, msgId: string, body: string, occurrenceSeq?: number): Promise<void> {
         if (new TextEncoder().encode(body).length > WEBHOOK_MAX_BODY_BYTES) {
             console.error(`[events] webhook body for ${sub.id} exceeds ${WEBHOOK_MAX_BODY_BYTES} bytes; dropping`);
-            sub.deliveryStatus = {
-                ...sub.deliveryStatus,
-                active: sub.deliveryStatus.active,
-                lastError: 'http_4xx',
-                failedSince: sub.deliveryStatus.failedSince ?? new Date().toISOString()
-            };
+            this._recordDeliveryOutcome(sub, 'http_4xx');
             return;
         }
 
@@ -1537,13 +1563,7 @@ export class ServerEventManager {
             try {
                 const res = await this._sendSignedPost(sub.url, sub.secrets, sub.id, msgId, body);
                 if (res.ok) {
-                    sub.deliveryStatus = {
-                        active: true,
-                        lastDeliveryAt: new Date().toISOString(),
-                        lastError: null,
-                        failedSince: null,
-                        throttled: false
-                    };
+                    this._recordDeliveryOutcome(sub, null);
                     if (occurrenceSeq !== undefined && occurrenceSeq > sub.acknowledgedSeq) {
                         sub.acknowledgedSeq = occurrenceSeq;
                         const event = this._events.get(sub.eventName);
@@ -1552,28 +1572,21 @@ export class ServerEventManager {
                     }
                     return;
                 }
-                const category: WebhookLastError = res.status >= 500 ? 'http_5xx' : 'http_4xx';
-                if (res.status === 413 || (res.status >= 400 && res.status < 500)) {
-                    // Non-retryable client errors.
-                    sub.deliveryStatus = {
-                        active: false,
-                        lastDeliveryAt: sub.deliveryStatus.lastDeliveryAt ?? null,
-                        lastError: category,
-                        failedSince: sub.deliveryStatus.failedSince ?? new Date().toISOString()
-                    };
+                if (res.status >= 400 && res.status < 500) {
+                    // Per-delivery non-retryable (incl. 410 Gone, 413 Payload Too
+                    // Large): drop THIS event, tally a failure, keep delivering.
+                    this._recordDeliveryOutcome(sub, 'http_4xx');
                     return;
                 }
-                throw Object.assign(new Error('http_5xx'), { category });
+                // 5xx → retryable via the catch path below.
+                throw Object.assign(new Error('http_5xx'), { category: 'http_5xx' as WebhookLastError });
             } catch (error) {
                 const lastError = this._classifyDeliveryError(error);
                 if (attempt >= maxAttempts) {
-                    sub.deliveryStatus = {
-                        active: false,
-                        lastDeliveryAt: sub.deliveryStatus.lastDeliveryAt ?? null,
-                        lastError,
-                        failedSince: sub.deliveryStatus.failedSince ?? new Date().toISOString(),
-                        throttled: false
-                    };
+                    // Retries exhausted: drop this event, tally a failure, keep
+                    // the subscription active. Suspension is decided by the
+                    // rolling-window check in _recordDeliveryOutcome.
+                    this._recordDeliveryOutcome(sub, lastError);
                     return;
                 }
                 sub.deliveryStatus = {
@@ -1587,6 +1600,45 @@ export class ServerEventManager {
                 delay *= 2;
             }
         }
+    }
+
+    /**
+     * Tallies a delivery outcome into the subscription's rolling failure window
+     * and updates `deliveryStatus`. A `null` `lastError` records a success.
+     *
+     * Suspension policy (spec commits 905ade3, b8f7556): individual failed
+     * deliveries are dropped but the subscription stays active. Only when the
+     * rolling window shows sustained failure — `attempts >= minAttempts` AND
+     * `failures / attempts > failureRate` — is `active` flipped to `false`.
+     */
+    private _recordDeliveryOutcome(sub: WebhookSubscription, lastError: WebhookLastError | null): void {
+        const now = Date.now();
+        if (now - sub.failureWindow.windowStartMs > this._suspension.windowMs) {
+            sub.failureWindow = { windowStartMs: now, attempts: 0, failures: 0 };
+        }
+        sub.failureWindow.attempts++;
+        if (lastError !== null) sub.failureWindow.failures++;
+
+        if (lastError === null) {
+            sub.deliveryStatus = {
+                active: true,
+                lastDeliveryAt: new Date(now).toISOString(),
+                lastError: null,
+                failedSince: null,
+                throttled: false
+            };
+            return;
+        }
+
+        const w = sub.failureWindow;
+        const suspend = w.attempts >= this._suspension.minAttempts && w.failures / w.attempts > this._suspension.failureRate;
+        sub.deliveryStatus = {
+            active: sub.deliveryStatus.active && !suspend,
+            lastDeliveryAt: sub.deliveryStatus.lastDeliveryAt ?? null,
+            lastError,
+            failedSince: sub.deliveryStatus.failedSince ?? new Date(now).toISOString(),
+            throttled: false
+        };
     }
 
     private _deliverWebhook(sub: WebhookSubscription, occurrence: EventOccurrence | null): Promise<void> {
