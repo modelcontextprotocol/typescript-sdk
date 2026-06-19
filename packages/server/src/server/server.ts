@@ -849,6 +849,12 @@ export class Server extends Protocol<ServerContext> {
         return this._capabilities;
     }
 
+    /**
+     * Sends a `ping` request to the connected client.
+     *
+     * @deprecated The 2026-07-28 protocol removed ping; it throws on a 2026-07-28-era instance.
+     * If your factory serves both eras, this only works on the legacy path.
+     */
     async ping(): Promise<EmptyResult> {
         this._assertPushApiInServedEra('ping');
         return this.request({ method: 'ping' });
@@ -859,8 +865,10 @@ export class Server extends Protocol<ServerContext> {
      * Returns single content block for backwards compatibility.
      *
      * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
-     * Remains functional during the deprecation window (at least twelve months).
-     * Migrate to calling LLM provider APIs directly.
+     * Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip) instead,
+     * or migrate to calling LLM provider APIs directly. The 2025 push-style server-to-client
+     * request model is replaced by input_required results in the 2026-07-28 protocol. If your
+     * factory serves both eras, this only works on the legacy path.
      */
     async createMessage(params: CreateMessageRequestParamsBase, options?: RequestOptions): Promise<CreateMessageResult>;
 
@@ -869,8 +877,10 @@ export class Server extends Protocol<ServerContext> {
      * Returns content that may be a single block or array (for parallel tool calls).
      *
      * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
-     * Remains functional during the deprecation window (at least twelve months).
-     * Migrate to calling LLM provider APIs directly.
+     * Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip) instead,
+     * or migrate to calling LLM provider APIs directly. The 2025 push-style server-to-client
+     * request model is replaced by input_required results in the 2026-07-28 protocol. If your
+     * factory serves both eras, this only works on the legacy path.
      */
     async createMessage(params: CreateMessageRequestParamsWithTools, options?: RequestOptions): Promise<CreateMessageResultWithTools>;
 
@@ -879,8 +889,10 @@ export class Server extends Protocol<ServerContext> {
      * When tools may or may not be present, returns the union type.
      *
      * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
-     * Remains functional during the deprecation window (at least twelve months).
-     * Migrate to calling LLM provider APIs directly.
+     * Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip) instead,
+     * or migrate to calling LLM provider APIs directly. The 2025 push-style server-to-client
+     * request model is replaced by input_required results in the 2026-07-28 protocol. If your
+     * factory serves both eras, this only works on the legacy path.
      */
     async createMessage(
         params: CreateMessageRequest['params'],
@@ -960,6 +972,11 @@ export class Server extends Protocol<ServerContext> {
      * @param params The parameters for the elicitation request.
      * @param options Optional request options.
      * @returns The result of the elicitation request.
+     *
+     * @deprecated Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip)
+     * instead. The 2025 push-style server-to-client request model is replaced by input_required
+     * results in the 2026-07-28 protocol. If your factory serves both eras, this only works on the
+     * legacy path.
      */
     async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
         this._assertPushApiInServedEra('elicitation/create');
@@ -1049,8 +1066,10 @@ export class Server extends Protocol<ServerContext> {
      * Requests the list of roots from the client.
      *
      * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
-     * Remains functional during the deprecation window (at least twelve months).
-     * Migrate to passing paths via tool parameters, resource URIs, or configuration.
+     * Throws on a 2026-07-28-era request — use {@link index.inputRequired | inputRequired} (multi-round-trip) instead,
+     * or migrate to passing paths via tool parameters, resource URIs, or configuration. The 2025
+     * push-style server-to-client request model is replaced by input_required results in the
+     * 2026-07-28 protocol. If your factory serves both eras, this only works on the legacy path.
      */
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions): Promise<ListRootsResult> {
         this._assertPushApiInServedEra('roots/list');
