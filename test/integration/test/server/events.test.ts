@@ -697,7 +697,7 @@ describe('Events', () => {
         });
 
         describe('client-suggested ttlMs', () => {
-            function makeTtlServer(opts: { ttlMs: number; maxTtlMs?: number }) {
+            function makeTtlServer(opts: { ttlMs: number; maxTtlMs?: number; allowNonExpiring?: boolean }) {
                 const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
                 const s = new McpServer(
                     { name: 's', version: '1.0.0' },
@@ -750,8 +750,22 @@ describe('Events', () => {
                 expect(granted).toBeLessThanOrEqual(125_000);
             });
 
+            it('ttlMs:null is rejected with InvalidParams when allowNonExpiring is not set', async () => {
+                const { s } = makeTtlServer({ ttlMs: 60_000 });
+                server = s;
+                await connectPair(server, client);
+                await expect(
+                    client.subscribeEvent({
+                        name: 'inc',
+                        delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                        cursor: null,
+                        ttlMs: null
+                    })
+                ).rejects.toMatchObject({ code: -32602 });
+            });
+
             it('ttlMs:null returns refreshBefore:null and the reaper does not expire it', async () => {
-                const { s, fetchMock } = makeTtlServer({ ttlMs: 100 });
+                const { s, fetchMock } = makeTtlServer({ ttlMs: 100, allowNonExpiring: true });
                 server = s;
                 await connectPair(server, client);
                 const r = await client.subscribeEvent({

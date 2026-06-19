@@ -269,6 +269,14 @@ export interface EventWebhookOptions {
      */
     maxTtlMs?: number;
     /**
+     * Whether to honour client requests for non-expiring subscriptions
+     * (`ttlMs: null` on `events/subscribe`). When `false` (the default), such
+     * requests are rejected with `InvalidParams` so {@link maxTtlMs} remains a
+     * hard upper bound on subscription lifetime. Only enable this when your
+     * deployment provides durable storage for non-expiring subscriptions.
+     */
+    allowNonExpiring?: boolean;
+    /**
      * Safety validation for callback URLs. See {@linkcode isSafeWebhookUrl}.
      */
     urlValidation?: WebhookUrlValidationOptions;
@@ -1282,8 +1290,17 @@ export class ServerEventManager {
     private async _handleSubscribe(params: SubscribeEventRequestParams, ctx: ServerContext): Promise<SubscribeEventResult> {
         const defaultTtl = this._webhookOptions!.ttlMs!;
         const maxTtl = this._webhookOptions!.maxTtlMs ?? defaultTtl;
-        // Spec: omitted → server default; null → no expiry; otherwise clamp to server max.
-        // The server MUST NOT return refreshBefore:null unless the client sent ttlMs:null.
+        const allowNonExpiring = this._webhookOptions!.allowNonExpiring === true;
+        // Spec: omitted → server default; null → request no expiry; otherwise clamp to server max.
+        // The server MUST NOT return refreshBefore:null unless the client sent ttlMs:null, but
+        // it MAY decline ttlMs:null — we do so unless the operator has opted in, so maxTtlMs
+        // remains a hard upper bound on subscription lifetime by default.
+        if (params.ttlMs === null && !allowNonExpiring) {
+            throw new ProtocolError(
+                ProtocolErrorCode.InvalidParams,
+                'Non-expiring subscriptions are not permitted by this server'
+            );
+        }
         const grantedTtl = params.ttlMs === null ? null : Math.min(params.ttlMs ?? defaultTtl, maxTtl);
 
         const event = this._events.get(params.name);
