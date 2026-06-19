@@ -76,6 +76,7 @@ describe('SdkErrorCode', () => {
             InvalidResult: 'INVALID_RESULT',
             UnsupportedResultType: 'UNSUPPORTED_RESULT_TYPE',
             InputRequiredRoundsExceeded: 'INPUT_REQUIRED_ROUNDS_EXCEEDED',
+            ListPaginationExceeded: 'LIST_PAGINATION_EXCEEDED',
             MethodNotSupportedByProtocolVersion: 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION',
             EraNegotiationFailed: 'ERA_NEGOTIATION_FAILED',
             ClientHttpNotImplemented: 'CLIENT_HTTP_NOT_IMPLEMENTED',

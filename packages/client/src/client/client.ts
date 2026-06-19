@@ -78,6 +78,8 @@ import {
     SubscriptionFilterSchema
 } from '@modelcontextprotocol/core';
 
+import type { ResponseCacheStore } from './responseCache.js';
+import { ClientResponseCache, InMemoryResponseCacheStore } from './responseCache.js';
 import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation.js';
 import { detectProbeEnvironment, detectProbeTransportKind, negotiateEra, resolveVersionNegotiation } from './versionNegotiation.js';
 
@@ -255,7 +257,49 @@ export type ClientOptions = ProtocolOptions & {
      * ```
      */
     listChanged?: ListChangedHandlers;
+
+    /**
+     * Cap on the number of pages the auto-aggregating
+     * {@linkcode Client.listTools | listTools()} /
+     * {@linkcode Client.listPrompts | listPrompts()} /
+     * {@linkcode Client.listResources | listResources()} /
+     * {@linkcode Client.listResourceTemplates | listResourceTemplates()} walk
+     * fetches before throwing (a defence against a server whose `nextCursor`
+     * never converges). `0` disables the cap. Default: `64`. Applies only to
+     * the no-argument auto-aggregate path; an explicit-`cursor` per-page call
+     * is never capped.
+     */
+    listMaxPages?: number;
+
+    /**
+     * The response-cache store backing the client's derived views (the cached
+     * `tools/list` result that {@linkcode Client.callTool | callTool}'s output
+     * validation and SEP-2243 header mirroring will read once the stacked
+     * SEP-2243 PR lands; this commit ships only the seam). Defaults to a fresh
+     * {@linkcode InMemoryResponseCacheStore} per client.
+     *
+     * **Do not share one store across clients at all in v2.0.x** — entries
+     * are keyed by method + params only, so two clients connected to
+     * different servers (even under the same credential) collide on
+     * `tools/list`, and one client's `list_changed` evicts every co-tenant's
+     * entry. Supply your own only as a single-client backing store.
+     * Per-principal partitioning that enables safe sharing is #39.
+     */
+    responseCacheStore?: ResponseCacheStore;
 };
+
+/**
+ * `list_changed` notification → response-cache method(s) to evict. `resources`
+ * covers both list verbs (the spec's "relevant notification ⇒ immediately
+ * stale").
+ */
+const LIST_CHANGED_EVICTIONS: Readonly<Record<string, readonly string[]>> = {
+    'notifications/tools/list_changed': ['tools/list'],
+    'notifications/prompts/list_changed': ['prompts/list'],
+    'notifications/resources/list_changed': ['resources/list', 'resources/templates/list']
+};
+
+const DEFAULT_LIST_MAX_PAGES = 64;
 
 /**
  * A handle to an open `subscriptions/listen` stream (protocol revision
@@ -339,7 +383,20 @@ export class Client extends Protocol<ClientContext> {
     private _capabilities: ClientCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
-    private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
+    /**
+     * The response-cache substrate. Owns the backing store, the per-method
+     * eviction-generation counter, the user-supplied/default flag, and the
+     * stamp-memoized derived `name → Tool` / `name → output-validator`
+     * indices — the cache-coordination state that used to live as separate
+     * private fields here. The internal aggregating walk writes one entry per
+     * list verb; `list_changed` evicts the matching method;
+     * `_resetConnectionState` resets the lot. {@linkcode callTool}'s
+     * output-schema validation reads the derived `outputValidator` index (the
+     * substrate's first production caller); the stacked SEP-2243 PR wires
+     * `Mcp-Param-*` mirroring through `toolDefinition` on top.
+     */
+    private readonly _cache: ClientResponseCache;
+    private readonly _listMaxPages: number;
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     /**
      * The constructor `listChanged` configuration. Durable across reconnects:
@@ -396,7 +453,12 @@ export class Client extends Protocol<ClientContext> {
             clearTimeout(timer);
         }
         this._listChangedDebounceTimers.clear();
-        this._cachedToolOutputValidators.clear();
+        // A user-supplied store is NOT cleared on reconnect/close — that would
+        // defeat the only reason to supply one. The per-instance default IS
+        // cleared (it is connection-scoped); derived indices and the
+        // generation map are dropped regardless. The default impl is
+        // synchronous, so the call returns plain void here.
+        this._cache.resetForReconnect();
     }
 
     override async close(): Promise<void> {
@@ -426,6 +488,15 @@ export class Client extends Protocol<ClientContext> {
         // Multi-round-trip auto-fulfilment driver (2026-07-28): on by default,
         // configurable via ClientOptions.inputRequired.
         this._inputRequiredDriverConfig = resolveInputRequiredDriverConfig(options?.inputRequired);
+        // Response-cache substrate. A fresh in-memory store is allocated when
+        // the caller does not supply one — never share a default across
+        // instances (see ClientOptions.responseCacheStore).
+        this._cache = new ClientResponseCache(
+            options?.responseCacheStore ?? new InMemoryResponseCacheStore(),
+            options?.responseCacheStore !== undefined,
+            error => this._reportStoreError(error)
+        );
+        this._listMaxPages = options?.listMaxPages ?? DEFAULT_LIST_MAX_PAGES;
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -1227,24 +1298,28 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Lists available prompts. Results may be paginated — loop on `nextCursor` to collect all pages.
+     * Lists available prompts.
+     *
+     * Called without a `cursor` (the common case), this walks every page and
+     * returns the complete aggregated list with `nextCursor: undefined`; the
+     * aggregate is also written to the {@linkcode ResponseCacheStore}. Pass an
+     * explicit `{ cursor }` to fetch a single page and walk pagination
+     * yourself — the per-page path returns the server's raw page (with
+     * `nextCursor` for the next call) and does not write the response cache.
+     * The auto-aggregate path is capped by
+     * {@linkcode ClientOptions | ClientOptions.listMaxPages} (default 64); the per-page path
+     * is not.
      *
      * Returns an empty list if the server does not advertise prompts capability
      * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
      *
      * @example
      * ```ts source="./client.examples.ts#Client_listPrompts_pagination"
-     * const allPrompts: Prompt[] = [];
-     * let cursor: string | undefined;
-     * // Note: an empty-string cursor is valid and does not signal the end of results.
-     * do {
-     *     const { prompts, nextCursor } = await client.listPrompts({ cursor });
-     *     allPrompts.push(...prompts);
-     *     cursor = nextCursor;
-     * } while (cursor !== undefined);
+     * // No cursor → all pages aggregated for you.
+     * const { prompts } = await client.listPrompts();
      * console.log(
      *     'Available prompts:',
-     *     allPrompts.map(p => p.name)
+     *     prompts.map(p => p.name)
      * );
      * ```
      */
@@ -1254,28 +1329,35 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
-        return this.request({ method: 'prompts/list', params }, options);
+        if (params?.cursor !== undefined) {
+            return this.request({ method: 'prompts/list', params }, options);
+        }
+        return this._listAllPages<ListPromptsResult>('prompts/list', params, options, (acc, page) => acc.prompts.push(...page.prompts));
     }
 
     /**
-     * Lists available resources. Results may be paginated — loop on `nextCursor` to collect all pages.
+     * Lists available resources.
+     *
+     * Called without a `cursor` (the common case), this walks every page and
+     * returns the complete aggregated list with `nextCursor: undefined`; the
+     * aggregate is also written to the {@linkcode ResponseCacheStore}. Pass an
+     * explicit `{ cursor }` to fetch a single page and walk pagination
+     * yourself — the per-page path returns the server's raw page (with
+     * `nextCursor` for the next call) and does not write the response cache.
+     * The auto-aggregate path is capped by
+     * {@linkcode ClientOptions | ClientOptions.listMaxPages} (default 64); the per-page path
+     * is not.
      *
      * Returns an empty list if the server does not advertise resources capability
      * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
      *
      * @example
      * ```ts source="./client.examples.ts#Client_listResources_pagination"
-     * const allResources: Resource[] = [];
-     * let cursor: string | undefined;
-     * // Note: an empty-string cursor is valid and does not signal the end of results.
-     * do {
-     *     const { resources, nextCursor } = await client.listResources({ cursor });
-     *     allResources.push(...resources);
-     *     cursor = nextCursor;
-     * } while (cursor !== undefined);
+     * // No cursor → all pages aggregated for you.
+     * const { resources } = await client.listResources();
      * console.log(
      *     'Available resources:',
-     *     allResources.map(r => r.name)
+     *     resources.map(r => r.name)
      * );
      * ```
      */
@@ -1285,11 +1367,22 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
-        return this.request({ method: 'resources/list', params }, options);
+        if (params?.cursor !== undefined) {
+            return this.request({ method: 'resources/list', params }, options);
+        }
+        return this._listAllPages<ListResourcesResult>('resources/list', params, options, (acc, page) =>
+            acc.resources.push(...page.resources)
+        );
     }
 
     /**
-     * Lists available resource URI templates for dynamic resources. Results may be paginated — see {@linkcode listResources | listResources()} for the cursor pattern.
+     * Lists available resource URI templates for dynamic resources.
+     *
+     * Called without a `cursor`, this walks every page and returns the
+     * complete aggregated list with `nextCursor: undefined`; the aggregate is
+     * also written to the {@linkcode ResponseCacheStore}. Pass an explicit
+     * `{ cursor }` to fetch a single page — see
+     * {@linkcode listResources | listResources()} for the per-page contract.
      *
      * Returns an empty list if the server does not advertise resources capability
      * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
@@ -1305,7 +1398,96 @@ export class Client extends Protocol<ClientContext> {
             );
             return { resourceTemplates: [] };
         }
-        return this.request({ method: 'resources/templates/list', params }, options);
+        if (params?.cursor !== undefined) {
+            return this.request({ method: 'resources/templates/list', params }, options);
+        }
+        return this._listAllPages<ListResourceTemplatesResult>('resources/templates/list', params, options, (acc, page) =>
+            acc.resourceTemplates.push(...page.resourceTemplates)
+        );
+    }
+
+    /**
+     * Walk every page of a paginated list verb, aggregate, and write ONE
+     * entry to the response cache. Internal — backs the public `list*`
+     * methods' no-`cursor` auto-aggregate path. Page 1's result object is
+     * mutated in place (its items array is extended; `nextCursor` is
+     * cleared); page-1 metadata (`ttlMs`, `cacheScope`, `_meta`) is preserved.
+     * A `nextCursor` that repeats stops the walk (defence against a
+     * non-converging server, mcp.d's `drainList` guard);
+     * {@linkcode ClientOptions.listMaxPages} is a hard cap — hitting it
+     * throws, so a partial aggregate is never cached. The
+     * captured-generation guard skips the write when a `list_changed` landed
+     * mid-walk, so the eviction is never overwritten by a stale aggregate.
+     * `finalize` runs on the complete aggregate before the cache write — the
+     * SEP-2243 invalid-`x-mcp-header` exclusion hooks here so the cached
+     * `tools/list` entry is already filtered.
+     *
+     * The caller's `baseParams` (everything except `cursor`) is threaded into
+     * every page request — page 1 sends `{...baseParams}`, later pages
+     * `{...baseParams, cursor}` — so a typed, documented `_meta` (e.g. W3C
+     * trace context) supplied to the public `list*()` reaches every wire
+     * request the walk issues.
+     */
+    private async _listAllPages<R extends { nextCursor?: string }>(
+        method: RequestMethod,
+        baseParams: { readonly [key: string]: unknown } | undefined,
+        options: RequestOptions | undefined,
+        append: (acc: R, page: R) => void,
+        finalize?: (acc: R) => void
+    ): Promise<R> {
+        // Capture the eviction generation BEFORE page 1: a `list_changed` that
+        // lands mid-walk bumps the counter, and the terminal `write` skips
+        // when it observes the bump (the result still returns to the caller —
+        // it just is not cached).
+        const generation = this._cache.captureGeneration(method);
+        const acc = (await this.request({ method, ...(baseParams && { params: { ...baseParams } }) }, options)) as R;
+        let cursor = acc.nextCursor;
+        const seen = new Set<string>();
+        let pages = 1;
+        while (cursor !== undefined && !seen.has(cursor)) {
+            if (this._listMaxPages !== 0 && pages >= this._listMaxPages) {
+                throw new SdkError(
+                    SdkErrorCode.ListPaginationExceeded,
+                    `${method}: exceeded listMaxPages (${this._listMaxPages}); server pagination did not terminate`,
+                    { method, listMaxPages: this._listMaxPages }
+                );
+            }
+            seen.add(cursor);
+            const page = (await this.request({ method, params: { ...baseParams, cursor } }, options)) as R;
+            append(acc, page);
+            cursor = page.nextCursor;
+            pages++;
+        }
+        acc.nextCursor = undefined;
+        finalize?.(acc);
+        await this._cache.write(method, acc, generation);
+        return acc;
+    }
+
+    /** Route a custom-store failure to `onerror` without aborting the surrounding dispatch. */
+    private _reportStoreError(e: unknown): void {
+        this.onerror?.(e instanceof Error ? e : new Error(String(e)));
+    }
+
+    /**
+     * Compile a single tool's `outputSchema` (or `undefined` when absent /
+     * uncompilable). Passed as the compile callback to
+     * {@linkcode ClientResponseCache.outputValidator} so the cache class stays
+     * free of any validator-provider dependency. One tool's uncompilable
+     * `outputSchema` (e.g. an invalid `pattern` regex or unresolvable `$ref`)
+     * must not poison every other tool's `callTool` — warn naming the
+     * offender and return `undefined` so the validator index simply omits it.
+     */
+    private _compileOutputValidator(tool: Tool): JsonSchemaValidator<unknown> | undefined {
+        if (!tool.outputSchema) return undefined;
+        try {
+            return this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
+        } catch (error) {
+            console.warn(
+                `[mcp-sdk] tool '${tool.name}': outputSchema failed to compile and will not be validated — ${error instanceof Error ? error.message : String(error)}`
+            );
+            return undefined;
+        }
     }
 
     /** Reads the contents of a resource by URI. */
@@ -1542,6 +1724,28 @@ export class Client extends Protocol<ClientContext> {
      * being silently swallowed.
      */
     protected override _onnotification(raw: JSONRPCNotification, extra?: MessageExtraInfo): void {
+        // Response-cache invalidation: a `list_changed` notification means the
+        // matching cached list result is stale. Evict (do NOT refetch) before
+        // dispatch so a handler that reaches the cache observes the cleared
+        // entry. Runs regardless of whether the user
+        // configured `listChanged` — derived views (the tool index, output
+        // validators) must drop the stale entry either way. `raw.method` is
+        // server-controlled; guard with `Object.hasOwn` so an inherited
+        // `Object.prototype` member name (`constructor`, `toString`, …) does
+        // not reach the iteration as a non-iterable function.
+        const evicted = Object.hasOwn(LIST_CHANGED_EVICTIONS, raw.method) ? LIST_CHANGED_EVICTIONS[raw.method] : undefined;
+        if (evicted !== undefined) {
+            for (const method of evicted) {
+                // `evict()` bumps the generation FIRST and unconditionally
+                // (the `_cacheListResult` race guard relies on the bump, not
+                // on the store's evict completing), then awaits the store. A
+                // custom store's `evict()` may throw or reject; route to
+                // `onerror` and proceed so dispatch (and the user's
+                // `listChanged` handler) runs regardless. Fire-and-forget —
+                // dispatch must not block on an async store.
+                void this._cache.evict(method).catch(error => this._reportStoreError(error));
+            }
+        }
         if (raw.method === 'notifications/subscriptions/acknowledged') {
             const params = raw.params as { _meta?: Record<string, unknown>; notifications?: unknown } | undefined;
             const subscriptionId = params?._meta?.[SUBSCRIPTION_ID_META_KEY];
@@ -1664,8 +1868,22 @@ export class Client extends Protocol<ClientContext> {
         // construction).
         const result = await this.request({ method: 'tools/call', params }, options);
 
-        // Check if the tool has an outputSchema
-        const validator = this.getToolOutputValidator(params.name);
+        // Check if the tool has an outputSchema. Reads the cached
+        // `tools/list` entry (via the response cache's stamp-memoized
+        // `outputValidator` index) — `callTool` never issues a `tools/list`
+        // itself; the cache is populated by the caller's own
+        // {@linkcode listTools | listTools()}. A cold cache means validation
+        // is skipped (the v1.x opportunistic behaviour, kept so a legacy/stdio
+        // `callTool` still issues zero extra requests). The cache read is
+        // guarded the same way as `evict()`/`set()`: a custom store whose
+        // `get()` rejects AFTER the server has already executed the call must
+        // not surface as a `callTool()` rejection (a caller that retries on
+        // failure would re-execute a possibly side-effecting tool). Route to
+        // `onerror` and degrade to skipping validation — the same outcome as
+        // a cold cache.
+        const validator = await this._cache
+            .outputValidator(params.name, tool => this._compileOutputValidator(tool))
+            .catch(error => void this._reportStoreError(error));
         if (validator) {
             // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
             if (!result.structuredContent && !result.isError) {
@@ -1703,47 +1921,29 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Cache validators for tool output schemas.
-     * Called after {@linkcode listTools | listTools()} to pre-compile validators for better performance.
-     */
-    private cacheToolMetadata(tools: Tool[]): void {
-        this._cachedToolOutputValidators.clear();
-
-        for (const tool of tools) {
-            // If the tool has an outputSchema, create and cache the validator
-            if (tool.outputSchema) {
-                const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
-                this._cachedToolOutputValidators.set(tool.name, toolValidator);
-            }
-        }
-    }
-
-    /**
-     * Get cached validator for a tool
-     */
-    private getToolOutputValidator(toolName: string): JsonSchemaValidator<unknown> | undefined {
-        return this._cachedToolOutputValidators.get(toolName);
-    }
-
-    /**
-     * Lists available tools. Results may be paginated — loop on `nextCursor` to collect all pages.
+     * Lists available tools.
+     *
+     * Called without a `cursor` (the common case), this walks every page and
+     * returns the complete aggregated list with `nextCursor: undefined`; the
+     * aggregate is also written to the {@linkcode ResponseCacheStore} (the
+     * source for {@linkcode callTool | callTool()}'s output-schema validation
+     * and SEP-2243 `Mcp-Param-*` header mirroring). Pass an explicit
+     * `{ cursor }` to fetch a single page and walk pagination yourself — the
+     * per-page path returns the server's raw page (with `nextCursor` for the
+     * next call) and does not write the response cache. The auto-aggregate
+     * path is capped by {@linkcode ClientOptions | ClientOptions.listMaxPages} (default 64);
+     * the per-page path is not.
      *
      * Returns an empty list if the server does not advertise tools capability
      * (or throws if {@linkcode ClientOptions.enforceStrictCapabilities} is enabled).
      *
      * @example
      * ```ts source="./client.examples.ts#Client_listTools_pagination"
-     * const allTools: Tool[] = [];
-     * let cursor: string | undefined;
-     * // Note: an empty-string cursor is valid and does not signal the end of results.
-     * do {
-     *     const { tools, nextCursor } = await client.listTools({ cursor });
-     *     allTools.push(...tools);
-     *     cursor = nextCursor;
-     * } while (cursor !== undefined);
+     * // No cursor → all pages aggregated for you.
+     * const { tools } = await client.listTools();
      * console.log(
      *     'Available tools:',
-     *     allTools.map(t => t.name)
+     *     tools.map(t => t.name)
      * );
      * ```
      */
@@ -1753,12 +1953,13 @@ export class Client extends Protocol<ClientContext> {
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
-        const result = await this.request({ method: 'tools/list', params }, options);
-
-        // Cache the tools and their output schemas for future validation
-        this.cacheToolMetadata(result.tools);
-
-        return result;
+        if (params?.cursor !== undefined) {
+            // Explicit-cursor per-page contract: return one page; do NOT touch
+            // the response cache (a single page is not the complete aggregate
+            // the derived `outputValidator` index keys against).
+            return await this.request({ method: 'tools/list', params }, options);
+        }
+        return this._listAllPages<ListToolsResult>('tools/list', params, options, (acc, page) => acc.tools.push(...page.tools));
     }
 
     /**
