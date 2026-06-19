@@ -6,6 +6,8 @@
  * the failure mode without string-matching messages.
  */
 
+import type { OAuthClientMetadata } from '@modelcontextprotocol/core';
+
 /**
  * Base class for the OAuth-client-flow error family. Concrete subclasses are
  * added to this module alongside the SEP-2468/837/2207/2350/2352 behavior
@@ -57,5 +59,57 @@ export class IssuerMismatchError extends OAuthClientFlowError {
         this.kind = kind;
         this.expected = expected;
         this.received = received;
+    }
+}
+
+/**
+ * Thrown by `registerClient()` when the authorization server rejects a
+ * Dynamic Client Registration request. Carries the HTTP status, the raw
+ * response body, and the metadata that was submitted, so callers can inspect
+ * the AS's `error` / `error_description` and retry with adjusted metadata
+ * (for example a different `application_type`) per SEP-837.
+ *
+ * The `body` is the raw RFC 7591 error JSON; compare `JSON.parse(body).error`
+ * against `OAuthErrorCode` (e.g. `OAuthErrorCode.InvalidRedirectUri`,
+ * `OAuthErrorCode.InvalidClientMetadata`).
+ *
+ * Intentionally does **not** extend `OAuthError`: registration rejection is
+ * not a recoverable-by-credential-invalidation condition, and staying outside
+ * that hierarchy keeps it from being caught by `auth()`'s `OAuthError` retry
+ * path.
+ */
+export class RegistrationRejectedError extends OAuthClientFlowError {
+    /** HTTP status code returned by the registration endpoint. */
+    public readonly status: number;
+    /** Raw response body text (typically an RFC 7591 error JSON document). */
+    public readonly body: string;
+    /** The exact client metadata that was POSTed (after SDK defaults were applied). */
+    public readonly submittedMetadata: OAuthClientMetadata;
+
+    constructor(args: { status: number; body: string; submittedMetadata: OAuthClientMetadata }) {
+        super(`Dynamic Client Registration rejected (HTTP ${args.status}): ${args.body}`);
+        this.status = args.status;
+        this.body = args.body;
+        this.submittedMetadata = args.submittedMetadata;
+    }
+}
+
+/**
+ * Thrown by the token-exchange and refresh paths when the resolved token
+ * endpoint is not `https:` and is not a loopback host (SEP-2207). This is a
+ * configuration error — re-authorizing cannot fix it — so it intentionally does
+ * **not** extend `OAuthError` and `auth()`'s refresh branch rethrows it instead
+ * of falling through to a fresh `/authorize` redirect.
+ */
+export class InsecureTokenEndpointError extends OAuthClientFlowError {
+    /** The token endpoint URL that was rejected. */
+    public readonly tokenEndpoint: string;
+
+    constructor(tokenEndpoint: string) {
+        super(
+            `Refusing to send credentials to non-https token endpoint '${tokenEndpoint}'. ` +
+                `OAuth token requests MUST use TLS (localhost / 127.0.0.1 / ::1 are exempt).`
+        );
+        this.tokenEndpoint = tokenEndpoint;
     }
 }

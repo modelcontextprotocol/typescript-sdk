@@ -930,6 +930,35 @@ try {
 }
 ```
 
+### Dynamic Client Registration: `application_type` and `grant_types` defaults (SEP-837, SEP-2207)
+
+`OAuthClientMetadata` now has a typed `application_type?: string` field (expected `'native'` / `'web'`; tolerant on parse). `auth()` resolves your provider's `clientMetadata` once via the new `resolveClientMetadata()` and uses the resolved document for the Dynamic Client Registration body (scope selection still reads your raw `clientMetadata`). When `application_type` is unset, it is derived from your `redirect_uris`: a loopback host (`localhost` / `127.0.0.1` / `[::1]`) or a custom URI scheme yields `'native'`; anything else yields `'web'`. Set it explicitly when the heuristic is wrong for your deployment (for example a web app dev-served on `localhost`); a value you set is never overwritten.
+
+`resolveClientMetadata()` also defaults `grant_types` to `['authorization_code', 'refresh_token']` when you omit it, so authorization servers that gate refresh-token issuance on the registered grant types issue one. If you set `grant_types` explicitly, include `'refresh_token'` yourself if you want refresh tokens. CIMD users author the hosted metadata document themselves and should include `refresh_token` there. Direct callers of `registerClient()` that want the same defaults should pass `resolveClientMetadata(provider)` as `clientMetadata`. The `grant_types` default applies to the Dynamic Client Registration body only; it does **not** drive the `offline_access` scope / `prompt=consent` augmentation on the authorize request. Statically-registered and CIMD clients that want that augmentation must set `clientMetadata.grant_types = ['authorization_code', 'refresh_token']` explicitly. Non-interactive providers (no `redirectUrl`) get no `grant_types` default.
+
+DCR rejection now throws `RegistrationRejectedError` (carrying `status`, `body`, and `submittedMetadata`) instead of a generic `OAuthError`. Catch it to inspect the AS's `error` / `error_description` and retry with adjusted metadata, or surface a meaningful error.
+
+```typescript
+import { registerClient, RegistrationRejectedError, OAuthErrorCode } from '@modelcontextprotocol/client';
+
+try {
+    await registerClient(authorizationServerUrl, { metadata, clientMetadata });
+} catch (e) {
+    if (e instanceof RegistrationRejectedError) {
+        const parsed = JSON.parse(e.body) as { error?: string; error_description?: string };
+        if (parsed.error === OAuthErrorCode.InvalidRedirectUri) {
+            // AS rejected redirect_uris — retry with adjusted metadata
+        }
+    }
+}
+```
+
+### Token endpoint must use TLS (SEP-2207)
+
+`exchangeAuthorization()`, `refreshAuthorization()`, `fetchToken()`, and the Cross-App Access helpers `requestJwtAuthorizationGrant()` / `exchangeJwtAuthGrant()` now throw `InsecureTokenEndpointError` when the resolved token endpoint is not `https:`. Only `localhost`, `127.0.0.1`, and `::1` are exempt for local development. `auth()` surfaces this error on every path (including the refresh branch) rather than silently re-authorizing. If you were pointing at a plain-`http:` authorization server on a non-loopback host — including cluster-DNS names like `http://oauth.svc.cluster.local` or private addresses like `http://10.0.0.5` — switch it to TLS; there is no opt-out.
+
+**Storage confidentiality remains yours.** `OAuthClientProvider.saveTokens()` receives the raw `refresh_token`; store it in platform-appropriate secure storage. The SDK guarantees transit confidentiality but cannot secure your storage layer.
+
 ### Experimental tasks interception removed
 
 The 2025-11 experimental tasks side-channel woven through `Protocol` has been removed in preparation for the SEP-2663 Tasks Extension. The following are gone with no in-place replacement:
