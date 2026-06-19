@@ -1286,7 +1286,7 @@ export class ServerEventManager {
             secrets: [params.delivery.secret],
             acknowledgedSeq: headSeq,
             expiresAt,
-            deliveryStatus: { active: true, lastDeliveryAt: null, lastError: null }
+            deliveryStatus: { active: true, lastDeliveryAt: null, lastError: null, throttled: false }
         };
 
         sub.cursor = cursor;
@@ -1298,7 +1298,7 @@ export class ServerEventManager {
         sub.expiresAt = expiresAt;
         sub.ctx = ctx;
         const priorStatus = sub.deliveryStatus;
-        sub.deliveryStatus = { ...sub.deliveryStatus, active: true, failedSince: null };
+        sub.deliveryStatus = { ...sub.deliveryStatus, active: true, failedSince: null, throttled: false, retryAfterMs: undefined };
 
         if (isNew) {
             this._webhookSubs.set(key, sub);
@@ -1537,7 +1537,13 @@ export class ServerEventManager {
             try {
                 const res = await this._sendSignedPost(sub.url, sub.secrets, sub.id, msgId, body);
                 if (res.ok) {
-                    sub.deliveryStatus = { active: true, lastDeliveryAt: new Date().toISOString(), lastError: null, failedSince: null };
+                    sub.deliveryStatus = {
+                        active: true,
+                        lastDeliveryAt: new Date().toISOString(),
+                        lastError: null,
+                        failedSince: null,
+                        throttled: false
+                    };
                     if (occurrenceSeq !== undefined && occurrenceSeq > sub.acknowledgedSeq) {
                         sub.acknowledgedSeq = occurrenceSeq;
                         const event = this._events.get(sub.eventName);
@@ -1559,15 +1565,24 @@ export class ServerEventManager {
                 }
                 throw Object.assign(new Error('http_5xx'), { category });
             } catch (error) {
+                const lastError = this._classifyDeliveryError(error);
                 if (attempt >= maxAttempts) {
                     sub.deliveryStatus = {
                         active: false,
                         lastDeliveryAt: sub.deliveryStatus.lastDeliveryAt ?? null,
-                        lastError: this._classifyDeliveryError(error),
-                        failedSince: sub.deliveryStatus.failedSince ?? new Date().toISOString()
+                        lastError,
+                        failedSince: sub.deliveryStatus.failedSince ?? new Date().toISOString(),
+                        throttled: false
                     };
                     return;
                 }
+                sub.deliveryStatus = {
+                    ...sub.deliveryStatus,
+                    lastError,
+                    failedSince: sub.deliveryStatus.failedSince ?? new Date().toISOString(),
+                    throttled: true,
+                    retryAfterMs: delay
+                };
                 await new Promise(r => setTimeout(r, delay));
                 delay *= 2;
             }

@@ -2421,7 +2421,19 @@ export const WebhookDeliveryStatusSchema = z.object({
     /**
      * ISO 8601 timestamp since which deliveries have been failing.
      */
-    failedSince: z.string().nullable().optional()
+    failedSince: z.string().nullable().optional(),
+    /**
+     * `true` when the server has temporarily backed off delivery (e.g. inside a
+     * retry-backoff window or after a rate-limit response). Cleared on the next
+     * successful delivery and on refresh.
+     */
+    throttled: z.boolean().optional(),
+    /**
+     * Hint, in milliseconds, until the server will reattempt delivery while
+     * {@linkcode throttled} is `true`. Cleared on the next successful delivery
+     * and on refresh.
+     */
+    retryAfterMs: z.number().int().nonnegative().optional()
 });
 
 /**

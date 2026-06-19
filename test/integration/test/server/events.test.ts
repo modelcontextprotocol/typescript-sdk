@@ -555,6 +555,55 @@ describe('Events', () => {
             expect((init.headers as Record<string, string>)[WEBHOOK_ID_HEADER]).toMatch(/^msg_terminated_/);
         });
 
+        it('surfaces deliveryStatus.throttled + retryAfterMs during retry backoff and clears them on success', async () => {
+            const fm = vi
+                .fn()
+                .mockResolvedValueOnce(new Response(null, { status: 503 }))
+                .mockResolvedValue(new Response(null, { status: 200 }));
+            server = new McpServer(
+                { name: 's', version: '1.0.0' },
+                {
+                    events: {
+                        webhook: {
+                            ttlMs: 60_000,
+                            initialRetryDelayMs: 60,
+                            fetch: fm as unknown as typeof fetch,
+                            resolveHost: async () => [{ address: '203.0.113.1', family: 4 }],
+                            getPrincipal: () => 'user-1',
+                            verification: { allowlist: ['hooks.example.com'] }
+                        }
+                    }
+                }
+            );
+            server.registerEvent('inc', { emitOnly: true });
+            await connectPair(server, client);
+            await client.subscribeEvent({ name: 'inc', delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET }, cursor: null });
+
+            server.emitEvent('inc', { n: 1 });
+            await vi.waitFor(() => expect(fm).toHaveBeenCalledTimes(1));
+
+            // First attempt got 503 → server is now in the backoff window.
+            const r1 = await client.subscribeEvent({
+                name: 'inc',
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                cursor: null
+            });
+            expect(r1.deliveryStatus?.throttled).toBe(true);
+            expect(r1.deliveryStatus?.retryAfterMs).toBeGreaterThan(0);
+            expect(r1.deliveryStatus?.lastError).toBe('http_5xx');
+
+            // Retry succeeds → throttled/retryAfterMs cleared.
+            await vi.waitFor(() => expect(fm).toHaveBeenCalledTimes(2));
+            const r2 = await client.subscribeEvent({
+                name: 'inc',
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                cursor: null
+            });
+            expect(r2.deliveryStatus?.throttled ?? false).toBe(false);
+            expect(r2.deliveryStatus?.retryAfterMs).toBeUndefined();
+            expect(r2.deliveryStatus?.lastError).toBeNull();
+        });
+
         it('classifies 4xx as non-retryable http_4xx in deliveryStatus.lastError', async () => {
             fetchMock.mockResolvedValueOnce(new Response(null, { status: 404 }));
             await connectPair(server, client);
