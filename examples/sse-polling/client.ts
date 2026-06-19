@@ -20,7 +20,10 @@ runClient('sse-polling', async () => {
     // automatic reconnect; that is the EXPECTED flow, not a failure.
     transport.onerror = () => {};
 
-    const client = new Client({ name: 'sse-polling-client', version: '1.0.0' });
+    // Explicitly the 2025 `initialize` handshake — `closeSSE`/`eventStore` live
+    // on the sessionful-2025 transport, so this story is legacy-only by design
+    // (it was previously reaching 2025 by negotiation fallback; pin it).
+    const client = new Client({ name: 'sse-polling-client', version: '1.0.0' }, { versionNegotiation: { mode: 'legacy' } });
     const logs: string[] = [];
     client.setNotificationHandler('notifications/message', n => {
         logs.push(String(n.params.data));

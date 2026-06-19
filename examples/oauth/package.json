@@ -4,7 +4,8 @@
     "type": "module",
     "scripts": {
         "server": "tsx server.ts",
-        "client": "tsx simpleOAuthClient.ts"
+        "client": "tsx client.ts",
+        "client:browser": "tsx simpleOAuthClient.ts"
     },
     "dependencies": {
         "@mcp-examples/shared": "workspace:*",
@@ -20,6 +21,14 @@
         "tsx": "catalog:devTools"
     },
     "example": {
-        "excluded": "Interactive authorization-code OAuth flow: browser auth + callback server on :8090. Run server.ts + simpleOAuthClient.ts manually. Machine-to-machine client_credentials is ../oauth-client-credentials/; the readline playground is ../repl/."
+        "transports": [
+            "http"
+        ],
+        "era": "dual",
+        "path": "/mcp",
+        "env": {
+            "OAUTH_DEMO_AUTO_CONSENT": "1"
+        },
+        "//": "client.ts drives the full authorization-code flow headlessly because OAUTH_DEMO_AUTO_CONSENT=1 makes the demo AS auto-sign-in + auto-approve, collapsing the browser dance into a 302 chain. simpleOAuthClient.ts is the manual real-browser flow — run via `pnpm client:browser`."
     }
 }

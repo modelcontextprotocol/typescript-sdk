@@ -15,7 +15,13 @@ runClient('standalone-get', async () => {
     let received = 0;
     const client = new Client(
         { name: 'standalone-get-client', version: '1.0.0' },
-        { listChanged: { resources: { autoRefresh: false, debounceMs: 0, onChanged: () => void received++ } } }
+        {
+            // Explicitly the 2025 `initialize` handshake — the standalone GET
+            // stream is a sessionful-2025 transport feature, so this story is
+            // legacy-only by design (was reaching 2025 by fallback; pin it).
+            versionNegotiation: { mode: 'legacy' },
+            listChanged: { resources: { autoRefresh: false, debounceMs: 0, onChanged: () => void received++ } }
+        }
     );
     await client.connect(new StreamableHTTPClientTransport(new globalThis.URL(URL)));
 

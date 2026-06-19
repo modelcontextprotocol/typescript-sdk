@@ -42,6 +42,7 @@ Add `-- --legacy` to the client command for the 2025-era handshake. Some stories
 | [`parallel-calls/`](./parallel-calls/README.md)                     | Multiple clients / parallel tool calls, per-client notifications                                        | stdio + http | dual   |
 | [`legacy-routing/`](./legacy-routing/README.md)                     | `isLegacyRequest` in front of an existing sessionful 1.x deployment + a strict modern entry on one port | http         | both¹  |
 | [`bearer-auth/`](./bearer-auth/README.md)                           | Resource server with bearer token; `401` + `WWW-Authenticate`                                           | http         | dual   |
+| [`oauth/`](./oauth/README.md)                                       | OAuth `authorization_code`: in-repo AS (auto-consent) + headless redirect-following client              | http         | dual   |
 | [`oauth-client-credentials/`](./oauth-client-credentials/README.md) | OAuth `client_credentials` (machine-to-machine): in-repo AS + `ClientCredentialsProvider`               | http         | dual   |
 
 ## HTTP hosting variants
@@ -58,13 +59,12 @@ Add `-- --legacy` to the client command for the 2025-era handshake. Some stories
 
 ## Excluded
 
-| Directory                                  | What it is                                                                                                               | Why not in CI                                                                                                                                                                        |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| [`oauth/`](./oauth/README.md)              | Interactive authorization-code OAuth flow: in-repo protected `server.ts` (demo AS + RS) + browser `simpleOAuthClient.ts` | Opens a real browser and runs a callback server on `:8090`. The headless machine-to-machine grant is covered by [`oauth-client-credentials/`](./oauth-client-credentials/README.md). |
-| [`repl/`](./repl/README.md)                | Fully-featured HTTP playground server + readline client                                                                  | Interactive — `client.ts` reads from stdin. Run manually in two terminals.                                                                                                           |
-| [`guides/`](./guides/README.md)            | Snippet collections synced into `docs/server.md` and `docs/client.md`                                                    | Typecheck-only; not a runnable pair.                                                                                                                                                 |
-| `server-quickstart/`, `client-quickstart/` | Website-tutorial sources                                                                                                 | External network / API key; typecheck-only.                                                                                                                                          |
-| `shared/`                                  | Demo OAuth provider helper library                                                                                       | Not a story — imported by the OAuth examples.                                                                                                                                        |
+| Directory                                  | What it is                                                            | Why not in CI                                                              |
+| ------------------------------------------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| [`repl/`](./repl/README.md)                | Fully-featured HTTP playground server + readline client               | Interactive — `client.ts` reads from stdin. Run manually in two terminals. |
+| [`guides/`](./guides/README.md)            | Snippet collections synced into `docs/server.md` and `docs/client.md` | Typecheck-only; not a runnable pair.                                       |
+| `server-quickstart/`, `client-quickstart/` | Website-tutorial sources                                              | External network / API key; typecheck-only.                                |
+| `shared/`                                  | Demo OAuth provider helper library                                    | Not a story — imported by the OAuth examples.                              |
 
 ## Multi-node deployment patterns
 
