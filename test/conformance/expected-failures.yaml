@@ -49,14 +49,6 @@ client:
 
 server:
     # --- Draft-spec scenarios (in `--suite draft`; the default `active` suite is green) ---
-    # WARNING-only: with the listChanged capability now advertised in
-    # server/discover, server-stateless runs three additional SHOULD-level
-    # checks (sep-2575-server-sends-{tools,prompts,resources}-list-changed-on-
-    # subscription) that the conformance fixture cannot yet satisfy because it
-    # is not wired to publish list_changed events to listen streams. The
-    # fixture is armed in a follow-up change, after which this entry burns
-    # down.
-    - server-stateless
     # SEP-2243 (HTTP header standardization): the reject cells the SDK does
     # answer now use -32001 (HeaderMismatch), but missing-header enforcement
     # (Mcp-Method, Mcp-Name) and the Mcp-Name cross-check are not implemented,

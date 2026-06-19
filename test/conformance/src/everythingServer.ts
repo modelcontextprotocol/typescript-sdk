@@ -967,6 +967,43 @@ function createMcpServer() {
         }
     );
 
+    // ===== SUBSCRIPTION/LISTEN DIAGNOSTIC TRIGGERS (SEP-2575) =====
+    //
+    // The `server-stateless` conformance scenario opens a `subscriptions/listen`
+    // stream (served by `createMcpHandler`'s built-in listen router), then calls
+    // one of these triggers and asserts the corresponding `*/list_changed`
+    // notification arrives on the open stream. The trigger publishes the change
+    // event onto the handler's bus via the `handler.notify.*` sugar — the
+    // listen router stamps the subscription id and applies the per-stream
+    // filter, so the same trigger also exercises the ack-first and
+    // honors-notification-filter checks. The 2026-07-28 path is per-request
+    // (each call gets a fresh `McpServer`), so there is no list to mutate; the
+    // event itself is what the SHOULD requirement measures.
+
+    mcpServer.registerTool(
+        'test_trigger_tool_change',
+        {
+            description: 'Listen diagnostic (SEP-2575): publishes a tools/list_changed event onto the handler bus',
+            inputSchema: z.object({})
+        },
+        async (): Promise<CallToolResult> => {
+            modernHandler.notify.toolsChanged();
+            return { content: [{ type: 'text', text: 'tools_list_changed published' }] };
+        }
+    );
+
+    mcpServer.registerTool(
+        'test_trigger_prompt_change',
+        {
+            description: 'Listen diagnostic (SEP-2575): publishes a prompts/list_changed event onto the handler bus',
+            inputSchema: z.object({})
+        },
+        async (): Promise<CallToolResult> => {
+            modernHandler.notify.promptsChanged();
+            return { content: [{ type: 'text', text: 'prompts_list_changed published' }] };
+        }
+    );
+
     // ===== RESOURCES =====
 
     // Static text resource
