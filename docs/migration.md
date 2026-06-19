@@ -1474,6 +1474,27 @@ The following APIs are unchanged between v1 and v2 (only the import paths change
 `Session not found` — unchanged from v1. Note that this use of `-32001` is an SDK convention, not a spec-assigned error code, and it is expected to be re-derived as error handling for the 2026 protocol revision (`2026-07-28`) is adopted. Avoid hard-coding the `-32001` code in
 client logic; key off the HTTP `404` status instead.
 
+## Authorization (2026-07-28 spec)
+
+The 2026-07-28 protocol revision adds client-side authorization requirements (RFC 9207 `iss` validation, RFC 8414 §3.3 issuer-echo, per-authorization-server credential isolation, scope step-up, DCR `application_type`, and refresh-token guidance). The SDK adds the public surface for these now and will implement the parts that land in SDK code (defaulting them on) as the SEP-2468/2352/2350/837/2207 behavior changes land; the parts that live in your `OAuthClientProvider` implementation, your `clientMetadata`, or your host UI are listed under [Conformance obligations for `OAuthClientProvider` implementers](#conformance-obligations-for-oauthclientprovider-implementers).
+
+### `auth()` options are now `AuthOptions`
+
+The inline options object on `auth()` is now the named `AuthOptions` type, exported from `@modelcontextprotocol/client`. Existing call sites need no change. New fields (both currently inert — the validation behavior they feed lands in the follow-up changes tracked by SEP-2468):
+
+- `iss?: string` — the form-urldecoded `iss` query parameter from the authorization callback. Pass it alongside `authorizationCode`; it is forwarded to RFC 9207 issuer validation once that lands.
+- `skipIssuerMetadataValidation?: boolean` — opt-out for the RFC 8414 §3.3 issuer-echo check during discovery. **Security-weakening**; use only with authorization servers known to publish a mismatched `issuer`.
+
+### `OAuthClientProvider` credential methods receive an `issuer` context
+
+`clientInformation(ctx?)`, `saveClientInformation(info, ctx?)`, `tokens(ctx?)`, and `saveTokens(tokens, ctx?)` now receive an optional `OAuthClientInformationContext` parameter carrying `{ issuer: string }` — the authorization server's `issuer` identifier. Providers that persist credentials should key storage by this value so that credentials registered with one authorization server are never sent to another. Providers with a single credential set may ignore the parameter; existing implementations compile unchanged. The SDK does not yet pass this argument; it begins doing so when the SEP-2352 behavior change lands.
+
+New TypeScript-only aliases `StoredOAuthTokens` and `StoredOAuthClientInformation` add an optional `issuer?: string` field on top of the wire types and are used as the parameter/return types of `tokens()` / `saveTokens()` and `clientInformation()` / `saveClientInformation()`. The `issuer` field is **not** part of the RFC 6749/7591 wire responses and is intentionally absent from `OAuthTokensSchema` / `OAuthClientInformationSchema` so an authorization server cannot populate it; once the SEP-2352 behavior change lands the SDK will stamp it onto credentials before calling `saveTokens` / `saveClientInformation`. Provider implementations should round-trip it unchanged. The field is currently inert.
+
+### Conformance obligations for `OAuthClientProvider` implementers
+
+<!-- Filled in as the SEP-2468/2352/2350/837/2207 behavior PRs land. -->
+
 ## Using an LLM to migrate your code
 
 An LLM-optimized version of this guide is available at [`docs/migration-SKILL.md`](migration-SKILL.md). It contains dense mapping tables designed for tools like Claude Code to mechanically apply all the changes described above. You can paste it into your LLM context or load it as
