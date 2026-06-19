@@ -66,3 +66,45 @@ export class SdkError extends Error {
         this.name = 'SdkError';
     }
 }
+
+/**
+ * Typed shape for HTTP error data carried by {@linkcode SdkHttpError}.
+ */
+export interface SdkHttpErrorData {
+    status: number;
+    statusText?: string;
+    [key: string]: unknown;
+}
+
+/**
+ * An {@linkcode SdkError} subclass for HTTP transport failures.
+ *
+ * Thrown by the streamable HTTP transport when the server responds with a
+ * non-OK status code. Narrows {@linkcode SdkError.data | data} to
+ * {@linkcode SdkHttpErrorData} so consumers can inspect the HTTP status
+ * without unsafe casting.
+ *
+ * @example
+ * ```ts source="./sdkErrors.examples.ts#SdkHttpError_basicUsage"
+ * if (error instanceof SdkHttpError) {
+ *     console.log(error.status); // number
+ *     console.log(error.statusText); // string | undefined
+ * }
+ * ```
+ */
+export class SdkHttpError extends SdkError {
+    declare readonly data: SdkHttpErrorData;
+
+    constructor(code: SdkErrorCode, message: string, data: SdkHttpErrorData) {
+        super(code, message, data);
+        this.name = 'SdkHttpError';
+    }
+
+    get status(): number {
+        return this.data.status;
+    }
+
+    get statusText(): string | undefined {
+        return this.data.statusText;
+    }
+}

@@ -26,7 +26,9 @@ import {
     SdkError,
     SdkErrorCode,
     SSEClientTransport,
-    StreamableHTTPClientTransport
+    StreamableHTTPClientTransport,
+    TRACEPARENT_META_KEY,
+    TRACESTATE_META_KEY
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 ```
@@ -404,6 +406,9 @@ client.setNotificationHandler('notifications/resources/list_changed', async () =
 });
 ```
 
+> [!WARNING]
+> MCP logging (including `setLoggingLevel()` and `notifications/message`) is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Servers should migrate to stderr logging (STDIO) or OpenTelemetry.
+
 To control the minimum severity of log messages the server sends, use {@linkcode @modelcontextprotocol/client!client/client.Client#setLoggingLevel | setLoggingLevel()}:
 
 ```ts source="../examples/client/src/clientGuide.examples.ts#setLoggingLevel_basic"
@@ -430,6 +435,9 @@ const client = new Client(
 ```
 
 ### Sampling
+
+> [!WARNING]
+> Sampling is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Servers should migrate to calling LLM provider APIs directly.
 
 When a server needs an LLM completion during tool execution, it sends a `sampling/createMessage` request to the client (see [Sampling](https://modelcontextprotocol.io/docs/learn/client-concepts#sampling) in the MCP overview). Register a handler to fulfill it:
 
@@ -471,6 +479,9 @@ client.setRequestHandler('elicitation/create', async request => {
 For a full form-based elicitation handler with AJV validation, see [`simpleStreamableHttp.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleStreamableHttp.ts). For URL elicitation mode, see [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/elicitationUrlExample.ts).
 
 ### Roots
+
+> [!WARNING]
+> Roots are deprecated as of protocol version 2026-07-28 (SEP-2577). They remain fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to passing paths via tool parameters, resource URIs, or configuration.
 
 Roots let the client expose filesystem boundaries to the server (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Declare the `roots` capability and register a `roots/list` handler:
 
@@ -544,7 +555,7 @@ All requests have a 60-second default timeout. Pass a custom `timeout` in the op
 ```ts source="../examples/client/src/clientGuide.examples.ts#errorHandling_timeout"
 try {
     const result = await client.callTool(
-        { name: 'slow-task', arguments: {} },
+        { name: 'slow-operation', arguments: {} },
         { timeout: 120_000 } // 2 minutes instead of the default 60 seconds
     );
     console.log(result.content);
@@ -571,6 +582,58 @@ const transport = new StreamableHTTPClientTransport(new URL('http://localhost:30
 });
 ```
 
+## Trace context propagation
+
+The MCP specification ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)) reserves the unprefixed `_meta` keys `traceparent`, `tracestate`, and `baggage` for distributed trace context, as an exception to the usual `_meta` key prefix rule. When present, the values must follow the [W3C Trace Context](https://www.w3.org/TR/trace-context/) and [W3C Baggage](https://www.w3.org/TR/baggage/) formats. The SDK does not interpret these keys — `_meta` passes through both directions untouched — so you can propagate OpenTelemetry context across any transport, including stdio where HTTP headers are unavailable. The key names are exported as `TRACEPARENT_META_KEY`, `TRACESTATE_META_KEY`, and `BAGGAGE_META_KEY`.
+
+Attach trace context to a single request via `_meta`:
+
+```ts source="../examples/client/src/clientGuide.examples.ts#traceContext_perRequest"
+// Values would normally come from your tracer's active span context.
+const result = await client.callTool({
+    name: 'calculate-bmi',
+    arguments: { weightKg: 70, heightM: 1.75 },
+    _meta: {
+        [TRACEPARENT_META_KEY]: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+        [TRACESTATE_META_KEY]: 'vendor1=opaqueValue1'
+    }
+});
+console.log(result.content);
+```
+
+Or inject it into every outgoing request with fetch middleware (Streamable HTTP transport):
+
+```ts source="../examples/client/src/clientGuide.examples.ts#traceContext_middleware"
+const traceContextMiddleware = createMiddleware(async (next, input, init) => {
+    if (typeof init?.body !== 'string') {
+        return next(input, init);
+    }
+    const message = JSON.parse(init.body) as {
+        method?: string;
+        params?: { _meta?: Record<string, unknown>; [key: string]: unknown };
+    };
+    // Only requests and notifications carry params._meta; skip responses.
+    if (message.method === undefined) {
+        return next(input, init);
+    }
+    message.params = {
+        ...message.params,
+        _meta: {
+            ...message.params?._meta,
+            // Replace with values from your tracer's active span context.
+            [TRACEPARENT_META_KEY]: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+        }
+    };
+    return next(input, { ...init, body: JSON.stringify(message) });
+});
+
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), {
+    fetch: applyMiddlewares(traceContextMiddleware)(fetch)
+});
+```
+
+On the server side, handlers can read the incoming trace context from `ctx.mcpReq._meta` — see the [server guide](./server.md#trace-context-propagation).
+
 ## Resumption tokens
 
 When using SSE-based streaming, the server can assign event IDs. Pass `onresumptiontoken` to track them, and `resumptionToken` to resume from where you left off after a disconnection:
@@ -581,7 +644,7 @@ let lastToken: string | undefined;
 const result = await client.request(
     {
         method: 'tools/call',
-        params: { name: 'long-running-task', arguments: {} }
+        params: { name: 'long-running-operation', arguments: {} }
     },
     {
         resumptionToken: lastToken,
@@ -595,18 +658,6 @@ console.log(result);
 ```
 
 For an end-to-end example of server-initiated SSE disconnection and automatic client reconnection with event replay, see [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/ssePollingClient.ts).
-
-## Tasks (experimental)
-
-> [!WARNING]
-> The tasks API is experimental and may change without notice.
-
-Task-based execution enables "call-now, fetch-later" patterns for long-running operations (see [Tasks](https://modelcontextprotocol.io/specification/latest/basic/utilities/tasks) in the MCP specification). Instead of returning a result immediately, a tool creates a task that can be polled or resumed later. To use tasks:
-
-- Call {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#callToolStream | client.experimental.tasks.callToolStream(...)} to start a tool call that may create a task and emit status updates over time.
-- Call {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#getTask | client.experimental.tasks.getTask(...)} and {@linkcode @modelcontextprotocol/client!experimental/tasks/client.ExperimentalClientTasks#getTaskResult | getTaskResult(...)} to check status and fetch results after reconnecting.
-
-For a full runnable example, see [`simpleTaskInteractiveClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/client/src/simpleTaskInteractiveClient.ts).
 
 ## See also
 

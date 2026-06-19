@@ -65,16 +65,16 @@ async function main(): Promise<void> {
         console.log('[Client] Connected successfully');
         console.log('');
 
-        // Call the long-task tool
-        console.log('[Client] Calling long-task tool...');
-        console.log('[Client] Server will disconnect mid-task to demonstrate polling');
+        // Call the long-operation tool
+        console.log('[Client] Calling long-operation tool...');
+        console.log('[Client] Server will disconnect mid-operation to demonstrate polling');
         console.log('');
 
         const result = await client.request(
             {
                 method: 'tools/call',
                 params: {
-                    name: 'long-task',
+                    name: 'long-operation',
                     arguments: {}
                 }
             },

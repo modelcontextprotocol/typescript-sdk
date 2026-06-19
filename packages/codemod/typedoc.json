@@ -1,0 +1,10 @@
+{
+    "$schema": "https://typedoc.org/schema.json",
+    "entryPoints": ["src"],
+    "entryPointStrategy": "expand",
+    "exclude": ["**/*.test.ts", "**/__*__/**"],
+    "navigation": {
+        "includeGroups": true,
+        "includeCategories": true
+    }
+}

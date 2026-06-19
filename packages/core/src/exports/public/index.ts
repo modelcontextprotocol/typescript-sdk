@@ -13,7 +13,8 @@
 export { OAuthError, OAuthErrorCode } from '../../auth/errors.js';
 
 // SDK error types (local errors that never cross the wire)
-export { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
+export type { SdkHttpErrorData } from '../../errors/sdkErrors.js';
+export { SdkError, SdkErrorCode, SdkHttpError } from '../../errors/sdkErrors.js';
 
 // Auth TypeScript types (NOT Zod schemas like OAuthMetadataSchema)
 export type {
@@ -51,22 +52,8 @@ export type {
 } from '../../shared/protocol.js';
 export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol.js';
 
-// Task manager types (NOT TaskManager class itself — internal)
-export type { RequestTaskStore, TaskContext, TaskManagerOptions, TaskRequestOptions } from '../../shared/taskManager.js';
-
-// Response message types
-export type {
-    BaseResponseMessage,
-    ErrorMessage,
-    ResponseMessage,
-    ResultMessage,
-    TaskCreatedMessage,
-    TaskStatusMessage
-} from '../../shared/responseMessage.js';
-export { takeResult, toArrayAsync } from '../../shared/responseMessage.js';
-
 // stdio message framing utilities (for custom transport authors)
-export { deserializeMessage, ReadBuffer, serializeMessage } from '../../shared/stdio.js';
+export { deserializeMessage, ReadBuffer, serializeMessage, STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../shared/stdio.js';
 
 // Transport types (NOT normalizeHeaders)
 export type { FetchLike, Transport, TransportSendOptions } from '../../shared/transport.js';
@@ -84,23 +71,30 @@ export * from '../../types/types.js';
 
 // Constants
 export {
+    BAGGAGE_META_KEY,
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     INTERNAL_ERROR,
     INVALID_PARAMS,
     INVALID_REQUEST,
     JSONRPC_VERSION,
     LATEST_PROTOCOL_VERSION,
+    LOG_LEVEL_META_KEY,
     METHOD_NOT_FOUND,
     PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY,
     RELATED_TASK_META_KEY,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    TRACEPARENT_META_KEY,
+    TRACESTATE_META_KEY
 } from '../../types/constants.js';
 
 // Enums
 export { ProtocolErrorCode } from '../../types/enums.js';
 
 // Error classes
-export { ProtocolError, UrlElicitationRequiredError } from '../../types/errors.js';
+export { ProtocolError, UnsupportedProtocolVersionError, UrlElicitationRequiredError } from '../../types/errors.js';
 
 // Type guards and message parsing
 export {
@@ -118,31 +112,14 @@ export {
     parseJSONRPCMessage
 } from '../../types/guards.js';
 
-// Experimental task types and classes
-export { assertClientRequestTaskCapability, assertToolsCallTaskCapability } from '../../experimental/tasks/helpers.js';
-export type {
-    BaseQueuedMessage,
-    CreateTaskOptions,
-    CreateTaskServerContext,
-    QueuedError,
-    QueuedMessage,
-    QueuedNotification,
-    QueuedRequest,
-    QueuedResponse,
-    TaskMessageQueue,
-    TaskServerContext,
-    TaskStore,
-    TaskToolExecution
-} from '../../experimental/tasks/interfaces.js';
-export { isTerminal } from '../../experimental/tasks/interfaces.js';
-export { InMemoryTaskMessageQueue, InMemoryTaskStore } from '../../experimental/tasks/stores/inMemory.js';
-
 // Validator types and classes
 export type { SpecTypeName, SpecTypes } from '../../types/specTypeSchema.js';
 export { isSpecType, specTypeSchemas } from '../../types/specTypeSchema.js';
-export type { StandardSchemaV1, StandardSchemaWithJSON } from '../../util/standardSchema.js';
-export { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
-export type { CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
+export type { StandardSchemaV1, StandardSchemaV1Sync, StandardSchemaWithJSON } from '../../util/standardSchema.js';
+// Validator providers are type-only here — import the runtime classes from the explicit
+// `@modelcontextprotocol/{client,server}/validators/{ajv,cf-worker}` subpaths to customise.
+export type { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
+export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
 // fromJsonSchema is intentionally NOT exported here — the server and client packages
 // provide runtime-aware wrappers that default to the appropriate validator via _shims.
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types.js';
