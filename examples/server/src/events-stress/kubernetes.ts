@@ -155,6 +155,7 @@ export function createServer(deps?: K8sDeps): McpServer {
                 webhook: {
                     ttlMs: 5 * 60 * 1000,
                     urlValidation: { allowInsecure: true, allowPrivateNetworks: true },
+                    verification: { allowlist: ['localhost', '127.0.0.1'] },
                     getPrincipal: ctx => ctx.sessionId ?? 'stdio-demo'
                 }
             }

@@ -38,6 +38,9 @@ const server = new McpServer(
                           allowInsecure: true, // for local testing
                           allowPrivateNetworks: true
                       },
+                      // Skip the challenge handshake for local receivers so the
+                      // demo works without a real echo endpoint.
+                      verification: { allowlist: ['localhost', '127.0.0.1'] },
                       // Spec requires an authenticated principal for webhook
                       // subscribe. Over stdio there's no HTTP auth, so for the
                       // demo we treat the session id as the principal. A real

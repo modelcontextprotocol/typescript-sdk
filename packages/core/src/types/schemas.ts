@@ -2623,7 +2623,8 @@ export const WebhookControlEnvelopeSchema = z.discriminatedUnion('type', [
     z.object({
         type: z.literal('verification'),
         /**
-         * Nonce the receiver echoes back. (Pending — see spec Open Question 6.)
+         * Nonce the receiver echoes back in a 2xx JSON body `{"challenge": <nonce>}`
+         * to prove control of the callback endpoint before delivery is activated.
          */
         challenge: z.string()
     })

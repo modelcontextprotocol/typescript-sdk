@@ -117,7 +117,13 @@ export async function computeWebhookSignature(secret: string, msgId: string, tim
     return `v1,${btoa(s)}`;
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
+/**
+ * Constant-time string comparison. Returns `true` only when both inputs have
+ * identical length and contents; the running time depends on input length, not
+ * on where the first mismatch falls. Used for HMAC-signature comparison and
+ * the webhook verification-challenge echo check.
+ */
+export function timingSafeEqual(a: string, b: string): boolean {
     if (a.length !== b.length) return false;
     let result = 0;
     for (let i = 0; i < a.length; i++) {

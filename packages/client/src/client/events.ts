@@ -331,8 +331,25 @@ export class ClientEventManager {
      *
      * The body is either a bare `EventOccurrence` (no top-level `type`) or a
      * control envelope (`{type: 'gap'|'terminated'|'verification', ...}`).
+     *
+     * Returns `{challenge}` when the body is a `verification` control envelope —
+     * the receiver MUST reply 2xx with that JSON body to complete the
+     * endpoint-verification handshake. Returns `void` for every other body.
+     *
+     * @example
+     * ```ts
+     * // Inside your HTTP handler for the callback URL:
+     * const echo = manager.deliverWebhookPayload(subscriptionId, body);
+     * if (echo) return Response.json(echo); // {"challenge": "<nonce>"}
+     * return new Response(null, { status: 204 });
+     * ```
      */
-    deliverWebhookPayload(subscriptionId: string, body: EventOccurrence | WebhookControlEnvelope): void {
+    deliverWebhookPayload(subscriptionId: string, body: EventOccurrence | WebhookControlEnvelope): { challenge: string } | void {
+        if ('type' in body && body.type === 'verification') {
+            // Verification arrives BEFORE the subscription exists (subscribe is
+            // blocked on the handshake), so don't gate on _byServerId.
+            return { challenge: body.challenge };
+        }
         const state = this._byServerId.get(subscriptionId);
         if (!state || state.sub.delivery !== 'webhook') return;
         if ('type' in body) {
@@ -345,10 +362,6 @@ export class ClientEventManager {
                 case 'terminated': {
                     state.sub._fail(new ProtocolError(body.error.code, body.error.message, body.error.data));
                     void this._teardown(state.sub);
-                    return;
-                }
-                case 'verification': {
-                    // Receiver-side challenge response is the gateway's concern.
                     return;
                 }
             }

@@ -36,6 +36,7 @@ import {
     RESOURCE_EXHAUSTED,
     standardSchemaToJsonSchema,
     SUBSCRIPTION_ID_META_KEY,
+    timingSafeEqual,
     UNSUPPORTED,
     WEBHOOK_ID_HEADER,
     WEBHOOK_MAX_BODY_BYTES,
@@ -285,6 +286,38 @@ export interface EventWebhookOptions {
      * `undefined`. Defaults to `ctx.http?.authInfo?.clientId`.
      */
     getPrincipal?: (ctx: ServerContext) => string | undefined;
+    /**
+     * Endpoint-verification gating. The server MUST verify a callback URL before
+     * activating delivery via one of: (a) a challenge handshake — POST a signed
+     * `{"type":"verification","challenge":<nonce>}` control envelope, the
+     * receiver replies 2xx with `{"challenge":<nonce>}`; (b) an `allowlist` host
+     * match; (c) a prior out-of-band verification reported by `isPreVerified`.
+     * Results are cached per `(principal, url)`. On failure, `events/subscribe`
+     * rejects with `-32015 CallbackEndpointError` and `data.reason` set to a
+     * {@link WebhookLastError} category (`challenge_failed` for an echo mismatch).
+     *
+     * TODO: path (d) — discovery via `/.well-known/mcp-webhook-receiver.json` on
+     * the callback URL's https origin — is not yet implemented.
+     */
+    verification?: {
+        /**
+         * Hostnames that are pre-authorised to receive deliveries. Matched
+         * against the callback URL's hostname (raw and normalised). When the
+         * host matches, the challenge handshake is skipped.
+         */
+        allowlist?: string[];
+        /**
+         * Hook reporting prior out-of-band verification (e.g. the principal
+         * registered the URL via a separate admin flow). Return `true` to skip
+         * the challenge handshake for this `(principal, url)`.
+         */
+        isPreVerified?: (principal: string, url: URL) => boolean | Promise<boolean>;
+        /**
+         * Maximum number of `(principal, url)` verification results retained
+         * (LRU). Defaults to 1000.
+         */
+        cacheSize?: number;
+    };
 }
 
 /**
@@ -407,6 +440,7 @@ const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_MAX_WEBHOOK_SUBS = 1000;
 const DEFAULT_MAX_EVENTS = 100;
 const DEFAULT_BUFFER_CAPACITY = 1000;
+const DEFAULT_VERIFY_CACHE_SIZE = 1000;
 
 const EMPTY_OBJECT_JSON_SCHEMA = { type: 'object' as const, properties: {} };
 
@@ -424,6 +458,14 @@ function canonicalJson(value: unknown): string {
     // eslint-disable-next-line unicorn/no-array-sort -- Object.keys() returns a fresh array; in-place sort is fine and toSorted() needs ES2023 lib
     const keys = Object.keys(obj).sort();
     return `{${keys.map(k => `${JSON.stringify(k)}:${canonicalJson(obj[k])}`).join(',')}}`;
+}
+
+function randomBase64Url(byteLength: number): string {
+    const buf = new Uint8Array(byteLength);
+    crypto.getRandomValues(buf);
+    let s = '';
+    for (const b of buf) s += String.fromCodePoint(b);
+    return btoa(s).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
 async function sha256Hex(input: string): Promise<string> {
@@ -463,6 +505,12 @@ export class ServerEventManager {
      */
     private _pollLeases = new Map<string, PollLease>();
     private static readonly _MAX_POLL_LEASES = 10_000;
+    /**
+     * Endpoint-verification result cache, keyed by `"<principal> <url>"`.
+     * LRU-bounded by `webhook.verification.cacheSize`. Only `true` is stored;
+     * a failed verification is surfaced as an error and not cached.
+     */
+    private _verifyCache = new Map<string, boolean>();
 
     private readonly _maxWebhookSubs: number;
     private readonly _pushOptions: Required<EventPushOptions>;
@@ -496,14 +544,14 @@ export class ServerEventManager {
         url: string,
         name: string,
         params: Record<string, unknown>
-    ): Promise<{ key: string; id: string }> {
+    ): Promise<{ key: string; id: string; principal: string }> {
         const principal = this._getPrincipal(ctx);
         if (!principal) {
             throw new ProtocolError(FORBIDDEN, 'events/subscribe requires an authenticated principal');
         }
         const key = `${principal}\0${url}\0${name}\0${canonicalJson(params)}`;
         const hash = await sha256Hex(key);
-        return { key, id: `sub_${hash.slice(0, 16)}` };
+        return { key, id: `sub_${hash.slice(0, 16)}`, principal };
     }
 
     /**
@@ -1193,7 +1241,10 @@ export class ServerEventManager {
             throw new ProtocolError(ProtocolErrorCode.InvalidParams, (error as Error).message);
         }
 
-        const { key, id } = await this._subscriptionKey(ctx, params.delivery.url, params.name, paramsResult.params);
+        const { key, id, principal } = await this._subscriptionKey(ctx, params.delivery.url, params.name, paramsResult.params);
+
+        await this._verifyEndpoint(principal, params.delivery.url, params.delivery.secret, id);
+
         const existing = this._webhookSubs.get(key);
         const isNew = !existing;
         if (isNew && this._webhookSubs.size >= this._maxWebhookSubs) {
@@ -1366,6 +1417,107 @@ export class ServerEventManager {
         return 'connection_refused';
     }
 
+    /**
+     * Signs a body with the supplied secrets and POSTs it to the callback URL,
+     * applying delivery-time SSRF resolution and Standard Webhooks headers.
+     * Shared by event/control delivery and the verification handshake.
+     */
+    private async _sendSignedPost(
+        rawUrl: string,
+        secrets: string[],
+        subscriptionId: string,
+        msgId: string,
+        body: string
+    ): Promise<Response> {
+        const { url, host } = await this._resolveDeliveryTarget(rawUrl);
+        const timestamp = Math.floor(Date.now() / 1000);
+        const sigs = await Promise.all(secrets.map(s => computeWebhookSignature(s, msgId, timestamp, body)));
+        return this._fetch(url, {
+            method: 'POST',
+            redirect: 'error',
+            headers: {
+                'Content-Type': 'application/json',
+                Host: host,
+                [WEBHOOK_ID_HEADER]: msgId,
+                [WEBHOOK_TIMESTAMP_HEADER]: String(timestamp),
+                [WEBHOOK_SIGNATURE_HEADER]: sigs.join(' '),
+                [WEBHOOK_SUBSCRIPTION_ID_HEADER]: subscriptionId
+            },
+            body
+        });
+    }
+
+    /**
+     * Ensures the `(principal, url)` pair has a verified callback endpoint
+     * before delivery is activated. See {@link EventWebhookOptions.verification}.
+     * Throws `-32015 CallbackEndpointError` with `data.reason` on failure.
+     */
+    private async _verifyEndpoint(principal: string, rawUrl: string, secret: string, subscriptionId: string): Promise<void> {
+        const cacheKey = `${principal} ${rawUrl}`;
+        if (this._verifyCache.get(cacheKey) === true) {
+            // LRU touch.
+            this._verifyCache.delete(cacheKey);
+            this._verifyCache.set(cacheKey, true);
+            return;
+        }
+
+        const opts = this._webhookOptions?.verification;
+        const parsed = new URL(rawUrl);
+
+        // (b) server-configured allowlist on the URL's host.
+        if (opts?.allowlist && opts.allowlist.length > 0) {
+            const normalised = normaliseHostname(parsed.hostname);
+            if (opts.allowlist.includes(parsed.hostname) || opts.allowlist.includes(normalised)) {
+                this._cacheVerification(cacheKey);
+                return;
+            }
+        }
+
+        // (c) prior out-of-band verification hook.
+        if (opts?.isPreVerified && (await opts.isPreVerified(principal, parsed))) {
+            this._cacheVerification(cacheKey);
+            return;
+        }
+
+        // (a) challenge handshake.
+        const nonce = randomBase64Url(32);
+        const envelope: WebhookControlEnvelope = { type: 'verification', challenge: nonce };
+        const msgId = `msg_verification_${(this._eventCounter++).toString(36)}`;
+        let res: Response;
+        try {
+            res = await this._sendSignedPost(rawUrl, [secret], subscriptionId, msgId, JSON.stringify(envelope));
+        } catch (error) {
+            throw new ProtocolError(CALLBACK_ENDPOINT_ERROR, 'Endpoint verification failed', {
+                reason: this._classifyDeliveryError(error)
+            });
+        }
+        if (!res.ok) {
+            const reason: WebhookLastError = res.status >= 500 ? 'http_5xx' : 'http_4xx';
+            throw new ProtocolError(CALLBACK_ENDPOINT_ERROR, 'Endpoint verification failed', { reason });
+        }
+        let echoed: string | undefined;
+        try {
+            const json = (await res.json()) as { challenge?: unknown } | null;
+            if (json && typeof json.challenge === 'string') echoed = json.challenge;
+        } catch {
+            // fall through to challenge_failed
+        }
+        if (echoed === undefined || !timingSafeEqual(echoed, nonce)) {
+            throw new ProtocolError(CALLBACK_ENDPOINT_ERROR, 'Endpoint verification failed', { reason: 'challenge_failed' });
+        }
+        this._cacheVerification(cacheKey);
+    }
+
+    private _cacheVerification(cacheKey: string): void {
+        this._verifyCache.set(cacheKey, true);
+        const max = this._webhookOptions?.verification?.cacheSize ?? DEFAULT_VERIFY_CACHE_SIZE;
+        while (this._verifyCache.size > max) {
+            const oldest = this._verifyCache.keys().next().value;
+            if (oldest === undefined) break;
+            this._verifyCache.delete(oldest);
+        }
+    }
+
     private async _postWebhook(sub: WebhookSubscription, msgId: string, body: string, occurrenceSeq?: number): Promise<void> {
         if (new TextEncoder().encode(body).length > WEBHOOK_MAX_BODY_BYTES) {
             console.error(`[events] webhook body for ${sub.id} exceeds ${WEBHOOK_MAX_BODY_BYTES} bytes; dropping`);
@@ -1383,22 +1535,7 @@ export class ServerEventManager {
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             try {
-                const { url, host } = await this._resolveDeliveryTarget(sub.url);
-                const timestamp = Math.floor(Date.now() / 1000);
-                const sigs = await Promise.all(sub.secrets.map(s => computeWebhookSignature(s, msgId, timestamp, body)));
-                const res = await this._fetch(url, {
-                    method: 'POST',
-                    redirect: 'error',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        Host: host,
-                        [WEBHOOK_ID_HEADER]: msgId,
-                        [WEBHOOK_TIMESTAMP_HEADER]: String(timestamp),
-                        [WEBHOOK_SIGNATURE_HEADER]: sigs.join(' '),
-                        [WEBHOOK_SUBSCRIPTION_ID_HEADER]: sub.id
-                    },
-                    body
-                });
+                const res = await this._sendSignedPost(sub.url, sub.secrets, sub.id, msgId, body);
                 if (res.ok) {
                     sub.deliveryStatus = { active: true, lastDeliveryAt: new Date().toISOString(), lastError: null, failedSince: null };
                     if (occurrenceSeq !== undefined && occurrenceSeq > sub.acknowledgedSeq) {

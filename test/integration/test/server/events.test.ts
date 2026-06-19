@@ -9,6 +9,7 @@ import type {
     WebhookControlEnvelope
 } from '@modelcontextprotocol/core';
 import {
+    CALLBACK_ENDPOINT_ERROR,
     computeWebhookSignature,
     FORBIDDEN,
     generateWebhookSecret,
@@ -61,7 +62,8 @@ function makeWebhookServer() {
                     ttlMs: 60_000,
                     fetch: fetchMock as unknown as typeof fetch,
                     resolveHost: async () => [{ address: '203.0.113.1', family: 4 }],
-                    getPrincipal: () => 'user-1'
+                    getPrincipal: () => 'user-1',
+                    verification: { allowlist: ['hooks.example.com'] }
                 }
             }
         }
@@ -575,7 +577,8 @@ describe('Events', () => {
                                 ...opts,
                                 fetch: fetchMock as unknown as typeof fetch,
                                 resolveHost: async () => [{ address: '203.0.113.1', family: 4 }],
-                                getPrincipal: () => 'user-1'
+                                getPrincipal: () => 'user-1',
+                                verification: { allowlist: ['hooks.example.com'] }
                             }
                         }
                     }
@@ -636,6 +639,117 @@ describe('Events', () => {
                 fetchMock.mockClear();
                 server.emitEvent('inc', { n: 1 });
                 await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+            });
+        });
+
+        describe('endpoint verification', () => {
+            type Init = { headers: Record<string, string>; body: string };
+            function makeVerifyServer(fetchMock: ReturnType<typeof vi.fn>, allowlist?: string[]) {
+                const s = new McpServer(
+                    { name: 's', version: '1.0.0' },
+                    {
+                        events: {
+                            webhook: {
+                                ttlMs: 60_000,
+                                fetch: fetchMock as unknown as typeof fetch,
+                                resolveHost: async () => [{ address: '203.0.113.1', family: 4 }],
+                                getPrincipal: () => 'user-1',
+                                verification: allowlist ? { allowlist } : undefined
+                            }
+                        }
+                    }
+                );
+                s.registerEvent('inc', { emitOnly: true });
+                return s;
+            }
+
+            it('allowlist match skips the challenge POST entirely', async () => {
+                const fm = vi.fn(async () => new Response(null, { status: 200 }));
+                server = makeVerifyServer(fm, ['hooks.example.com']);
+                await connectPair(server, client);
+
+                const r = await client.subscribeEvent({
+                    name: 'inc',
+                    delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                    cursor: null
+                });
+                expect(r.id).toMatch(/^sub_/);
+                expect(fm).not.toHaveBeenCalled();
+            });
+
+            it('challenge handshake: posts a signed verification envelope first; correct echo activates the sub', async () => {
+                const fm = vi.fn(async (_url: string, init: Init) => {
+                    const body = JSON.parse(init.body);
+                    if (body.type === 'verification') {
+                        return Response.json({ challenge: body.challenge }, { status: 200 });
+                    }
+                    return new Response(null, { status: 200 });
+                });
+                server = makeVerifyServer(fm);
+                await connectPair(server, client);
+
+                const r = await client.subscribeEvent({
+                    name: 'inc',
+                    delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                    cursor: null
+                });
+                expect(r.id).toMatch(/^sub_/);
+
+                // Exactly one POST so far — the verification envelope.
+                expect(fm).toHaveBeenCalledTimes(1);
+                const [, init] = fm.mock.calls[0]! as [string, Init];
+                const body = JSON.parse(init.body);
+                expect(body.type).toBe('verification');
+                expect(typeof body.challenge).toBe('string');
+                expect(init.headers[WEBHOOK_ID_HEADER]).toMatch(/^msg_verification_/);
+                expect(init.headers[WEBHOOK_SIGNATURE_HEADER]).toMatch(/^v1,/);
+                expect(init.headers[WEBHOOK_SUBSCRIPTION_ID_HEADER]).toBe(r.id);
+
+                // Delivery is now active.
+                server.emitEvent('inc', { n: 1 });
+                await vi.waitFor(() => expect(fm).toHaveBeenCalledTimes(2));
+                const [, init2] = fm.mock.calls[1]! as [string, Init];
+                expect(JSON.parse(init2.body).data.n).toBe(1);
+            });
+
+            it('challenge handshake: wrong echo rejects with -32015 challenge_failed', async () => {
+                const fm = vi.fn(async () => Response.json({ challenge: 'wrong' }, { status: 200 }));
+                server = makeVerifyServer(fm);
+                await connectPair(server, client);
+
+                await expect(
+                    client.subscribeEvent({ name: 'inc', delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET }, cursor: null })
+                ).rejects.toMatchObject({ code: CALLBACK_ENDPOINT_ERROR, data: { reason: 'challenge_failed' } });
+            });
+
+            it('caches verification per (principal, url): second subscribe skips the challenge', async () => {
+                const fm = vi.fn(async (_url: string, init: Init) => {
+                    const body = JSON.parse(init.body);
+                    if (body.type === 'verification') {
+                        return Response.json({ challenge: body.challenge }, { status: 200 });
+                    }
+                    return new Response(null, { status: 200 });
+                });
+                server = makeVerifyServer(fm);
+                server.registerEvent('inc2', { emitOnly: true });
+                await connectPair(server, client);
+
+                await client.subscribeEvent({
+                    name: 'inc',
+                    delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                    cursor: null
+                });
+                expect(fm).toHaveBeenCalledTimes(1);
+                expect(JSON.parse((fm.mock.calls[0]![1] as Init).body).type).toBe('verification');
+
+                fm.mockClear();
+                // Different event name → distinct sub key, but same (principal, url).
+                await client.subscribeEvent({
+                    name: 'inc2',
+                    delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                    cursor: null
+                });
+                expect(fm).not.toHaveBeenCalled();
             });
         });
 
