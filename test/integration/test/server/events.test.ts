@@ -664,27 +664,37 @@ describe('Events', () => {
             await connectPair(server, client);
             await client.subscribeEvent({ name: 'inc', delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET }, cursor: null });
 
-            // 4 failures: rate=100% but attempts < minAttempts → still active.
-            for (let i = 0; i < 4; i++) server.emitEvent('inc', { n: i });
-            await vi.waitFor(() => expect(fm).toHaveBeenCalledTimes(4));
-            const r1 = await client.subscribeEvent({
-                name: 'inc',
-                delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
-                cursor: null
-            });
-            expect(r1.deliveryStatus?.active).toBe(true);
-            expect(r1.deliveryStatus?.lastError).toBe('http_5xx');
-
-            // 5th failure: attempts >= minAttempts and 5/5 > 0.8 → suspended.
-            server.emitEvent('inc', { n: 4 });
+            // 5 failures crosses minAttempts at 100% rate → suspended.
+            for (let i = 0; i < 5; i++) server.emitEvent('inc', { n: i });
             await vi.waitFor(() => expect(fm).toHaveBeenCalledTimes(5));
+
+            // Once suspended, fan-out must skip the sub: further emits don't POST.
+            server.emitEvent('inc', { n: 5 });
+            server.emitEvent('inc', { n: 6 });
+            await new Promise(r => setTimeout(r, 30));
+            expect(fm).toHaveBeenCalledTimes(5);
+
+            // Refresh returns the prior (suspended) status, then reactivates and
+            // resets the failure window so a single post-refresh failure does
+            // not immediately re-suspend.
             const r2 = await client.subscribeEvent({
                 name: 'inc',
                 delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
                 cursor: null
             });
             expect(r2.deliveryStatus?.active).toBe(false);
+            expect(r2.deliveryStatus?.lastError).toBe('http_5xx');
             expect(r2.deliveryStatus?.failedSince).toBeTypeOf('string');
+
+            fm.mockClear();
+            server.emitEvent('inc', { n: 7 });
+            await vi.waitFor(() => expect(fm).toHaveBeenCalledTimes(1));
+            const r3 = await client.subscribeEvent({
+                name: 'inc',
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                cursor: null
+            });
+            expect(r3.deliveryStatus?.active).toBe(true);
         });
 
         it('drops oversized bodies (>256KiB) without POSTing', async () => {

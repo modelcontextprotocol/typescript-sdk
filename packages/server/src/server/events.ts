@@ -45,14 +45,6 @@ import {
     WEBHOOK_TIMESTAMP_HEADER
 } from '@modelcontextprotocol/core';
 
-/**
- * Legacy numeric value of the removed `CURSOR_EXPIRED` constant. The public
- * constant is gone (gaps are signalled via `truncated: true`), but check()
- * callbacks written against older SDKs may still throw it; the manager catches
- * that numeric and remaps it to `truncated`. Not exported.
- */
-const LEGACY_CURSOR_EXPIRED = -32_014;
-
 import type { Server } from './server.js';
 
 /**
@@ -711,7 +703,7 @@ export class ServerEventManager {
                 }
             }
             for (const sub of this._webhookSubs.values()) {
-                if (sub.id === options.subscriptionId && sub.eventName === eventName) {
+                if (sub.id === options.subscriptionId && sub.eventName === eventName && sub.deliveryStatus.active) {
                     void this._deliverWebhook(sub, occurrence);
                 }
             }
@@ -761,7 +753,7 @@ export class ServerEventManager {
             this._deliverToPush(stream, await this._safeTransform(event, stream.sub.params, occurrence, stream.sub.id));
         }
         for (const sub of this._webhookSubs.values()) {
-            if (sub.eventName !== eventName) continue;
+            if (sub.eventName !== eventName || !sub.deliveryStatus.active) continue;
             if (!(await this._safeMatches(event, sub.params, occurrence.data, sub.id))) continue;
             void this._deliverWebhook(sub, await this._safeTransform(event, sub.params, occurrence, sub.id));
         }
@@ -905,7 +897,12 @@ export class ServerEventManager {
     private _resolveDeliveryModes(event: InternalRegisteredEvent): EventDeliveryMode[] {
         const global = this._computeDeliveryModes();
         if (!event.delivery) return global;
-        return event.delivery.filter(mode => global.includes(mode));
+        const resolved = event.delivery.filter(mode => global.includes(mode));
+        // Spec: delivery is a non-empty subset. An empty intersection is a
+        // server-author config error (e.g. delivery:['webhook'] without
+        // webhook.ttlMs). Fall back to the global set so events/list never
+        // advertises [] and the event remains reachable.
+        return resolved.length > 0 ? resolved : global;
     }
 
     private _handleList(): ListEventsResult {
@@ -999,12 +996,7 @@ export class ServerEventManager {
         try {
             checkResult = await event.check(params, internalCheckCursor, ctx);
         } catch (error) {
-            const subErr = this._toSubscriptionError(error);
-            if (subErr.code === LEGACY_CURSOR_EXPIRED) {
-                // Legacy throw mapped to gap model: reset and continue.
-                return { events: [], nextInternalCheckCursor: null, truncated: true };
-            }
-            return { error: subErr };
+            return { error: this._toSubscriptionError(error) };
         }
         // check() results stay private to the calling subscription. Only their
         // cursors are anchored at log head so a resume from one finds it.
@@ -1332,10 +1324,14 @@ export class ServerEventManager {
 
         const { key, id, principal } = await this._subscriptionKey(ctx, params.delivery.url, params.name, paramsResult.params);
 
-        await this._verifyEndpoint(principal, params.delivery.url, params.delivery.secret, id);
-
         const existing = this._webhookSubs.get(key);
         const isNew = !existing;
+        // Endpoint verification only on a fresh subscribe — a refresh of an
+        // existing sub is proof the endpoint was already verified for this
+        // (principal, url), so don't re-challenge on TTL renewal.
+        if (isNew) {
+            await this._verifyEndpoint(principal, params.delivery.url, params.delivery.secret, id);
+        }
         if (isNew && this._webhookSubs.size >= this._maxWebhookSubs) {
             throw new ProtocolError(RESOURCE_EXHAUSTED, `Webhook subscription limit (${this._maxWebhookSubs}) reached`, {
                 limit: 'webhookSubscriptions',
@@ -1389,6 +1385,7 @@ export class ServerEventManager {
         sub.ctx = ctx;
         const priorStatus = sub.deliveryStatus;
         sub.deliveryStatus = { ...sub.deliveryStatus, active: true, failedSince: null, throttled: false, retryAfterMs: undefined };
+        sub.failureWindow = { windowStartMs: Date.now(), attempts: 0, failures: 0 };
 
         if (isNew) {
             this._webhookSubs.set(key, sub);

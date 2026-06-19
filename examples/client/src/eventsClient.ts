@@ -134,7 +134,11 @@ function startWebhookReceiver(manager: ClientEventManager): void {
                     res.writeHead(401).end();
                     return;
                 }
-                manager.deliverWebhookPayload(subId, JSON.parse(body));
+                const result = manager.deliverWebhookPayload(subId, JSON.parse(body));
+                if (result?.challenge) {
+                    res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ challenge: result.challenge }));
+                    return;
+                }
                 res.writeHead(200).end();
             })();
         });
