@@ -6,6 +6,9 @@ export { createDemoAuth } from './auth.js';
 export type { SetupAuthServerOptions } from './authServer.js';
 export { createProtectedResourceMetadataRouter, demoTokenVerifier, getAuth, setupAuthServer } from './authServer.js';
 
+// In-memory EventStore for resumability examples (sse-polling, repl)
+export { InMemoryEventStore } from './inMemoryEventStore.js';
+
 // Minimal client_credentials-only AS (machine-to-machine; no browser)
 export type { ClientCredentialsAuthServer, ClientCredentialsAuthServerOptions, RegisteredClient } from './clientCredentialsAuthServer.js';
 export { clientCredentialsTokenVerifier, createClientCredentialsAuthServer } from './clientCredentialsAuthServer.js';

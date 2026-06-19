@@ -124,7 +124,8 @@ server.registerTool(
 );
 ```
 
-> [!NOTE] When defining a named type for `structuredContent`, use a `type` alias rather than an `interface`. Named interfaces lack implicit index signatures in TypeScript, so they aren't assignable to `{ [key: string]: unknown }`:
+> [!NOTE]
+> When defining a named type for `structuredContent`, use a `type` alias rather than an `interface`. Named interfaces lack implicit index signatures in TypeScript, so they aren't assignable to `{ [key: string]: unknown }`:
 >
 > ```ts
 > type BmiResult = { bmi: number }; // assignable
@@ -274,7 +275,8 @@ server.registerResource(
 );
 ```
 
-> [!IMPORTANT] **Security note:** If a resource is backed by the filesystem (for example, a `file://` server or a template whose variables map onto file paths), the spec requires sanitizing any user-influenced path before use. Resolve the requested path and verify it stays within
+> [!IMPORTANT]
+> **Security note:** If a resource is backed by the filesystem (for example, a `file://` server or a template whose variables map onto file paths), the spec requires sanitizing any user-influenced path before use. Resolve the requested path and verify it stays within
 > the intended root directory, rejecting traversal sequences such as `..` (including encoded forms) and symlinks that escape the root. Never pass template variables or client-supplied URIs to filesystem APIs unchecked.
 
 ## Prompts
@@ -338,7 +340,8 @@ server.registerPrompt(
 
 ## Logging
 
-> [!WARNING] MCP logging is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate
+> [!WARNING]
+> MCP logging is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate
 > to stderr logging (STDIO servers) or OpenTelemetry.
 
 Logging lets your server send structured diagnostics — debug traces, progress updates, warnings — to the connected client as notifications (see [Logging](https://modelcontextprotocol.io/specification/latest/server/utilities/logging) in the MCP specification).
@@ -443,7 +446,8 @@ MCP is bidirectional — servers can send requests _to_ the client during tool e
 
 ### Sampling
 
-> [!WARNING] Sampling is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to
+> [!WARNING]
+> Sampling is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to
 > calling LLM provider APIs directly from your server.
 
 Sampling lets a tool handler request an LLM completion from the connected client — the handler describes a prompt and the client returns the model's response (see [Sampling](https://modelcontextprotocol.io/docs/learn/client-concepts#sampling) in the MCP overview). Use sampling
@@ -492,7 +496,8 @@ Elicitation lets a tool handler request direct input from the user — form fiel
 - **Form** (`mode: 'form'`) — collects non-sensitive data via a schema-driven form.
 - **URL** (`mode: 'url'`) — opens a browser URL for sensitive data or secure flows (API keys, payments, OAuth).
 
-> [!IMPORTANT] Sensitive information must not be collected via form elicitation; always use URL elicitation or out-of-band flows for secrets.
+> [!IMPORTANT]
+> Sensitive information must not be collected via form elicitation; always use URL elicitation or out-of-band flows for secrets.
 
 Call `ctx.mcpReq.elicitInput(params)` (from {@linkcode @modelcontextprotocol/server!index.ServerContext | ServerContext}) inside a tool handler:
 
@@ -541,7 +546,8 @@ For runnable examples, see [`elicitation/server.ts`](https://github.com/modelcon
 
 ### Roots
 
-> [!WARNING] Roots are deprecated as of protocol version 2026-07-28 (SEP-2577). They remain fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to
+> [!WARNING]
+> Roots are deprecated as of protocol version 2026-07-28 (SEP-2577). They remain fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to
 > passing paths via tool parameters, resource URIs, or configuration.
 
 Roots let a tool handler discover the client's workspace directories — for example, to scope a file search or identify project boundaries (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Call {@linkcode
@@ -644,10 +650,10 @@ middleware source for reference. When mounting a handler bare on a fetch-native 
 
 ### Additional examples
 
-| Feature                | Description                                                     | Example                                                                                                                                                  |
-| ---------------------- | --------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Web Standard transport | Deploy on Cloudflare Workers, Deno, or Bun                      | [`hono/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/hono/server.ts)                                             |
-| Session management     | Per-session transport routing, initialization, and cleanup      | [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts)                         |
-| Resumability           | Replay missed SSE events via an event store                     | [`inMemoryEventStore.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/inMemoryEventStore.ts)                   |
-| CORS                   | Expose MCP headers for browser clients                          | [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts)                         |
-| Multi-node deployment  | Stateless, persistent-storage, and distributed routing patterns | [`examples/README.md`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/README.md#multi-node-deployment-patterns)               |
+| Feature                | Description                                                     | Example                                                                                                                                    |
+| ---------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Web Standard transport | Deploy on Cloudflare Workers, Deno, or Bun                      | [`hono/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/hono/server.ts)                               |
+| Session management     | Per-session transport routing, initialization, and cleanup      | [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts)           |
+| Resumability           | Replay missed SSE events via an event store                     | [`inMemoryEventStore.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/shared/src/inMemoryEventStore.ts)      |
+| CORS                   | Expose MCP headers for browser clients                          | [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts)           |
+| Multi-node deployment  | Stateless, persistent-storage, and distributed routing patterns | [`examples/README.md`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/README.md#multi-node-deployment-patterns) |

@@ -13,14 +13,13 @@
  */
 import { randomUUID } from 'node:crypto';
 
+import { InMemoryEventStore } from '@mcp-examples/shared';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult } from '@modelcontextprotocol/server';
 import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
-
-import { InMemoryEventStore } from './inMemoryEventStore.js';
 
 // Create a fresh MCP server per client connection to avoid shared state between clients
 const getServer = () => {

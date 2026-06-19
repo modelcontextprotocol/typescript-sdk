@@ -89,8 +89,11 @@ export function runServerFromArgs(factory: McpServerFactory, defaultPort = 3000)
                 // Read the body once for the predicate and pass it forward.
                 let body: unknown;
                 if (req.method === 'POST') {
-                    let raw = '';
-                    for await (const chunk of req) raw += String(chunk);
+                    // Collect Buffers and decode once so multi-byte UTF-8 sequences split across chunk
+                    // boundaries (>~16 KiB bodies) aren't mojibaked into U+FFFD by per-chunk String().
+                    const chunks: Buffer[] = [];
+                    for await (const chunk of req) chunks.push(chunk as Buffer);
+                    const raw = Buffer.concat(chunks).toString('utf8');
                     try {
                         body = raw ? JSON.parse(raw) : undefined;
                     } catch {

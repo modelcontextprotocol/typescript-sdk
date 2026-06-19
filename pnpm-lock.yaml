@@ -626,6 +626,9 @@ importers:
 
   examples/repl:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -794,6 +797,9 @@ importers:
 
   examples/sse-polling:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client

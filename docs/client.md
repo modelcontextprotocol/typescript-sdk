@@ -243,7 +243,8 @@ For manual control over the token exchange steps, use the Layer 2 utilities from
 - `discoverAndRequestJwtAuthGrant()` – Discovery + JAG acquisition
 - `exchangeJwtAuthGrant()` – Exchange JAG for access token at MCP server
 
-> [!NOTE] See [RFC 8693 (Token Exchange)](https://datatracker.ietf.org/doc/html/rfc8693), [RFC 7523 (JWT Bearer Grant)](https://datatracker.ietf.org/doc/html/rfc7523), and [RFC 9728 (Resource Discovery)](https://datatracker.ietf.org/doc/html/rfc9728) for the underlying OAuth
+> [!NOTE]
+> See [RFC 8693 (Token Exchange)](https://datatracker.ietf.org/doc/html/rfc8693), [RFC 7523 (JWT Bearer Grant)](https://datatracker.ietf.org/doc/html/rfc7523), and [RFC 9728 (Resource Discovery)](https://datatracker.ietf.org/doc/html/rfc9728) for the underlying OAuth
 > standards.
 
 ## Tools
@@ -443,7 +444,8 @@ client.setNotificationHandler('notifications/resources/list_changed', async () =
 });
 ```
 
-> [!WARNING] MCP logging (including `setLoggingLevel()` and `notifications/message`) is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the
+> [!WARNING]
+> MCP logging (including `setLoggingLevel()` and `notifications/message`) is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the
 > [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Servers should migrate to stderr logging (STDIO) or OpenTelemetry.
 
 To control the minimum severity of log messages the server sends, use {@linkcode @modelcontextprotocol/client!client/client.Client#setLoggingLevel | setLoggingLevel()}:
@@ -452,7 +454,8 @@ To control the minimum severity of log messages the server sends, use {@linkcode
 await client.setLoggingLevel('warning');
 ```
 
-> [!WARNING] `listChanged` and {@linkcode @modelcontextprotocol/client!client/client.Client#setNotificationHandler | setNotificationHandler()} are mutually exclusive per notification type — using both for the same notification will cause the manual handler to be overwritten.
+> [!WARNING]
+> `listChanged` and {@linkcode @modelcontextprotocol/client!client/client.Client#setNotificationHandler | setNotificationHandler()} are mutually exclusive per notification type — using both for the same notification will cause the manual handler to be overwritten.
 
 ## Handling server-initiated requests
 
@@ -473,7 +476,8 @@ const client = new Client(
 
 ### Sampling
 
-> [!WARNING] Sampling is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Servers
+> [!WARNING]
+> Sampling is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Servers
 > should migrate to calling LLM provider APIs directly.
 
 When a server needs an LLM completion during tool execution, it sends a `sampling/createMessage` request to the client (see [Sampling](https://modelcontextprotocol.io/docs/learn/client-concepts#sampling) in the MCP overview). Register a handler to fulfill it:
@@ -519,7 +523,8 @@ return), see [`elicitation/client.ts`](https://github.com/modelcontextprotocol/t
 
 ### Roots
 
-> [!WARNING] Roots are deprecated as of protocol version 2026-07-28 (SEP-2577). They remain fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to
+> [!WARNING]
+> Roots are deprecated as of protocol version 2026-07-28 (SEP-2577). They remain fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to
 > passing paths via tool parameters, resource URIs, or configuration.
 
 Roots let the client expose filesystem boundaries to the server (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Declare the `roots` capability and register a `roots/list` handler:

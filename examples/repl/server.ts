@@ -17,14 +17,13 @@
  */
 import { randomUUID } from 'node:crypto';
 
+import { InMemoryEventStore } from '@mcp-examples/shared';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, PrimitiveSchemaDefinition, ReadResourceResult, ResourceLink } from '@modelcontextprotocol/server';
 import { completable, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
-
-import { InMemoryEventStore } from '../sse-polling/inMemoryEventStore.js';
 
 const PORT = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 3000;
 
