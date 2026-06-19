@@ -218,6 +218,69 @@ registerScenario('tools_call', runToolsCallClient);
 registerScenario('request-metadata', runRequestMetadataClient);
 
 // ============================================================================
+// SEP-2243 custom-header client scenarios (protocol revision 2026-07-28)
+// ============================================================================
+
+// The SEP-2243 conformance mocks (http-custom-headers / http-invalid-tool-headers)
+// only implement tools/list + tools/call (and a 2025-shaped initialize pinned
+// to 2026-07-28, no server/discover) — same connect-time gap as the
+// multi-round-trip mock, so use the same withLocalDiscoverResponse fetch shim
+// (defined below) to establish the modern era. The runner passes the exact
+// tool calls to make via MCP_CONFORMANCE_CONTEXT.
+
+function readToolCallsContext(): Array<{ name: string; arguments: Record<string, unknown> }> {
+    const raw = process.env.MCP_CONFORMANCE_CONTEXT;
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as { toolCalls?: Array<{ name: string; arguments: Record<string, unknown> }> };
+    return parsed.toolCalls ?? [];
+}
+
+async function connectModernHeaderClient(serverUrl: string): Promise<Client> {
+    const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {}, versionNegotiation: { mode: 'auto' } });
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl), {
+        fetch: withLocalDiscoverResponse({ name: 'test-client', version: '1.0.0' })
+    });
+    await client.connect(transport);
+    return client;
+}
+
+// http-custom-headers: the conformance mock advertises test_custom_headers and
+// test_custom_headers_null with x-mcp-header annotations. List first (so the
+// SDK caches the inputSchema and can mirror), then make the runner-supplied
+// calls; the conformance mock validates the Mcp-Param-* headers it receives.
+async function runHttpCustomHeadersClient(serverUrl: string): Promise<void> {
+    const client = await connectModernHeaderClient(serverUrl);
+    const { tools } = await client.listTools();
+    logger.debug('listed tools:', tools.map(t => t.name).join(', '));
+
+    for (const call of readToolCallsContext()) {
+        await client.callTool({ name: call.name, arguments: call.arguments });
+    }
+    await client.close();
+}
+
+// http-invalid-tool-headers: the conformance mock advertises one valid tool
+// alongside several constraint-violating ones. listTools() must exclude the
+// invalid ones; the fixture then calls every tool that survived — a correct
+// SDK leaves only valid_tool, so the mock records SUCCESS for the keep-valid
+// check and SUCCESS for every excluded tool not having been called.
+async function runHttpInvalidToolHeadersClient(serverUrl: string): Promise<void> {
+    const client = await connectModernHeaderClient(serverUrl);
+    const { tools } = await client.listTools();
+    logger.debug('post-exclusion tools:', tools.map(t => t.name).join(', '));
+
+    for (const tool of tools) {
+        await client.callTool({ name: tool.name, arguments: { region: 'us-west1' } }).catch(error => {
+            logger.debug(`call ${tool.name} rejected:`, String(error));
+        });
+    }
+    await client.close();
+}
+
+registerScenario('http-custom-headers', runHttpCustomHeadersClient);
+registerScenario('http-invalid-tool-headers', runHttpInvalidToolHeadersClient);
+
+// ============================================================================
 // Multi-round-trip client scenario (SEP-2322, protocol revision 2026-07-28)
 // ============================================================================
 

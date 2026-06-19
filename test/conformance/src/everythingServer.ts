@@ -27,6 +27,7 @@ import {
     classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
     createMcpHandler,
+    fromJsonSchema,
     inputRequired,
     isInitializeRequest,
     McpServer,
@@ -179,6 +180,27 @@ function createMcpServer() {
     }
 
     // ===== TOOLS =====
+
+    // SEP-2243 x-mcp-header tool — arms the http-custom-header-server-validation
+    // conformance scenario (which skips when no tool with an x-mcp-header
+    // annotation is found). The schema is hand-written JSON so the annotation
+    // survives serialization unchanged.
+    mcpServer.registerTool(
+        'test_x_mcp_header',
+        {
+            description: 'Tests SEP-2243 Mcp-Param-* server-side validation',
+            inputSchema: fromJsonSchema<{ region?: string; level?: number }>({
+                type: 'object',
+                properties: {
+                    region: { type: 'string', description: 'mirrored into Mcp-Param-Region', 'x-mcp-header': 'Region' },
+                    level: { type: 'integer', description: 'non-mirrored argument' }
+                }
+            })
+        },
+        async (args): Promise<CallToolResult> => ({
+            content: [{ type: 'text', text: `region=${args.region ?? '<none>'}` }]
+        })
+    );
 
     // Simple text tool
     mcpServer.registerTool(

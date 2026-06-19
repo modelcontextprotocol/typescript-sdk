@@ -161,7 +161,8 @@ export type InboundValidationRung =
     | 'envelope'
     | 'method-registry'
     | 'request-params'
-    | 'client-capabilities';
+    | 'client-capabilities'
+    | 'param-header-validation';
 
 /** A ladder rejection: the JSON-RPC error to emit and the HTTP status to emit it with. */
 export interface InboundLadderRejection {
@@ -316,6 +317,21 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
             'only while the requirement table is empty: once a served method gains a requirement entry, a request that is ' +
             'missing the capability and would also fail a dispatch rung is answered by this gate first, so the entry must ' +
             'consult the method registry before the gate if the documented precedence is to stay observable.'
+    },
+    {
+        rung: 'param-header-validation',
+        order: 8,
+        evaluatedAt: 'pre-dispatch',
+        codes: [HEADER_MISMATCH_ERROR_CODE],
+        conformance: ['http-custom-header-server-validation'],
+        rationale:
+            'SEP-2243 `Mcp-Param-*` headers are validated against the named tool’s `x-mcp-header` declarations and the body ' +
+            '`arguments` after the tool registry is known and before dispatch reaches the handler; a missing/disagreeing/malformed ' +
+            'header is rejected 400 / -32001 with the same shape as the standard-header cross-checks. The documented order ' +
+            '(after method resolution and params validation) is preserved observably only when the body `arguments` would ' +
+            'otherwise validate: the check runs pre-dispatch, so a `tools/call` that fails BOTH this rung and a dispatch-time ' +
+            'rung (e.g. order-6 `request-params`, -32602) is answered by this gate first with 400 / -32001, not by the ' +
+            'earlier-ordered rung.'
     }
 ];
 

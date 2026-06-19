@@ -53,6 +53,8 @@ export type EntryServerFactory = (ctx?: McpRequestContext) => McpServer | Server
 export interface RecordedHttpExchange {
     /** HTTP request method (GET/POST/DELETE). */
     method: string;
+    /** The HTTP request headers as resolved by `new Request(...)` — for raw header assertions (e.g. `Mcp-Param-*`). */
+    requestHeaders: Headers;
     /** The request body text, when one was sent as a string. */
     requestBody?: string;
     /** HTTP response status. */
@@ -155,6 +157,7 @@ export async function wire(
                 const response = await handler.fetch(request);
                 httpLog.push({
                     method: request.method.toUpperCase(),
+                    requestHeaders: request.headers,
                     ...(typeof init?.body === 'string' && { requestBody: init.body }),
                     status: response.status,
                     contentType: response.headers.get('content-type') ?? '',

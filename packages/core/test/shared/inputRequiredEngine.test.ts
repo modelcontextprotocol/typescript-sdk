@@ -48,6 +48,12 @@ describe('per-retry-leg request options whitelist', () => {
     test('absent caller options yield only the manual primitive opt-in', () => {
         expect(buildRetryLegRequestOptions(undefined, {})).toEqual({ allowInputRequired: true });
     });
+
+    test('per-request headers (SEP-2243 Mcp-Param-*) carry to retry legs — arguments are unchanged on retry', () => {
+        const headers = { 'Mcp-Param-Region': 'us-west1' };
+        const built = buildRetryLegRequestOptions({ headers }, {});
+        expect(built).toEqual({ headers, allowInputRequired: true });
+    });
 });
 
 describe('inputResponses partition', () => {
