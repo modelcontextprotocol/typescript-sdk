@@ -2373,6 +2373,93 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         addedInSpecVersion: '2026-07-28',
         note: "Runs on the entryModern arm; the body wires one harness-hosted endpoint per responseMode value via wire()'s entry.responseMode option and asserts the response shape on the arm-recorded HTTP exchanges."
     },
+
+    // v2 features: dual-era HTTP entry — HTTP request mechanics on the harness-hosted entry
+    // (entry-side siblings of the hosting:http / hosting:stateless families, which hand-host the
+    // server transport themselves and so never reach createMcpHandler when given an entry arm).
+
+    'typescript:hosting:entry:method-405': {
+        source: 'sdk',
+        behavior:
+            'An unsupported HTTP method (PUT, PATCH) on a createMcpHandler endpoint is answered 405 with a JSON-RPC Method-not-allowed body on both legs: the stateless legacy fallback rejects every non-POST method, and the modern-only strict path rejects body-less non-POST traffic via the modern-only-method-not-allowed cell.',
+        transports: ['entryStateless', 'entryModern'],
+        note: 'Runs on the createMcpHandler entry arms; the unsupported methods are POSTed through wired.fetch so the HTTP status and body are observed directly. The entry does not emit an Allow header (the per-session server transport does), so only the status and JSON-RPC error shape are pinned.'
+    },
+    'typescript:hosting:entry:parse-error-400': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
+        behavior:
+            'A POST whose body is not valid JSON is answered 400 by a createMcpHandler endpoint on both legs, with a JSON-RPC Parse-error (-32700) body: the entry classifier reads no envelope claim from a non-JSON body, so the stateless legacy fallback delegates the parse error and the modern-only strict path emits it itself.',
+        transports: ['entryStateless', 'entryModern'],
+        note: 'Runs on the createMcpHandler entry arms; the malformed body is POSTed through wired.fetch so the HTTP status and JSON-RPC error code are observed directly.'
+    },
+    'typescript:hosting:entry:legacy-accept-406': {
+        source: 'sdk',
+        behavior:
+            "A 2025-era POST whose Accept header does not allow both application/json and text/event-stream is answered 406 by a createMcpHandler endpoint's stateless legacy slot (the legacy fallback delegates to the streamable HTTP server transport, whose Accept negotiation is unchanged).",
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryStateless arm and is bounded to the 2025-11-25 axis: Accept negotiation is enforced by the legacy server transport the fallback delegates to, not by the modern per-request path. The probes are POSTed through wired.fetch so the 406 is observed directly.'
+    },
+    'typescript:hosting:entry:legacy-content-type-415': {
+        source: 'sdk',
+        behavior:
+            "A 2025-era POST whose Content-Type is not application/json is answered 415 by a createMcpHandler endpoint's stateless legacy slot (the legacy fallback delegates to the streamable HTTP server transport, whose Content-Type validation is unchanged).",
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryStateless arm and is bounded to the 2025-11-25 axis: Content-Type validation is enforced by the legacy server transport the fallback delegates to. The entry classifier reads the body before that delegate runs, so a body that happens to be valid JSON is still rejected on Content-Type alone.'
+    },
+    'typescript:hosting:entry:legacy-protocol-version-header-400': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header',
+        behavior:
+            "A 2025-era POST carrying an MCP-Protocol-Version header naming an unknown revision is answered 400 by a createMcpHandler endpoint's stateless legacy slot, with the response body naming the supported version(s).",
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryStateless arm and is bounded to the 2025-11-25 axis: the protocol-version header check is enforced by the legacy server transport the fallback delegates to. Header/body cross-checks on the modern path are pinned by the entry std-header rows; this row pins only that a non-modern unsupported header still surfaces as 400 through the fallback.'
+    },
+    'typescript:hosting:entry:legacy-protocol-version-default': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header',
+        behavior:
+            "A 2025-era POST without an MCP-Protocol-Version header is served by a createMcpHandler endpoint's stateless legacy slot under the assumed default protocol version (2025-03-26): a tools/list round-trips without the header.",
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryStateless arm and is bounded to the 2025-11-25 axis. The probe is POSTed through wired.fetch with only Accept and Content-Type headers so the default-version path is the one exercised.'
+    },
+    'typescript:hosting:entry:no-session-id': {
+        source: 'sdk',
+        behavior:
+            'A createMcpHandler endpoint emits no Mcp-Session-Id response header on either leg: the stateless legacy fallback hosts a sessionless server transport per request, and the modern per-request path has no session at all — every recorded exchange of a connect-then-tools/call round trip carries no session header.',
+        transports: ['entryStateless', 'entryModern'],
+        note: "Runs on the createMcpHandler entry arms; asserted on the arm-recorded httpLog response clones. The entry's BYO sessionful composition is the only way to issue a session id and is pinned by typescript:hosting:entry:byo-sessionful-legacy."
+    },
+    'typescript:hosting:entry:ctx-http-req-headers': {
+        source: 'sdk',
+        behavior:
+            "A custom HTTP header set on the StreamableHTTP client transport reaches a tool handler's ctx.http.req as Fetch Headers when the server is hosted by createMcpHandler, on both legs: the stateless legacy fallback and the modern per-request path each thread the original Request through to handler context.",
+        transports: ['entryStateless', 'entryModern'],
+        note: "The body hosts createMcpHandler itself (the wire() entry arm builds the client transport without a custom-header hook) and the matrix arm selects the legacy posture and client pin: entryStateless drives a plain client through legacy: 'stateless', entryModern drives a 2026-07-28-pinned client through legacy: 'reject'."
+    },
+
+    // v2 features: dual-era HTTP entry — bearer auth composed in front of createMcpHandler
+    // (entry-side siblings of the hosting:auth family, which hand-hosts an Express stack and so
+    // never reaches createMcpHandler when given an entry arm). The SDK does not enforce endpoint
+    // authentication on either era — bearer/OAuth auth is deployer-composed middleware in front of
+    // whichever handler is mounted, and the entry passes a verified AuthInfo through unchanged.
+
+    'typescript:hosting:entry:auth:missing-401': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#error-handling',
+        behavior:
+            'A bearer-protected createMcpHandler deployment — a user-composed verification gate in front of handler.fetch — answers a request without an Authorization header with 401 and a WWW-Authenticate challenge on both legs, and the entry is never reached for that request (no factory call).',
+        transports: ['entryStateless', 'entryModern'],
+        note: "The body hosts createMcpHandler itself behind the documented bearer-gate composition (verify the Authorization header, then call handler.fetch(request, { authInfo })); the matrix arm selects the legacy posture and client pin. The 401/WWW-Authenticate is the gate's own response — the entry performs no token verification — and the body asserts the gate composes correctly with both serving paths."
+    },
+    'typescript:hosting:entry:auth:authinfo-propagates': {
+        source: 'sdk',
+        behavior:
+            "A verified AuthInfo handed to createMcpHandler.fetch(request, { authInfo }) reaches per-request handlers as ctx.http.authInfo unchanged on both legs, and the same AuthInfo is exposed on the factory's per-request context (McpRequestContext.authInfo) before the instance is built.",
+        transports: ['entryStateless', 'entryModern'],
+        note: 'The body hosts createMcpHandler itself behind the documented bearer-gate composition; the matrix arm selects the legacy posture and client pin. authInfo is strictly pass-through — the entry never derives it from request headers — so the cell pins delivery, not verification. The OAuth client flow that obtains the token is hosting-agnostic and is covered by the client-auth family; the dedicated client-completes-OAuth-then-negotiates-2026 journey rides the auth-package redo (M13.1) so it is targeted at the surviving auth surface.'
+    },
+
     'typescript:transport:stdio:dual-era-serving': {
         source: 'sdk',
         behavior:
