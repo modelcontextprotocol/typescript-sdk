@@ -540,6 +540,69 @@ export function isStrictScopeSuperset(union: string | undefined, current: string
     return false;
 }
 
+/**
+ * Shared `finishAuth` resolver for the `(code, iss?)` and `(URLSearchParams)` overloads.
+ *
+ * For the `URLSearchParams` form, only `iss` and `code` are read up front. When a `code` is
+ * present the returned values flow into {@linkcode auth}, which runs
+ * {@linkcode validateAuthorizationResponseIssuer} against freshly-discovered metadata before
+ * the code is redeemed — so on mismatch the thrown {@linkcode IssuerMismatchError} carries no
+ * `error`/`error_description`/`error_uri` text from the callback (those are attacker-controlled
+ * in a mix-up). When no `code` is present (an error-shaped callback), `iss` is validated here
+ * against the provider's recorded discovery state — or, when the provider does not implement
+ * `discoveryState`, against freshly-discovered metadata mirroring what {@linkcode auth} does on
+ * the code-present path — **before** the callback's error parameters are read; only after that
+ * passes are they surfaced as an {@linkcode OAuthError}. When no issuer baseline can be
+ * obtained either way, a generic {@linkcode UnauthorizedError} is thrown without surfacing the
+ * callback's `error`/`error_description`/`error_uri`.
+ *
+ * @internal Exported for the transport `finishAuth` overloads; not part of the public barrel.
+ */
+export async function resolveAuthorizationCallbackParams(
+    codeOrParams: string | URLSearchParams,
+    iss: string | undefined,
+    provider: OAuthClientProvider,
+    serverUrl: string | URL,
+    opts?: { fetchFn?: FetchLike; resourceMetadataUrl?: URL }
+): Promise<{ authorizationCode: string; iss: string | undefined }> {
+    if (typeof codeOrParams === 'string') {
+        return { authorizationCode: codeOrParams, iss };
+    }
+    const issParam = codeOrParams.get('iss') ?? undefined;
+    const code = codeOrParams.get('code');
+    if (code) {
+        return { authorizationCode: code, iss: issParam };
+    }
+    // No code → error response. Gate the (potentially attacker-supplied) error params on the
+    // issuer first. Prefer the provider's recorded discovery state; when absent, mirror auth()'s
+    // code-present path and run a fresh discovery so the iss gate has an authentic baseline.
+    const discoveryState = await provider.discoveryState?.();
+    let metadata = discoveryState?.authorizationServerMetadata;
+    if (!metadata) {
+        try {
+            const serverInfo = await discoverOAuthServerInfo(serverUrl, opts);
+            metadata = serverInfo.authorizationServerMetadata;
+        } catch {
+            metadata = undefined;
+        }
+    }
+    if (!metadata) {
+        // No authentic baseline → cannot prove the error params came from our AS. Do NOT surface
+        // attacker-controllable `error`/`error_description`/`error_uri` here.
+        throw new UnauthorizedError('Authorization callback failed and the issuer could not be verified');
+    }
+    validateAuthorizationResponseIssuer({
+        iss: issParam,
+        expectedIssuer: metadata.issuer,
+        issParameterSupported: isIssParameterSupported(metadata)
+    });
+    const error = codeOrParams.get('error');
+    if (error) {
+        throw new OAuthError(error, codeOrParams.get('error_description') ?? error, codeOrParams.get('error_uri') ?? undefined);
+    }
+    throw new UnauthorizedError('Authorization callback contained neither `code` nor `error`');
+}
+
 export type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
 function isClientAuthMethod(method: string): method is ClientAuthMethod {

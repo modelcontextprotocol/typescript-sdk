@@ -53,19 +53,13 @@ import { importSPKI, jwtVerify } from 'jose';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { hostPerSession } from '../helpers/index.js';
+import { defined, hostPerSession } from '../helpers/index.js';
 import { verifies } from '../helpers/verifies.js';
 import type { TestArgs } from '../types.js';
 
 const ISSUER = 'https://auth.example.com';
 const MCP_URL = 'http://in-process/mcp';
 const RESOURCE = 'http://in-process/mcp';
-
-// Narrows indexed-access results that the surrounding count assertions have already proven to exist.
-function defined<T>(value: T | undefined, label: string): T {
-    if (value === undefined) throw new Error(`Expected ${label} to be defined`);
-    return value;
-}
 
 interface MockASConfig {
     tokenResponses?: Array<Partial<OAuthTokens>>;
@@ -743,10 +737,12 @@ verifies('client-auth:as-metadata-discovery:issuer-validation', async (_args: Te
 
 /**
  * Runs the redirect leg of the OAuth flow against a mock AS configured with `asMetadata`, then
- * calls `transport.finishAuth(code, iss)`. Returns the thrown error (or undefined on success)
- * and the recorded token-endpoint calls so the caller can assert whether the code went on the wire.
+ * calls `transport.finishAuth(...)`. When `callback` is a string (or undefined) it is passed as
+ * `finishAuth('granted-code', iss)`; when it is a `URLSearchParams` it is passed verbatim to the
+ * overload. Returns the thrown error (or undefined on success) and the recorded token-endpoint
+ * calls so the caller can assert whether the code went on the wire.
  */
-async function runFinishAuthScenario(asMetadata: Partial<AuthorizationServerMetadata>, iss: string | undefined) {
+async function runFinishAuthScenario(asMetadata: Partial<AuthorizationServerMetadata>, callback: string | undefined | URLSearchParams) {
     const as = createMockAuthorizationServer({ asMetadata, tokenResponses: [{ access_token: 'iss-flow-token', token_type: 'Bearer' }] });
     const provider = new RecordingOAuthClientProvider();
     const mcpHost = createAuthenticatedHost('iss-flow-token');
@@ -761,7 +757,7 @@ async function runFinishAuthScenario(asMetadata: Partial<AuthorizationServerMeta
 
         let thrown: unknown;
         try {
-            await transport.finishAuth('granted-code', iss);
+            await (callback instanceof URLSearchParams ? transport.finishAuth(callback) : transport.finishAuth('granted-code', callback));
         } catch (error) {
             thrown = error;
         }
@@ -845,6 +841,44 @@ verifies('client-auth:iss:opt-out', async (_args: TestArgs) => {
         })
     ).rejects.toThrow(IssuerMismatchError);
     expect(as.tokenCalls).toHaveLength(0);
+});
+
+verifies('client-auth:finishauth:urlsearchparams-sanitizes', async (_args: TestArgs) => {
+    const ATTACKER_TEXT = 'ATTACKER_CONTROLLED_DO_NOT_DISPLAY';
+    const ATTACKER_URI = 'https://attacker.example.com/phish';
+
+    // Mismatched-iss callback that ALSO carries error/error_description/error_uri — a mix-up
+    // attacker controls all of these. The overload must throw IssuerMismatchError before reading
+    // them, so none of the attacker text appears on the thrown error.
+    const mixed = await runFinishAuthScenario(
+        { authorization_response_iss_parameter_supported: true },
+        new URLSearchParams({
+            code: 'granted-code',
+            state: 'state-123',
+            iss: 'https://attacker.example.com',
+            error: 'server_error',
+            error_description: ATTACKER_TEXT,
+            error_uri: ATTACKER_URI
+        })
+    );
+    expect(mixed.thrown).toBeInstanceOf(IssuerMismatchError);
+    const err = mixed.thrown as IssuerMismatchError;
+    expect(err.kind).toBe('authorization_response');
+    expect(err.message).not.toContain(ATTACKER_TEXT);
+    expect(err.message).not.toContain(ATTACKER_URI);
+    expect(JSON.stringify(err)).not.toContain(ATTACKER_TEXT);
+    // The poisoned code never reached a token endpoint.
+    expect(mixed.tokenCalls).toHaveLength(0);
+
+    // Happy path: matching iss → SDK extracts code and redeems it.
+    const ok = await runFinishAuthScenario(
+        { authorization_response_iss_parameter_supported: true },
+        new URLSearchParams({ code: 'granted-code', state: 'state-123', iss: ISSUER })
+    );
+    expect(ok.thrown).toBeUndefined();
+    expect(ok.tokenCalls).toHaveLength(1);
+    expect(defined(ok.tokenCalls[0], 'token call').body.get('code')).toBe('granted-code');
+    expect(ok.provider.saved.tokens?.access_token).toBe('iss-flow-token');
 });
 
 verifies('client-auth:bearer-header:every-request', async (_args: TestArgs) => {

@@ -28,7 +28,7 @@ import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { hostPerSession, hostStateless } from '../helpers/index.js';
+import { defined, hostPerSession, hostStateless } from '../helpers/index.js';
 import { verifies } from '../helpers/verifies.js';
 import type { TestArgs } from '../types.js';
 
@@ -72,12 +72,6 @@ function echoServer(): McpServer {
         content: [{ type: 'text', text }]
     }));
     return s;
-}
-
-/** Narrows away `undefined` for values the surrounding test has already proven exist (replaces non-null assertions). */
-function defined<T>(value: T | undefined, label: string): T {
-    if (value === undefined) throw new Error(`expected ${label} to be defined`);
-    return value;
 }
 
 /** Asserts the message observed via onmessage is the initialize response for `id` with the negotiated version. */

@@ -1528,16 +1528,19 @@ New TypeScript-only aliases `StoredOAuthTokens` and `StoredOAuthClientInformatio
 
 `transport.finishAuth()` and `auth()` now validate the `iss` parameter from the authorization callback against the issuer recorded from the authorization server's validated metadata (RFC 9207). A **mismatched** `iss` is rejected with `IssuerMismatchError` before the code is exchanged regardless of what the AS advertised; a **missing** `iss` is rejected only when the AS advertised `authorization_response_iss_parameter_supported: true`.
 
-**You must** pass the callback URL's query parameters to the SDK so it can read `iss` alongside `code`:
+**You must** pass the callback URL's query parameters to the SDK so it can read `iss` alongside `code`. The SDK does **not** validate `state`; compare it to your stored value before calling `finishAuth`:
 
 ```typescript
-const url = new URL(callbackUrl);
-await transport.finishAuth(url.searchParams); // SDK reads `code` + `iss`
+const params = new URL(callbackUrl).searchParams;
+if (params.get('state') !== expectedState) throw new Error('state mismatch');
+await transport.finishAuth(params); // SDK reads `code` + `iss`
 ```
 
 `transport.finishAuth(code, iss)` remains supported for back-compat. If you bypass `auth()` and call `exchangeAuthorization()` / `fetchToken()` directly, pass `iss` in the options bag — the same validation runs there.
 
-**You must not** display or act on `error`, `error_description`, or `error_uri` from the callback URL when `IssuerMismatchError` is thrown — those values are attacker-controlled in a mix-up attack.
+**You must not** display or act on `error`, `error_description`, or `error_uri` from the callback URL when `IssuerMismatchError` is thrown — those values are attacker-controlled in a mix-up attack. The `URLSearchParams` overload handles this for you; if you parse the callback yourself, suppress them.
+
+_(`@modelcontextprotocol/server-legacy` AS implementers — **behavior change**)_ `mcpAuthRouter()` now advertises `authorization_response_iss_parameter_supported` (default `true`) and the bundled authorize handler appends `iss` to **every** redirect — success or error — that your `OAuthServerProvider.authorize()` issues to the client's `redirect_uri` **via `res.redirect(...)` on the supplied `res`**. No provider change is required when that is how you redirect. If you emit the `Location` header another way (e.g. `res.writeHead(302, { Location })`), issue the final callback redirect from a different response (e.g. after a separate consent-page POST), or wire a standalone `authorizationHandler({provider})` without `issuerUrl`, append `params.issuer` as `iss` yourself — otherwise RFC 9207-compliant clients (including this SDK's) will reject the callback with `IssuerMismatchError`. If the callback is issued by an upstream AS you proxy to, set `authorizationResponseIssParameterSupported = false` on your provider (`ProxyOAuthServerProvider` does this) so the metadata does not over-claim.
 
 `discoverAuthorizationServerMetadata()` now rejects metadata whose `issuer` does not exactly match the URL it was fetched for (RFC 8414 §3.3). If you connect to a known-misconfigured AS, set `skipIssuerMetadataValidation: true` on `StreamableHTTPClientTransportOptions` / `SSEClientTransportOptions` (or on `AuthOptions` if you call `auth()` directly, or `skipIssuerValidation: true` on the low-level helper) — **this weakens the mix-up defense and should be treated as a temporary workaround.** It suppresses only the metadata-echo check; the callback-`iss` validation always runs (and degrades to a no-op only when `iss` is absent and the AS does not advertise support).
 
