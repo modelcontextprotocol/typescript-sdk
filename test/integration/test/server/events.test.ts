@@ -1060,6 +1060,88 @@ describe('Events', () => {
         });
     });
 
+    // ---------------------------------------------------- per-event delivery
+
+    describe('per-event delivery override', () => {
+        it("delivery:['poll'] advertises only poll and rejects events/stream with -32014 Unsupported", async () => {
+            server.registerEvent('e', { emitOnly: true, delivery: ['poll'] });
+            await connectPair(server, client);
+
+            const list = await client.listEvents();
+            expect(list.events[0]!.delivery).toEqual(['poll']);
+
+            await expect(
+                client.request({ method: 'events/stream', params: { name: 'e', cursor: null } }, { timeout: 1000 })
+            ).rejects.toMatchObject({ code: UNSUPPORTED, data: { feature: 'delivery', value: 'push' } });
+
+            // Poll still works.
+            const r = await client.pollEvents({ name: 'e', cursor: null });
+            expect(r.truncated).toBe(false);
+        });
+
+        it("delivery:['push','webhook'] (webhook configured) rejects events/poll with -32014 Unsupported", async () => {
+            ({ server } = makeWebhookServer());
+            server.registerEvent('e', { emitOnly: true, delivery: ['push', 'webhook'] });
+            await connectPair(server, client);
+
+            const list = await client.listEvents();
+            expect(list.events[0]!.delivery).toEqual(['push', 'webhook']);
+
+            await expect(client.pollEvents({ name: 'e', cursor: null })).rejects.toMatchObject({
+                code: UNSUPPORTED,
+                data: { feature: 'delivery', value: 'poll' }
+            });
+
+            // Webhook subscribe is allowed.
+            const sub = await client.subscribeEvent({
+                name: 'e',
+                delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET },
+                cursor: null
+            });
+            expect(sub.id).toMatch(/^sub_/);
+        });
+
+        it('intersects per-event override with globally-enabled modes (cannot advertise webhook without ttlMs)', async () => {
+            // No webhook config on the default `server` fixture.
+            server.registerEvent('e', { emitOnly: true, delivery: ['poll', 'webhook'] });
+            await connectPair(server, client);
+
+            const list = await client.listEvents();
+            expect(list.events[0]!.delivery).toEqual(['poll']);
+        });
+
+        it('rejects events/subscribe with -32014 when per-event override excludes webhook', async () => {
+            ({ server } = makeWebhookServer());
+            server.registerEvent('e', { emitOnly: true, delivery: ['poll'] });
+            await connectPair(server, client);
+
+            await expect(
+                client.subscribeEvent({ name: 'e', delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET }, cursor: null })
+            ).rejects.toMatchObject({ code: UNSUPPORTED, data: { feature: 'delivery', value: 'webhook' } });
+        });
+
+        it('RegisteredEvent.update({delivery}) changes the advertised set and fires list_changed', async () => {
+            const reg = server.registerEvent('e', { emitOnly: true, delivery: ['poll', 'push'] });
+            await connectPair(server, client);
+
+            const changed: number[] = [];
+            client.setNotificationHandler('notifications/events/list_changed', () => void changed.push(1));
+
+            const before = await client.listEvents();
+            expect(before.events[0]!.delivery).toEqual(['poll', 'push']);
+            reg.update({ delivery: ['push'] });
+            await vi.waitFor(() => expect(changed.length).toBeGreaterThan(0));
+            const after = await client.listEvents();
+            expect(after.events[0]!.delivery).toEqual(['push']);
+
+            await expect(client.pollEvents({ name: 'e', cursor: null })).rejects.toMatchObject({ code: UNSUPPORTED });
+        });
+
+        it('rejects empty delivery override at registration time', () => {
+            expect(() => server.registerEvent('e', { emitOnly: true, delivery: [] })).toThrow(/non-empty/);
+        });
+    });
+
     // ----------------------------------------------------------------- errors
 
     describe('error codes', () => {

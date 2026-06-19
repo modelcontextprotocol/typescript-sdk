@@ -39,6 +39,7 @@ server.registerEvent(
         },
         matches: (params, data) => true,            // filter for broadcast emit()
         emitOnly: true,                             // omit check function for push-only upstreams
+        delivery: ['poll', 'push'],                 // restrict modes for THIS event (subset of poll/push/webhook)
         buffer: { capacity: 500 }                   // override default 1000-entry log capacity
     },
     // The check callback — the one function that backs all delivery modes.

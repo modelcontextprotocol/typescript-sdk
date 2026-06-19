@@ -214,6 +214,19 @@ export interface EventConfig<InputArgs extends AnySchema | undefined = undefined
      */
     emitOnly?: boolean;
     /**
+     * Restricts the delivery modes this event type advertises and accepts.
+     *
+     * Per spec, each event type's `delivery` is any non-empty subset chosen
+     * independently. When set, the registered event advertises exactly this
+     * subset (intersected with the manager's globally-enabled modes — e.g. you
+     * cannot advertise `'webhook'` when no webhook TTL is configured). When
+     * omitted, the event inherits the full globally-enabled set.
+     *
+     * Requests against a mode outside the resolved set are rejected with
+     * `-32014 Unsupported` and `data: {feature: 'delivery', value: <mode>}`.
+     */
+    delivery?: EventDeliveryMode[];
+    /**
      * Bounded in-memory event log retained per event-name.
      */
     buffer?: {
@@ -236,7 +249,7 @@ export interface RegisteredEvent {
     enabled: boolean;
     enable(): void;
     disable(): void;
-    update(updates: { description?: string; enabled?: boolean }): void;
+    update(updates: { description?: string; enabled?: boolean; delivery?: EventDeliveryMode[] }): void;
     remove(): void;
 }
 
@@ -397,6 +410,7 @@ interface InternalRegisteredEvent {
     matches?: EventMatchCallback;
     transform?: EventTransformCallback;
     emitOnly: boolean;
+    delivery?: EventDeliveryMode[];
     log: EventLog;
     _meta?: Record<string, unknown>;
     check: EventCheckCallback;
@@ -598,6 +612,9 @@ export class ServerEventManager {
         if (!check && !config.emitOnly) {
             throw new Error(`Event ${name}: check callback is required unless emitOnly is set`);
         }
+        if (config.delivery !== undefined && config.delivery.length === 0) {
+            throw new Error(`Event ${name}: delivery override must be a non-empty subset`);
+        }
 
         const entry: InternalRegisteredEvent = {
             title: config.title,
@@ -608,6 +625,7 @@ export class ServerEventManager {
             matches: config.matches as EventMatchCallback | undefined,
             transform: config.transform as EventTransformCallback | undefined,
             emitOnly: config.emitOnly ?? false,
+            delivery: config.delivery,
             log: {
                 capacity: config.buffer?.capacity ?? DEFAULT_BUFFER_CAPACITY,
                 entries: [],
@@ -637,6 +655,12 @@ export class ServerEventManager {
                 if (updates.enabled !== undefined) {
                     entry.enabled = updates.enabled;
                     registered.enabled = updates.enabled;
+                }
+                if (updates.delivery !== undefined) {
+                    if (updates.delivery.length === 0) {
+                        throw new Error(`Event ${name}: delivery override must be a non-empty subset`);
+                    }
+                    entry.delivery = updates.delivery;
                 }
                 this._sendEventListChanged();
             },
@@ -863,8 +887,20 @@ export class ServerEventManager {
         return modes;
     }
 
+    /**
+     * Resolves the effective delivery-mode set for a single event type.
+     * Intersects the event's per-type override (if any) with the manager's
+     * globally-enabled modes so an event cannot advertise a mode the manager
+     * is not configured to serve. Falls back to the global set when no override
+     * is present.
+     */
+    private _resolveDeliveryModes(event: InternalRegisteredEvent): EventDeliveryMode[] {
+        const global = this._computeDeliveryModes();
+        if (!event.delivery) return global;
+        return event.delivery.filter(mode => global.includes(mode));
+    }
+
     private _handleList(): ListEventsResult {
-        const delivery = this._computeDeliveryModes();
         const events: EventDescriptor[] = [];
         for (const [name, event] of this._events) {
             if (!event.enabled) continue;
@@ -872,7 +908,7 @@ export class ServerEventManager {
                 name,
                 title: event.title,
                 description: event.description,
-                delivery,
+                delivery: this._resolveDeliveryModes(event),
                 inputSchema: event.inputSchema
                     ? (standardSchemaToJsonSchema(
                           event.inputSchema as unknown as StandardJSONSchemaV1,
@@ -990,7 +1026,7 @@ export class ServerEventManager {
         if (!event || !event.enabled) {
             throw new ProtocolError(NOT_FOUND, `Unknown event: ${params.name}`, { kind: 'event' });
         }
-        if (!this._computeDeliveryModes().includes('poll')) {
+        if (!this._resolveDeliveryModes(event).includes('poll')) {
             throw new ProtocolError(UNSUPPORTED, `Event ${params.name} does not support poll delivery`, {
                 feature: 'delivery',
                 value: 'poll'
@@ -1121,7 +1157,7 @@ export class ServerEventManager {
         if (!event || !event.enabled) {
             throw new ProtocolError(NOT_FOUND, `Unknown event: ${spec.name}`, { kind: 'event' });
         }
-        if (!this._computeDeliveryModes().includes('push')) {
+        if (!this._resolveDeliveryModes(event).includes('push')) {
             throw new ProtocolError(UNSUPPORTED, `Event ${spec.name} does not support push delivery`, {
                 feature: 'delivery',
                 value: 'push'
@@ -1253,6 +1289,12 @@ export class ServerEventManager {
         const event = this._events.get(params.name);
         if (!event || !event.enabled) {
             throw new ProtocolError(NOT_FOUND, `Unknown event: ${params.name}`, { kind: 'event' });
+        }
+        if (!this._resolveDeliveryModes(event).includes('webhook')) {
+            throw new ProtocolError(UNSUPPORTED, `Event ${params.name} does not support webhook delivery`, {
+                feature: 'delivery',
+                value: 'webhook'
+            });
         }
 
         const paramsResult = await this._validateParams(event, params.arguments);
