@@ -21,22 +21,36 @@ export const METHOD_NOT_FOUND = -32_601;
 export const INVALID_PARAMS = -32_602;
 export const INTERNAL_ERROR = -32_603;
 
-/* Events-specific error code constants */
-/** MCP-specific error code: Unknown event name. */
-export const EVENT_NOT_FOUND = -32_011;
-/** MCP-specific error code: User lacks permission for this event/params combination. */
-export const EVENT_UNAUTHORIZED = -32_012;
-/** MCP-specific error code: Subscription limit reached. */
-export const TOO_MANY_SUBSCRIPTIONS = -32_013;
-/**
- * Reserved/unused. Gaps are signalled via `truncated: true` in poll/stream/subscribe
- * responses (and a `gap` control envelope on webhook), not as an error.
- * @deprecated Use `truncated` instead. Retained for SDK-internal back-compat reads.
+/*
+ * General-purpose MCP error code constants.
+ *
+ * Introduced by the Events SEP (spec commit 567be29) as a consolidated set
+ * intended for promotion to the base MCP error registry; they are not
+ * events-specific. The structured `data` field disambiguates the resource
+ * kind / limit / feature where helpful.
  */
-export const CURSOR_EXPIRED = -32_014;
-/** MCP-specific error code: Webhook callback URL was rejected by server policy. */
-export const INVALID_CALLBACK_URL = -32_015;
-/** MCP-specific error code: No subscription matches the supplied key. */
-export const SUBSCRIPTION_NOT_FOUND = -32_016;
-/** MCP-specific error code: Event type does not support the requested delivery mode. */
-export const DELIVERY_MODE_UNSUPPORTED = -32_017;
+/**
+ * MCP error code: the addressed resource does not exist.
+ * `data.kind` (e.g. `'event'`, `'subscription'`) names the missing resource.
+ */
+export const NOT_FOUND = -32_011;
+/**
+ * MCP error code: the caller is not permitted to perform this operation
+ * (unauthenticated, or authenticated but lacking permission).
+ */
+export const FORBIDDEN = -32_012;
+/**
+ * MCP error code: a server-side limit was reached.
+ * `data.limit` names the limit, `data.max` carries the configured ceiling.
+ */
+export const RESOURCE_EXHAUSTED = -32_013;
+/**
+ * MCP error code: the requested feature/value is not supported by this server.
+ * `data.feature` / `data.value` describe what was rejected.
+ */
+export const UNSUPPORTED = -32_014;
+/**
+ * MCP error code: the supplied callback endpoint was rejected or unreachable.
+ * `data.reason` carries a {@link WebhookLastError}-shaped category when known.
+ */
+export const CALLBACK_ENDPOINT_ERROR = -32_015;

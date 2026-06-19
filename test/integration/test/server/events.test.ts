@@ -10,16 +10,15 @@ import type {
 } from '@modelcontextprotocol/core';
 import {
     computeWebhookSignature,
-    DELIVERY_MODE_UNSUPPORTED,
-    EVENT_NOT_FOUND,
-    EVENT_UNAUTHORIZED,
+    FORBIDDEN,
     generateWebhookSecret,
     InMemoryTransport,
     isSafeWebhookUrl,
+    NOT_FOUND,
     ProtocolError,
     ProtocolErrorCode,
     SUBSCRIPTION_ID_META_KEY,
-    SUBSCRIPTION_NOT_FOUND,
+    UNSUPPORTED,
     verifyWebhookSignature,
     WEBHOOK_ID_HEADER,
     WEBHOOK_SIGNATURE_HEADER,
@@ -191,9 +190,12 @@ describe('Events', () => {
             expect(result.events).toEqual([]);
         });
 
-        it('rejects unknown event name with EventNotFound', async () => {
+        it('rejects unknown event name with NotFound', async () => {
             await connectPair(server, client);
-            await expect(client.pollEvents({ name: 'nope', cursor: null })).rejects.toMatchObject({ code: EVENT_NOT_FOUND });
+            await expect(client.pollEvents({ name: 'nope', cursor: null })).rejects.toMatchObject({
+                code: NOT_FOUND,
+                data: { kind: 'event' }
+            });
         });
 
         it('honours maxEvents — slices the batch and sets hasMore:true with intermediate cursor', async () => {
@@ -316,18 +318,18 @@ describe('Events', () => {
             const stream = openStream({ name: 'e', cursor: null });
             await vi.waitFor(() => expect(active).toHaveLength(1));
 
-            server.terminateEventSubscription(`req:${String(stream.requestId())}`, { code: EVENT_UNAUTHORIZED, message: 'revoked' });
+            server.terminateEventSubscription(`req:${String(stream.requestId())}`, { code: FORBIDDEN, message: 'revoked' });
             await vi.waitFor(() => expect(terminated).toHaveLength(1));
             expect(metaSubId(terminated[0]!)).toBe(stream.requestId());
-            expect(terminated[0]!.error.code).toBe(EVENT_UNAUTHORIZED);
+            expect(terminated[0]!.error.code).toBe(FORBIDDEN);
         });
 
-        it('rejects with DeliveryModeUnsupported on stream when event missing', async () => {
+        it('rejects with NotFound on stream when event missing', async () => {
             server.registerEvent('e', { emitOnly: true });
             await connectPair(server, client);
             await expect(
                 client.request({ method: 'events/stream', params: { name: 'unknown', cursor: null } }, { timeout: 1000 })
-            ).rejects.toMatchObject({ code: EVENT_NOT_FOUND });
+            ).rejects.toMatchObject({ code: NOT_FOUND, data: { kind: 'event' } });
         });
     });
 
@@ -458,7 +460,7 @@ describe('Events', () => {
             await connectPair(server, client);
             await expect(
                 client.subscribeEvent({ name: 'inc', delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET }, cursor: null })
-            ).rejects.toMatchObject({ code: EVENT_UNAUTHORIZED });
+            ).rejects.toMatchObject({ code: FORBIDDEN });
         });
 
         it('rejects malformed secret with InvalidParams', async () => {
@@ -564,7 +566,8 @@ describe('Events', () => {
             await client.subscribeEvent({ name: 'inc', delivery: { mode: 'webhook', url: HOOK_URL, secret: SECRET }, cursor: null });
             await expect(client.unsubscribeEvent({ name: 'inc', delivery: { url: HOOK_URL } })).resolves.toEqual({});
             await expect(client.unsubscribeEvent({ name: 'inc', delivery: { url: HOOK_URL } })).rejects.toMatchObject({
-                code: SUBSCRIPTION_NOT_FOUND
+                code: NOT_FOUND,
+                data: { kind: 'subscription' }
             });
         });
     });
@@ -715,14 +718,14 @@ describe('Events', () => {
                 emitOnly: true,
                 hooks: {
                     onSubscribe: () => {
-                        throw new ProtocolError(EVENT_UNAUTHORIZED, 'nope');
+                        throw new ProtocolError(FORBIDDEN, 'nope');
                     }
                 }
             });
             await connectPair(server, client);
             await expect(
                 client.request({ method: 'events/stream', params: { name: 'e', cursor: null } }, { timeout: 1000 })
-            ).rejects.toMatchObject({ code: EVENT_UNAUTHORIZED });
+            ).rejects.toMatchObject({ code: FORBIDDEN });
         });
 
         it('poll lease fires onSubscribe once per (principal, name, params) key', async () => {
@@ -738,14 +741,14 @@ describe('Events', () => {
     // ----------------------------------------------------------------- errors
 
     describe('error codes', () => {
-        it('DeliveryModeUnsupported when webhook is not enabled', async () => {
+        it('Unsupported when webhook is not enabled', async () => {
             server.registerEvent('e', { emitOnly: true });
             await connectPair(server, client);
             // events/subscribe handler isn't even registered without webhook config →
-            // surfaces as MethodNotFound. DeliveryModeUnsupported applies when the
-            // mode IS available but not for this event — covered by poll/push paths.
+            // surfaces as MethodNotFound. Unsupported applies when the mode IS
+            // available but not for this event — covered by poll/push paths.
             // Here we test the constant exists and is distinct.
-            expect(DELIVERY_MODE_UNSUPPORTED).toBe(-32_017);
+            expect(UNSUPPORTED).toBe(-32_014);
         });
     });
 });

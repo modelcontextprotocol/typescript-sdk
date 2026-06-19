@@ -7,7 +7,7 @@
  * `gmail_get_message` tool. The check callback is backed by Gmail's
  * `users.history.list` API using `historyId` as the durable cursor — the SDK never
  * invents a cursor, it passes Gmail's straight through. A 404 from Gmail (stale
- * historyId, typically >1 week old) is mapped to `CURSOR_EXPIRED` so the client
+ * historyId, typically >1 week old) returns `truncated: true` so the client
  * re-bootstraps automatically.
  *
  * ## Setup
@@ -35,7 +35,7 @@
  *   pnpm --filter @modelcontextprotocol/examples-server exec tsx src/events-stress/gmail.ts
  */
 
-import { CURSOR_EXPIRED, McpServer, ProtocolError, StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
 import type { gmail_v1 } from 'googleapis';
 import { google } from 'googleapis';
 import * as z from 'zod/v4';
@@ -126,12 +126,12 @@ export function createServer(gmail: gmail_v1.Gmail = defaultGmailClient()): McpS
                 page = res.data;
             } catch (error) {
                 // Gmail returns HTTP 404 when startHistoryId has aged out of the
-                // retention window (~1 week). Map to CURSOR_EXPIRED → client re-bootstraps.
+                // retention window (~1 week). Signal truncated → client re-bootstraps.
                 const code =
                     (error as { code?: number; response?: { status?: number } }).code ??
                     (error as { response?: { status?: number } }).response?.status;
                 if (code === 404) {
-                    throw new ProtocolError(CURSOR_EXPIRED, 'Gmail historyId expired; re-sync required');
+                    return { events: [], cursor: null, truncated: true };
                 }
                 throw error;
             }

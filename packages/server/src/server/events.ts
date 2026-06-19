@@ -22,29 +22,35 @@ import type {
     WebhookUrlValidationOptions
 } from '@modelcontextprotocol/core';
 import {
+    CALLBACK_ENDPOINT_ERROR,
     computeWebhookSignature,
-    CURSOR_EXPIRED,
     decodeWebhookSecret,
-    DELIVERY_MODE_UNSUPPORTED,
-    EVENT_NOT_FOUND,
-    EVENT_UNAUTHORIZED,
-    INVALID_CALLBACK_URL,
+    FORBIDDEN,
     isPrivateAddress,
     isSafeWebhookUrl,
     normaliseHostname,
+    NOT_FOUND,
     parseSchema,
     ProtocolError,
     ProtocolErrorCode,
+    RESOURCE_EXHAUSTED,
     standardSchemaToJsonSchema,
     SUBSCRIPTION_ID_META_KEY,
-    SUBSCRIPTION_NOT_FOUND,
-    TOO_MANY_SUBSCRIPTIONS,
+    UNSUPPORTED,
     WEBHOOK_ID_HEADER,
     WEBHOOK_MAX_BODY_BYTES,
     WEBHOOK_SIGNATURE_HEADER,
     WEBHOOK_SUBSCRIPTION_ID_HEADER,
     WEBHOOK_TIMESTAMP_HEADER
 } from '@modelcontextprotocol/core';
+
+/**
+ * Legacy numeric value of the removed `CURSOR_EXPIRED` constant. The public
+ * constant is gone (gaps are signalled via `truncated: true`), but check()
+ * callbacks written against older SDKs may still throw it; the manager catches
+ * that numeric and remaps it to `truncated`. Not exported.
+ */
+const LEGACY_CURSOR_EXPIRED = -32_014;
 
 import type { Server } from './server.js';
 
@@ -84,9 +90,7 @@ export interface EventCheckResult {
     /**
      * `true` if the supplied `cursor` fell outside upstream's retention window
      * and check() reset to a position it can serve from. The SDK signals this
-     * via `truncated: true` on the wire. Prefer this over throwing
-     * `CURSOR_EXPIRED`; throwing is still supported for back-compat and is
-     * mapped to the same `truncated` outcome.
+     * via `truncated: true` on the wire.
      */
     truncated?: boolean;
     /**
@@ -271,7 +275,7 @@ export interface EventWebhookOptions {
      * Extracts the caller's canonical principal identifier from the request
      * context (e.g., OAuth `sub`, API key ID). `events/subscribe` and
      * `events/unsubscribe` MUST be called with an authenticated principal —
-     * the server rejects with `-32012 Unauthorized` if this returns
+     * the server rejects with `-32012 Forbidden` if this returns
      * `undefined`. Defaults to `ctx.http?.authInfo?.clientId`.
      */
     getPrincipal?: (ctx: ServerContext) => string | undefined;
@@ -471,7 +475,7 @@ export class ServerEventManager {
     /**
      * Computes the compound subscription key `(principal, url, name, arguments)`
      * and the deterministic routing `id` derived from it. Webhook subscribe and
-     * unsubscribe MUST be authenticated; throws `-32012 Unauthorized` otherwise.
+     * unsubscribe MUST be authenticated; throws `-32012 Forbidden` otherwise.
      */
     private async _subscriptionKey(
         ctx: ServerContext,
@@ -481,7 +485,7 @@ export class ServerEventManager {
     ): Promise<{ key: string; id: string }> {
         const principal = this._getPrincipal(ctx);
         if (!principal) {
-            throw new ProtocolError(EVENT_UNAUTHORIZED, 'events/subscribe requires an authenticated principal');
+            throw new ProtocolError(FORBIDDEN, 'events/subscribe requires an authenticated principal');
         }
         const key = `${principal}\0${url}\0${name}\0${canonicalJson(params)}`;
         const hash = await sha256Hex(key);
@@ -690,7 +694,7 @@ export class ServerEventManager {
      */
     terminate(subscriptionId: string, reason?: string | EventSubscriptionError): void {
         const error: EventSubscriptionError =
-            typeof reason === 'object' ? reason : { code: EVENT_UNAUTHORIZED, message: reason ?? 'Subscription terminated' };
+            typeof reason === 'object' ? reason : { code: FORBIDDEN, message: reason ?? 'Subscription terminated' };
         for (const stream of this._pushStreams) {
             if (stream.sub.id === subscriptionId) {
                 if (!stream.closed) {
@@ -836,7 +840,7 @@ export class ServerEventManager {
     }
 
     /**
-     * Runs check() for a subscription. Maps `CURSOR_EXPIRED` (legacy throw or
+     * Runs check() for a subscription. Maps a legacy `-32014` throw (or
      * `truncated: true` from check()) into the gap model rather than an error.
      */
     private async _runCheckTick(
@@ -860,7 +864,7 @@ export class ServerEventManager {
             checkResult = await event.check(params, internalCheckCursor, ctx);
         } catch (error) {
             const subErr = this._toSubscriptionError(error);
-            if (subErr.code === CURSOR_EXPIRED) {
+            if (subErr.code === LEGACY_CURSOR_EXPIRED) {
                 // Legacy throw mapped to gap model: reset and continue.
                 return { events: [], nextInternalCheckCursor: null, truncated: true };
             }
@@ -892,10 +896,13 @@ export class ServerEventManager {
     private async _handlePoll(params: PollEventsRequestParams, ctx: ServerContext): Promise<PollEventsResult> {
         const event = this._events.get(params.name);
         if (!event || !event.enabled) {
-            throw new ProtocolError(EVENT_NOT_FOUND, `Unknown event: ${params.name}`);
+            throw new ProtocolError(NOT_FOUND, `Unknown event: ${params.name}`, { kind: 'event' });
         }
         if (!this._computeDeliveryModes().includes('poll')) {
-            throw new ProtocolError(DELIVERY_MODE_UNSUPPORTED, `Event ${params.name} does not support poll delivery`);
+            throw new ProtocolError(UNSUPPORTED, `Event ${params.name} does not support poll delivery`, {
+                feature: 'delivery',
+                value: 'poll'
+            });
         }
 
         const paramsResult = await this._validateParams(event, params.arguments);
@@ -1020,10 +1027,13 @@ export class ServerEventManager {
     private async _openStream(spec: StreamEventsRequestParams, ctx: ServerContext, resolve: () => void): Promise<void> {
         const event = this._events.get(spec.name);
         if (!event || !event.enabled) {
-            throw new ProtocolError(EVENT_NOT_FOUND, `Unknown event: ${spec.name}`);
+            throw new ProtocolError(NOT_FOUND, `Unknown event: ${spec.name}`, { kind: 'event' });
         }
         if (!this._computeDeliveryModes().includes('push')) {
-            throw new ProtocolError(DELIVERY_MODE_UNSUPPORTED, `Event ${spec.name} does not support push delivery`);
+            throw new ProtocolError(UNSUPPORTED, `Event ${spec.name} does not support push delivery`, {
+                feature: 'delivery',
+                value: 'push'
+            });
         }
         const paramsResult = await this._validateParams(event, spec.arguments);
         if ('error' in paramsResult) {
@@ -1146,7 +1156,7 @@ export class ServerEventManager {
 
         const event = this._events.get(params.name);
         if (!event || !event.enabled) {
-            throw new ProtocolError(EVENT_NOT_FOUND, `Unknown event: ${params.name}`);
+            throw new ProtocolError(NOT_FOUND, `Unknown event: ${params.name}`, { kind: 'event' });
         }
 
         const paramsResult = await this._validateParams(event, params.arguments);
@@ -1156,7 +1166,7 @@ export class ServerEventManager {
 
         const urlCheck = isSafeWebhookUrl(params.delivery.url, this._webhookOptions?.urlValidation);
         if (!urlCheck.safe) {
-            throw new ProtocolError(INVALID_CALLBACK_URL, urlCheck.reason ?? 'Callback URL rejected');
+            throw new ProtocolError(CALLBACK_ENDPOINT_ERROR, urlCheck.reason ?? 'Callback URL rejected', { reason: urlCheck.reason });
         }
 
         try {
@@ -1169,7 +1179,10 @@ export class ServerEventManager {
         const existing = this._webhookSubs.get(key);
         const isNew = !existing;
         if (isNew && this._webhookSubs.size >= this._maxWebhookSubs) {
-            throw new ProtocolError(TOO_MANY_SUBSCRIPTIONS, `Webhook subscription limit (${this._maxWebhookSubs}) reached`);
+            throw new ProtocolError(RESOURCE_EXHAUSTED, `Webhook subscription limit (${this._maxWebhookSubs}) reached`, {
+                limit: 'webhookSubscriptions',
+                max: this._maxWebhookSubs
+            });
         }
 
         if (isNew && event.hooks?.onSubscribe) {
@@ -1255,7 +1268,7 @@ export class ServerEventManager {
     private async _handleUnsubscribe(params: UnsubscribeEventRequestParams, ctx: ServerContext): Promise<Record<string, never>> {
         const event = this._events.get(params.name);
         if (!event) {
-            throw new ProtocolError(EVENT_NOT_FOUND, `Unknown event: ${params.name}`);
+            throw new ProtocolError(NOT_FOUND, `Unknown event: ${params.name}`, { kind: 'event' });
         }
         const paramsResult = await this._validateParams(event, params.arguments);
         if ('error' in paramsResult) {
@@ -1264,7 +1277,7 @@ export class ServerEventManager {
         const { key } = await this._subscriptionKey(ctx, params.delivery.url, params.name, paramsResult.params);
         const sub = this._webhookSubs.get(key);
         if (!sub) {
-            throw new ProtocolError(SUBSCRIPTION_NOT_FOUND, `No subscription matches the supplied key`);
+            throw new ProtocolError(NOT_FOUND, `No subscription matches the supplied key`, { kind: 'subscription' });
         }
         await this._teardownWebhookSub(sub, ctx);
         this._webhookSubs.delete(key);

@@ -2184,7 +2184,7 @@ export const EventOccurrenceSchema = z.object({
  */
 export const EventSubscriptionErrorSchema = z.object({
     /**
-     * Numeric error code. See {@linkcode EVENT_NOT_FOUND}, {@linkcode CURSOR_EXPIRED}, etc.
+     * Numeric error code. See {@linkcode NOT_FOUND}, {@linkcode FORBIDDEN}, etc.
      */
     code: z.number().int(),
     /**
@@ -2375,7 +2375,7 @@ export const SubscribeEventRequestParamsSchema = BaseRequestParamsSchema.extend(
  * Sent from the client to register a webhook subscription. Idempotent: calling
  * again with the same `(principal, delivery.url, name, arguments)` refreshes the
  * TTL and updates mutable fields. MUST be called with an authenticated
- * principal — servers reject unauthenticated calls with `-32012 Unauthorized`.
+ * principal — servers reject unauthenticated calls with `-32012 Forbidden`.
  */
 export const SubscribeEventRequestSchema = RequestSchema.extend({
     method: z.literal('events/subscribe'),

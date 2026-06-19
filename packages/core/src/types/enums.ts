@@ -14,13 +14,11 @@ export enum ProtocolErrorCode {
     ResourceNotFound = -32_002,
     UrlElicitationRequired = -32_042,
 
-    // Events-specific error codes
-    EventNotFound = -32_011,
-    EventUnauthorized = -32_012,
-    TooManySubscriptions = -32_013,
-    /** Reserved/unused — gaps are signalled via `truncated: true`, not an error. */
-    CursorExpired = -32_014,
-    InvalidCallbackUrl = -32_015,
-    SubscriptionNotFound = -32_016,
-    DeliveryModeUnsupported = -32_017
+    // General-purpose MCP error codes (introduced by the Events SEP; intended
+    // for promotion to the base MCP error registry).
+    NotFound = -32_011,
+    Forbidden = -32_012,
+    ResourceExhausted = -32_013,
+    Unsupported = -32_014,
+    CallbackEndpointError = -32_015
 }

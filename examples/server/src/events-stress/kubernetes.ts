@@ -6,7 +6,7 @@
  * Uses the canonical list-then-watch pattern: bootstrap LIST snapshots a
  * `resourceVersion`, subsequent polls open a short-lived WATCH from that RV,
  * drain a bounded batch, and advance the cursor. A 410 Gone from the apiserver
- * (RV compacted) surfaces as `CURSOR_EXPIRED` so the client re-bootstraps.
+ * (RV compacted) surfaces as `truncated: true` so the client re-bootstraps.
  *
  * ## Setup
  *
@@ -30,7 +30,7 @@
 
 import type { CoreV1Event, V1Pod } from '@kubernetes/client-node';
 import { CoreV1Api, KubeConfig, Watch } from '@kubernetes/client-node';
-import { CURSOR_EXPIRED, McpServer, ProtocolError, StdioServerTransport } from '@modelcontextprotocol/server';
+import { McpServer, StdioServerTransport } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -82,14 +82,14 @@ interface WatchFrame<T> {
 
 /**
  * Opens a watch at `resourceVersion`, collects up to DRAIN_BATCH non-bookmark
- * frames or DRAIN_WINDOW_MS elapses, then aborts. Throws ProtocolError on 410.
+ * frames or DRAIN_WINDOW_MS elapses, then aborts. Returns `gone: true` on 410.
  */
 async function drainWatch<T extends { metadata?: { resourceVersion?: string } }>(
     watch: Watch,
     path: string,
     resourceVersion: string,
     labelSelector: string | undefined
-): Promise<{ frames: WatchFrame<T>[]; newRV: string; hasMore: boolean }> {
+): Promise<{ frames: WatchFrame<T>[]; newRV: string; hasMore: boolean; gone: boolean }> {
     const frames: WatchFrame<T>[] = [];
     let newRV = resourceVersion;
     let gone = false;
@@ -127,18 +127,18 @@ async function drainWatch<T extends { metadata?: { resourceVersion?: string } }>
     controller.abort();
 
     if (gone) {
-        throw new ProtocolError(CURSOR_EXPIRED, 'resourceVersion too old (410 Gone); relist required');
+        return { frames: [], newRV, hasMore: false, gone: true };
     }
     // Surface transport errors that aren't self-abort or server-side close.
     if (doneErr && doneErr !== Watch.SERVER_SIDE_CLOSE && (doneErr as Error)?.name !== 'AbortError') {
         const code = (doneErr as { statusCode?: number; code?: number }).statusCode ?? (doneErr as { code?: number }).code;
         if (code === 410) {
-            throw new ProtocolError(CURSOR_EXPIRED, 'resourceVersion too old (410 Gone); relist required');
+            return { frames: [], newRV, hasMore: false, gone: true };
         }
         throw doneErr;
     }
 
-    return { frames, newRV, hasMore: frames.length >= DRAIN_BATCH };
+    return { frames, newRV, hasMore: frames.length >= DRAIN_BATCH, gone: false };
 }
 
 // --- server ------------------------------------------------------------------
@@ -208,12 +208,13 @@ export function createServer(deps?: K8sDeps): McpServer {
                 return { events: [], cursor: await bootstrap(params), nextPollMs: 5000 };
             }
             const cur = decodeCursor(cursor);
-            const { frames, newRV, hasMore } = await drainWatch<V1Pod>(
+            const { frames, newRV, hasMore, gone } = await drainWatch<V1Pod>(
                 k8s.watch,
                 `/api/v1/namespaces/${params.namespace}/pods`,
                 cur.pods,
                 params.labelSelector
             );
+            if (gone) return { events: [], cursor: null, truncated: true };
             const events = frames
                 .filter(f => f.phase === 'ADDED' || f.phase === 'MODIFIED')
                 .map(f => ({
@@ -246,12 +247,13 @@ export function createServer(deps?: K8sDeps): McpServer {
                 return { events: [], cursor: await bootstrap(params), nextPollMs: 5000 };
             }
             const cur = decodeCursor(cursor);
-            const { frames, newRV, hasMore } = await drainWatch<CoreV1Event>(
+            const { frames, newRV, hasMore, gone } = await drainWatch<CoreV1Event>(
                 k8s.watch,
                 `/api/v1/namespaces/${params.namespace}/events`,
                 cur.events,
                 params.labelSelector
             );
+            if (gone) return { events: [], cursor: null, truncated: true };
             const events = frames.map(f => ({
                 name: 'k8s.event',
                 data: {

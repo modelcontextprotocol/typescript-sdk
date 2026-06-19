@@ -59,7 +59,7 @@
  */
 
 import type { ServerContext } from '@modelcontextprotocol/server';
-import { EVENT_UNAUTHORIZED, McpServer, ProtocolError, StdioServerTransport, TOO_MANY_SUBSCRIPTIONS } from '@modelcontextprotocol/server';
+import { FORBIDDEN, McpServer, ProtocolError, RESOURCE_EXHAUSTED, StdioServerTransport } from '@modelcontextprotocol/server';
 import { Client as DiscordClient, Events, GatewayIntentBits, Partials } from 'discord.js';
 import * as z from 'zod/v4';
 
@@ -221,7 +221,7 @@ class DiscordApi {
         if (res.status === 401 || res.status === 403) {
             const tokenKind = auth.startsWith('Bot ') ? 'bot token' : 'user access token';
             throw new ProtocolError(
-                EVENT_UNAUTHORIZED,
+                FORBIDDEN,
                 `Discord rejected ${tokenKind} (${res.status}) when calling ${path} — token is invalid, expired, or lacks the required scopes`
             );
         }
@@ -337,14 +337,20 @@ class Authz {
     async authorise(subId: string, params: Filter, ctx: ServerContext): Promise<void> {
         const principal = Authz.principalFor(ctx);
         if (this._subs.size >= MAX_TOTAL_SUBS) {
-            throw new ProtocolError(TOO_MANY_SUBSCRIPTIONS, 'server subscription capacity exceeded');
+            throw new ProtocolError(RESOURCE_EXHAUSTED, 'server subscription capacity exceeded', {
+                limit: 'subscriptions',
+                max: MAX_TOTAL_SUBS
+            });
         }
         if ((this._subsByPrincipal.get(principal) ?? 0) >= MAX_SUBS_PER_PRINCIPAL) {
-            throw new ProtocolError(TOO_MANY_SUBSCRIPTIONS, 'per-principal subscription limit reached');
+            throw new ProtocolError(RESOURCE_EXHAUSTED, 'per-principal subscription limit reached', {
+                limit: 'subscriptionsPerPrincipal',
+                max: MAX_SUBS_PER_PRINCIPAL
+            });
         }
         const userToken = this._tokens.get(principal);
         if (!userToken) {
-            throw new ProtocolError(EVENT_UNAUTHORIZED, `no Discord token registered for principal ${principal}`);
+            throw new ProtocolError(FORBIDDEN, `no Discord token registered for principal ${principal}`);
         }
 
         // Require at least one scoping parameter so a subscribe without filters
@@ -353,19 +359,19 @@ class Authz {
         // guild/channel, since the subscriber's filter narrows scope but doesn't
         // prove access.
         if (!params.guildId && !params.channelId) {
-            throw new ProtocolError(EVENT_UNAUTHORIZED, 'subscription must specify guildId or channelId');
+            throw new ProtocolError(FORBIDDEN, 'subscription must specify guildId or channelId');
         }
 
         if (params.guildId) {
             const guilds = await this._guildsFor(principal, userToken);
             if (!guilds.has(params.guildId)) {
-                throw new ProtocolError(EVENT_UNAUTHORIZED, `user not in guild ${params.guildId}`);
+                throw new ProtocolError(FORBIDDEN, `user not in guild ${params.guildId}`);
             }
         }
         if (params.channelId) {
             const perms = await this._channelPermsFor(principal, params.channelId);
             if (!(perms & PERM_VIEW_CHANNEL) || !(perms & PERM_READ_MESSAGE_HISTORY)) {
-                throw new ProtocolError(EVENT_UNAUTHORIZED, `user cannot read channel ${params.channelId}`);
+                throw new ProtocolError(FORBIDDEN, `user cannot read channel ${params.channelId}`);
             }
         }
         this._subs.set(subId, { principal, guildId: params.guildId, channelId: params.channelId });
