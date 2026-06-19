@@ -33,7 +33,7 @@ interface ExampleConfig {
     era?: 'dual' | Era;
     /** HTTP port (default: a per-story port assigned below). */
     port?: number;
-    /** Endpoint path (default: `'/'`). */
+    /** Endpoint path (default: `'/mcp'`). */
     path?: string;
     /** Extra environment for the server process. */
     env?: Record<string, string>;
@@ -134,7 +134,7 @@ async function runStdioLeg(story: string, dir: string, config: ExampleConfig, er
 async function runHttpLeg(story: string, dir: string, config: ExampleConfig, era: Era): Promise<LegResult> {
     const timeoutMs = config.timeoutMs ?? 30_000;
     const port = assignPort(story, config);
-    const path = config.path ?? '/';
+    const path = config.path ?? '/mcp';
     const url = `http://127.0.0.1:${port}${path}`;
     let serverStderr = '';
     const server: ChildProcess = spawn(TSX, [join(dir, 'server.ts'), '--http', '--port', String(port)], {

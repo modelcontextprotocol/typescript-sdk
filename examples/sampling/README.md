@@ -1,11 +1,19 @@
 # sampling
 
-A tool that requests LLM sampling from the client via `ctx.mcpReq.requestSampling(...)`. The client advertises `sampling` and registers a `sampling/createMessage` handler returning a canned response.
+A tool that asks the host LLM for a completion. One factory, both protocol eras: sampling works on both eras with different APIs — push-style on 2025, `inputRequired` on 2026; the protocol carries the `sampling/createMessage` request differently but the user experience is the
+same.
 
-> Sampling is **deprecated** as of protocol revision 2026-07-28 (SEP-2577) but remains functional during the deprecation window.
+| 2025-era (`--legacy`, push-style)                                                                                                                | 2026-07-28 (multi-round-trip)                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `await ctx.mcpReq.requestSampling({ messages, maxTokens })` — the server pushes a `sampling/createMessage` request and awaits the answer in-line | `return inputRequired({ inputRequests: { summary: inputRequired.createMessage({ messages, maxTokens }) } })` — the client fulfils the embedded request and retries with the response attached |
 
-Runs both transports on the **legacy** era — sampling is a 2025-era push-style server→client request and there is no 2026-07-28 equivalent. The harness's `--http` arm hosts 2025 traffic on a sessionful transport, so the request reaches the client over either.
+The client registers **one** `sampling/createMessage` handler; on the 2026-07-28 leg the auto-fulfilment driver dispatches the embedded request to that same handler.
+
+> Push-style sampling is **deprecated** as of protocol revision 2026-07-28 (SEP-2577) but remains functional during the deprecation window.
+
+Runs the full transport × era matrix.
 
 ```bash
-pnpm --filter @mcp-examples/sampling client -- --legacy
+pnpm --filter @mcp-examples/sampling client               # 2026-07-28 (inputRequired)
+pnpm --filter @mcp-examples/sampling client -- --legacy   # 2025 (push-style)
 ```

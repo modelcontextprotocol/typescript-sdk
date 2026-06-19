@@ -14,7 +14,7 @@
         "tsx": "catalog:devTools"
     },
     "example": {
-        "era": "legacy",
-        "//": "Sampling is a 2025-era push-style server→client request and is deprecated as of 2026-07-28 (SEP-2577); there is no modern-era equivalent. Both transports — the harness's http arm hosts 2025 traffic on a sessionful transport."
+        "era": "dual",
+        "//": "2025-era push-style ctx.mcpReq.requestSampling runs over the harness's sessionful http/legacy arm; 2026-07-28 inputRequired.createMessage runs over the per-request modern arm. Full transport × era matrix."
     }
 }

@@ -69,7 +69,7 @@ app.use(
     })
 );
 
-app.post('/', async (req: Request, res: Response) => {
+app.post('/mcp', async (req: Request, res: Response) => {
     // The predicate inspects the same headers + body the entry does. Express
     // has parsed the JSON body; pass it as `parsedBody` so the predicate need
     // not re-read the stream.
@@ -82,12 +82,12 @@ app.post('/', async (req: Request, res: Response) => {
 // GET (standalone SSE stream / reconnect with Last-Event-ID) and DELETE
 // (explicit session termination per the MCP spec) are sessionful-2025-only —
 // route them straight to the legacy arm; the transport handles each verb.
-app.get('/', (req, res) => void handleLegacy(req, res));
-app.delete('/', (req, res) => void handleLegacy(req, res));
+app.get('/mcp', (req, res) => void handleLegacy(req, res));
+app.delete('/mcp', (req, res) => void handleLegacy(req, res));
 
 const argv = process.argv.slice(2);
 const portIdx = argv.indexOf('--port');
 const port = portIdx === -1 ? 3000 : Number(argv[portIdx + 1]);
 app.listen(port, () => {
-    console.error(`legacy-routing example server listening on http://127.0.0.1:${port}/`);
+    console.error(`legacy-routing example server listening on http://127.0.0.1:${port}/mcp`);
 });

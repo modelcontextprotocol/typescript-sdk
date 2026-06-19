@@ -24,7 +24,6 @@
             "http"
         ],
         "era": "modern",
-        "path": "/",
         "//": "The story body drives BOTH eras itself (one legacy + one modern client against the same port); pinned so the harness runs it once."
     }
 }
