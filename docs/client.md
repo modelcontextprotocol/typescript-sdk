@@ -186,7 +186,8 @@ const authProvider = new PrivateKeyJwtProvider({
 const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), { authProvider });
 ```
 
-For a runnable example supporting both auth methods via environment variables, see [`oauth-client-credentials/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth-client-credentials/client.ts).
+For a runnable `client_credentials` example, see [`oauth-client-credentials/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth-client-credentials/client.ts) — its README shows the `private_key_jwt` swap (the in-repo demo Authorization
+Server only implements `client_secret_basic`/`client_secret_post`, so there is no runnable `private_key_jwt` leg).
 
 ### Full OAuth with user authorization
 
@@ -708,7 +709,7 @@ const result = await client.request(
 console.log(result);
 ```
 
-For an end-to-end example of server-initiated SSE disconnection and automatic client reconnection with event replay, see [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/client.ts).
+For an end-to-end example of server-initiated SSE disconnection and automatic client reconnection with event replay, see [`sse-polling/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/client.ts).
 
 ## See also
 
@@ -722,7 +723,7 @@ For an end-to-end example of server-initiated SSE disconnection and automatic cl
 
 | Feature                       | Description                                                                  | Example                                                                                                                            |
 | ----------------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Parallel tool calls           | Run multiple tool calls concurrently via `Promise.all`                       | [`parallelToolCallsClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts) |
-| SSE disconnect / reconnection | Server-initiated SSE disconnect with automatic reconnection and event replay | [`ssePollingClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/client.ts)           |
-| Multiple clients              | Independent client lifecycles to the same server                             | [`multipleClientsParallel.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts) |
+| Parallel tool calls           | Run multiple tool calls concurrently via `Promise.all`                       | [`parallel-calls/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts)   |
+| SSE disconnect / reconnection | Server-initiated SSE disconnect with automatic reconnection and event replay | [`sse-polling/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sse-polling/client.ts)         |
+| Multiple clients              | Independent client lifecycles to the same server                             | [`parallel-calls/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/parallel-calls/client.ts)   |
 | URL elicitation               | Handle sensitive data collection via browser                                 | [`elicitation/client.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/elicitation/client.ts)         |

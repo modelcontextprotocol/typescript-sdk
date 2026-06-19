@@ -487,7 +487,7 @@ server.registerTool(
 );
 ```
 
-For a full runnable example, see [`toolWithSampleServer.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sampling/server.ts).
+For a full runnable example, see [`sampling/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/sampling/server.ts).
 
 ### Elicitation
 
@@ -642,7 +642,7 @@ middleware source for reference. When mounting a handler bare on a fetch-native 
 
 ## See also
 
-- [`examples/server/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server) — Full runnable server examples
+- [`examples/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples) — Full runnable server examples
 - [Client guide](./client.md) — Building MCP clients with this SDK
 - [MCP overview](https://modelcontextprotocol.io/docs/learn/architecture) — Protocol-level concepts: participants, layers, primitives
 - [Migration guide](./migration.md) — Upgrading from previous SDK versions
