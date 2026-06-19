@@ -10,7 +10,7 @@ import { encodeMcpParamValue, MCP_PARAM_HEADER_PREFIX } from '@modelcontextproto
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 
-import { wire } from '../helpers/index.js';
+import { modernEnvelopeMeta, wire } from '../helpers/index.js';
 import { verifies } from '../helpers/verifies.js';
 import type { TestArgs } from '../types.js';
 
@@ -57,4 +57,35 @@ verifies('sep-2243:param-header:roundtrip', async ({ transport }: TestArgs) => {
     // the body argument, so no -32001 HeaderMismatch on the wire).
     expect(result.isError).toBeFalsy();
     expect(result.content).toEqual([{ type: 'text', text: 'region=us-west1' }]);
+});
+
+verifies('sep-2243:std-header:mismatch-rejected', async ({ transport }: TestArgs) => {
+    const makeServer = () => new McpServer({ name: 'e2e-sep2243-std', version: '1.0.0' }, { capabilities: { tools: {} } });
+    const client = new Client({ name: 'sep2243-std-client', version: '1.0.0' });
+    await using wired = await wire(transport, makeServer, client);
+
+    // Raw POST through the harness-hosted entry: the body is a valid
+    // envelope-carrying tools/call, but the Mcp-Method header names
+    // tools/list. The era-classification rung answers the disagreement
+    // before any factory instance is constructed.
+    const response = await wired.fetch!(wired.url!, {
+        method: 'POST',
+        headers: {
+            'content-type': 'application/json',
+            accept: 'application/json, text/event-stream',
+            'mcp-method': 'tools/list'
+        },
+        body: JSON.stringify({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'tools/call',
+            params: { name: 'locate', arguments: {}, _meta: modernEnvelopeMeta({ name: 'sep2243-std-client', version: '1.0.0' }) }
+        })
+    });
+
+    expect(response.status).toBe(400);
+    const body = (await response.json()) as { error: { code: number; message: string } };
+    // -32001 is the SEP-2243 HeaderMismatch code at this branch's spec pin.
+    expect(body.error.code).toBe(-32_001);
+    expect(body.error.message).toMatch(/Mcp-Method/);
 });

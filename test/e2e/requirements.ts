@@ -2604,6 +2604,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         addedInSpecVersion: '2026-07-28',
         note: 'Runs on the entryModern arm; the Mcp-Param-{Name} header is asserted on the arm-recorded HTTP request headers and the encoded value is checked against the SEP-2243 codec.'
     },
+    'sep-2243:std-header:mismatch-rejected': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports/streamable-http#standard-request-headers',
+        behavior:
+            'A 2026-07-28 request whose Mcp-Method header disagrees with the JSON-RPC method in the body is rejected by the createMcpHandler entry with HTTP 400 carrying a JSON-RPC error with the SEP-2243 HeaderMismatch code.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryModern arm; the body POSTs a raw envelope-carrying tools/call with an Mcp-Method: tools/list header through wired.fetch and asserts the 400 status and the HeaderMismatch error code on the response bytes.'
+    },
     // Multi round-trip requests (SEP-2322, protocol revision 2026-07-28)
     'typescript:mrtr:tools-call:write-once-roundtrip': {
         source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr',
