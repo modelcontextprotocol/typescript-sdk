@@ -3,5 +3,5 @@
  *
  * This file is selected via package.json export conditions when running in Node.js.
  */
-export { AjvJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core';
+export { AjvJsonSchemaValidator as DefaultJsonSchemaValidator } from '@modelcontextprotocol/core/validators/ajv';
 export { default as process } from 'node:process';

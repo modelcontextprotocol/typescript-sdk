@@ -19,7 +19,7 @@ import type { JsonSchemaType, jsonSchemaValidator } from './types.js';
  * ```ts source="./fromJsonSchema.examples.ts#fromJsonSchema_basicUsage"
  * const inputSchema = fromJsonSchema<{ name: string }>(
  *     { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
- *     new AjvJsonSchemaValidator()
+ *     validator
  * );
  * // Use with server.registerTool('greet', { inputSchema }, handler)
  * ```

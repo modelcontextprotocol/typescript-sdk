@@ -28,21 +28,16 @@ import type {
     Result,
     ServerCapabilities,
     ServerContext,
-    TaskManagerOptions,
     ToolResultContent,
     ToolUseContent
 } from '@modelcontextprotocol/core';
 import {
-    assertClientRequestTaskCapability,
-    assertToolsCallTaskCapability,
     CallToolRequestSchema,
     CallToolResultSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    CreateTaskResultSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    extractTaskManagerOptions,
     LATEST_PROTOCOL_VERSION,
     ListRootsResultSchema,
     LoggingLevelSchema,
@@ -56,21 +51,18 @@ import {
 } from '@modelcontextprotocol/core';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
-import { ExperimentalServerTasks } from '../experimental/tasks/server.js';
-
-/**
- * Extended tasks capability that includes runtime configuration (store, messageQueue).
- * The runtime-only fields are stripped before advertising capabilities to clients.
- */
-export type ServerTasksCapabilityWithRuntime = NonNullable<ServerCapabilities['tasks']> & TaskManagerOptions;
-
 export type ServerOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this server.
+     *
+     * Note: per the MCP spec, a server that declares a capability MUST respond to that
+     * capability's requests (e.g. `tools/list` for `tools`) — potentially with an empty
+     * result — rather than with a "Method not found" error. {@linkcode server/mcp.McpServer | McpServer}
+     * handles this automatically for capabilities declared here; when using the low-level
+     * {@linkcode Server} directly, you are responsible for registering a request handler for
+     * every capability you declare.
      */
-    capabilities?: Omit<ServerCapabilities, 'tasks'> & {
-        tasks?: ServerTasksCapabilityWithRuntime;
-    };
+    capabilities?: ServerCapabilities;
 
     /**
      * Optional instructions describing how to use the server and its features.
@@ -83,7 +75,7 @@ export type ServerOptions = ProtocolOptions & {
      * The validator is used to validate user input returned from elicitation
      * requests against the requested schema.
      *
-     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, `CfWorkerJsonSchemaValidator` on Cloudflare Workers)
+     * @default Runtime-selected validator (AJV-backed on Node.js, `@cfworker/json-schema`-backed on browser/workerd runtimes)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 };
@@ -98,10 +90,10 @@ export type ServerOptions = ProtocolOptions & {
 export class Server extends Protocol<ServerContext> {
     private _clientCapabilities?: ClientCapabilities;
     private _clientVersion?: Implementation;
+    private _negotiatedProtocolVersion?: string;
     private _capabilities: ServerCapabilities;
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
-    private _experimental?: { tasks: ExperimentalServerTasks };
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
@@ -115,21 +107,10 @@ export class Server extends Protocol<ServerContext> {
         private _serverInfo: Implementation,
         options?: ServerOptions
     ) {
-        super({
-            ...options,
-            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
-        });
+        super(options);
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._instructions = options?.instructions;
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
-
-        // Strip runtime-only fields from advertised capabilities
-        if (options?.capabilities?.tasks) {
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
-                options.capabilities.tasks;
-            this._capabilities.tasks = wireCapabilities;
-        }
 
         this.setRequestHandler('initialize', request => this._oninitialize(request));
         this.setNotificationHandler('notifications/initialized', () => this.oninitialized?.());
@@ -139,6 +120,13 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
+    /**
+     * Registers the built-in `logging/setLevel` request handler.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
+     */
     private _registerLoggingHandler(): void {
         this.setRequestHandler('logging/setLevel', async (request, ctx) => {
             const transportSessionId: string | undefined =
@@ -159,6 +147,9 @@ export class Server extends Protocol<ServerContext> {
             ...ctx,
             mcpReq: {
                 ...ctx.mcpReq,
+                // Deprecated as of protocol version 2026-07-28 (SEP-2577): `log` and
+                // `requestSampling` remain functional during the deprecation window
+                // (at least twelve months). See ServerContext for migration guidance.
                 log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
                 elicitInput: (params, options) => this.elicitInput(params, options),
                 requestSampling: (params, options) => this.createMessage(params, options)
@@ -172,22 +163,6 @@ export class Server extends Protocol<ServerContext> {
                   }
                 : undefined
         };
-    }
-
-    /**
-     * Access experimental features.
-     *
-     * WARNING: These APIs are experimental and may change without notice.
-     *
-     * @experimental
-     */
-    get experimental(): { tasks: ExperimentalServerTasks } {
-        if (!this._experimental) {
-            this._experimental = {
-                tasks: new ExperimentalServerTasks(this)
-            };
-        }
-        return this._experimental;
     }
 
     // Map log levels by session id
@@ -237,24 +212,8 @@ export class Server extends Protocol<ServerContext> {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
             }
 
-            const { params } = validatedRequest.data;
-
             const result = await handler(request, ctx);
 
-            // When task creation is requested, validate and return CreateTaskResult
-            if (params.task) {
-                const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                if (!taskValidationResult.success) {
-                    const errorMessage =
-                        taskValidationResult.error instanceof Error
-                            ? taskValidationResult.error.message
-                            : String(taskValidationResult.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                }
-                return taskValidationResult.data;
-            }
-
-            // For non-task requests, validate against CallToolResultSchema
             const validationResult = parseSchema(CallToolResultSchema, result);
             if (!validationResult.success) {
                 const errorMessage =
@@ -410,14 +369,6 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    protected assertTaskCapability(method: string): void {
-        assertClientRequestTaskCapability(this._clientCapabilities?.tasks?.requests, method, 'Client');
-    }
-
-    protected assertTaskHandlerCapability(method: string): void {
-        assertToolsCallTaskCapability(this._capabilities?.tasks?.requests, method, 'Server');
-    }
-
     private async _oninitialize(request: InitializeRequest): Promise<InitializeResult> {
         const requestedVersion = request.params.protocolVersion;
 
@@ -428,6 +379,7 @@ export class Server extends Protocol<ServerContext> {
             ? requestedVersion
             : (this._supportedProtocolVersions[0] ?? LATEST_PROTOCOL_VERSION);
 
+        this._negotiatedProtocolVersion = protocolVersion;
         this.transport?.setProtocolVersion?.(protocolVersion);
 
         return {
@@ -453,6 +405,15 @@ export class Server extends Protocol<ServerContext> {
     }
 
     /**
+     * After initialization has completed, this will be populated with the protocol version negotiated
+     * with the client (the version the server responded with during the initialize handshake), or
+     * `undefined` before initialization.
+     */
+    getNegotiatedProtocolVersion(): string | undefined {
+        return this._negotiatedProtocolVersion;
+    }
+
+    /**
      * Returns the current server capabilities.
      */
     public getCapabilities(): ServerCapabilities {
@@ -466,18 +427,30 @@ export class Server extends Protocol<ServerContext> {
     /**
      * Request LLM sampling from the client (without tools).
      * Returns single content block for backwards compatibility.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to calling LLM provider APIs directly.
      */
     async createMessage(params: CreateMessageRequestParamsBase, options?: RequestOptions): Promise<CreateMessageResult>;
 
     /**
      * Request LLM sampling from the client with tool support.
      * Returns content that may be a single block or array (for parallel tool calls).
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to calling LLM provider APIs directly.
      */
     async createMessage(params: CreateMessageRequestParamsWithTools, options?: RequestOptions): Promise<CreateMessageResultWithTools>;
 
     /**
      * Request LLM sampling from the client.
      * When tools may or may not be present, returns the union type.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to calling LLM provider APIs directly.
      */
     async createMessage(
         params: CreateMessageRequest['params'],
@@ -632,6 +605,13 @@ export class Server extends Protocol<ServerContext> {
             );
     }
 
+    /**
+     * Requests the list of roots from the client.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to passing paths via tool parameters, resource URIs, or configuration.
+     */
     async listRoots(params?: ListRootsRequest['params'], options?: RequestOptions) {
         return this._requestWithSchema({ method: 'roots/list', params }, ListRootsResultSchema, options);
     }
@@ -642,6 +622,10 @@ export class Server extends Protocol<ServerContext> {
      * @see {@linkcode LoggingMessageNotification}
      * @param params
      * @param sessionId Optional for stateless transports and backward compatibility.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
      */
     async sendLoggingMessage(params: LoggingMessageNotification['params'], sessionId?: string) {
         if (this._capabilities.logging && !this.isMessageIgnored(params.level, sessionId)) {
