@@ -14,10 +14,9 @@
  */
 import { Client, ClientCredentialsProvider, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
-import { check, negotiationFromArgs, runClient } from '../harness.js';
+import { check, httpUrlFromArgs, negotiationFromArgs, runClient } from '../harness.js';
 
-const argv = process.argv.slice(2);
-const URL_ARG = argv[argv.indexOf('--http') + 1] ?? 'http://127.0.0.1:3000/mcp';
+const URL_ARG = httpUrlFromArgs('http://127.0.0.1:3000/mcp');
 
 runClient('oauth-client-credentials', async () => {
     // Unauthenticated → 401 + WWW-Authenticate naming the PRM URL.

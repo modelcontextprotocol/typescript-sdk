@@ -127,7 +127,8 @@ asserts results, exits non-zero on mismatch). `pnpm run:examples` runs every sto
 configured transport×era legs; the `examples (build + e2e)` CI job is part of the per-PR gate
 basket. See `examples/README.md` for the full story matrix.
 
-- `examples/shared/` — shared scaffolding (`connectFromArgs`, `runServerFromArgs`, demo OAuth provider)
+- `examples/harness.ts` — dual-transport scaffold (`connectFromArgs`, `runServerFromArgs`, `httpUrlFromArgs`, `runClient`)
+- `examples/shared/` — `@mcp-examples/shared` package (demo OAuth provider, `InMemoryEventStore`)
 - `examples/guides/` — typecheck-only snippet collections synced into `docs/{server,client}.md`
 
 ## Message Flow (Bidirectional Protocol)

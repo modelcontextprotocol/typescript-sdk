@@ -29,11 +29,10 @@
 import type { OAuthClientMetadata } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 
-import { check, negotiationFromArgs, runClient } from '../harness.js';
+import { check, httpUrlFromArgs, negotiationFromArgs, runClient } from '../harness.js';
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 
-const argv = process.argv.slice(2);
-const URL_ARG = argv[argv.indexOf('--http') + 1] ?? 'http://127.0.0.1:3000/mcp';
+const URL_ARG = httpUrlFromArgs('http://127.0.0.1:3000/mcp');
 
 // The redirect target the AS will 302 back to with `?code=...`. In the real
 // browser flow (`simpleOAuthClient.ts`) a tiny HTTP server listens here so the

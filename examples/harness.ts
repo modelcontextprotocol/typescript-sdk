@@ -183,6 +183,20 @@ export function negotiationFromArgs(): NonNullable<ClientOptions['versionNegotia
 }
 
 /**
+ * The `--http <url>` argument from `process.argv`, or `defaultUrl` when the
+ * flag (or its value) is absent. HTTP-only stories that construct their own
+ * transport call this instead of {@linkcode connectFromArgs}. (A bare
+ * `argv[argv.indexOf('--http') + 1]` reads `argv[0]` — the script path — when
+ * the flag is missing, so the `?? default` never applies.)
+ */
+export function httpUrlFromArgs(defaultUrl: string): string {
+    const argv = process.argv.slice(2);
+    const i = argv.indexOf('--http');
+    if (i === -1) return defaultUrl;
+    return argv[i + 1] ?? defaultUrl;
+}
+
+/**
  * Run a self-verifying client scenario. Any thrown error (including
  * `node:assert/strict` failures) prints a `FAIL:` line to stderr and exits
  * non-zero so the harness records the failure; on success it prints an `OK:`

@@ -6,10 +6,9 @@
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
-import { check, runClient } from '../harness.js';
+import { check, httpUrlFromArgs, runClient } from '../harness.js';
 
-const argv = process.argv.slice(2);
-const URL = argv[argv.indexOf('--http') + 1] ?? 'http://127.0.0.1:3000/mcp';
+const URL = httpUrlFromArgs('http://127.0.0.1:3000/mcp');
 
 runClient('standalone-get', async () => {
     let received = 0;
