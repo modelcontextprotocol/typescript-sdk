@@ -566,7 +566,7 @@ export type ResultTypeMap = {
     // `subscriptions/listen` never receives a JSON-RPC result on the wire:
     // termination is stream close (HTTP) or `notifications/cancelled` (stdio).
     // The `EmptyResult` entry exists only to keep the mapped types total —
-    // see the serving entries' listen routers.
+    // see `Client.listen()` and the serving entries' listen routers.
     'subscriptions/listen': EmptyResult;
     'tools/call': CallToolResult;
     'tools/list': ListToolsResult;

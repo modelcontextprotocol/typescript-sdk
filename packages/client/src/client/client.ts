@@ -17,6 +17,7 @@ import type {
     InputRequiredOptions,
     JSONRPCNotification,
     JSONRPCRequest,
+    JSONRPCResponse,
     JsonSchemaType,
     JsonSchemaValidator,
     jsonSchemaValidator,
@@ -45,6 +46,7 @@ import type {
     ServerCapabilities,
     StandardSchemaV1,
     SubscribeRequest,
+    SubscriptionFilter,
     Tool,
     Transport,
     UnsubscribeRequest
@@ -57,6 +59,7 @@ import {
     CreateMessageResultWithToolsSchema,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
+    isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isModernProtocolVersion,
     legacyProtocolVersions,
@@ -70,7 +73,9 @@ import {
     resolveInputRequiredDriverConfig,
     runInputRequiredFlow,
     SdkError,
-    SdkErrorCode
+    SdkErrorCode,
+    SUBSCRIPTION_ID_META_KEY,
+    SubscriptionFilterSchema
 } from '@modelcontextprotocol/core';
 
 import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation.js';
@@ -253,6 +258,48 @@ export type ClientOptions = ProtocolOptions & {
 };
 
 /**
+ * A handle to an open `subscriptions/listen` stream (protocol revision
+ * 2026-07-28). Change notifications delivered on the stream dispatch to the
+ * existing {@linkcode Client.setNotificationHandler} registrations.
+ */
+export interface McpSubscription {
+    /**
+     * The subset of the requested filter the server agreed to honor (from
+     * `notifications/subscriptions/acknowledged`).
+     */
+    readonly honoredFilter: SubscriptionFilter;
+    /**
+     * Tears the subscription down. Idempotent. Aborts the listen request's
+     * stream (where the transport supports it) AND sends
+     * `notifications/cancelled` referencing the listen request id — both,
+     * always, so close works on any transport.
+     */
+    close(): Promise<void>;
+    /**
+     * Resolves exactly once when the subscription has terminated. Never
+     * rejects — this is an observation, not an operation.
+     *
+     * - `'local'` — you called {@linkcode close} (or aborted the
+     *   `RequestOptions.signal` you passed to `listen()`).
+     * - `'remote'` — the server cancelled, the stream ended, or the transport
+     *   dropped. Re-listen if you still want events.
+     */
+    readonly closed: Promise<'local' | 'remote'>;
+}
+
+/** @internal */
+interface ListenStateEntry {
+    /**
+     * The single funnel for the per-listen `opening → open → closed` state
+     * machine. Every transport-level feed source — the `_onnotification` /
+     * `_onresponse` / `_onclose` overrides, `onRequestStreamEnd`, send
+     * failure, ack timeout, caller-signal abort, `_resetConnectionState` —
+     * routes through it.
+     */
+    settle: (outcome: { ack: SubscriptionFilter } | { cause: 'local' | 'remote'; error?: Error }) => void;
+}
+
+/**
  * An MCP client on top of a pluggable transport.
  *
  * The client will automatically begin the initialization flow with the server when {@linkcode connect} is called.
@@ -294,11 +341,74 @@ export class Client extends Protocol<ClientContext> {
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
-    private _pendingListChangedConfig?: ListChangedHandlers;
+    /**
+     * The constructor `listChanged` configuration. Durable across reconnects:
+     * read fresh on every connect (legacy or modern), never consumed.
+     */
+    private readonly _listChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
     private _versionNegotiation?: VersionNegotiationOptions;
     private _supportedProtocolVersionsOption?: string[];
     private _inputRequiredDriverConfig: ResolvedInputRequiredDriverConfig;
+    /**
+     * Active subscriptions/listen state, keyed by subscription id (= the
+     * listen request's JSON-RPC id verbatim). The id is a STRING from a
+     * Client-owned counter (`'listen:' + N`) — JSON-RPC permits string ids,
+     * and Protocol's numeric `_requestMessageId` counter only ever issues
+     * numbers, so listen ids cannot collide with ordinary request ids.
+     */
+    private _listenState = new Map<string, ListenStateEntry>();
+    private _nextListenId = 0;
+    /** The auto-opened subscription backing ClientOptions.listChanged on a modern connection. */
+    private _autoOpenedSubscription?: McpSubscription;
+
+    /**
+     * Clears every per-connection field in one place. Called at the start of
+     * each fresh (non-resuming) connect and from `close()`, so a stale
+     * negotiated era / server identity / auto-opened subscription cannot
+     * survive a reconnect.
+     */
+    private _resetConnectionState(): void {
+        this._negotiatedProtocolVersion = undefined;
+        this._serverCapabilities = undefined;
+        this._serverVersion = undefined;
+        this._instructions = undefined;
+        this._autoOpenedSubscription = undefined;
+        // Settle every live per-listen state machine before clearing the map:
+        // a fresh connect (or close) on a connection whose prior transport
+        // never fired onclose would otherwise leave an in-flight listen()
+        // promise hanging forever. Each entry's settle() deletes only itself
+        // (Map self-delete during iteration is well-defined).
+        if (this._listenState.size > 0) {
+            const reason = new SdkError(
+                SdkErrorCode.ConnectionClosed,
+                'subscriptions/listen: client reconnected or closed; subscription state from the previous connection was reset'
+            );
+            for (const entry of this._listenState.values()) {
+                entry.settle({ cause: 'remote', error: reason });
+            }
+        }
+        this._listenState.clear();
+        // Debounce timers are connection-scoped: a callback armed on a
+        // connection that is now gone must not fire onto whatever connection
+        // (if any) replaces it.
+        for (const timer of this._listChangedDebounceTimers.values()) {
+            clearTimeout(timer);
+        }
+        this._listChangedDebounceTimers.clear();
+        this._cachedToolOutputValidators.clear();
+    }
+
+    override async close(): Promise<void> {
+        try {
+            await super.close();
+        } finally {
+            // Per-connection state is cleared even when the transport's close
+            // rejects, so a stale negotiated era / live listen state cannot
+            // survive a failed close.
+            this._resetConnectionState();
+        }
+    }
 
     /**
      * Initializes this client with the given name and version information.
@@ -319,7 +429,7 @@ export class Client extends Protocol<ClientContext> {
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
-            this._pendingListChangedConfig = options.listChanged;
+            this._listChangedConfig = options.listChanged;
         }
     }
 
@@ -657,15 +767,15 @@ export class Client extends Protocol<ClientContext> {
             }
             return;
         }
-        // Fresh connect: the negotiated protocol version is connection state —
-        // a value left over from a previous connection must not survive into a
-        // new handshake. Clearing it puts the instance back in the
-        // pre-negotiation phase, so the initialize exchange below rides the
-        // bootstrap method pins (legacy era) instead of a dead session's era.
-        // Without this, an instance that once negotiated a modern era could
-        // never re-run a fresh handshake: `initialize` is physically absent
-        // from the modern registry. (The resume branch above keeps it instead.)
-        this._negotiatedProtocolVersion = undefined;
+        // Fresh connect: per-connection state left over from a previous
+        // connection must not survive into a new handshake. Clearing it puts
+        // the instance back in the pre-negotiation phase, so the initialize
+        // exchange below rides the bootstrap method pins (legacy era) instead
+        // of a dead session's era. Without this, an instance that once
+        // negotiated a modern era could never re-run a fresh handshake:
+        // `initialize` is physically absent from the modern registry. (The
+        // resume branch above keeps it instead.)
+        this._resetConnectionState();
         await this._legacyHandshake(transport, options);
     }
 
@@ -731,9 +841,8 @@ export class Client extends Protocol<ClientContext> {
             this._negotiatedProtocolVersion = result.protocolVersion;
 
             // Set up list changed handlers now that we know server capabilities
-            if (this._pendingListChangedConfig) {
-                this._setupListChangedHandlers(this._pendingListChangedConfig);
-                this._pendingListChangedConfig = undefined;
+            if (this._listChangedConfig) {
+                this._setupListChangedHandlers(this._listChangedConfig);
             }
         } catch (error) {
             // Disconnect if initialization fails.
@@ -765,7 +874,7 @@ export class Client extends Protocol<ClientContext> {
 
         // Fresh connect: stale connection state must not survive into a new
         // negotiation — every fresh negotiated connect re-runs the probe.
-        this._negotiatedProtocolVersion = undefined;
+        this._resetConnectionState();
 
         let result: Awaited<ReturnType<typeof negotiateEra>>;
         try {
@@ -802,10 +911,90 @@ export class Client extends Protocol<ClientContext> {
             transport.setProtocolVersion(result.version);
         }
         // The modern era has no notifications/initialized; list-changed handlers
-        // are configured straight from the advertised capabilities.
-        if (this._pendingListChangedConfig) {
-            this._setupListChangedHandlers(this._pendingListChangedConfig);
-            this._pendingListChangedConfig = undefined;
+        // are configured straight from the advertised capabilities. On a modern
+        // connection the configured handlers are fed by an auto-opened
+        // subscriptions/listen stream (the modern era never delivers change
+        // notifications unsolicited); on a legacy connection they fire on the
+        // 2025-era unsolicited notifications, no listen needed.
+        if (this._listChangedConfig) {
+            const config = this._listChangedConfig;
+            // Compute configured ∩ server-advertised ONCE and use that single
+            // value for BOTH handler registration and the auto-open filter, so
+            // a configured-but-not-advertised type is neither subscribed to
+            // nor handled (the two stay in lockstep).
+            const advertised = this._serverCapabilities;
+            const effective: ListChangedHandlers = {
+                ...(config.tools && advertised?.tools?.listChanged && { tools: config.tools }),
+                ...(config.prompts && advertised?.prompts?.listChanged && { prompts: config.prompts }),
+                ...(config.resources && advertised?.resources?.listChanged && { resources: config.resources })
+            };
+            // Handler registration validates the per-type options and can
+            // throw on misconfiguration; the modern connection IS established
+            // at this point and is fully usable without listChanged handlers,
+            // so a misconfiguration surfaces via onerror and connect resolves
+            // (matching the auto-open soft-fail posture). When registration
+            // fails the auto-open is SKIPPED — opening a listen stream for
+            // types whose handler never registered would consume a server
+            // slot to deliver notifications nothing handles.
+            let handlersRegistered = true;
+            try {
+                this._setupListChangedHandlers(effective);
+            } catch (error) {
+                handlersRegistered = false;
+                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
+            const filter: SubscriptionFilter = handlersRegistered
+                ? {
+                      ...(effective.tools && { toolsListChanged: true as const }),
+                      ...(effective.prompts && { promptsListChanged: true as const }),
+                      ...(effective.resources && { resourcesListChanged: true as const })
+                  }
+                : {};
+            if (Object.keys(filter).length > 0) {
+                // A failed auto-open MUST NOT fail connect: the modern
+                // connection is fully usable without a listen stream (the
+                // server may not support it, or refuse on capacity). Surface
+                // via onerror; the consumer can call listen() later.
+                //
+                // listen() binds RequestOptions.signal to the SUBSCRIPTION
+                // lifetime, so connect()'s signal must NOT be forwarded
+                // verbatim — a connect-scoped `AbortSignal.timeout(30_000)`
+                // would silently tear the auto-opened stream down the moment
+                // it fires after connect has resolved. But connect()'s signal
+                // MUST still cancel the in-connect ack WAIT (otherwise an
+                // aborted connect blocks here for the full ack timeout).
+                // Derived one-shot: bound to connect()'s signal only for the
+                // duration of the listen() await; the listener is removed in
+                // `finally` so the auto-opened subscription outlives connect's
+                // signal.
+                const ackAbort = new AbortController();
+                const onConnectAbort = (): void => ackAbort.abort(options?.signal?.reason);
+                // Handle the already-aborted case (aborted between the
+                // discover leg resolving and now): the listener never fires
+                // for a past event.
+                if (options?.signal?.aborted) onConnectAbort();
+                options?.signal?.addEventListener('abort', onConnectAbort);
+                try {
+                    this._autoOpenedSubscription = await this.listen(filter, {
+                        timeout: options?.timeout,
+                        signal: ackAbort.signal
+                    });
+                } catch (error) {
+                    // Connect-signal abort during the ack wait propagates as a
+                    // connect() rejection (caller asked to abort connect). The
+                    // transport is already started, so close it before
+                    // rethrowing — a connect() rejection MUST NOT leave a
+                    // half-open connection. A server-side refusal stays a
+                    // soft onerror (connect succeeds, no listen stream).
+                    if (options?.signal?.aborted) {
+                        await this.close().catch(() => {});
+                        throw error;
+                    }
+                    this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+                } finally {
+                    options?.signal?.removeEventListener('abort', onConnectAbort);
+                }
+            }
         }
     }
 
@@ -1132,6 +1321,303 @@ export class Client extends Protocol<ClientContext> {
     /** Unsubscribes from change notifications for a resource. */
     async unsubscribeResource(params: UnsubscribeRequest['params'], options?: RequestOptions): Promise<EmptyResult> {
         return this.request({ method: 'resources/unsubscribe', params }, options);
+    }
+
+    /**
+     * Opens a `subscriptions/listen` stream (protocol revision 2026-07-28).
+     *
+     * Resolves once the server's `notifications/subscriptions/acknowledged`
+     * arrives (the standard request timeout applies to this ack phase). Change
+     * notifications delivered on the stream are dispatched to the existing
+     * {@linkcode setNotificationHandler} registrations — the same handlers the
+     * 2025-era unsolicited notifications fire on a legacy connection — so
+     * `listen()` is era-transparent for consumers that already register those.
+     *
+     * `close()` tears the subscription down by aborting the listen request's
+     * `requestSignal` (closes the SSE stream where the transport honors it)
+     * AND sending `notifications/cancelled` referencing the listen request id
+     * — both, unconditionally, so any spec-compliant server on any transport
+     * sees the cancel. No automatic re-listen — call `listen()` again to
+     * re-establish.
+     *
+     * On a 2025-era connection this throws a typed
+     * {@linkcode SdkErrorCode.MethodNotSupportedByProtocolVersion} steering to
+     * `resources/subscribe` and `ClientOptions.listChanged` (the legacy
+     * unsolicited delivery model still applies there); no transparent shim.
+     */
+    async listen(filter: SubscriptionFilter, options?: RequestOptions): Promise<McpSubscription> {
+        // Connectivity is checked first so a closed instance rejects with
+        // NotConnected (no setup or ack timer is started); after close(),
+        // `_resetConnectionState` has also cleared the negotiated era, so the
+        // era guard alone would surface a misleading
+        // MethodNotSupportedByProtocolVersion.
+        if (this.transport === undefined) {
+            throw new SdkError(SdkErrorCode.NotConnected, 'Not connected');
+        }
+        const negotiated = this._negotiatedProtocolVersion;
+        if (negotiated === undefined || !isModernProtocolVersion(negotiated)) {
+            throw new SdkError(
+                SdkErrorCode.MethodNotSupportedByProtocolVersion,
+                `subscriptions/listen requires a 2026-07-28-era connection (negotiated: ${negotiated ?? 'none'}). ` +
+                    'On a 2025-era connection, change notifications are delivered unsolicited: use ClientOptions.listChanged ' +
+                    'and resources/subscribe instead.',
+                { method: 'subscriptions/listen', protocolVersion: negotiated }
+            );
+        }
+
+        // Honor RequestOptions.signal exactly as request() does: an
+        // already-aborted signal rejects synchronously before any setup.
+        options?.signal?.throwIfAborted();
+
+        const requestAbort = new AbortController();
+        // The listen request's JSON-RPC id (= the spec's subscription id
+        // verbatim). A STRING from a Client-owned counter so it cannot
+        // collide with Protocol's numeric `_requestMessageId` counter — the
+        // `_onresponse`/`_onnotification` overrides demux by string-id alone.
+        const listenId = `listen:${this._nextListenId++}`;
+
+        // Explicit `opening → open → closed` state machine. Every termination
+        // path — ack-arrives, ack-timeout, server-cancelled, user-close,
+        // stream-end, transport-close, send-failure — funnels through the
+        // single `settle` below, which clears the ack timer, transitions
+        // state, and resolves/rejects the opening promise exactly once. The
+        // cancelled-before-ack / close-before-ack hangs are impossible by
+        // construction.
+        let state: 'opening' | 'open' | 'closed' = 'opening';
+        let ackTimer: ReturnType<typeof setTimeout> | undefined;
+        let onCallerAbort: (() => void) | undefined;
+        let resolveOpening!: (honored: SubscriptionFilter) => void;
+        let rejectOpening!: (error: Error) => void;
+        const opening = new Promise<SubscriptionFilter>((resolve, reject) => {
+            resolveOpening = resolve;
+            rejectOpening = reject;
+        });
+        // The McpSubscription.closed observation. Resolved exactly once by
+        // settle()'s `→ closed` transition; never rejects. When listen()
+        // itself rejects (pre-ack) there is no McpSubscription to observe it
+        // on — settle() resolves it anyway so nothing dangles.
+        let resolveClosed!: (cause: 'local' | 'remote') => void;
+        const closed = new Promise<'local' | 'remote'>(resolve => {
+            resolveClosed = resolve;
+        });
+
+        const settle = (outcome: { ack: SubscriptionFilter } | { cause: 'local' | 'remote'; error?: Error }): void => {
+            if (state === 'closed') return;
+            const wasOpening = state === 'opening';
+            if (ackTimer !== undefined) {
+                clearTimeout(ackTimer);
+                ackTimer = undefined;
+            }
+            if ('ack' in outcome) {
+                // The single `opening → open` transition; an ack after close
+                // hits the `closed` guard above and is a no-op.
+                state = 'open';
+                resolveOpening(outcome.ack);
+                return;
+            }
+            state = 'closed';
+            if (onCallerAbort !== undefined) {
+                options?.signal?.removeEventListener('abort', onCallerAbort);
+            }
+            this._listenState.delete(listenId);
+            // Abort the per-request signal so an HTTP SSE reader stops on a
+            // remote-initiated close too (server-cancel / stream-end /
+            // transport-drop). Idempotent; a no-op on transports that ignore
+            // requestSignal. wireTeardown() also aborts on the local paths —
+            // harmless redundancy.
+            requestAbort.abort();
+            resolveClosed(outcome.cause);
+            if (wasOpening) {
+                rejectOpening(
+                    outcome.error ??
+                        new SdkError(SdkErrorCode.ConnectionClosed, 'subscriptions/listen closed before the server acknowledged')
+                );
+            }
+        };
+
+        // Wire-level teardown for a locally-initiated close (user close, ack
+        // timeout, caller-signal abort). Transport-agnostic: ALWAYS abort the
+        // request signal (closes the SSE stream where the transport honors
+        // `requestSignal` — HTTP does, stdio does not) AND send
+        // `notifications/cancelled` referencing the listen id (which the
+        // stdio listen router and any spec-compliant server honor). Sent via
+        // `notification()` so the modern auto-envelope is attached exactly as
+        // for every other outbound. Idempotent over HTTP — the cancelled
+        // notification is a no-op once the stream is gone; correct on every
+        // other transport. Not called when the server already terminated.
+        const wireTeardown = async (): Promise<void> => {
+            requestAbort.abort();
+            await this.notification({ method: 'notifications/cancelled', params: { requestId: listenId } }).catch(() => {});
+        };
+
+        const close = async (): Promise<void> => {
+            if (state === 'closed') return;
+            settle({ cause: 'local' });
+            await wireTeardown();
+        };
+
+        // The per-subscription state is registered BEFORE the request is sent
+        // so a synchronously-delivered ack (an in-process transport) cannot
+        // race the registration.
+        this._listenState.set(listenId, { settle });
+
+        const ackTimeout = options?.timeout ?? DEFAULT_REQUEST_TIMEOUT_MSEC;
+        ackTimer = setTimeout(() => {
+            settle({
+                cause: 'remote',
+                error: new SdkError(SdkErrorCode.RequestTimeout, 'subscriptions/listen ack timed out', { timeout: ackTimeout })
+            });
+            void wireTeardown().catch(() => {});
+        }, ackTimeout);
+
+        // RequestOptions.signal aborts the subscription at any point in its
+        // lifecycle (mirrors request()'s cancel path). While `opening`, settle
+        // rejects the pending listen() promise with the signal's reason; while
+        // `open`, it transitions to `closed` (`closed` resolves `'local'`) and
+        // tears the wire down. The listener is removed by `settle()` once the
+        // subscription has closed.
+        if (options?.signal) {
+            const callerSignal = options.signal;
+            onCallerAbort = () => {
+                if (state === 'closed') return;
+                const reason = callerSignal.reason;
+                settle({ cause: 'local', error: reason instanceof Error ? reason : new Error(String(reason ?? 'Aborted')) });
+                void wireTeardown().catch(() => {});
+            };
+            callerSignal.addEventListener('abort', onCallerAbort, { once: true });
+        }
+
+        // Send the listen request directly on the transport. The `_meta`
+        // envelope is built via the same `_outboundMetaEnvelope()` seam every
+        // other outbound uses (so a future envelope key cannot silently
+        // diverge here). `onRequestStreamEnd` feeds the per-request stream's
+        // non-deliberate end into the state machine on transports that open
+        // one (Streamable HTTP); stdio/InMemory ignore it.
+        const jsonrpcRequest: JSONRPCRequest = {
+            jsonrpc: '2.0',
+            id: listenId,
+            method: 'subscriptions/listen',
+            params: { _meta: { ...this._outboundMetaEnvelope() }, notifications: filter }
+        };
+        try {
+            await this.transport.send(jsonrpcRequest, {
+                requestSignal: requestAbort.signal,
+                onRequestStreamEnd: () => settle({ cause: 'remote', error: new Error('subscriptions/listen: stream ended') })
+            });
+        } catch (error) {
+            // Synchronous OR awaited send failure (including a per-request
+            // abort fired before response headers — `streamableHttp._send`
+            // rethrows with onerror suppressed). `settle()` is idempotent so
+            // a locally-aborted send hitting this path after `close()` is a
+            // no-op.
+            settle({ cause: 'remote', error: error instanceof Error ? error : new Error(String(error)) });
+        }
+
+        const honored = await opening;
+        return { honoredFilter: honored, close, closed };
+    }
+
+    /**
+     * The subscription auto-opened by `ClientOptions.listChanged` on a modern
+     * connection — the listen filter is the intersection of the configured
+     * sub-options and the server-advertised `listChanged` capabilities.
+     * `undefined` on a legacy connection, before connect, or when that
+     * intersection is empty (auto-open skipped). Exposed so the consumer can
+     * `close()` it.
+     */
+    get autoOpenedSubscription(): McpSubscription | undefined {
+        return this._autoOpenedSubscription;
+    }
+
+    /**
+     * Transport-level demux for `subscriptions/listen` notifications, before
+     * any decoding/era-gating/handler dispatch. Consumes the leading
+     * `notifications/subscriptions/acknowledged` referencing a live
+     * subscription id (resolves the ack waiter) and an inbound
+     * `notifications/cancelled` referencing a live string-typed subscription
+     * id (server-side teardown on stdio). Change notifications carrying a
+     * subscription id pass through to the existing registered handlers via
+     * `super`. An unmatched ack/cancelled is NOT consumed: it reaches
+     * `setNotificationHandler` / `fallbackNotificationHandler` instead of
+     * being silently swallowed.
+     */
+    protected override _onnotification(raw: JSONRPCNotification, extra?: MessageExtraInfo): void {
+        if (raw.method === 'notifications/subscriptions/acknowledged') {
+            const params = raw.params as { _meta?: Record<string, unknown>; notifications?: unknown } | undefined;
+            const subscriptionId = params?._meta?.[SUBSCRIPTION_ID_META_KEY];
+            const entry = typeof subscriptionId === 'string' ? this._listenState.get(subscriptionId) : undefined;
+            if (entry !== undefined) {
+                const honored = SubscriptionFilterSchema.safeParse(params?.notifications ?? {});
+                entry.settle({ ack: honored.success ? honored.data : {} });
+                return;
+            }
+        }
+        if (raw.method === 'notifications/cancelled') {
+            const cancelledId = (raw.params as { requestId?: unknown } | undefined)?.requestId;
+            const entry = typeof cancelledId === 'string' ? this._listenState.get(cancelledId) : undefined;
+            if (entry !== undefined) {
+                // Handles BOTH the pre-ack and post-ack server-side cancel:
+                // while opening, settle rejects the pending listen() promise;
+                // once open, settle transitions to closed and `closed` resolves
+                // 'remote' so the consumer can observe the server-initiated
+                // close.
+                entry.settle({ cause: 'remote', error: new Error('subscriptions/listen: server cancelled the subscription') });
+                return;
+            }
+        }
+        super._onnotification(raw, extra);
+    }
+
+    /**
+     * Transport-level demux for `subscriptions/listen` responses. The spec
+     * defines listen as never receiving a JSON-RPC result; a JSON-RPC ERROR
+     * for the listen id is the server's pre-ack capacity/params rejection. A
+     * string-id response that matches a live `_listenState` entry is consumed
+     * here (Protocol's `_responseHandlers` map is keyed by NUMBER and never
+     * holds a listen id, so passing a string-id response through would
+     * surface as "unknown message ID" via `onerror`).
+     */
+    protected override _onresponse(response: JSONRPCResponse): void {
+        const id = response.id;
+        const entry = typeof id === 'string' ? this._listenState.get(id) : undefined;
+        if (entry !== undefined) {
+            if (isJSONRPCErrorResponse(response)) {
+                entry.settle({
+                    cause: 'remote',
+                    error: ProtocolError.fromError(response.error.code, response.error.message, response.error.data)
+                });
+            } else {
+                entry.settle({
+                    cause: 'remote',
+                    error: new SdkError(
+                        SdkErrorCode.InvalidResult,
+                        'server answered subscriptions/listen with a result; expected the acknowledged notification'
+                    )
+                });
+            }
+            return;
+        }
+        super._onresponse(response);
+    }
+
+    /**
+     * Settle every live per-listen state machine on a transport-initiated
+     * close (the server dropping the connection on stdio/InMemory) before
+     * Protocol's `_onclose` tears the transport down. The base
+     * `_responseHandlers` settlement does not reach `_listenState` (listen
+     * ids are never registered there), so without this override a remote
+     * close would leave an in-flight `listen()` / open `McpSubscription`
+     * hanging.
+     */
+    protected override _onclose(): void {
+        if (this._listenState.size > 0) {
+            const reason = new SdkError(SdkErrorCode.ConnectionClosed, 'Connection closed');
+            for (const entry of this._listenState.values()) {
+                entry.settle({ cause: 'remote', error: reason });
+            }
+            this._listenState.clear();
+        }
+        super._onclose();
     }
 
     /**

@@ -2667,6 +2667,53 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'The SDK provides a server-side legacy HTTP+SSE transport so existing SSE deployments can be hosted on SDK components alone.',
         transports: ['sse'],
         note: 'This asserts the availability of the server half of the legacy SSE transport (SSEServerTransport from @modelcontextprotocol/server-legacy/sse); the matrix transport arg is ignored, so it runs as a single sse-labelled cell.'
+    },
+    'subscriptions:listen:ack-first-stamped': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/subscriptions#acknowledgment',
+        behavior:
+            "notifications/subscriptions/acknowledged is the first message on a subscriptions/listen stream and carries the listen request's JSON-RPC id verbatim under the io.modelcontextprotocol/subscriptionId _meta key, plus the honored subset of the requested filter.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify.'
+    },
+    'subscriptions:listen:per-stream-filter': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/subscriptions#notification-filter',
+        behavior:
+            'A subscriptions/listen stream receives only the notification types its filter explicitly requested; an un-requested type is provably never delivered. Change notifications dispatch to the existing setNotificationHandler registrations.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify.'
+    },
+    'subscriptions:listen:honored-filter-narrows-to-advertised': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/subscriptions#acknowledgment',
+        behavior:
+            "The acknowledged filter on a subscriptions/listen stream is the requested set narrowed against the server's declared listChanged/subscribe capability bits — a requested type the server does not advertise is dropped from honoredFilter and is never delivered.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify. A stdio e2e of the modern listen path is not yet feasible without harness changes (the e2e stdio arms wire the standard child-process StdioServerTransport, not the serveStdio entry); stdio narrowing is covered at unit level in serveStdioListen.test.ts.'
+    },
+    'subscriptions:listen:capacity-guard': {
+        source: 'sdk',
+        behavior:
+            "A subscriptions/listen request is refused with -32603 'Subscription limit reached' (in-band on HTTP 200, before the ack) when the configured maxSubscriptions is reached.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: 'Hosted by the test body via createMcpHandler with maxSubscriptions: 1.'
+    },
+    'typescript:subscriptions:listChanged-auto-open-modern': {
+        source: 'sdk',
+        behavior:
+            'ClientOptions.listChanged auto-opens a subscriptions/listen stream on a modern connection — the filter is the intersection of the configured sub-options and the server-advertised listChanged capabilities (auto-open is skipped and autoOpenedSubscription stays undefined when the intersection is empty) — so the configured handlers fire on every published change. The auto-opened subscription is exposed for close.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify.'
+    },
+    'typescript:subscriptions:listen:legacy-era-steer': {
+        source: 'sdk',
+        behavior:
+            'On a 2025-era connection, Client.listen() throws a typed MethodNotSupportedByProtocolVersion error steering to resources/subscribe and ClientOptions.listChanged before any wire write (no transparent shim).',
+        removedInSpecVersion: '2026-07-28',
+        note: 'Runs on the 2025-era arms; the entryModern arm is bound out by the removedInSpecVersion.'
     }
 } satisfies Record<string, Requirement>;
 
