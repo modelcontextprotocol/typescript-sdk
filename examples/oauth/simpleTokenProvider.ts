@@ -11,14 +11,14 @@
  * providers which implement both `token()` and `onUnauthorized()`.
  *
  * Environment variables:
- *   MCP_SERVER_URL - Server URL (default: http://localhost:3000/mcp)
+ *   MCP_SERVER_URL - Server URL (default: http://127.0.0.1:3000/mcp)
  *   MCP_TOKEN      - Bearer token to use for authentication (required)
  */
 
 import type { AuthProvider } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
-const DEFAULT_SERVER_URL = process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp';
+const DEFAULT_SERVER_URL = process.env.MCP_SERVER_URL || 'http://127.0.0.1:3000/mcp';
 
 async function main() {
     const token = process.env.MCP_TOKEN;

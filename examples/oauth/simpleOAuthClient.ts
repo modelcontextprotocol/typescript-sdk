@@ -11,7 +11,7 @@ import open from 'open';
 import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
 
 // Configuration
-const DEFAULT_SERVER_URL = 'http://localhost:3000/mcp';
+const DEFAULT_SERVER_URL = 'http://127.0.0.1:3000/mcp';
 const CALLBACK_PORT = 8090; // Use different port than auth server (3001)
 const CALLBACK_URL = `http://localhost:${CALLBACK_PORT}/callback`;
 

@@ -79,7 +79,7 @@ async function connectAndList(transport: StreamableHTTPClientTransport): Promise
 // --- Driver ----------------------------------------------------------------
 
 async function main() {
-    const serverUrl = new URL(process.env.MCP_SERVER_URL || 'http://localhost:3000/mcp');
+    const serverUrl = new URL(process.env.MCP_SERVER_URL || 'http://127.0.0.1:3000/mcp');
     const mode = process.argv[2] || 'host';
 
     let transport: StreamableHTTPClientTransport;
