@@ -21,6 +21,33 @@ function makeServer() {
     return server;
 }
 
+/**
+ * A modern in-process host with a tool, a prompt, and a resource registered so
+ * the entry advertises listChanged for all three kinds (the listen ack honors a
+ * filter only for kinds the server advertises).
+ */
+async function hostListenAllKinds() {
+    const factory = () => {
+        const server = new McpServer({ name: 'subs-e2e', version: '1' });
+        server.registerTool('greet', { inputSchema: z.object({}) }, async () => ({ content: [] }));
+        server.registerPrompt('hello', { description: 'p' }, async () => ({ messages: [] }));
+        server.registerResource('r', 'file:///r', {}, async uri => ({ contents: [{ uri: uri.href, text: 'r' }] }));
+        return server;
+    };
+    const handler = createMcpHandler(factory, { legacy: 'reject', keepAliveMs: 0 });
+    const fetch = (u: URL | string, init?: RequestInit) => handler.fetch(new Request(u, init));
+    const client = new Client({ name: 'subs-e2e-client', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+    await client.connect(new StreamableHTTPClientTransport(new URL('http://in-process/mcp'), { fetch }));
+    expect(client.getNegotiatedProtocolVersion()).toBe('2026-07-28');
+    return {
+        client,
+        handler,
+        factory,
+        fetch,
+        [Symbol.asyncDispose]: () => Promise.all([client.close(), handler.close()]).then(() => {})
+    };
+}
+
 async function hostListen() {
     const handler = createMcpHandler(() => makeServer(), { legacy: 'reject', keepAliveMs: 0 });
     const url = new URL('http://in-process/mcp');
@@ -136,6 +163,85 @@ verifies('subscriptions:listen:honored-filter-narrows-to-advertised', async () =
     await new Promise(r => setTimeout(r, 30));
     expect(seen).toEqual(['tools']);
     await sub.close();
+});
+
+// 2026-era siblings of the captured-instance list_changed publish rows: the
+// publication path is handler.notify.* and delivery rides subscriptions/listen.
+
+verifies('tools:listen:list-changed', async () => {
+    await using h = await hostListenAllKinds();
+    const seen: string[] = [];
+    h.client.setNotificationHandler('notifications/tools/list_changed', () => void seen.push('tools'));
+    const sub = await h.client.listen({ toolsListChanged: true });
+    expect(sub.honoredFilter).toEqual({ toolsListChanged: true });
+    h.handler.notify.toolsChanged();
+    await new Promise(r => setTimeout(r, 30));
+    expect(seen).toEqual(['tools']);
+    await sub.close();
+});
+
+verifies('resources:listen:list-changed', async () => {
+    await using h = await hostListenAllKinds();
+    const seen: string[] = [];
+    h.client.setNotificationHandler('notifications/resources/list_changed', () => void seen.push('resources'));
+    const sub = await h.client.listen({ resourcesListChanged: true });
+    expect(sub.honoredFilter).toEqual({ resourcesListChanged: true });
+    h.handler.notify.resourcesChanged();
+    await new Promise(r => setTimeout(r, 30));
+    expect(seen).toEqual(['resources']);
+    await sub.close();
+});
+
+verifies('prompts:listen:list-changed', async () => {
+    await using h = await hostListenAllKinds();
+    const seen: string[] = [];
+    h.client.setNotificationHandler('notifications/prompts/list_changed', () => void seen.push('prompts'));
+    const sub = await h.client.listen({ promptsListChanged: true });
+    expect(sub.honoredFilter).toEqual({ promptsListChanged: true });
+    h.handler.notify.promptsChanged();
+    await new Promise(r => setTimeout(r, 30));
+    expect(seen).toEqual(['prompts']);
+    await sub.close();
+});
+
+verifies('client:listen:auto-refresh', async () => {
+    const factory = () => {
+        const server = new McpServer({ name: 'subs-e2e', version: '1' });
+        server.registerTool('greet', { inputSchema: z.object({}) }, async () => ({ content: [] }));
+        return server;
+    };
+    const handler = createMcpHandler(factory, { legacy: 'reject', keepAliveMs: 0 });
+    const fetch = (u: URL | string, init?: RequestInit) => handler.fetch(new Request(u, init));
+    let done!: () => void;
+    const finished = new Promise<void>(r => {
+        done = r;
+    });
+    const refreshed: unknown[] = [];
+    const client = new Client(
+        { name: 'subs-e2e-client', version: '1' },
+        {
+            versionNegotiation: { mode: 'auto' },
+            listChanged: {
+                tools: {
+                    onChanged: (error, tools) => {
+                        expect(error).toBeNull();
+                        refreshed.push(tools);
+                        done();
+                    }
+                }
+            }
+        }
+    );
+    await client.connect(new StreamableHTTPClientTransport(new URL('http://in-process/mcp'), { fetch }));
+    expect(client.autoOpenedSubscription?.honoredFilter).toEqual({ toolsListChanged: true });
+    handler.notify.toolsChanged();
+    await finished;
+    // The auto-refresh re-fetched tools/list and delivered the fresh result.
+    expect(refreshed).toHaveLength(1);
+    expect(refreshed[0]).toEqual([expect.objectContaining({ name: 'greet' })]);
+    await client.autoOpenedSubscription!.close();
+    await client.close();
+    await handler.close();
 });
 
 verifies('subscriptions:listen:capacity-guard', async () => {

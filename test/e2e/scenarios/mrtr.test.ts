@@ -194,6 +194,292 @@ verifies('typescript:mrtr:rounds-cap', async ({ transport }: TestArgs) => {
     expect(recordedRequests(wired, 'tools/call')).toHaveLength(3);
 });
 
+// 2026-era siblings of the push-style sampling/elicitation/roots round-trips:
+// each body returns inputRequired() with an embedded request, the client
+// auto-fulfilment driver dispatches it to the locally registered handler, and
+// the retried tool handler reads the response from ctx.mcpReq.inputResponses.
+
+verifies('sampling:mrtr:create:basic', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const server = new McpServer({ name: 'mrtr-sampling', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.registerTool('summarize', { inputSchema: z.object({ text: z.string() }) }, async ({ text }, ctx) => {
+            const completion = ctx.mcpReq.inputResponses?.['llm'] as
+                | { role: string; content: { type: string; text: string }; model: string; stopReason: string }
+                | undefined;
+            if (completion === undefined) {
+                return inputRequired({
+                    inputRequests: {
+                        llm: inputRequired.createMessage({
+                            messages: [{ role: 'user', content: { type: 'text', text: `Summarize: ${text}` } }],
+                            maxTokens: 64
+                        })
+                    }
+                });
+            }
+            return { structuredContent: { completion }, content: [{ type: 'text', text: completion.content.text }] };
+        });
+        return server;
+    };
+
+    const seen: unknown[] = [];
+    const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { sampling: {} } });
+    client.setRequestHandler('sampling/createMessage', async request => {
+        seen.push(request.params);
+        return { role: 'assistant', content: { type: 'text', text: 'a brief summary' }, model: 'stub-model', stopReason: 'endTurn' };
+    });
+
+    await using wired = await wire(transport, makeServer, client);
+
+    const result = await client.callTool({ name: 'summarize', arguments: { text: 'hello world' } });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({
+        completion: { role: 'assistant', content: { type: 'text', text: 'a brief summary' }, model: 'stub-model', stopReason: 'endTurn' }
+    });
+
+    // The embedded request reached the registered handler exactly once.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ messages: [{ role: 'user', content: { type: 'text', text: 'Summarize: hello world' } }] });
+
+    // Two independent wire legs: original + retry carrying the bare response.
+    const toolCalls = recordedRequests(wired, 'tools/call');
+    expect(toolCalls).toHaveLength(2);
+    const retryParams = toolCalls[1]!.params as Record<string, unknown>;
+    expect(retryParams.inputResponses).toMatchObject({
+        llm: { role: 'assistant', content: { type: 'text', text: 'a brief summary' }, model: 'stub-model', stopReason: 'endTurn' }
+    });
+});
+
+verifies(
+    ['sampling:mrtr:create:model-preferences', 'sampling:mrtr:create:system-prompt', 'sampling:mrtr:create:include-context'],
+    async ({ transport }: TestArgs) => {
+        const PREFS = { hints: [{ name: 'stub-model' }], costPriority: 0.2, speedPriority: 0.5, intelligencePriority: 0.9 };
+        const makeServer = () => {
+            const server = new McpServer({ name: 'mrtr-sampling', version: '1.0.0' }, { capabilities: { tools: {} } });
+            server.registerTool('ask', { inputSchema: z.object({}) }, async (_args, ctx) => {
+                if (ctx.mcpReq.inputResponses?.['llm'] !== undefined) {
+                    return { content: [{ type: 'text', text: 'ok' }] };
+                }
+                return inputRequired({
+                    inputRequests: {
+                        llm: inputRequired.createMessage({
+                            messages: [{ role: 'user', content: { type: 'text', text: 'hi' } }],
+                            maxTokens: 16,
+                            systemPrompt: 'You are a terse assistant.',
+                            includeContext: 'none',
+                            modelPreferences: PREFS
+                        })
+                    }
+                });
+            });
+            return server;
+        };
+
+        const seen: Array<Record<string, unknown>> = [];
+        const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { sampling: {} } });
+        client.setRequestHandler('sampling/createMessage', async request => {
+            seen.push(request.params as Record<string, unknown>);
+            return { role: 'assistant', content: { type: 'text', text: 'hi' }, model: 'stub-model', stopReason: 'endTurn' };
+        });
+
+        await using _ = await wire(transport, makeServer, client);
+
+        const result = await client.callTool({ name: 'ask', arguments: {} });
+        expect(result.isError).toBeFalsy();
+        expect(seen).toHaveLength(1);
+        expect(seen[0]?.systemPrompt).toBe('You are a terse assistant.');
+        expect(seen[0]?.includeContext).toBe('none');
+        expect(seen[0]?.modelPreferences).toEqual(PREFS);
+    }
+);
+
+verifies('elicitation:mrtr:form:basic', async ({ transport }: TestArgs) => {
+    const SCHEMA = {
+        type: 'object' as const,
+        properties: { name: { type: 'string' as const, description: 'Your name' } },
+        required: ['name']
+    };
+    const makeServer = () => {
+        const server = new McpServer({ name: 'mrtr-elicit', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.registerTool('greet', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            const answered = acceptedContent<{ name: string }>(ctx.mcpReq.inputResponses, 'who');
+            if (answered === undefined) {
+                return inputRequired({
+                    inputRequests: { who: inputRequired.elicit({ message: 'What is your name?', requestedSchema: SCHEMA }) }
+                });
+            }
+            return { content: [{ type: 'text', text: `hello ${answered.name}` }] };
+        });
+        return server;
+    };
+
+    const seen: unknown[] = [];
+    const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { elicitation: { form: {} } } });
+    client.setRequestHandler('elicitation/create', async request => {
+        seen.push(request.params);
+        return { action: 'accept', content: { name: 'Ada' } };
+    });
+
+    await using _ = await wire(transport, makeServer, client);
+
+    const result = await client.callTool({ name: 'greet', arguments: {} });
+    expect(result.content).toEqual([{ type: 'text', text: 'hello Ada' }]);
+
+    // The embedded request delivered message + schema exactly as sent.
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ mode: 'form', message: 'What is your name?', requestedSchema: SCHEMA });
+});
+
+verifies('elicitation:mrtr:form:action:decline', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const server = new McpServer({ name: 'mrtr-elicit', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.registerTool('ask', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            const responses = ctx.mcpReq.inputResponses;
+            if (responses === undefined) {
+                return inputRequired({
+                    inputRequests: { confirm: inputRequired.elicit({ message: 'Proceed?', requestedSchema: CONFIRM_SCHEMA }) }
+                });
+            }
+            const raw = responses['confirm'] as { action: string; content?: unknown };
+            return {
+                structuredContent: { action: raw.action, accepted: acceptedContent(responses, 'confirm') !== undefined },
+                content: []
+            };
+        });
+        return server;
+    };
+
+    const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { elicitation: { form: {} } } });
+    client.setRequestHandler('elicitation/create', async () => ({ action: 'decline' }));
+
+    await using _ = await wire(transport, makeServer, client);
+
+    const result = await client.callTool({ name: 'ask', arguments: {} });
+    expect(result.structuredContent).toEqual({ action: 'decline', accepted: false });
+});
+
+verifies('elicitation:mrtr:form:action:cancel', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const server = new McpServer({ name: 'mrtr-elicit', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.registerTool('ask', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            const responses = ctx.mcpReq.inputResponses;
+            if (responses === undefined) {
+                return inputRequired({
+                    inputRequests: { confirm: inputRequired.elicit({ message: 'Proceed?', requestedSchema: CONFIRM_SCHEMA }) }
+                });
+            }
+            const raw = responses['confirm'] as { action: string; content?: unknown };
+            return {
+                structuredContent: { action: raw.action, accepted: acceptedContent(responses, 'confirm') !== undefined },
+                content: []
+            };
+        });
+        return server;
+    };
+
+    const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { elicitation: { form: {} } } });
+    client.setRequestHandler('elicitation/create', async () => ({ action: 'cancel' }));
+
+    await using _ = await wire(transport, makeServer, client);
+
+    const result = await client.callTool({ name: 'ask', arguments: {} });
+    expect(result.structuredContent).toEqual({ action: 'cancel', accepted: false });
+});
+
+verifies('elicitation:mrtr:form:schema:primitives', async ({ transport }: TestArgs) => {
+    const SCHEMA = {
+        type: 'object' as const,
+        properties: {
+            email: { type: 'string' as const, format: 'email' as const },
+            age: { type: 'integer' as const },
+            score: { type: 'number' as const },
+            subscribe: { type: 'boolean' as const }
+        },
+        required: ['email']
+    };
+    const makeServer = () => {
+        const server = new McpServer({ name: 'mrtr-elicit', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.registerTool('signup', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            if (ctx.mcpReq.inputResponses?.['form'] !== undefined) {
+                return { content: [{ type: 'text', text: 'ok' }] };
+            }
+            return inputRequired({
+                inputRequests: { form: inputRequired.elicit({ message: 'Sign up', requestedSchema: SCHEMA }) }
+            });
+        });
+        return server;
+    };
+
+    const seen: unknown[] = [];
+    const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { elicitation: { form: {} } } });
+    client.setRequestHandler('elicitation/create', async request => {
+        seen.push(request.params);
+        return { action: 'accept', content: { email: 'ada@example.com', age: 36, score: 0.9, subscribe: true } };
+    });
+
+    await using _ = await wire(transport, makeServer, client);
+
+    const result = await client.callTool({ name: 'signup', arguments: {} });
+    expect(result.isError).toBeFalsy();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ requestedSchema: SCHEMA });
+});
+
+verifies('roots:mrtr:list:basic', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const server = new McpServer({ name: 'mrtr-roots', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.registerTool('list-roots', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            const answered = ctx.mcpReq.inputResponses?.['roots'] as { roots: Array<{ uri: string; name?: string }> } | undefined;
+            if (answered === undefined) {
+                return inputRequired({ inputRequests: { roots: inputRequired.listRoots() } });
+            }
+            return { structuredContent: { roots: answered.roots }, content: [] };
+        });
+        return server;
+    };
+
+    const seen: Array<{ method: string }> = [];
+    const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { roots: {} } });
+    client.setRequestHandler('roots/list', async request => {
+        seen.push({ method: request.method });
+        return {
+            roots: [{ uri: 'file:///home/user/projects/myproject', name: 'My Project' }, { uri: 'file:///home/user/repos/backend' }]
+        };
+    });
+
+    await using _ = await wire(transport, makeServer, client);
+
+    const result = await client.callTool({ name: 'list-roots', arguments: {} });
+    expect(result.isError).toBeFalsy();
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.method).toBe('roots/list');
+    expect(result.structuredContent).toEqual({
+        roots: [{ uri: 'file:///home/user/projects/myproject', name: 'My Project' }, { uri: 'file:///home/user/repos/backend' }]
+    });
+});
+
+verifies('roots:mrtr:list:empty', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const server = new McpServer({ name: 'mrtr-roots', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.registerTool('list-roots', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            const answered = ctx.mcpReq.inputResponses?.['roots'] as { roots: unknown[] } | undefined;
+            if (answered === undefined) {
+                return inputRequired({ inputRequests: { roots: inputRequired.listRoots() } });
+            }
+            return { structuredContent: { count: answered.roots.length }, content: [] };
+        });
+        return server;
+    };
+
+    const client = new Client({ name: 'mrtr-client', version: '1.0.0' }, { capabilities: { roots: {} } });
+    client.setRequestHandler('roots/list', async () => ({ roots: [] }));
+
+    await using _ = await wire(transport, makeServer, client);
+
+    const result = await client.callTool({ name: 'list-roots', arguments: {} });
+    expect(result.isError).toBeFalsy();
+    expect(result.structuredContent).toEqual({ count: 0 });
+});
+
 verifies('typescript:mrtr:legacy-32042-freeze', async ({ transport }: TestArgs) => {
     const URL_PARAMS = {
         mode: 'url' as const,
