@@ -8,9 +8,10 @@
  * header, a missing `Mcp-Name` header on a `tools/call` / `prompts/get` /
  * `resources/read` request, an `Mcp-Name` value disagreeing with
  * `params.name` / `params.uri`, and an invalid `Mcp-Name` Base64 sentinel are
- * all rejected `400` / `-32001` (`HeaderMismatch`) — the same shape and rung
- * the classifier already emits for the `MCP-Protocol-Version` and
- * `Mcp-Method` mismatch cells. Legacy-era traffic is byte-unchanged.
+ * all rejected `400` / `-32001` (`HeaderMismatch`) on the
+ * `standard-header-validation` rung — the same shape the classifier already
+ * emits for the `MCP-Protocol-Version` and `Mcp-Method` mismatch cells on the
+ * edge `era-classification` rung. Legacy-era traffic is byte-unchanged.
  */
 import {
     CLIENT_CAPABILITIES_META_KEY,

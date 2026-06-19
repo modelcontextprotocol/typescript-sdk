@@ -647,9 +647,10 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         }
 
         // SEP-2243 standard-header presence and `Mcp-Name` cross-check
-        // (`era-classification` rung; the `MCP-Protocol-Version` and
+        // (`standard-header-validation` rung; the `MCP-Protocol-Version` and
         // `Mcp-Method` *mismatch* cells are already answered inside
-        // `classifyInboundRequest`). Evaluated after the supported-revision
+        // `classifyInboundRequest` on the edge `era-classification` rung).
+        // Evaluated after the supported-revision
         // gate so an envelope naming a revision this endpoint does not serve
         // is still answered with `-32004` (the supported list is the more
         // useful answer to a client speaking the wrong revision); evaluated
