@@ -377,7 +377,7 @@ export class ClientEventManager {
         if (sub.delivery === 'webhook') {
             try {
                 await this._client.unsubscribeEvent(
-                    { name: sub.name, params: sub.params, delivery: { url: this._options.webhook!.url } },
+                    { name: sub.name, arguments: sub.params, delivery: { url: this._options.webhook!.url } },
                     this._options.requestOptions
                 );
             } catch {
@@ -398,7 +398,7 @@ export class ClientEventManager {
         const sub = state.sub;
         try {
             const result = await this._client.pollEvents(
-                { name: sub.name, params: sub.params, cursor: sub.cursor, maxAgeMs: state.maxAgeMs, maxEvents: state.maxEvents },
+                { name: sub.name, arguments: sub.params, cursor: sub.cursor, maxAgeMs: state.maxAgeMs, maxEvents: state.maxEvents },
                 this._options.requestOptions
             );
             for (const event of result.events) sub._push(event);
@@ -471,7 +471,7 @@ export class ClientEventManager {
             .request(
                 {
                     method: 'events/stream',
-                    params: { name: sub.name, params: sub.params, cursor: sub.cursor, maxAgeMs: state.maxAgeMs }
+                    params: { name: sub.name, arguments: sub.params, cursor: sub.cursor, maxAgeMs: state.maxAgeMs }
                 },
                 {
                     ...this._options.requestOptions,
@@ -515,7 +515,7 @@ export class ClientEventManager {
                 const result = await this._client.subscribeEvent(
                     {
                         name: sub.name,
-                        params: sub.params,
+                        arguments: sub.params,
                         delivery: { mode: 'webhook', url: webhook.url, secret: this._webhookSecret! },
                         cursor: sub.cursor,
                         maxAgeMs: state.maxAgeMs

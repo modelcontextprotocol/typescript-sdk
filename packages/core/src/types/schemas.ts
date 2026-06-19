@@ -2220,9 +2220,9 @@ export const PollEventsRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     name: z.string(),
     /**
-     * Subscription parameters. Validated against the event type's `inputSchema`.
+     * Subscription arguments. Validated against the event type's `inputSchema`.
      */
-    params: z.record(z.string(), z.unknown()).optional(),
+    arguments: z.record(z.string(), z.unknown()).optional(),
     /**
      * Resume cursor. `null` means "start from now" (bootstrap).
      */
@@ -2289,9 +2289,9 @@ export const StreamEventsRequestParamsSchema = BaseRequestParamsSchema.extend({
      */
     name: z.string(),
     /**
-     * Subscription parameters. Validated against the event type's `inputSchema`.
+     * Subscription arguments. Validated against the event type's `inputSchema`.
      */
-    params: z.record(z.string(), z.unknown()).optional(),
+    arguments: z.record(z.string(), z.unknown()).optional(),
     /**
      * Resume cursor. `null` means "start from now" (bootstrap).
      */
@@ -2351,9 +2351,9 @@ export const SubscribeEventRequestParamsSchema = BaseRequestParamsSchema.extend(
      */
     name: z.string(),
     /**
-     * Subscription parameters. Validated against the event type's `inputSchema`.
+     * Subscription arguments. Validated against the event type's `inputSchema`.
      */
-    params: z.record(z.string(), z.unknown()).optional(),
+    arguments: z.record(z.string(), z.unknown()).optional(),
     /**
      * Delivery configuration. Currently only `mode: "webhook"` is defined.
      */
@@ -2373,7 +2373,7 @@ export const SubscribeEventRequestParamsSchema = BaseRequestParamsSchema.extend(
 
 /**
  * Sent from the client to register a webhook subscription. Idempotent: calling
- * again with the same `(principal, delivery.url, name, params)` refreshes the
+ * again with the same `(principal, delivery.url, name, arguments)` refreshes the
  * TTL and updates mutable fields. MUST be called with an authenticated
  * principal — servers reject unauthenticated calls with `-32012 Unauthorized`.
  */
@@ -2420,7 +2420,7 @@ export const WebhookDeliveryStatusSchema = z.object({
 export const SubscribeEventResultSchema = ResultSchema.extend({
     /**
      * Server-derived routing handle for this subscription, deterministic over
-     * `(principal, delivery.url, name, params)`. Appears in `X-MCP-Subscription-Id`
+     * `(principal, delivery.url, name, arguments)`. Appears in `X-MCP-Subscription-Id`
      * on every delivery so the receiver can route. Stable across refreshes and
      * server restarts. Not a capability — knowing it does not authorise anything.
      */
@@ -2451,7 +2451,7 @@ export const SubscribeEventResultSchema = ResultSchema.extend({
 /**
  * Parameters for an {@linkcode UnsubscribeEventRequest | events/unsubscribe} request.
  * Resolves the subscription using the same key as `events/subscribe`:
- * `(principal, delivery.url, name, params)`. The derived `id` is not accepted.
+ * `(principal, delivery.url, name, arguments)`. The derived `id` is not accepted.
  */
 export const UnsubscribeEventRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
@@ -2459,9 +2459,9 @@ export const UnsubscribeEventRequestParamsSchema = BaseRequestParamsSchema.exten
      */
     name: z.string(),
     /**
-     * Subscription parameters as supplied at subscribe time.
+     * Subscription arguments as supplied at subscribe time.
      */
-    params: z.record(z.string(), z.unknown()).optional(),
+    arguments: z.record(z.string(), z.unknown()).optional(),
     /**
      * The callback URL the subscription was created with.
      */

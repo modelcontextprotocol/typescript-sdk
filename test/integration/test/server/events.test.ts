@@ -213,7 +213,7 @@ describe('Events', () => {
 
         it('rejects invalid params with InvalidParams', async () => {
             await connectPair(server, client);
-            await expect(client.pollEvents({ name: 'counter.tick', params: { minValue: 'bad' }, cursor: null })).rejects.toMatchObject({
+            await expect(client.pollEvents({ name: 'counter.tick', arguments: { minValue: 'bad' }, cursor: null })).rejects.toMatchObject({
                 code: ProtocolErrorCode.InvalidParams
             });
         });
@@ -346,7 +346,7 @@ describe('Events', () => {
 
             const ctrl = new AbortController();
             client
-                .request({ method: 'events/stream', params: { name: 'inc', params: { sev: 'P1' }, cursor: null } }, { signal: ctrl.signal })
+                .request({ method: 'events/stream', params: { name: 'inc', arguments: { sev: 'P1' }, cursor: null } }, { signal: ctrl.signal })
                 .catch(() => {});
             await vi.waitFor(() => expect(client).toBeDefined());
             await new Promise(r => setTimeout(r, 10));

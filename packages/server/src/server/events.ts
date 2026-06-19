@@ -469,7 +469,7 @@ export class ServerEventManager {
     }
 
     /**
-     * Computes the compound subscription key `(principal, url, name, params)`
+     * Computes the compound subscription key `(principal, url, name, arguments)`
      * and the deterministic routing `id` derived from it. Webhook subscribe and
      * unsubscribe MUST be authenticated; throws `-32012 Unauthorized` otherwise.
      */
@@ -898,7 +898,7 @@ export class ServerEventManager {
             throw new ProtocolError(DELIVERY_MODE_UNSUPPORTED, `Event ${params.name} does not support poll delivery`);
         }
 
-        const paramsResult = await this._validateParams(event, params.params);
+        const paramsResult = await this._validateParams(event, params.arguments);
         if ('error' in paramsResult) {
             throw new ProtocolError(paramsResult.error.code, paramsResult.error.message, paramsResult.error.data);
         }
@@ -1025,7 +1025,7 @@ export class ServerEventManager {
         if (!this._computeDeliveryModes().includes('push')) {
             throw new ProtocolError(DELIVERY_MODE_UNSUPPORTED, `Event ${spec.name} does not support push delivery`);
         }
-        const paramsResult = await this._validateParams(event, spec.params);
+        const paramsResult = await this._validateParams(event, spec.arguments);
         if ('error' in paramsResult) {
             throw new ProtocolError(paramsResult.error.code, paramsResult.error.message, paramsResult.error.data);
         }
@@ -1149,7 +1149,7 @@ export class ServerEventManager {
             throw new ProtocolError(EVENT_NOT_FOUND, `Unknown event: ${params.name}`);
         }
 
-        const paramsResult = await this._validateParams(event, params.params);
+        const paramsResult = await this._validateParams(event, params.arguments);
         if ('error' in paramsResult) {
             throw new ProtocolError(paramsResult.error.code, paramsResult.error.message, paramsResult.error.data);
         }
@@ -1257,7 +1257,7 @@ export class ServerEventManager {
         if (!event) {
             throw new ProtocolError(EVENT_NOT_FOUND, `Unknown event: ${params.name}`);
         }
-        const paramsResult = await this._validateParams(event, params.params);
+        const paramsResult = await this._validateParams(event, params.arguments);
         if ('error' in paramsResult) {
             throw new ProtocolError(paramsResult.error.code, paramsResult.error.message, paramsResult.error.data);
         }
