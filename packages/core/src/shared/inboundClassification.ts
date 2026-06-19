@@ -470,7 +470,11 @@ export function validateStandardRequestHeaders(request: InboundHttpRequest, rout
         );
     }
 
-    const sourceField = MCP_NAME_HEADER_SOURCE[method];
+    // `method` is the JSON-RPC method string from the body — peer-controlled,
+    // so guard the plain-object lookup against `Object.prototype` collisions
+    // (`constructor`, `toString`, …) the same way the client-capability table
+    // lookup does.
+    const sourceField = Object.hasOwn(MCP_NAME_HEADER_SOURCE, method) ? MCP_NAME_HEADER_SOURCE[method] : undefined;
     if (sourceField === undefined) {
         return undefined;
     }

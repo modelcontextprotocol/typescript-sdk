@@ -171,6 +171,13 @@ describe('SEP-2243 standard-header validation (Mcp-Name presence and cross-check
     test('the Mcp-Name source map covers exactly the spec table', () => {
         expect(MCP_NAME_HEADER_SOURCE).toEqual({ 'tools/call': 'name', 'prompts/get': 'name', 'resources/read': 'uri' });
     });
+
+    test('a method colliding with Object.prototype members is treated as off-table (passes through to dispatch)', () => {
+        // `constructor` would return Object.prototype.constructor on a bare
+        // lookup; the Object.hasOwn guard keeps the early-return firing.
+        const { request, route } = modernPost('constructor', {}, { mcpMethod: 'constructor', mcpName: '=?base64?!!?=' });
+        expect(validateStandardRequestHeaders(request, route)).toBeUndefined();
+    });
 });
 
 describe('classifyInboundRequest is unchanged by the standard-header presence rung', () => {
