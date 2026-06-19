@@ -50,7 +50,7 @@ await server.connect(transport);
 
 **Options:** Set `sessionIdGenerator` to a function (shown above) for stateful sessions. Set it to `undefined` for stateless mode (simpler, but does not support resumability). Set `enableJsonResponse: true` to return plain JSON instead of SSE streams.
 
-For a complete server with sessions, logging, and CORS, see [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts).
+For a complete server with sessions and the browser-client CORS recipe, see [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts).
 
 ### stdio
 
@@ -593,7 +593,7 @@ process.on('SIGINT', async () => {
 });
 ```
 
-For a complete multi-session server with shutdown handling, see [`legacy-routing/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/legacy-routing/server.ts).
+For a complete multi-session server with shutdown handling, see [`repl/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/repl/server.ts).
 
 ## Deployment
 

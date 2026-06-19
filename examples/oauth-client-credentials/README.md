@@ -5,7 +5,7 @@ OAuth 2.0 **`client_credentials`** grant — machine-to-machine MCP auth, fully 
 `client_credentials` is the grant a backend service uses to authenticate **as itself** (not on behalf of a user): it presents a pre-registered `client_id`/`client_secret` directly to the Authorization Server's token endpoint and receives a Bearer access token. There is no
 redirect, no authorization code, no user consent screen.
 
-The interactive **authorization-code** flow (the one that opens a browser and asks a human to sign in) lives under [`../oauth/`](../oauth/README.md) and is excluded from the harness for that reason.
+The interactive **authorization-code** flow (the one that opens a browser and asks a human to sign in) lives under [`../oauth/`](../oauth/README.md); the harness runs it headlessly via the demo AS's `OAUTH_DEMO_AUTO_CONSENT=1` auto-approve mode.
 
 ## What runs
 
@@ -22,7 +22,7 @@ pnpm --filter @mcp-examples/oauth-client-credentials server -- --http --port 300
 pnpm --filter @mcp-examples/oauth-client-credentials client -- --http http://127.0.0.1:3000/mcp
 ```
 
-HTTP-only, modern-era only.
+HTTP-only; runs on both protocol eras (the client honours `--legacy` via `negotiationFromArgs()`).
 
 ## `private_key_jwt` client authentication
 

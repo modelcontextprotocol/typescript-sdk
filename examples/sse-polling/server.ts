@@ -16,7 +16,7 @@ import { randomUUID } from 'node:crypto';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult } from '@modelcontextprotocol/server';
-import { McpServer } from '@modelcontextprotocol/server';
+import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 
@@ -95,30 +95,31 @@ const eventStore = new InMemoryEventStore();
 // Track transports by session ID for session reuse
 const transports = new Map<string, NodeStreamableHTTPServerTransport>();
 
-// Handle all MCP requests
+// Handle all MCP requests (standard sessionful routing: known sid → reuse;
+// no sid + initialize → new session; unknown sid → 404; otherwise → 400).
 app.all('/mcp', async (req: Request, res: Response) => {
-    const sessionId = req.headers['mcp-session-id'] as string | undefined;
-
-    // Reuse existing transport or create new one
-    let transport = sessionId ? transports.get(sessionId) : undefined;
-
-    if (!transport) {
-        transport = new NodeStreamableHTTPServerTransport({
+    const sid = req.headers['mcp-session-id'] as string | undefined;
+    if (sid && transports.has(sid)) {
+        await transports.get(sid)!.handleRequest(req, res, req.body);
+    } else if (!sid && isInitializeRequest(req.body)) {
+        const transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             eventStore,
             retryInterval: 300, // Default retry interval for priming events
             onsessioninitialized: id => {
                 console.error(`[${id}] Session initialized`);
-                transports.set(id, transport!);
+                transports.set(id, transport);
             }
         });
-
-        // Connect a fresh MCP server to the transport
-        const server = getServer();
-        await server.connect(transport);
+        transport.onclose = () => transport.sessionId && transports.delete(transport.sessionId);
+        await getServer().connect(transport);
+        await transport.handleRequest(req, res, req.body);
+    } else if (sid) {
+        // Unknown/expired session ID → 404 so the client knows to re-initialize.
+        res.status(404).json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null });
+    } else {
+        res.status(400).json({ jsonrpc: '2.0', error: { code: -32_000, message: 'Bad Request: Session ID required' }, id: null });
     }
-
-    await transport.handleRequest(req, res, req.body);
 });
 
 // Start the server
