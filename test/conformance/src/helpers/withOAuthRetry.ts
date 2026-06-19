@@ -25,6 +25,7 @@ export const handle401 = async (
         // await provider.waitForCallback();
 
         const authorizationCode = await provider.getAuthCode();
+        const iss = provider.getIss();
 
         // TODO: this retry logic should be incorporated into the typescript SDK
         result = await auth(provider, {
@@ -32,6 +33,7 @@ export const handle401 = async (
             resourceMetadataUrl,
             scope,
             authorizationCode,
+            iss,
             fetchFn: next
         });
         if (result !== 'AUTHORIZED') {

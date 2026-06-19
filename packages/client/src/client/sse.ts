@@ -45,6 +45,15 @@ export type SSEClientTransportOptions = {
     authProvider?: AuthProvider | OAuthClientProvider;
 
     /**
+     * Opt-out for the RFC 8414 §3.3 issuer-echo check during authorization-server
+     * metadata discovery. **Security-weakening** — see
+     * {@linkcode index.AuthOptions.skipIssuerMetadataValidation | AuthOptions.skipIssuerMetadataValidation}.
+     * Only honoured when {@linkcode SSEClientTransportOptions.authProvider | authProvider}
+     * is an `OAuthClientProvider`.
+     */
+    skipIssuerMetadataValidation?: boolean;
+
+    /**
      * Customizes the initial SSE request to the server (the request that begins the stream).
      *
      * NOTE: Setting this property will prevent an `Authorization` header from
@@ -81,6 +90,7 @@ export class SSEClientTransport implements Transport {
     private _requestInit?: RequestInit;
     private _authProvider?: AuthProvider;
     private _oauthProvider?: OAuthClientProvider;
+    private _skipIssuerMetadataValidation?: boolean;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
@@ -95,9 +105,12 @@ export class SSEClientTransport implements Transport {
         this._scope = undefined;
         this._eventSourceInit = opts?.eventSourceInit;
         this._requestInit = opts?.requestInit;
+        this._skipIssuerMetadataValidation = opts?.skipIssuerMetadataValidation;
         if (isOAuthClientProvider(opts?.authProvider)) {
             this._oauthProvider = opts.authProvider;
-            this._authProvider = adaptOAuthProvider(opts.authProvider);
+            this._authProvider = adaptOAuthProvider(opts.authProvider, {
+                skipIssuerMetadataValidation: opts.skipIssuerMetadataValidation
+            });
         } else {
             this._authProvider = opts?.authProvider;
         }
@@ -228,18 +241,46 @@ export class SSEClientTransport implements Transport {
 
     /**
      * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
+     *
+     * Prefer passing the callback URL's `searchParams` directly — the SDK extracts
+     * `code` and `iss` (and validates `iss` per RFC 9207) for you. The `(code, iss?)`
+     * positional form remains supported for back-compat.
+     *
+     * @param callbackParams - The `URLSearchParams` from the authorization callback URL
+     *   (e.g. `new URL(callbackUrl).searchParams`). `code` and `iss` are read from it.
      */
-    async finishAuth(authorizationCode: string): Promise<void> {
+    async finishAuth(callbackParams: URLSearchParams): Promise<void>;
+    /**
+     * @param authorizationCode - The `code` query parameter from the authorization callback URL.
+     * @param iss - The form-urldecoded `iss` query parameter from the same callback URL, if
+     *   present. Validated per RFC 9207 against the recorded issuer before the code is redeemed.
+     */
+    async finishAuth(authorizationCode: string, iss?: string): Promise<void>;
+    async finishAuth(codeOrParams: string | URLSearchParams, iss?: string): Promise<void> {
         if (!this._oauthProvider) {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
+        }
+
+        let authorizationCode: string;
+        if (codeOrParams instanceof URLSearchParams) {
+            const code = codeOrParams.get('code');
+            if (!code) {
+                throw new UnauthorizedError('Authorization callback is missing the "code" parameter');
+            }
+            authorizationCode = code;
+            iss = codeOrParams.get('iss') ?? undefined;
+        } else {
+            authorizationCode = codeOrParams;
         }
 
         const result = await auth(this._oauthProvider, {
             serverUrl: this._url,
             authorizationCode,
+            iss,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetchWithInit
+            fetchFn: this._fetchWithInit,
+            skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');

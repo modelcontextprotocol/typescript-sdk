@@ -77,8 +77,8 @@ class InteractiveOAuthClient {
     /**
      * Starts a temporary HTTP server to receive the OAuth callback
      */
-    private async waitForOAuthCallback(): Promise<string> {
-        return new Promise<string>((resolve, reject) => {
+    private async waitForOAuthCallback(): Promise<URLSearchParams> {
+        return new Promise<URLSearchParams>((resolve, reject) => {
             const server = createServer((req, res) => {
                 // Ignore favicon requests
                 if (req.url === '/favicon.ico') {
@@ -105,7 +105,8 @@ class InteractiveOAuthClient {
             </html>
           `);
 
-                    resolve(code);
+                    // Hand back the whole query — finishAuth() reads `code` + `iss` (RFC 9207) itself.
+                    resolve(parsedUrl.searchParams);
                     setTimeout(() => server.close(), 3000);
                 } else if (error) {
                     console.log(`❌ Authorization error: ${error}`);
@@ -148,10 +149,11 @@ class InteractiveOAuthClient {
         } catch (error) {
             if (error instanceof UnauthorizedError) {
                 console.log('🔐 OAuth required - waiting for authorization...');
-                const callbackPromise = this.waitForOAuthCallback();
-                const authCode = await callbackPromise;
-                await transport.finishAuth(authCode);
-                console.log('🔐 Authorization code received:', authCode);
+                const callbackParams = await this.waitForOAuthCallback();
+                // Pass the whole callback query — the SDK extracts `code` and validates
+                // `iss` against the recorded issuer (RFC 9207) before exchanging the code.
+                await transport.finishAuth(callbackParams);
+                console.log('🔐 Authorization code received:', callbackParams.get('code'));
                 console.log('🔌 Reconnecting with authenticated transport...');
                 await this.attemptConnection(oauthProvider);
             } else {
