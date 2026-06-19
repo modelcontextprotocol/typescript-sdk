@@ -39,6 +39,12 @@ import { startLegacySseHost } from './sse-host.js';
 import type { SnifferOptions } from './wire-sniffer.js';
 import { sniffTransport } from './wire-sniffer.js';
 
+/** Narrows away `null`/`undefined` for values the surrounding test has already proven exist (replaces non-null assertions). */
+export function defined<T>(value: T | null | undefined, label: string): NonNullable<T> {
+    if (value === null || value === undefined) throw new Error(`expected ${label} to be defined`);
+    return value;
+}
+
 export type ServerFactory = () => McpServer | Server;
 
 /**
