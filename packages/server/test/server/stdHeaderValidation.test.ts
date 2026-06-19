@@ -149,7 +149,7 @@ describe('SEP-2243 standard-header validation (createMcpHandler, modern era)', (
 });
 
 describe('SEP-2243 standard-header validation is era-gated', () => {
-    it('legacy traffic is byte-untouched: a 2025-era tools/list without standard headers still serves', async () => {
+    it('legacy traffic is byte-untouched: a 2025-era initialize without standard headers still serves', async () => {
         const handler = createMcpHandler(makeFactory());
         const response = await handler.fetch(
             new Request('http://localhost/mcp', {
