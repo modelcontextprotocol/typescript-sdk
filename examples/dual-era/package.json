@@ -1,0 +1,20 @@
+{
+    "name": "@mcp-examples/dual-era",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "modern",
+        "//": "The story body drives BOTH eras itself (legacy via versionNegotiation: undefined, modern via the harness default); pinned so the harness runs it once per transport."
+    }
+}

@@ -1,0 +1,20 @@
+{
+    "name": "@mcp-examples/sampling",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "dual",
+        "//": "2025-era push-style ctx.mcpReq.requestSampling runs over the harness's sessionful http/legacy arm; 2026-07-28 inputRequired.createMessage runs over the per-request modern arm. Full transport × era matrix."
+    }
+}

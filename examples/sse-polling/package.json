@@ -1,0 +1,30 @@
+{
+    "name": "@mcp-examples/sse-polling",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/express": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "cors": "catalog:runtimeServerOnly",
+        "express": "catalog:runtimeServerOnly"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "transports": [
+            "http"
+        ],
+        "era": "legacy",
+        "path": "/mcp",
+        "timeoutMs": 20000,
+        "//": "SEP-1699 closeSSE/eventStore/retryInterval live on the sessionful-2025 transport; the client is era-blind so dual would duplicate."
+    }
+}

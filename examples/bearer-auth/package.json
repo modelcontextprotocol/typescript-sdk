@@ -1,0 +1,26 @@
+{
+    "name": "@mcp-examples/bearer-auth",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/express": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "transports": [
+            "http"
+        ],
+        "era": "dual",
+        "path": "/mcp",
+        "//": "Bearer auth + 401/WWW-Authenticate is HTTP-layer and era-agnostic; the client honours --legacy via negotiationFromArgs."
+    }
+}

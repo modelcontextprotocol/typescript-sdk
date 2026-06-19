@@ -1,0 +1,20 @@
+{
+    "name": "@mcp-examples/custom-methods",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "dual",
+        "//": "Vendor-prefixed methods route through both serving entries unchanged: a 2025 client sends the bare JSON-RPC request, a 2026-07-28 client sends it with the per-request envelope; setRequestHandler receives either."
+    }
+}

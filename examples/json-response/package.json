@@ -1,0 +1,24 @@
+{
+    "name": "@mcp-examples/json-response",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "transports": [
+            "http"
+        ],
+        "era": "modern",
+        "//": "responseMode shapes the modern (2026-07-28) per-request path only; 2025-era traffic goes through the stateless legacy fallback unaffected, so a legacy leg would not exercise the option."
+    }
+}
