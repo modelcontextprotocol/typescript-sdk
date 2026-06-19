@@ -213,6 +213,14 @@ Individual OAuth error classes replaced with single `OAuthError` class and `OAut
 
 Removed: `OAUTH_ERRORS` constant.
 
+The OAuth client flow additionally throws dedicated classes from `@modelcontextprotocol/client` (all extend `OAuthClientFlowError`, **not** `OAuthError` — `auth()`'s `OAuthError` retry path will not catch them):
+
+| Throw site                                                                                                     | v2 class                                                            |
+| -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `registerClient()` rejected by AS (any RFC 7591 error incl. `invalid_client_metadata`, `invalid_redirect_uri`) | `RegistrationRejectedError` (`status`, `body`, `submittedMetadata`) |
+| `exchangeAuthorization()` / `refreshAuthorization()` / `fetchToken()` / `requestJwtAuthorizationGrant()` / `exchangeJwtAuthGrant()` non-https token endpoint | `InsecureTokenEndpointError` (`tokenEndpoint`)                      |
+| RFC 9207 `iss` mismatch / RFC 8414 §3.3 issuer-echo mismatch                                                   | `IssuerMismatchError` (`kind`, `expected`, `received`)              |
+
 Update OAuth error handling:
 
 ```typescript
@@ -579,6 +587,10 @@ Output-schema validator compilation is now lazy (first `callTool()` against the 
 OAuth callback handling: pass the callback URL's `URLSearchParams` to `transport.finishAuth(url.searchParams)` (or pass `iss` alongside `authorizationCode` to `auth()` / `finishAuth(code, iss)`). The SDK now validates `iss` per RFC 9207: a mismatched `iss` throws `IssuerMismatchError` regardless of advertised support; a missing `iss` throws only when the AS advertised `authorization_response_iss_parameter_supported: true`. Do not surface `error_description` / `error_uri` from a callback that failed this check.
 
 `discoverAuthorizationServerMetadata()` now rejects metadata whose `issuer` does not exactly match the URL it was fetched for (RFC 8414 §3.3), throwing `IssuerMismatchError`. Pass `skipIssuerMetadataValidation: true` on `AuthOptions` (or `skipIssuerValidation: true` on the helper) only as a temporary workaround for a known-misconfigured AS.
+
+`auth()` reads `provider.clientMetadata` once via `resolveClientMetadata()` and applies SEP-837/SEP-2207 defaults to the DCR body: `grant_types` defaults to `['authorization_code', 'refresh_token']`; `application_type` is derived from `redirect_uris` (loopback / custom URI scheme → `'native'`, otherwise `'web'`). A field you set explicitly is never overwritten — set `clientMetadata.application_type` / `clientMetadata.grant_types` to override. Direct `registerClient()` callers wanting the same defaults pass `resolveClientMetadata(provider)` as `clientMetadata`. The `grant_types` default applies to the Dynamic Client Registration body only; it does **not** drive the `offline_access` scope / `prompt=consent` augmentation on the authorize request — statically-registered and CIMD clients that want that augmentation must set `clientMetadata.grant_types` explicitly. Non-interactive providers (no `redirectUrl`) get no `grant_types` default.
+
+Token-exchange / refresh now refuse to send credentials to a non-`https:` token endpoint (loopback `localhost` / `127.0.0.1` / `::1` exempt), throwing `InsecureTokenEndpointError` with no opt-out. `auth()` surfaces this on every path including refresh — switch any plain-`http:` AS on a non-loopback host to TLS.
 
 No code changes required; wire-behavior note: on a 2026-07-28 Streamable HTTP connection, aborting an in-flight client request (caller `signal` / timeout) closes that request's SSE response stream as the spec cancellation signal — `notifications/cancelled` is no longer POSTed
 there. 2025-era connections and stdio at any era still send `notifications/cancelled`. Custom `Transport` implementations that open one underlying request per outbound message and honor `TransportSendOptions.requestSignal` may declare `readonly hasPerRequestStream = true` to opt
