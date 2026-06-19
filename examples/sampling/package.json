@@ -14,10 +14,7 @@
         "tsx": "catalog:devTools"
     },
     "example": {
-        "transports": [
-            "stdio"
-        ],
         "era": "legacy",
-        "//": "Push-style server→client requests need a long-lived bidirectional connection AND a 2025 initialize handshake to advertise the sampling capability; createMcpHandler's per-request/stateless posture has neither."
+        "//": "Sampling is a 2025-era push-style server→client request and is deprecated as of 2026-07-28 (SEP-2577); there is no modern-era equivalent. Both transports — the harness's http arm hosts 2025 traffic on a sessionful transport."
     }
 }

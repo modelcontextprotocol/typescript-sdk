@@ -159,7 +159,12 @@ function buildServer(reqCtx: McpRequestContext): McpServer {
                 // `notifications/elicitation/complete` for the same id. The
                 // client waits for that notification before answering accept.
                 const elicitationId = randomUUID();
-                const notifyComplete = server.server.createElicitationCompletionNotifier(elicitationId);
+                // Tie the completion notification to the in-flight request so on
+                // sessionful HTTP it travels over this POST's SSE response stream
+                // (rather than the standalone GET stream).
+                const notifyComplete = server.server.createElicitationCompletionNotifier(elicitationId, {
+                    relatedRequestId: ctx.mcpReq.id
+                });
                 setTimeout(() => void notifyComplete().catch(error => console.error('[server] complete notify failed:', error)), 50);
                 const params: ElicitRequestURLParams = {
                     mode: 'url',

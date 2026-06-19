@@ -5,7 +5,7 @@
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
-import { check, runClient } from '../harness.js';
+import { check, negotiationFromArgs, runClient } from '../harness.js';
 
 const argv = process.argv.slice(2);
 const URL = argv[argv.indexOf('--http') + 1] ?? 'http://127.0.0.1:3000/mcp';
@@ -20,8 +20,9 @@ runClient('bearer-auth', async () => {
     check.equal(unauth.status, 401);
     check.match(unauth.headers.get('www-authenticate') ?? '', /Bearer/);
 
-    // Authenticated → 200 and the tool sees the authInfo.
-    const client = new Client({ name: 'bearer-auth-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+    // Authenticated → 200 and the tool sees the authInfo. Bearer auth is
+    // HTTP-layer and era-agnostic; `negotiationFromArgs()` honours `--legacy`.
+    const client = new Client({ name: 'bearer-auth-client', version: '1.0.0' }, { versionNegotiation: negotiationFromArgs() });
     await client.connect(new StreamableHTTPClientTransport(new globalThis.URL(URL), { authProvider: { token: async () => 'demo-token' } }));
     const result = await client.callTool({ name: 'whoami', arguments: {} });
     check.equal(result.content?.[0]?.type === 'text' ? result.content[0].text : '', 'client=demo-client');

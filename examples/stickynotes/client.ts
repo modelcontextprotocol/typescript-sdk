@@ -1,10 +1,10 @@
 /**
- * Drives the sticky-notes board end to end on a 2025-era (legacy) connection:
- * add two notes, list/read their resources, remove one, then attempt
- * `remove_all` three ways (cancel, accept-unchecked, accept-confirmed) to prove
- * the board is cleared only on an explicit confirmation.
+ * Drives the sticky-notes board end to end: add two notes, list/read their
+ * resources, remove one, then — on the 2025-era leg — attempt `remove_all`
+ * three ways (cancel, accept-unchecked, accept-confirmed) to prove the board is
+ * cleared only on an explicit confirmation.
  */
-import { check, connectFromArgs, runClient, transportLeg } from '../harness.js';
+import { check, connectFromArgs, eraLeg, runClient } from '../harness.js';
 
 interface AddResult {
     id: string;
@@ -16,10 +16,6 @@ interface RemoveAllResult {
 }
 
 runClient('stickynotes', async () => {
-    // Push-style elicitation (the `remove_all` confirmation) is a 2025-era
-    // flow; the harness pins this story to the legacy era so
-    // `ctx.mcpReq.elicitInput` reaches this handler (the 2026-07-28 path uses
-    // multi-round-trip `inputRequired` instead — see ../mrtr/).
     // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
     const client = await connectFromArgs(import.meta.dirname, { capabilities: { elicitation: { form: {} } } });
     let elicitAnswer: 'cancel' | 'unchecked' | 'confirm' = 'cancel';
@@ -50,11 +46,13 @@ runClient('stickynotes', async () => {
     const after = await client.listResources();
     check.ok(!after.resources.some(r => r.uri === firstNote.uri));
 
-    // The elicitation-confirmed `remove_all` path is stdio-only: push-style
-    // server→client requests need a long-lived bidirectional connection;
-    // `createMcpHandler`'s per-request/stateless posture has neither a durable
-    // client-capability record nor a return path for the elicitation response.
-    if (transportLeg() === 'http') {
+    // The elicitation-confirmed `remove_all` path is 2025-era only: push-style
+    // server→client requests need the `initialize` handshake to advertise the
+    // elicitation capability and a long-lived bidirectional connection (stdio,
+    // or the harness's sessionful http/legacy arm). On a 2026-07-28 connection
+    // there is no server→client request channel — the equivalent is
+    // multi-round-trip `inputRequired` (see ../elicitation/).
+    if (eraLeg() === 'modern') {
         const removedSecond = await client.callTool({ name: 'remove_note', arguments: { id: secondNote.id } });
         check.equal((removedSecond.structuredContent as { removed?: boolean } | undefined)?.removed, true);
         const afterClear = await client.listResources();

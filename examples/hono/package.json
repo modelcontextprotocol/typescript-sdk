@@ -20,8 +20,8 @@
         "transports": [
             "http"
         ],
-        "era": "modern",
+        "era": "dual",
         "path": "/mcp",
-        "//": "The story body manages its own era internally (or does not use connectFromArgs); pinned so the harness runs it once per transport."
+        "//": "createMcpHandler.fetch hosting is era-agnostic (default 'stateless' posture serves both); the client honours --legacy via negotiationFromArgs."
     }
 }

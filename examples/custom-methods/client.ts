@@ -13,11 +13,11 @@ const SearchResult = z.object({ items: z.array(z.string()) });
 const SearchProgressParams = z.object({ stage: z.string(), pct: z.number() });
 
 runClient('custom-methods', async () => {
-    // Custom methods carry no envelope semantics — connect as a plain 2025
-    // client so the request reaches the server's setRequestHandler exactly as
-    // a hand-wired stdio client would.
+    // Vendor-prefixed methods route through both serving entries unchanged: a
+    // 2025 client sends the bare JSON-RPC request, a 2026-07-28 client sends it
+    // with the per-request envelope; `setRequestHandler` receives either.
     // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
-    const client = await connectFromArgs(import.meta.dirname, { versionNegotiation: undefined });
+    const client = await connectFromArgs(import.meta.dirname);
 
     const stages: string[] = [];
     client.setNotificationHandler('acme/searchProgress', { params: SearchProgressParams }, params => {

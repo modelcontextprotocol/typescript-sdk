@@ -19,6 +19,6 @@
             "http"
         ],
         "era": "modern",
-        "//": "The story body manages its own era internally (or does not use connectFromArgs); pinned so the harness runs it once per transport."
+        "//": "responseMode shapes the modern (2026-07-28) per-request path only; 2025-era traffic goes through the stateless legacy fallback unaffected, so a legacy leg would not exercise the option."
     }
 }

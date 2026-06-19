@@ -50,7 +50,7 @@ const EXAMPLES = join(ROOT, 'examples');
 const TSX = join(ROOT, 'node_modules', '.bin', 'tsx');
 
 /** Directories that are never stories. */
-const NON_STORY = new Set(['shared', 'guides', 'oauth', 'server-quickstart', 'client-quickstart', 'node_modules']);
+const NON_STORY = new Set(['shared', 'guides', 'server-quickstart', 'client-quickstart', 'node_modules']);
 
 /** Distinct per-story HTTP ports so the servers never collide. */
 let nextPort = 8530;

@@ -14,7 +14,7 @@
         "tsx": "catalog:devTools"
     },
     "example": {
-        "era": "legacy",
-        "//": "Custom methods carry no envelope semantics; the example connects as a plain 2025 client so the request reaches setRequestHandler exactly as a hand-wired client would."
+        "era": "dual",
+        "//": "Vendor-prefixed methods route through both serving entries unchanged: a 2025 client sends the bare JSON-RPC request, a 2026-07-28 client sends it with the per-request envelope; setRequestHandler receives either."
     }
 }

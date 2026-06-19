@@ -14,7 +14,7 @@
  */
 import { Client, ClientCredentialsProvider, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
-import { check, runClient } from '../harness.js';
+import { check, negotiationFromArgs, runClient } from '../harness.js';
 
 const argv = process.argv.slice(2);
 const URL_ARG = argv[argv.indexOf('--http') + 1] ?? 'http://127.0.0.1:3000/mcp';
@@ -36,7 +36,7 @@ runClient('oauth-client-credentials', async () => {
         clientSecret: 'demo-m2m-secret',
         scope: 'mcp:tools mcp:read'
     });
-    const client = new Client({ name: 'client-credentials-client', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+    const client = new Client({ name: 'client-credentials-client', version: '1.0.0' }, { versionNegotiation: negotiationFromArgs() });
     await client.connect(new StreamableHTTPClientTransport(new globalThis.URL(URL_ARG), { authProvider: provider }));
 
     const tokens = provider.tokens();

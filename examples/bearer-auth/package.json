@@ -19,8 +19,8 @@
         "transports": [
             "http"
         ],
-        "era": "modern",
+        "era": "dual",
         "path": "/mcp",
-        "//": "The story body manages its own era internally (or does not use connectFromArgs); pinned so the harness runs it once per transport."
+        "//": "Bearer auth + 401/WWW-Authenticate is HTTP-layer and era-agnostic; the client honours --legacy via negotiationFromArgs."
     }
 }

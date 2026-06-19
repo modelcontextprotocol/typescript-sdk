@@ -11,10 +11,10 @@ pnpm --filter @mcp-examples/<story> client
 
 # Streamable HTTP (two terminals):
 pnpm --filter @mcp-examples/<story> server -- --http --port 3000
-pnpm --filter @mcp-examples/<story> client -- --http http://127.0.0.1:3000/mcp
+pnpm --filter @mcp-examples/<story> client -- --http http://127.0.0.1:3000/
 ```
 
-Some stories mount at a different path (e.g. `/`); check the story's `package.json#example.path` or its README for the exact URL.
+Add `-- --legacy` to the client command for the 2025-era handshake. Some stories mount at a different path (e.g. `/mcp`); check the story's `package.json#example.path` or its README for the exact URL.
 
 ## Start here
 
@@ -27,43 +27,44 @@ Some stories mount at a different path (e.g. `/`); check the story's `package.js
 
 ## Feature stories
 
-| Story                                                               | What it teaches                                                                                         | Transports   |
-| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------ |
-| [`mrtr/`](./mrtr/README.md)                                         | Multi-round-trip write-once tool, secure `requestState`                                                 | stdio + http |
-| [`subscriptions/`](./subscriptions/README.md)                       | `subscriptions/listen`: `client.listen()` + auto-open, `handler.notify` / `ServerEventBus`              | stdio + http |
-| [`streaming/`](./streaming/README.md)                               | In-flight progress, logging, cancellation                                                               | stdio + http |
-| [`elicitation/`](./elicitation/README.md)                           | Elicitation (form + URL mode), both eras: push-style on 2025, `inputRequired` on 2026                   | stdio        |
-| [`sampling/`](./sampling/README.md)                                 | Tool that requests LLM sampling from the client                                                         | stdio        |
-| [`stickynotes/`](./stickynotes/README.md)                           | "Real app" capstone: tools mutate state, a resource per note, listChanged, elicitation-confirmed clear  | stdio + http |
-| [`caching/`](./caching/README.md)                                   | `cacheHints` stamping on cacheable results (2026-07-28)                                                 | stdio + http |
-| [`custom-methods/`](./custom-methods/README.md)                     | Vendor-prefixed methods + custom notifications                                                          | stdio + http |
-| [`schema-validators/`](./schema-validators/README.md)               | ArkType, Valibot, Zod, and `outputSchema`                                                               | stdio + http |
-| [`custom-version/`](./custom-version/README.md)                     | `supportedProtocolVersions` / version negotiation                                                       | stdio + http |
-| [`parallel-calls/`](./parallel-calls/README.md)                     | Multiple clients / parallel tool calls, per-client notifications                                        | stdio + http |
-| [`legacy-routing/`](./legacy-routing/README.md)                     | `isLegacyRequest` in front of an existing sessionful 1.x deployment + a strict modern entry on one port | http         |
-| [`bearer-auth/`](./bearer-auth/README.md)                           | Resource server with bearer token; `401` + `WWW-Authenticate`                                           | http         |
-| [`oauth-client-credentials/`](./oauth-client-credentials/README.md) | OAuth `client_credentials` (machine-to-machine): in-repo AS + `ClientCredentialsProvider`               | http         |
+| Story                                                               | What it teaches                                                                                         | Transports   | Era    |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------ | ------ |
+| [`mrtr/`](./mrtr/README.md)                                         | Multi-round-trip write-once tool, secure `requestState`                                                 | stdio + http | modern |
+| [`subscriptions/`](./subscriptions/README.md)                       | `subscriptions/listen`: `client.listen()` + auto-open, `handler.notify` / `ServerEventBus`              | stdio + http | modern |
+| [`streaming/`](./streaming/README.md)                               | In-flight progress, logging, cancellation                                                               | stdio + http | dual   |
+| [`elicitation/`](./elicitation/README.md)                           | Elicitation (form + URL mode), both eras: push-style on 2025, `inputRequired` on 2026                   | stdio + http | dual   |
+| [`sampling/`](./sampling/README.md)                                 | Tool that requests LLM sampling from the client                                                         | stdio + http | legacy |
+| [`stickynotes/`](./stickynotes/README.md)                           | "Real app" capstone: tools mutate state, a resource per note, listChanged, elicitation-confirmed clear  | stdio + http | dual   |
+| [`caching/`](./caching/README.md)                                   | `cacheHints` stamping on cacheable results (2026-07-28)                                                 | stdio + http | modern |
+| [`custom-methods/`](./custom-methods/README.md)                     | Vendor-prefixed methods + custom notifications                                                          | stdio + http | dual   |
+| [`schema-validators/`](./schema-validators/README.md)               | ArkType, Valibot, Zod, and `outputSchema`                                                               | stdio + http | dual   |
+| [`custom-version/`](./custom-version/README.md)                     | `supportedProtocolVersions` / version negotiation                                                       | stdio + http | legacy |
+| [`parallel-calls/`](./parallel-calls/README.md)                     | Multiple clients / parallel tool calls, per-client notifications                                        | stdio + http | dual   |
+| [`legacy-routing/`](./legacy-routing/README.md)                     | `isLegacyRequest` in front of an existing sessionful 1.x deployment + a strict modern entry on one port | http         | both¹  |
+| [`bearer-auth/`](./bearer-auth/README.md)                           | Resource server with bearer token; `401` + `WWW-Authenticate`                                           | http         | dual   |
+| [`oauth-client-credentials/`](./oauth-client-credentials/README.md) | OAuth `client_credentials` (machine-to-machine): in-repo AS + `ClientCredentialsProvider`               | http         | dual   |
 
 ## HTTP hosting variants
 
-| Story                                               | What it teaches                                               | Transports |
-| --------------------------------------------------- | ------------------------------------------------------------- | ---------- |
-| [`stateless-legacy/`](./stateless-legacy/README.md) | `createMcpHandler` default posture (the minimal deployment)   | http       |
-| [`json-response/`](./json-response/README.md)       | `createMcpHandler({ responseMode: 'json' })`                  | http       |
-| [`hono/`](./hono/README.md)                         | `createMcpHandler(...).fetch` on Hono / web-standard runtimes | http       |
-| [`sse-polling/`](./sse-polling/README.md)           | SEP-1699 SSE polling/resumption (sessionful 2025)             | http       |
-| [`standalone-get/`](./standalone-get/README.md)     | Standalone GET stream + `listChanged` push (sessionful 2025)  | http       |
+| Story                                               | What it teaches                                               | Transports | Era    |
+| --------------------------------------------------- | ------------------------------------------------------------- | ---------- | ------ |
+| [`stateless-legacy/`](./stateless-legacy/README.md) | `createMcpHandler` default posture (the minimal deployment)   | http       | both¹  |
+| [`json-response/`](./json-response/README.md)       | `createMcpHandler({ responseMode: 'json' })`                  | http       | modern |
+| [`hono/`](./hono/README.md)                         | `createMcpHandler(...).fetch` on Hono / web-standard runtimes | http       | dual   |
+| [`sse-polling/`](./sse-polling/README.md)           | SEP-1699 SSE polling/resumption (sessionful 2025)             | http       | legacy |
+| [`standalone-get/`](./standalone-get/README.md)     | Standalone GET stream + `listChanged` push (sessionful 2025)  | http       | legacy |
+
+¹ The story body drives both eras inside one client run, so the harness pins it to a single leg.
 
 ## Excluded
 
-| Directory                                                                                  | What it is                                                                                                               | Why not in CI                                                                                                                                                                                                 |
-| ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [`oauth/`](./oauth/README.md)                                                              | Interactive authorization-code OAuth flow: in-repo protected `server.ts` (demo AS + RS) + browser `simpleOAuthClient.ts` | Opens a real browser and runs a callback server on `:8090`. The headless machine-to-machine grant is covered by [`oauth-client-credentials/`](./oauth-client-credentials/README.md).                          |
-| [`repl/`](./repl/README.md)                                                                | Fully-featured HTTP playground server + readline client                                                                  | Interactive — `client.ts` reads from stdin. Run manually in two terminals.                                                                                                                                    |
-| [`sse-polling/`](./sse-polling/README.md), [`standalone-get/`](./standalone-get/README.md) | Legacy sessionful-2025 SSE stories (SEP-1699 reconnect/replay; standalone GET stream)                                    | Kept for reference; long-running reconnect/timer flows that need a longer per-leg readiness wait than the harness default. Self-verifying — flip the `excluded` flag once the harness has bounded-wait knobs. |
-| [`guides/`](./guides/README.md)                                                            | Snippet collections synced into `docs/server.md` and `docs/client.md`                                                    | Typecheck-only; not a runnable pair.                                                                                                                                                                          |
-| `server-quickstart/`, `client-quickstart/`                                                 | Website-tutorial sources                                                                                                 | External network / API key; typecheck-only.                                                                                                                                                                   |
-| `shared/`                                                                                  | Demo OAuth provider helper library                                                                                       | Not a story — imported by the OAuth examples.                                                                                                                                                                 |
+| Directory                                  | What it is                                                                                                               | Why not in CI                                                                                                                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [`oauth/`](./oauth/README.md)              | Interactive authorization-code OAuth flow: in-repo protected `server.ts` (demo AS + RS) + browser `simpleOAuthClient.ts` | Opens a real browser and runs a callback server on `:8090`. The headless machine-to-machine grant is covered by [`oauth-client-credentials/`](./oauth-client-credentials/README.md). |
+| [`repl/`](./repl/README.md)                | Fully-featured HTTP playground server + readline client                                                                  | Interactive — `client.ts` reads from stdin. Run manually in two terminals.                                                                                                           |
+| [`guides/`](./guides/README.md)            | Snippet collections synced into `docs/server.md` and `docs/client.md`                                                    | Typecheck-only; not a runnable pair.                                                                                                                                                 |
+| `server-quickstart/`, `client-quickstart/` | Website-tutorial sources                                                                                                 | External network / API key; typecheck-only.                                                                                                                                          |
+| `shared/`                                  | Demo OAuth provider helper library                                                                                       | Not a story — imported by the OAuth examples.                                                                                                                                        |
 
 ## Multi-node deployment patterns
 

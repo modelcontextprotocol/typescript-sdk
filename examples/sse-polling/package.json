@@ -21,6 +21,9 @@
         "transports": [
             "http"
         ],
-        "excluded": "SEP-1699 SSE polling/resumption story is sessionful 2025 with server-initiated disconnect; the client's reconnect-then-replay flow is a long (~5s) wait that the harness doesn't bound well. Typecheck-only for now; revisit after the harness gets per-leg timeouts."
+        "era": "legacy",
+        "path": "/mcp",
+        "timeoutMs": 20000,
+        "//": "SEP-1699 closeSSE/eventStore/retryInterval live on the sessionful-2025 transport; the client is era-blind so dual would duplicate."
     }
 }

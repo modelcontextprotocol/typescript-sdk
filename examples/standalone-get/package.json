@@ -11,7 +11,8 @@
         "@modelcontextprotocol/express": "workspace:*",
         "@modelcontextprotocol/node": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",
-        "express": "catalog:runtimeServerOnly"
+        "express": "catalog:runtimeServerOnly",
+        "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
         "tsx": "catalog:devTools"
@@ -20,7 +21,8 @@
         "transports": [
             "http"
         ],
+        "era": "legacy",
         "path": "/mcp",
-        "excluded": "Sessionful 2025 timer-driven listChanged push over the standalone GET stream — long-running by design. Typecheck-only for now; revisit alongside the sse-polling re-host."
+        "//": "The standalone GET stream is a sessionful-2025 transport feature; the client is era-blind so dual would duplicate."
     }
 }

@@ -9,8 +9,7 @@
  * - Uses `eventStore` to persist events for replay after reconnection
  * - Uses `ctx.http?.closeSSE()` callback to gracefully disconnect clients mid-operation
  *
- * Run with: pnpm tsx examples/sse-polling/server.ts
- * Test with: curl or the MCP Inspector
+ * HTTP-only, sessionful 2025 by definition.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -44,33 +43,33 @@ const getServer = () => {
         async (ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            console.log(`[${ctx.sessionId}] Starting long-operation...`);
+            console.error(`[${ctx.sessionId}] Starting long-operation...`);
 
             // Send first progress notification
             await ctx.mcpReq.log('info', 'Progress: 25% - Starting work...');
-            await sleep(1000);
+            await sleep(200);
 
             // Send second progress notification
             await ctx.mcpReq.log('info', 'Progress: 50% - Halfway there...');
-            await sleep(1000);
+            await sleep(200);
 
             // Server decides to disconnect the client to free resources
             // Client will reconnect via GET with Last-Event-ID after the transport's retryInterval
             // Use ctx.http?.closeSSE callback - available when eventStore is configured
             if (ctx.http?.closeSSE) {
-                console.log(`[${ctx.sessionId}] Closing SSE stream to trigger client polling...`);
+                console.error(`[${ctx.sessionId}] Closing SSE stream to trigger client polling...`);
                 ctx.http?.closeSSE();
             }
 
             // Continue processing while client is disconnected
             // Events are stored in eventStore and will be replayed on reconnect
-            await sleep(500);
+            await sleep(200);
             await ctx.mcpReq.log('info', 'Progress: 75% - Almost done (sent while client disconnected)...');
 
-            await sleep(500);
+            await sleep(200);
             await ctx.mcpReq.log('info', 'Progress: 100% - Complete!');
 
-            console.log(`[${ctx.sessionId}] Operation complete`);
+            console.error(`[${ctx.sessionId}] Operation complete`);
 
             return {
                 content: [
@@ -107,9 +106,9 @@ app.all('/mcp', async (req: Request, res: Response) => {
         transport = new NodeStreamableHTTPServerTransport({
             sessionIdGenerator: () => randomUUID(),
             eventStore,
-            retryInterval: 2000, // Default retry interval for priming events
+            retryInterval: 300, // Default retry interval for priming events
             onsessioninitialized: id => {
-                console.log(`[${id}] Session initialized`);
+                console.error(`[${id}] Session initialized`);
                 transports.set(id, transport!);
             }
         });
@@ -123,13 +122,13 @@ app.all('/mcp', async (req: Request, res: Response) => {
 });
 
 // Start the server
-const PORT = 3001;
+const argv = process.argv.slice(2);
+const portIdx = argv.indexOf('--port');
+const PORT = portIdx === -1 ? Number(process.env.PORT ?? 3001) : Number(argv[portIdx + 1]);
 app.listen(PORT, () => {
-    console.log(`SSE Polling Example Server running on http://localhost:${PORT}/mcp`);
-    console.log('');
-    console.log('This server demonstrates SEP-1699 SSE polling:');
-    console.log('- retryInterval: 2000ms (client waits 2s before reconnecting)');
-    console.log('- eventStore: InMemoryEventStore (events are persisted for replay)');
-    console.log('');
-    console.log('Try calling the "long-operation" tool to see server-initiated disconnect in action.');
+    console.error(`SSE Polling Example Server running on http://localhost:${PORT}/mcp`);
+    console.error('This server demonstrates SEP-1699 SSE polling:');
+    console.error('- retryInterval: 300ms (client waits before reconnecting)');
+    console.error('- eventStore: InMemoryEventStore (events are persisted for replay)');
+    console.error('Try calling the "long-operation" tool to see server-initiated disconnect in action.');
 });

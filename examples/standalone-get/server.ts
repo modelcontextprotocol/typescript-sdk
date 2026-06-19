@@ -1,168 +1,96 @@
+/**
+ * Standalone GET stream + `notifications/resources/list_changed` (sessionful
+ * 2025).
+ *
+ * One `NodeStreamableHTTPServerTransport` + `McpServer` per session, the way
+ * you would deploy a sessionful 2025 server. The `add_resource` tool registers
+ * a new resource on the session's instance — `McpServer.registerResource` emits
+ * `notifications/resources/list_changed`, which on a sessionful transport
+ * travels over the **standalone GET** SSE stream the client opened. The client
+ * decides when to mutate (no timer race in the harness).
+ *
+ * **HTTP-only**, sessionful 2025 by definition.
+ */
 import { randomUUID } from 'node:crypto';
 
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
-import type { ReadResourceResult } from '@modelcontextprotocol/server';
 import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
+import * as z from 'zod/v4';
 
-// Helper to register a dynamic resource on a given server instance
-const addResource = (server: McpServer, name: string, content: string) => {
-    const uri = `https://mcp-example.com/dynamic/${encodeURIComponent(name)}`;
-    server.registerResource(
-        name,
-        uri,
-        { mimeType: 'text/plain', description: `Dynamic resource: ${name}` },
-        async (): Promise<ReadResourceResult> => {
-            return {
-                contents: [{ uri, text: content }]
-            };
+const buildServer = () => {
+    const server = new McpServer(
+        { name: 'standalone-get-example', version: '1.0.0' },
+        { capabilities: { resources: { listChanged: true } } }
+    );
+    let nextId = 1;
+    const register = (name: string, content: string) =>
+        server.registerResource(
+            name,
+            `https://mcp-example.com/dynamic/${encodeURIComponent(name)}`,
+            { mimeType: 'text/plain' },
+            async uri => ({
+                contents: [{ uri: uri.href, mimeType: 'text/plain', text: content }]
+            })
+        );
+    register('initial', 'Initial content');
+
+    server.registerTool(
+        'add_resource',
+        {
+            description:
+                'Register a new resource on this session — emits notifications/resources/list_changed over the standalone GET stream.',
+            inputSchema: z.object({ content: z.string() })
+        },
+        async ({ content }) => {
+            const name = `note-${nextId++}`;
+            register(name, content);
+            return { content: [{ type: 'text', text: `registered ${name}` }] };
         }
     );
-};
-
-// Create a fresh MCP server per client connection to avoid shared state between clients
-const getServer = () => {
-    const server = new McpServer({
-        name: 'resource-list-changed-notification-server',
-        version: '1.0.0'
-    });
-
-    addResource(server, 'example-resource', 'Initial content for example-resource');
-
     return server;
 };
 
-// Store transports and their associated servers by session ID
-const transports: { [sessionId: string]: NodeStreamableHTTPServerTransport } = {};
-const servers: { [sessionId: string]: McpServer } = {};
-
-// Periodically add a new resource to all active server instances for testing
-const resourceChangeInterval = setInterval(() => {
-    const name = randomUUID();
-    for (const sessionId in servers) {
-        addResource(servers[sessionId]!, name, `Content for ${name}`);
-    }
-}, 5000); // Change resources every 5 seconds for testing
-
+const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
 const app = createMcpExpressApp();
 
 app.post('/mcp', async (req: Request, res: Response) => {
-    console.log('Received MCP request:', req.body);
-    try {
-        // Check for existing session ID
-        const sessionId = req.headers['mcp-session-id'] as string | undefined;
-        let transport: NodeStreamableHTTPServerTransport;
-
-        if (sessionId && transports[sessionId]) {
-            // Reuse existing transport
-            transport = transports[sessionId];
-        } else if (!sessionId && isInitializeRequest(req.body)) {
-            // New initialization request - create a fresh server for this client
-            const server = getServer();
-            transport = new NodeStreamableHTTPServerTransport({
-                sessionIdGenerator: () => randomUUID(),
-                onsessioninitialized: sessionId => {
-                    // Store the transport and server by session ID when session is initialized
-                    // This avoids race conditions where requests might come in before the session is stored
-                    console.log(`Session initialized with ID: ${sessionId}`);
-                    transports[sessionId] = transport;
-                    servers[sessionId] = server;
-                }
-            });
-
-            // Clean up both maps when the transport closes
-            transport.onclose = () => {
-                const sid = transport.sessionId;
-                if (sid) {
-                    delete transports[sid];
-                    delete servers[sid];
-                }
-            };
-
-            // Connect the fresh MCP server to the transport
-            await server.connect(transport);
-
-            // Handle the request - the onsessioninitialized callback will store the transport
-            await transport.handleRequest(req, res, req.body);
-            return; // Already handled
-        } else if (sessionId) {
-            res.status(404).json({
-                jsonrpc: '2.0',
-                error: { code: -32_001, message: 'Session not found' },
-                id: null
-            });
-            return;
-        } else {
-            res.status(400).json({
-                jsonrpc: '2.0',
-                error: { code: -32_000, message: 'Bad Request: Session ID required' },
-                id: null
-            });
-            return;
-        }
-
-        // Handle the request with existing transport
+    const sid = req.headers['mcp-session-id'] as string | undefined;
+    if (sid && sessions.has(sid)) {
+        await sessions.get(sid)!.handleRequest(req, res, req.body);
+    } else if (!sid && isInitializeRequest(req.body)) {
+        const transport = new NodeStreamableHTTPServerTransport({
+            sessionIdGenerator: () => randomUUID(),
+            onsessioninitialized: id => {
+                sessions.set(id, transport);
+            }
+        });
+        transport.onclose = () => transport.sessionId && sessions.delete(transport.sessionId);
+        await buildServer().connect(transport);
         await transport.handleRequest(req, res, req.body);
-    } catch (error) {
-        console.error('Error handling MCP request:', error);
-        if (!res.headersSent) {
-            res.status(500).json({
-                jsonrpc: '2.0',
-                error: {
-                    code: -32_603,
-                    message: 'Internal server error'
-                },
-                id: null
-            });
-        }
+    } else if (sid) {
+        res.status(404).json({ jsonrpc: '2.0', error: { code: -32_001, message: 'Session not found' }, id: null });
+    } else {
+        res.status(400).json({ jsonrpc: '2.0', error: { code: -32_000, message: 'Bad Request: Session ID required' }, id: null });
     }
 });
 
-// Handle GET requests for SSE streams (now using built-in support from StreamableHTTP)
-app.get('/mcp', async (req: Request, res: Response) => {
-    const sessionId = req.headers['mcp-session-id'] as string | undefined;
-    if (!sessionId) {
-        res.status(400).send('Missing session ID');
+// The standalone GET stream (the point of this story) and DELETE (explicit
+// session termination per the MCP spec) route to the session's transport.
+const sessionVerb = async (req: Request, res: Response) => {
+    const sid = req.headers['mcp-session-id'] as string | undefined;
+    const t = sid ? sessions.get(sid) : undefined;
+    if (!t) {
+        res.status(sid ? 404 : 400).send(sid ? 'Session not found' : 'Missing session ID');
         return;
     }
-    if (!transports[sessionId]) {
-        res.status(404).send('Session not found');
-        return;
-    }
+    await t.handleRequest(req, res);
+};
+app.get('/mcp', sessionVerb);
+app.delete('/mcp', sessionVerb);
 
-    console.log(`Establishing SSE stream for session ${sessionId}`);
-    const transport = transports[sessionId];
-    await transport.handleRequest(req, res);
-});
-
-// Start the server
-const PORT = 3000;
-app.listen(PORT, error => {
-    if (error) {
-        console.error('Failed to start server:', error);
-        // eslint-disable-next-line unicorn/no-process-exit
-        process.exit(1);
-    }
-    console.log(`Server listening on port ${PORT}`);
-});
-
-// Handle server shutdown
-process.on('SIGINT', async () => {
-    console.log('Shutting down server...');
-    clearInterval(resourceChangeInterval);
-
-    // Close all active transports to properly clean up resources
-    for (const sessionId in transports) {
-        try {
-            console.log(`Closing transport for session ${sessionId}`);
-            await transports[sessionId]!.close();
-            delete transports[sessionId];
-            delete servers[sessionId];
-        } catch (error) {
-            console.error(`Error closing transport for session ${sessionId}:`, error);
-        }
-    }
-    console.log('Server shutdown complete');
-    process.exit(0);
-});
+const argv = process.argv.slice(2);
+const portIdx = argv.indexOf('--port');
+const port = portIdx === -1 ? Number(process.env.PORT ?? 3000) : Number(argv[portIdx + 1]);
+app.listen(port, () => console.error(`standalone-get example server listening on http://127.0.0.1:${port}/mcp`));

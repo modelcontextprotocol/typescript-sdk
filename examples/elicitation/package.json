@@ -15,10 +15,7 @@
         "tsx": "catalog:devTools"
     },
     "example": {
-        "transports": [
-            "stdio"
-        ],
         "era": "dual",
-        "//": "Push-style server→client requests need a long-lived bidirectional connection AND a 2025 initialize handshake to advertise the elicitation capability; createMcpHandler's per-request/stateless posture has neither. The 2026-07-28 multi-round-trip path is the same handler over stdio."
+        "//": "2025-era push-style runs over the harness's sessionful http/legacy arm; 2026-07-28 inputRequired runs over the per-request modern arm. Full transport × era matrix."
     }
 }

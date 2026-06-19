@@ -1,109 +1,49 @@
 /**
  * SSE Polling Example Client (SEP-1699)
  *
- * This example demonstrates client-side behavior during server-initiated
- * SSE stream disconnection and automatic reconnection.
- *
- * Key features demonstrated:
- * - Automatic reconnection when server closes SSE stream
- * - Event replay via Last-Event-ID header
- * - Resumption token tracking via onresumptiontoken callback
- *
- * Run with: pnpm tsx src/ssePollingClient.ts
- * Requires: ssePollingExample.ts server running on port 3001
+ * Connects (2025-era), calls `long-operation`, and asserts the result arrives
+ * AFTER the server's mid-stream `closeSSE()` — i.e. the client transport
+ * automatically reconnects with `Last-Event-ID` and replays the events the
+ * `eventStore` buffered while disconnected. Also asserts every progress log
+ * (including the one emitted while disconnected) was delivered.
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
-const SERVER_URL = 'http://localhost:3001/mcp';
+import { check, runClient } from '../harness.js';
 
-async function main(): Promise<void> {
-    console.log('SSE Polling Example Client');
-    console.log('==========================');
-    console.log(`Connecting to ${SERVER_URL}...`);
-    console.log('');
+const argv = process.argv.slice(2);
+const URL = argv[argv.indexOf('--http') + 1] ?? 'http://127.0.0.1:3001/mcp';
 
-    // Create transport with reconnection options
-    const transport = new StreamableHTTPClientTransport(new URL(SERVER_URL), {
-        // Use default reconnection options - SDK handles automatic reconnection
+runClient('sse-polling', async () => {
+    const transport = new StreamableHTTPClientTransport(new globalThis.URL(URL));
+    // The mid-stream disconnect surfaces as a transport error before the
+    // automatic reconnect; that is the EXPECTED flow, not a failure.
+    transport.onerror = () => {};
+
+    const client = new Client({ name: 'sse-polling-client', version: '1.0.0' });
+    const logs: string[] = [];
+    client.setNotificationHandler('notifications/message', n => {
+        logs.push(String(n.params.data));
     });
+    await client.connect(transport);
 
-    // Track the last event ID for debugging
     let lastEventId: string | undefined;
+    const result = await client.request(
+        { method: 'tools/call', params: { name: 'long-operation', arguments: {} } },
+        { onresumptiontoken: token => (lastEventId = token) }
+    );
 
-    // Set up transport error handler to observe disconnections
-    // Filter out expected errors from SSE reconnection
-    transport.onerror = error => {
-        // Skip abort errors during intentional close
-        if (error.message.includes('AbortError')) return;
-        // Show SSE disconnect (expected when server closes stream)
-        if (error.message.includes('Unexpected end of JSON')) {
-            console.log('[Transport] SSE stream disconnected - client will auto-reconnect');
-            return;
-        }
-        console.log(`[Transport] Error: ${error.message}`);
-    };
+    const text = (result as { content?: Array<{ type: string; text?: string }> }).content?.[0]?.text ?? '';
+    check.match(text, /completed successfully/);
+    check.ok(lastEventId, 'resumption tokens should have been observed');
+    // The 75% line is emitted WHILE the client is disconnected; receiving it
+    // proves the event store replayed it on reconnect. (Replay ordering relative
+    // to the terminal result is not asserted — the result resolving is the
+    // signal the disconnect was survived.)
+    check.ok(
+        logs.some(l => l.includes('75%')),
+        `events emitted while disconnected should be replayed (got: ${logs.join(' | ')})`
+    );
 
-    // Set up transport close handler
-    transport.onclose = () => {
-        console.log('[Transport] Connection closed');
-    };
-
-    // Create and connect client
-    const client = new Client({
-        name: 'sse-polling-client',
-        version: '1.0.0'
-    });
-
-    // Set up notification handler to receive progress updates
-    client.setNotificationHandler('notifications/message', notification => {
-        const data = notification.params.data;
-        console.log(`[Notification] ${data}`);
-    });
-
-    try {
-        await client.connect(transport);
-        console.log('[Client] Connected successfully');
-        console.log('');
-
-        // Call the long-operation tool
-        console.log('[Client] Calling long-operation tool...');
-        console.log('[Client] Server will disconnect mid-operation to demonstrate polling');
-        console.log('');
-
-        const result = await client.request(
-            {
-                method: 'tools/call',
-                params: {
-                    name: 'long-operation',
-                    arguments: {}
-                }
-            },
-            {
-                // Track resumption tokens for debugging
-                onresumptiontoken: token => {
-                    lastEventId = token;
-                    console.log(`[Event ID] ${token}`);
-                }
-            }
-        );
-
-        console.log('');
-        console.log('[Client] Tool completed!');
-        console.log(`[Result] ${JSON.stringify(result.content, null, 2)}`);
-        console.log('');
-        console.log(`[Debug] Final event ID: ${lastEventId}`);
-    } catch (error) {
-        console.error('[Error]', error);
-    } finally {
-        await transport.close();
-        console.log('[Client] Disconnected');
-    }
-}
-
-try {
-    await main();
-} catch (error) {
-    console.error('Error running MCP client:', error);
-    // eslint-disable-next-line unicorn/no-process-exit
-    process.exit(1);
-}
+    await client.close();
+});

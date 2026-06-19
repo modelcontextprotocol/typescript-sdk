@@ -20,8 +20,8 @@
         "transports": [
             "http"
         ],
-        "era": "modern",
+        "era": "dual",
         "path": "/mcp",
-        "//": "OAuth is HTTP-only by definition; the client drives the modern era explicitly."
+        "//": "OAuth client_credentials is HTTP-layer and era-agnostic; the client honours --legacy via negotiationFromArgs."
     }
 }

@@ -4,8 +4,8 @@ A tool that requests LLM sampling from the client via `ctx.mcpReq.requestSamplin
 
 > Sampling is **deprecated** as of protocol revision 2026-07-28 (SEP-2577) but remains functional during the deprecation window.
 
-**stdio-only** in the harness: push server→client requests need either a stdio connection or a sessionful HTTP transport (see `../legacy-routing/`); the harness's `--http` arm is the per-request `createMcpHandler`, which serves the 2026-07-28 path where sampling is unavailable.
+Runs both transports on the **legacy** era — sampling is a 2025-era push-style server→client request and there is no 2026-07-28 equivalent. The harness's `--http` arm hosts 2025 traffic on a sessionful transport, so the request reaches the client over either.
 
 ```bash
-pnpm tsx examples/sampling/client.ts --legacy
+pnpm --filter @mcp-examples/sampling client -- --legacy
 ```

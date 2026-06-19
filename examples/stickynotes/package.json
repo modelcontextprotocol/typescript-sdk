@@ -14,7 +14,7 @@
         "tsx": "catalog:devTools"
     },
     "example": {
-        "era": "legacy",
-        "//": "The elicitation-confirmed remove_all path needs a 2025 initialize handshake to advertise the elicitation capability; the http leg additionally skips that path (no return path on per-request HTTP)."
+        "era": "dual",
+        "//": "Full transport × era matrix. The elicitation-confirmed remove_all path is 2025-era only (push-style server→client request); the modern legs exercise add/list/read/remove and skip remove_all."
     }
 }
