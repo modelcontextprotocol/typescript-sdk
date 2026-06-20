@@ -43,6 +43,21 @@ import type { ServerOptions } from './server.js';
 import { Server } from './server.js';
 
 /**
+ * Error class for tool handlers to throw when they want to send a
+ * user-visible error message to the client. Unlike regular errors,
+ * ToolError messages are passed through to the client as-is.
+ *
+ * Regular errors thrown from tool handlers are sanitized to "Internal
+ * error" to prevent leaking sensitive server internals.
+ */
+export class ToolError extends Error {
+    constructor(message: string) {
+        super(message);
+        this.name = 'ToolError';
+    }
+}
+
+/**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.
  * For advanced usage (like sending notifications or setting custom request handlers), use the underlying
  * {@linkcode Server} instance available via the {@linkcode McpServer.server | server} property.
@@ -165,16 +180,36 @@ export class McpServer {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool ${request.params.name} disabled`);
             }
 
+            // Input-validation errors describe the client's own request against a
+            // public schema, so they are safe to surface. Once we enter the handler,
+            // any failure — from the handler itself or from validating the handler's
+            // (server-side) output — may carry server internals and must be sanitized.
+            let pastInputValidation = false;
             try {
                 const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
+                pastInputValidation = true;
                 const result = await this.executeToolHandler(tool, args, ctx);
                 await this.validateToolOutput(tool, result, request.params.name);
                 return result;
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
-                    throw error; // Return the error to the caller without wrapping in CallToolResult
+                    throw error; // Control-flow signal for URL elicitation, not an error response
                 }
-                return this.createToolError(error instanceof Error ? error.message : String(error));
+                if (error instanceof ToolError) {
+                    // Developer intentionally wants this message shown to the client
+                    return this.createToolError(error.message);
+                }
+                if (error instanceof ProtocolError && !pastInputValidation) {
+                    // SDK-raised input-validation error: describes the client's request
+                    // against a public schema. ProtocolError is a public export, so we
+                    // never trust one thrown once we are past input validation (it could
+                    // come from the handler or from validating its output).
+                    return this.createToolError(error.message);
+                }
+                // Everything else (handler throws — including a handler-thrown
+                // ProtocolError — output-validation failures over the handler's result,
+                // and non-Error throws) is sanitized to avoid leaking server internals.
+                return this.createToolError('Internal error');
             }
         });
 

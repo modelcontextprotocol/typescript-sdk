@@ -1,7 +1,14 @@
 import { Client } from '@modelcontextprotocol/client';
 import type { Notification, TextContent } from '@modelcontextprotocol/core';
-import { getDisplayName, InMemoryTransport, ProtocolErrorCode, UriTemplate, UrlElicitationRequiredError } from '@modelcontextprotocol/core';
-import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import {
+    getDisplayName,
+    InMemoryTransport,
+    ProtocolError,
+    ProtocolErrorCode,
+    UriTemplate,
+    UrlElicitationRequiredError
+} from '@modelcontextprotocol/core';
+import { completable, McpServer, ResourceTemplate, ToolError } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -1403,17 +1410,15 @@ describe('Zod v4', () => {
                 }
             });
 
+            // Output validation runs over the handler's own (server-side) result, so
+            // a failure is an internal server problem and is sanitized for the client.
             expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
-                    {
-                        type: 'text',
-                        text: expect.stringContaining(
-                            'Output validation error: Tool test has an output schema but no structured content was provided'
-                        )
-                    }
-                ])
-            );
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Internal error'
+                }
+            ]);
         });
         /***
          * Test: Tool with Output Schema Must Provide Structured Content
@@ -1535,15 +1540,15 @@ describe('Zod v4', () => {
                 }
             });
 
+            // Output validation runs over the handler's own (server-side) result, so
+            // the failure detail is sanitized to avoid leaking it to the client.
             expect(result.isError).toBe(true);
-            expect(result.content).toEqual(
-                expect.arrayContaining([
-                    {
-                        type: 'text',
-                        text: expect.stringContaining('Output validation error: Invalid structured content for tool test')
-                    }
-                ])
-            );
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Internal error'
+                }
+            ]);
         });
 
         /***
@@ -1776,7 +1781,201 @@ describe('Zod v4', () => {
             expect(result.content).toEqual([
                 {
                     type: 'text',
-                    text: 'Tool execution failed'
+                    text: 'Internal error'
+                }
+            ]);
+        });
+
+        test('should pass through ToolError message to client', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('toolerror-test', {}, async () => {
+                throw new ToolError('Invalid input: country not supported');
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'toolerror-test'
+                }
+            });
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Invalid input: country not supported'
+                }
+            ]);
+        });
+
+        test('should sanitize generic Error to Internal error', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('internal-error-test', {}, async () => {
+                throw new Error('Connection failed at 10.0.0.5:5432');
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'internal-error-test'
+                }
+            });
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Internal error'
+                }
+            ]);
+        });
+
+        test('should sanitize non-Error throws to Internal error', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('string-throw-test', {}, async () => {
+                throw 'some raw string error';
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'string-throw-test'
+                }
+            });
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Internal error'
+                }
+            ]);
+        });
+
+        test('should sanitize a ProtocolError thrown from inside the handler', async () => {
+            // ProtocolError is a public export, so a handler (or a dependency in its
+            // call stack) can construct one. It must NOT be trusted as client-safe:
+            // only SDK-raised validation errors pass through, handler-thrown ones are
+            // sanitized.
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            mcpServer.registerTool('handler-protocolerror-test', {}, async () => {
+                throw new ProtocolError(
+                    ProtocolErrorCode.InternalError,
+                    'Connection refused to postgres://admin:hunter2@10.0.0.5:5432/prod'
+                );
+            });
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.request({
+                method: 'tools/call',
+                params: {
+                    name: 'handler-protocolerror-test'
+                }
+            });
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Internal error'
+                }
+            ]);
+        });
+
+        test('should sanitize output-schema validation failures without leaking server data', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            // A custom schema-validation message can embed server-side data, and the
+            // output being validated is the handler's own (server-side) value. Any
+            // output-validation failure must be sanitized, never echoed to the client.
+            mcpServer.registerTool(
+                'leaky-output',
+                {
+                    description: 'Tool whose output fails a custom-message validation',
+                    outputSchema: z.object({
+                        token: z.string().refine(() => false, 'token rejected: s3cr3t-server-api-key')
+                    })
+                },
+                async () => ({
+                    content: [{ type: 'text', text: 'ok' }],
+                    structuredContent: {
+                        token: 's3cr3t-server-api-key'
+                    }
+                })
+            );
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            const result = await client.callTool({
+                name: 'leaky-output'
+            });
+
+            expect(result.isError).toBe(true);
+            expect(result.content).toEqual([
+                {
+                    type: 'text',
+                    text: 'Internal error'
                 }
             ]);
         });

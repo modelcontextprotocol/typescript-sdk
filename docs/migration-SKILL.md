@@ -503,6 +503,36 @@ The 2025-11 task side-channel through `Protocol` is removed (was always `@experi
 
 NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task members of the request/result/notification unions, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
 
+## 12b. Tool Error Sanitization (Breaking Change)
+
+Tool handlers that `throw new Error('message')` now return `"Internal error"` to clients instead of the raw error message. This prevents accidental leakage of server internals (hostnames, connection strings, stack traces) through tool error responses.
+
+To send a user-visible error message, use the new `ToolError` class:
+
+```typescript
+import { ToolError } from '@modelcontextprotocol/server';
+
+// Generic errors are sanitized -- client sees: "Internal error"
+server.registerTool('db-query', {
+    description: 'Query the database',
+    inputSchema: z.object({ sql: z.string() })
+}, async ({ sql }) => {
+    throw new Error('Connection refused to 10.0.0.5:5432');
+});
+
+// ToolError messages pass through -- client sees: "Invalid query syntax"
+server.registerTool('safe-query', {
+    description: 'Query with validated input',
+    inputSchema: z.object({ sql: z.string() })
+}, async ({ sql }) => {
+    throw new ToolError('Invalid query syntax');
+});
+```
+
+Errors thrown from inside your handler — including a `ProtocolError` (a public export, so it could otherwise be constructed by handler code or a dependency) — are sanitized to `"Internal error"`, as are failures validating the tool's output against its `outputSchema`. Input-validation errors still pass through, since they report that the client sent invalid arguments. Use `ToolError` for any message you want the client to see, and avoid putting secrets in custom input-schema validation messages.
+
+**Migration action:** If your v1 tool handlers rely on `throw new Error('user-visible message')` to communicate errors to clients, switch those throws to `throw new ToolError('user-visible message')`. No changes needed for tools that only throw errors for genuinely unexpected failures.
+
 ## 13. Behavioral Changes
 
 ### Client

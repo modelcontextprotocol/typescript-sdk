@@ -906,6 +906,28 @@ The 2025-11 experimental tasks side-channel woven through `Protocol` has been re
 
 There is no migration path for the removed surface; it was always `@experimental`. Task support is planned to return as an opt-in extension plugin per SEP-2663.
 
+### Tool error sanitization
+
+Tool handlers that `throw new Error('message')` will now return `"Internal error"` to clients instead of the raw error message. This prevents accidental leakage of server internals (hostnames, connection strings, stack traces).
+
+To send a user-visible error message, use the new `ToolError` class:
+
+```typescript
+import { ToolError } from '@modelcontextprotocol/server';
+
+// Generic errors are sanitized -- client sees: "Internal error"
+server.registerTool('internal-tool', {}, async () => {
+    throw new Error('DB connection failed at 10.0.0.5:5432');
+});
+
+// ToolError messages pass through -- client sees: "Invalid country"
+server.registerTool('validated-tool', {}, async () => {
+    throw new ToolError('Invalid country');
+});
+```
+
+Errors thrown from inside your handler — including a `ProtocolError` (a public export, so it could otherwise be constructed by handler code or a dependency) — are sanitized to `"Internal error"`, as are failures validating the tool's output against its `outputSchema`. Input-validation errors still pass through, since they report that the client sent invalid arguments. Use `ToolError` for any message you want the client to see, and avoid putting secrets in custom input-schema validation messages.
+
 ## Enhancements
 
 ### Automatic JSON Schema validator selection by runtime
