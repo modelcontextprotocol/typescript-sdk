@@ -1269,7 +1269,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         resultSchema: T,
         options?: RequestOptions
     ): Promise<StandardSchemaV1.InferOutput<T>> {
-        const { relatedRequestId, resumptionToken, onresumptiontoken } = options ?? {};
+        const { relatedRequestId, resumptionToken, onresumptiontoken, headers } = options ?? {};
         // Flow start for non-complete result resolution: `maxTotalTimeout`
         // bounds the WHOLE flow, so the budget is measured from the original
         // request, not from when an extension takes over after the first leg.
@@ -1430,7 +1430,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-            this._transport.send(outbound, { relatedRequestId, resumptionToken, onresumptiontoken }).catch(error => {
+            this._transport.send(outbound, { relatedRequestId, resumptionToken, onresumptiontoken, headers }).catch(error => {
                 this._progressHandlers.delete(messageId);
                 reject(error);
             });

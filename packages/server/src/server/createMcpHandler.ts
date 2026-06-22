@@ -46,11 +46,13 @@ import {
     modernOnlyStrictRejection,
     requestMetaOf,
     requiredClientCapabilitiesForRequest,
+    scanXMcpHeaderDeclarations,
     SdkError,
     SdkErrorCode,
     setNegotiatedProtocolVersion,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS,
-    UnsupportedProtocolVersionError
+    UnsupportedProtocolVersionError,
+    validateMcpParamHeaders
 } from '@modelcontextprotocol/core';
 
 import { invoke } from './invoke.js';
@@ -691,6 +693,33 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             const capabilities = server.getCapabilities();
             void product.close().catch(reportError);
             return listenRouter.serve(route.message, request.signal, capabilities);
+        }
+
+        // SEP-2243 `Mcp-Param-*` server-side validation (pre-dispatch ladder
+        // rung): for a `tools/call`, look up the named tool's JSON inputSchema
+        // on the just-produced instance and compare every `x-mcp-header`
+        // declaration against the request's `Mcp-Param-{Name}` headers and the
+        // body `arguments`. A mismatch (or a missing header for a present body
+        // value, or an invalid Base64 sentinel) emits the same `400` /
+        // `-32001` (`HeaderMismatch`) shape the edge cross-checks use. Only
+        // applied when the factory returns an `McpServer` (the registry is the
+        // schema source); a low-level `Server` factory has no registry, so
+        // there is nothing to validate against.
+        if (route.messageKind === 'request' && route.message.method === 'tools/call' && product instanceof McpServer) {
+            const callParams = route.message.params as { name?: string; arguments?: Record<string, unknown> } | undefined;
+            const toolName = typeof callParams?.name === 'string' ? callParams.name : undefined;
+            const inputSchema = toolName === undefined ? undefined : product.toolInputSchemaJson(toolName);
+            if (inputSchema !== undefined) {
+                const scan = scanXMcpHeaderDeclarations(inputSchema);
+                if (scan.valid && scan.declarations.length > 0) {
+                    const rejection = validateMcpParamHeaders(scan.declarations, callParams?.arguments, request.headers);
+                    if (rejection !== undefined) {
+                        void product.close().catch(reportError);
+                        reportError(new Error(`Rejected inbound request (${rejection.cell}): ${rejection.message}`));
+                        return rejectionResponse(rejection, route.message.id);
+                    }
+                }
+            }
         }
 
         // Era-write at instance binding, then modern-only handler installation —

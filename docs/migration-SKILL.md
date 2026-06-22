@@ -116,13 +116,16 @@ Three error classes now exist:
 | Capability not supported          | `new Error(...)`                             | `SdkError` with `SdkErrorCode.CapabilityNotSupported`                 |
 | Not connected                     | `new Error('Not connected')`                 | `SdkError` with `SdkErrorCode.NotConnected`                           |
 | Invalid params (server response)  | `McpError` with `ErrorCode.InvalidParams`    | `ProtocolError` with `ProtocolErrorCode.InvalidParams`                |
-| HTTP transport error              | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttp*`                        |
+| HTTP transport error (legacy era) | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttp*`                        |
 | Failed to open SSE stream         | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpFailedToOpenStream`       |
 | 401 after re-auth (circuit break) | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpAuthentication`           |
 | 403 after upscoping               | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpForbidden`                |
 | Unexpected content type           | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`            |
 | Session termination failed        | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
 | Response result fails schema      | `ZodError` (raw)                             | `SdkError` with `SdkErrorCode.InvalidResult`                          |
+
+**Modern-era exception** to the `SdkHttpError` rows above: on a modern-enveloped (2026-07-28) Streamable HTTP request, an HTTP `400` whose body is a well-formed JSON-RPC error response addressed to the pending request id is delivered in-band as a `ProtocolError` (e.g. `-32001`
+HeaderMismatch from a SEP-2243 `Mcp-Param-*` rejection), not as `SdkHttpError`. Legacy-era exchanges and generic HTTP failures are unchanged.
 
 New `SdkErrorCode` enum values:
 
@@ -173,6 +176,13 @@ if (error instanceof SdkHttpError) {
         case SdkErrorCode.ClientHttpNotImplemented:
             break;
     }
+}
+// Modern-era (2026-07-28) only: a 400 carrying a JSON-RPC error body addressed
+// to the pending request id surfaces as ProtocolError, NOT SdkHttpError — e.g.
+// a SEP-2243 -32001 HeaderMismatch from createMcpHandler. Legacy-era 400s and
+// generic HTTP failures still map to SdkHttpError above.
+if (error instanceof ProtocolError) {
+    console.log('In-band JSON-RPC error:', error.code);
 }
 ```
 

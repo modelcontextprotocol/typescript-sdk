@@ -251,10 +251,8 @@ export class ClientResponseCache {
      * Returns `undefined` only when no `tools/list` response is held at all,
      * or the held list does not contain `name`.
      *
-     * No production caller in the substrate commit — the stacked SEP-2243 PR
-     * wires `callTool()`'s `Mcp-Param-*` mirroring through it.
-     * {@linkcode outputValidator} is the substrate's own derived view over the
-     * same entry.
+     * Consumed by `callTool()`'s SEP-2243 `_resolveXMcpHeaderScan` (mirroring)
+     * and, via {@linkcode outputValidator}, its output-schema validation.
      */
     async toolDefinition(name: string): Promise<Tool | undefined> {
         const entry = await this._store.get({ method: 'tools/list' });

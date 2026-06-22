@@ -49,9 +49,11 @@ import type {
     SubscriptionFilter,
     Tool,
     Transport,
-    UnsubscribeRequest
+    UnsubscribeRequest,
+    XMcpHeaderScanResult
 } from '@modelcontextprotocol/core';
 import {
+    buildMcpParamHeaders,
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     codecForVersion,
@@ -59,6 +61,7 @@ import {
     CreateMessageResultWithToolsSchema,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
+    HEADER_MISMATCH_ERROR_CODE,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isModernProtocolVersion,
@@ -72,6 +75,7 @@ import {
     ProtocolErrorCode,
     resolveInputRequiredDriverConfig,
     runInputRequiredFlow,
+    scanXMcpHeaderDeclarations,
     SdkError,
     SdkErrorCode,
     SUBSCRIPTION_ID_META_KEY,
@@ -286,6 +290,24 @@ export type ClientOptions = ProtocolOptions & {
      * Per-principal partitioning that enables safe sharing is #39.
      */
     responseCacheStore?: ResponseCacheStore;
+};
+
+/**
+ * Options for {@linkcode Client.callTool}. Extends {@linkcode RequestOptions}
+ * with an escape hatch for callers that already hold the tool definition
+ * (e.g. from a previous session or configuration) — pass it via
+ * `toolDefinition` so SEP-2243 `Mcp-Param-*` header mirroring can run without a
+ * prior `tools/list`.
+ */
+export type CallToolRequestOptions = RequestOptions & {
+    /**
+     * The tool definition to use for SEP-2243 `Mcp-Param-*` header mirroring on
+     * a 2026-07-28 connection over Streamable HTTP, AND for output-schema
+     * validation of the result. When set, the client uses this definition's
+     * `inputSchema` and `outputSchema` instead of (and without consulting) the
+     * cached `tools/list` result, so the two derived views agree.
+     */
+    toolDefinition?: Tool;
 };
 
 /**
@@ -1471,12 +1493,11 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * Compile a single tool's `outputSchema` (or `undefined` when absent /
-     * uncompilable). Passed as the compile callback to
-     * {@linkcode ClientResponseCache.outputValidator} so the cache class stays
-     * free of any validator-provider dependency. One tool's uncompilable
-     * `outputSchema` (e.g. an invalid `pattern` regex or unresolvable `$ref`)
-     * must not poison every other tool's `callTool` — warn naming the
-     * offender and return `undefined` so the validator index simply omits it.
+     * uncompilable) — the caller-supplied-definition path of
+     * {@linkcode callTool} so an explicit `options.toolDefinition` is the
+     * source for BOTH mirroring AND output validation. Also passed as the
+     * compile callback to {@linkcode ClientResponseCache.outputValidator} so
+     * the cache class stays free of any validator-provider dependency.
      */
     private _compileOutputValidator(tool: Tool): JsonSchemaValidator<unknown> | undefined {
         if (!tool.outputSchema) return undefined;
@@ -1488,6 +1509,24 @@ export class Client extends Protocol<ClientContext> {
             );
             return undefined;
         }
+    }
+
+    /**
+     * Resolve the SEP-2243 `x-mcp-header` declaration scan for a tool name.
+     *
+     * The caller-supplied `toolDefinition` escape hatch wins; otherwise the
+     * cached `tools/list` entry (via the cache's `toolDefinition`) is the
+     * source. Freshness is the response cache's lifecycle: `list_changed`
+     * evicts, otherwise the held schema is the best information available
+     * regardless of age, and a stale schema is recovered through the
+     * `HEADER_MISMATCH` → evict-refetch-retry path in {@linkcode callTool}.
+     * On a miss the call proceeds without `Mcp-Param-*` headers (the spec's
+     * "client SHOULD send without custom headers" guidance) and relies on the
+     * same recovery.
+     */
+    private async _resolveXMcpHeaderScan(name: string, override: Tool | undefined): Promise<XMcpHeaderScanResult | undefined> {
+        const tool = override ?? (await this._cache.toolDefinition(name));
+        return tool === undefined ? undefined : scanXMcpHeaderDeclarations(tool.inputSchema);
     }
 
     /** Reads the contents of a resource by URI. */
@@ -1861,29 +1900,106 @@ export class Client extends Protocol<ClientContext> {
      * }
      * ```
      */
-    async callTool(params: CallToolRequest['params'], options?: RequestOptions): Promise<CallToolResult> {
+    async callTool(params: CallToolRequest['params'], options?: CallToolRequestOptions): Promise<CallToolResult> {
+        // SEP-2243 `Mcp-Param-*` mirroring (protocol revision 2026-07-28; the
+        // 5-step client algorithm, steps 3–5). Modern-era only — the legacy
+        // `callTool` path is byte-untouched. Transports that share a single
+        // channel (stdio, in-memory) ignore the per-request `headers` option,
+        // so the spec's stdio MAY-ignore exemption holds without an explicit
+        // branch. In a browser environment, dynamically named `Mcp-Param-*`
+        // headers cannot be statically allow-listed for credentialed CORS
+        // (`Access-Control-Allow-Headers` admits no wildcard with
+        // credentials), so mirroring is skipped. NOTE: a conforming SEP-2243
+        // server (including this SDK's own `createMcpHandler`) rejects a
+        // `tools/call` whose body carries a non-null value for an
+        // `x-mcp-header`-declared parameter when the matching `Mcp-Param-*`
+        // header is absent — so a browser client of this SDK cannot
+        // successfully call such a tool with that argument present unless the
+        // server relaxes the missing-header check. This is a known limitation
+        // of running SEP-2243 from a browser; pass `null` for the designated
+        // argument or supply `options.toolDefinition` against a relaxed server.
+        const mirroringActive = this.getProtocolEra() === 'modern' && detectProbeEnvironment() !== 'browser';
+        // Mirroring (and output-schema validation below) read the cached
+        // `tools/list` entry directly via `_cache.toolDefinition` /
+        // `_cache.outputValidator`. `callTool` never issues a `tools/list`
+        // itself — the cache is populated by the caller's own
+        // {@linkcode listTools | listTools()} (which now auto-aggregates) and
+        // by the `HEADER_MISMATCH` recovery path below. A cold cache means
+        // the call proceeds without `Mcp-Param-*` headers (the spec's
+        // "client SHOULD send without custom headers" guidance) and without
+        // output-schema validation (the v1.x opportunistic behaviour, kept so
+        // a legacy/stdio `callTool` still issues zero extra requests).
+        const buildSendOptions = async (): Promise<CallToolRequestOptions | undefined> => {
+            if (!mirroringActive) return options;
+            // A custom store's `get()` may reject (the documented store
+            // contract); route that to `onerror` and degrade to sending
+            // without `Mcp-Param-*` headers — same posture as a cold cache —
+            // rather than aborting the call before it reaches the wire.
+            let scan: XMcpHeaderScanResult | undefined;
+            try {
+                scan = await this._resolveXMcpHeaderScan(params.name, options?.toolDefinition);
+            } catch (error) {
+                this._reportStoreError(error);
+            }
+            if (!scan?.valid || scan.declarations.length === 0) return options;
+            const paramHeaders = buildMcpParamHeaders(scan.declarations, params.arguments);
+            return Object.keys(paramHeaders).length === 0 ? options : { ...options, headers: { ...options?.headers, ...paramHeaders } };
+        };
+
         // The method-keyed request() path validates the era registry's plain
         // CallToolResult schema — with the result map aligned to the typed
         // map there is no wider union to narrow away (Q1-SD2 holds by
         // construction).
-        const result = await this.request({ method: 'tools/call', params }, options);
+        let result: CallToolResult;
+        try {
+            result = await this.request({ method: 'tools/call', params }, await buildSendOptions());
+        } catch (error) {
+            // SEP-2243 one-refresh-on-miss: a `HEADER_MISMATCH` rejection on a
+            // modern connection means the server enforced an `Mcp-Param-*`
+            // header we did not (or could not) send — the cached `tools/list`
+            // entry is stale (or cold). Evict it, repopulate via
+            // {@linkcode listTools | listTools()} (which auto-aggregates and
+            // writes the cache), and retry once with the now-known schema.
+            // Never on the legacy era; never when the caller supplied
+            // `toolDefinition` (their schema is authoritative).
+            const isHeaderMismatch = error instanceof ProtocolError && error.code === HEADER_MISMATCH_ERROR_CODE;
+            if (!mirroringActive || !isHeaderMismatch || options?.toolDefinition !== undefined) {
+                throw error;
+            }
+            const refreshOptions = { signal: options?.signal, timeout: options?.timeout };
+            // A custom store's `evict()` may throw or reject (the documented
+            // store contract); route that to `onerror` and proceed — the
+            // generation bump already happened, so the refetch overwrites the
+            // stale entry regardless.
+            await this._cache.evict('tools/list').catch(error_ => this._reportStoreError(error_));
+            // The recovery refetch may itself fail (e.g. `listMaxPages`, a
+            // transient error that hits only the `tools/list` walk). Surface
+            // it via `onerror` so the real cause is observable, then proceed
+            // to the retry. NOTE: when the refetch fails the cache stays
+            // empty and the retry goes out without `Mcp-Param-*` headers, so
+            // a conforming server will likely answer a second
+            // `HEADER_MISMATCH` — the refetch failure is observable only
+            // through `onerror`.
+            await this.listTools(undefined, refreshOptions).catch(error_ => this._reportStoreError(error_));
+            result = await this.request({ method: 'tools/call', params }, await buildSendOptions());
+        }
 
-        // Check if the tool has an outputSchema. Reads the cached
-        // `tools/list` entry (via the response cache's stamp-memoized
-        // `outputValidator` index) — `callTool` never issues a `tools/list`
-        // itself; the cache is populated by the caller's own
-        // {@linkcode listTools | listTools()}. A cold cache means validation
-        // is skipped (the v1.x opportunistic behaviour, kept so a legacy/stdio
-        // `callTool` still issues zero extra requests). The cache read is
-        // guarded the same way as `evict()`/`set()`: a custom store whose
-        // `get()` rejects AFTER the server has already executed the call must
-        // not surface as a `callTool()` rejection (a caller that retries on
+        // Check if the tool has an outputSchema. When the caller supplied
+        // `toolDefinition`, that definition is the source for BOTH the
+        // `Mcp-Param-*` mirroring above AND the output validation here — the
+        // two derived views must agree. The cache read is guarded the same
+        // way as `evict()`/`set()` above: a custom store whose `get()`
+        // rejects AFTER the server has already executed the call must not
+        // surface as a `callTool()` rejection (a caller that retries on
         // failure would re-execute a possibly side-effecting tool). Route to
         // `onerror` and degrade to skipping validation — the same outcome as
         // a cold cache.
-        const validator = await this._cache
-            .outputValidator(params.name, tool => this._compileOutputValidator(tool))
-            .catch(error => void this._reportStoreError(error));
+        const validator =
+            options?.toolDefinition === undefined
+                ? await this._cache
+                      .outputValidator(params.name, tool => this._compileOutputValidator(tool))
+                      .catch(error => void this._reportStoreError(error))
+                : this._compileOutputValidator(options.toolDefinition);
         if (validator) {
             // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
             if (!result.structuredContent && !result.isError) {
@@ -1954,12 +2070,53 @@ export class Client extends Protocol<ClientContext> {
             return { tools: [] };
         }
         if (params?.cursor !== undefined) {
-            // Explicit-cursor per-page contract: return one page; do NOT touch
-            // the response cache (a single page is not the complete aggregate
-            // the derived `outputValidator` index keys against).
-            return await this.request({ method: 'tools/list', params }, options);
+            // Per-page: single request, never written to the response cache.
+            // SEP-2243: the spec's MUST has no carve-out for paginated reads,
+            // so the per-page result is filtered (on a non-stdio modern
+            // connection) before returning — the suppressed tool is never
+            // observable.
+            const page = await this.request({ method: 'tools/list', params }, options);
+            this._excludeInvalidXMcpHeaderTools(page);
+            return page;
         }
-        return this._listAllPages<ListToolsResult>('tools/list', params, options, (acc, page) => acc.tools.push(...page.tools));
+        // Auto-aggregate: SEP-2243 invalid-`x-mcp-header` exclusion runs on
+        // the complete aggregate via the `finalize` hook before the cache
+        // write, so the cached entry never holds an unmirrorable tool.
+        return this._listAllPages<ListToolsResult>(
+            'tools/list',
+            params,
+            options,
+            (acc, page) => acc.tools.push(...page.tools),
+            acc => this._excludeInvalidXMcpHeaderTools(acc)
+        );
+    }
+
+    /**
+     * SEP-2243 (protocol revision 2026-07-28): a Streamable HTTP client MUST
+     * exclude tool definitions whose `x-mcp-header` declarations violate the
+     * constraints, and SHOULD log a warning naming the tool and the reason.
+     * Applied to the CACHED aggregated `tools/list` result (so the entry
+     * mirroring reads never holds an unmirrorable tool) AND to every public
+     * per-page {@linkcode listTools | listTools()} return (the spec's MUST
+     * has no carve-out for paginated reads). The gate is era-only on
+     * non-stdio transports — `detectProbeTransportKind` cannot distinguish a
+     * real HTTP transport from in-memory/custom transports (it only
+     * positively recognizes stdio), and over-excluding on a non-HTTP modern
+     * connection is harmless: those transports never carry per-request
+     * headers, so an excluded tool would have been uncallable on a Streamable
+     * HTTP arm of the same server. Mutates `result.tools` in place.
+     */
+    private _excludeInvalidXMcpHeaderTools(result: ListToolsResult): void {
+        if (this.getProtocolEra() !== 'modern' || !this.transport || detectProbeTransportKind(this.transport) === 'stdio') return;
+        const filtered = result.tools.filter(tool => {
+            const scan = scanXMcpHeaderDeclarations(tool.inputSchema);
+            if (!scan.valid) {
+                console.warn(`[mcp-sdk] excluding tool '${tool.name}' from tools/list: invalid x-mcp-header declaration — ${scan.reason}`);
+                return false;
+            }
+            return true;
+        });
+        if (filtered.length !== result.tools.length) result.tools = filtered;
     }
 
     /**

@@ -37,6 +37,7 @@ import {
     promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
+    scanXMcpHeaderDeclarations,
     standardSchemaToJsonSchema,
     UriTemplate,
     validateAndWarnToolName,
@@ -73,6 +74,44 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    /**
+     * Per-tool JSON-converted `inputSchema`, memoized so the SEP-2243
+     * registration-time scan and the pre-dispatch validation step share one
+     * conversion instead of paying it twice per request under the
+     * per-request-factory `createMcpHandler` model.
+     */
+    private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = {};
+
+    /**
+     * The JSON-serialized `inputSchema` of a registered tool, or `undefined`
+     * when no such tool is registered. Used by the HTTP entry's pre-dispatch
+     * SEP-2243 `Mcp-Param-*` validation step (which needs the same JSON Schema
+     * `tools/list` would emit, before dispatch reaches the handler).
+     *
+     * @internal
+     */
+    toolInputSchemaJson(name: string): Record<string, unknown> | undefined {
+        const tool = this._registeredTools[name];
+        if (tool === undefined || !tool.enabled) return undefined;
+        if (Object.hasOwn(this._toolInputSchemaJson, name)) return this._toolInputSchemaJson[name];
+        if (tool.inputSchema === undefined) return EMPTY_OBJECT_JSON_SCHEMA;
+        // Lazy path: the memo slot is unset because `registerTool`'s eager
+        // conversion threw (and was swallowed per its "warn, never throw"
+        // contract) or `update({paramsSchema})`/rename invalidated it. The
+        // pre-dispatch SEP-2243 caller must not turn that into a 500 for a
+        // `tools/call` whose body-authoritative dispatch would otherwise
+        // succeed — return `undefined` so validation is skipped and the
+        // conversion failure stays where it always surfaced (`tools/list`).
+        // A successful re-derive is memoized so the per-request-factory
+        // `createMcpHandler` model does not re-convert on every call.
+        try {
+            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input');
+            this._toolInputSchemaJson[name] = json;
+            return json;
+        } catch {
+            return undefined;
+        }
+    }
 
     constructor(serverInfo: Implementation, options?: ServerOptions) {
         this.server = new Server(serverInfo, options);
@@ -752,6 +791,33 @@ export class McpServer {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
 
+        // SEP-2243 registration-time declaration-validity check (additive: warn,
+        // never throw — clients enforce by exclusion, servers by header
+        // validation; a malformed declaration here should not block local
+        // development against a stdio client that ignores it). The conversion
+        // is memoized so the pre-dispatch validation step in `createMcpHandler`
+        // (and `toolInputSchemaJson()`) does not repeat it for the same tool.
+        // `standardSchemaToJsonSchema` can throw for schemas it cannot convert
+        // (e.g. a vendor without `~standard.jsonSchema`); the try/catch keeps
+        // the "warn, never throw" contract.
+        if (inputSchema !== undefined) {
+            try {
+                const json = standardSchemaToJsonSchema(inputSchema, 'input');
+                this._toolInputSchemaJson[name] = json;
+                const scan = scanXMcpHeaderDeclarations(json);
+                if (!scan.valid) {
+                    console.warn(
+                        `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
+                            `conforming Streamable HTTP clients: ${scan.reason}`
+                    );
+                }
+            } catch {
+                // Conversion failure: leave the cache slot unset so the lazy
+                // path in `toolInputSchemaJson()` (and `tools/list`) surfaces
+                // the failure where it always has.
+            }
+        }
+
         // Track current handler for executor regeneration
         let currentHandler = handler;
 
@@ -771,12 +837,27 @@ export class McpServer {
             enable: () => registeredTool.update({ enabled: true }),
             remove: () => registeredTool.update({ name: null }),
             update: updates => {
+                // The closure's `name` tracks the CURRENT registry key, not
+                // the original registration name — renaming reassigns it so
+                // subsequent paramsSchema/rename invalidations evict the live
+                // `_toolInputSchemaJson` slot rather than the original.
                 if (updates.name !== undefined && updates.name !== name) {
                     if (typeof updates.name === 'string') {
                         validateAndWarnToolName(updates.name);
                     }
                     delete this._registeredTools[name];
-                    if (updates.name) this._registeredTools[updates.name] = registeredTool;
+                    delete this._toolInputSchemaJson[name];
+                    if (updates.name) {
+                        // The TARGET key may already be occupied by another
+                        // tool (rename has no duplicate-name guard) — drop
+                        // its memo too, otherwise `toolInputSchemaJson()`
+                        // returns the displaced tool's converted schema and
+                        // the SEP-2243 pre-dispatch validation runs against
+                        // the wrong schema for this name.
+                        delete this._toolInputSchemaJson[updates.name];
+                        this._registeredTools[updates.name] = registeredTool;
+                        name = updates.name;
+                    }
                 }
                 if (updates.title !== undefined) registeredTool.title = updates.title;
                 if (updates.description !== undefined) registeredTool.description = updates.description;
@@ -785,6 +866,7 @@ export class McpServer {
                 let needsExecutorRegen = false;
                 if (updates.paramsSchema !== undefined) {
                     registeredTool.inputSchema = updates.paramsSchema;
+                    delete this._toolInputSchemaJson[name];
                     needsExecutorRegen = true;
                 }
                 if (updates.callback !== undefined) {

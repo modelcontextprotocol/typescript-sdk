@@ -3,10 +3,12 @@ import type { ReadableWritablePair } from 'node:stream/web';
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
 import {
     createFetchWithInit,
+    encodeMcpParamValue,
     isInitializedNotification,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
+    isModernProtocolVersion,
     JSONRPCMessageSchema,
     normalizeHeaders,
     PROTOCOL_VERSION_META_KEY,
@@ -183,6 +185,23 @@ export type StreamableHTTPClientTransportOptions = {
 };
 
 /**
+ * Standard/auth header names the transport owns. The per-request
+ * `TransportSendOptions.headers` carrier MUST NOT be able to override these —
+ * they are derived from connection state (`authorization`, `mcp-session-id`)
+ * or from the message body itself (`mcp-protocol-version`, `mcp-method`,
+ * `mcp-name`), and a per-request override would let a caller produce a
+ * header/body disagreement the server's SEP-2243 cross-checks reject.
+ */
+const RESERVED_REQUEST_HEADER_NAMES: ReadonlySet<string> = new Set([
+    'authorization',
+    'content-type',
+    'mcp-protocol-version',
+    'mcp-method',
+    'mcp-name',
+    'mcp-session-id'
+]);
+
+/**
  * `AbortSignal.any` with a manual fallback. `AbortSignal.any` landed in
  * Node 20.3; this package's `engines` floor is `>=20`, so 20.0–20.2 must be
  * served by the fallback combinator (a controller that aborts on the first
@@ -306,6 +325,42 @@ export class StreamableHTTPClientTransport implements Transport {
         }
         headers.set('mcp-protocol-version', envelopeVersion);
         headers.set('mcp-method', message.method);
+        // SEP-2243 standard headers, step 2 of the 5-step client algorithm:
+        // Mcp-Name mirrors `params.name` (tools/call, prompts/get) or
+        // `params.uri` (resources/read). The value is run through the same
+        // `=?base64?…?=` sentinel encoding the `Mcp-Param-*` codec uses so a
+        // non-ASCII name/URI (or one with leading/trailing whitespace,
+        // control characters, or CR/LF) cannot make `Headers.set()` throw a
+        // TypeError or silently normalize to a value that differs from the
+        // body. The spec's value-encoding rules apply to `Mcp-Name`; this
+        // SDK's server does not yet cross-check `Mcp-Name` against the body
+        // (tracked in expected-failures.yaml) — when it does it will decode
+        // the sentinel before comparison.
+        const params = message.params as { name?: unknown; uri?: unknown } | undefined;
+        const nameHeader =
+            message.method === 'resources/read'
+                ? typeof params?.uri === 'string'
+                    ? params.uri
+                    : undefined
+                : typeof params?.name === 'string'
+                  ? params.name
+                  : undefined;
+        if (nameHeader !== undefined) {
+            headers.set('mcp-name', encodeMcpParamValue(nameHeader));
+        }
+    }
+
+    /**
+     * `true` when the outbound message is a single request carrying a
+     * modern-era protocol-version envelope claim — the same predicate that
+     * gates body-derived `mcp-method`/`mcp-name` emission. Used to confine the
+     * 400-body-as-ProtocolError delivery to modern-era exchanges only.
+     */
+    private _isModernEnvelopedRequest(message: JSONRPCMessage | JSONRPCMessage[]): boolean {
+        if (Array.isArray(message) || !isJSONRPCRequest(message)) return false;
+        const meta = (message.params as { _meta?: Record<string, unknown> } | undefined)?._meta;
+        const v = meta?.[PROTOCOL_VERSION_META_KEY];
+        return typeof v === 'string' && isModernProtocolVersion(v);
     }
 
     private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
@@ -659,6 +714,7 @@ export class StreamableHTTPClientTransport implements Transport {
             onresumptiontoken?: (token: string) => void;
             requestSignal?: AbortSignal;
             onRequestStreamEnd?: () => void;
+            headers?: Readonly<Record<string, string>>;
         }
     ): Promise<void> {
         return this._send(message, options, false);
@@ -672,6 +728,7 @@ export class StreamableHTTPClientTransport implements Transport {
                   onresumptiontoken?: (token: string) => void;
                   requestSignal?: AbortSignal;
                   onRequestStreamEnd?: () => void;
+                  headers?: Readonly<Record<string, string>>;
               }
             | undefined,
         isAuthRetry: boolean
@@ -689,6 +746,19 @@ export class StreamableHTTPClientTransport implements Transport {
 
             const headers = await this._commonHeaders();
             this._applyBodyDerivedHeaders(headers, message);
+            // Per-request additional headers (the Client passes SEP-2243
+            // `Mcp-Param-*` here on a 2026-07-28 connection). Reserved
+            // standard/auth header names are skipped so a caller cannot
+            // accidentally override the body-derived or connection-level
+            // headers — `Headers.set` overwrites, so the only way to keep the
+            // transport-owned values authoritative is to refuse to write over
+            // them here.
+            if (options?.headers !== undefined) {
+                for (const [name, value] of Object.entries(options.headers)) {
+                    if (RESERVED_REQUEST_HEADER_NAMES.has(name.toLowerCase())) continue;
+                    headers.set(name, value);
+                }
+            }
             headers.set('content-type', 'application/json');
             const userAccept = headers.get('accept');
             const types = [...(userAccept?.split(',').map(s => s.trim().toLowerCase()) ?? []), 'application/json', 'text/event-stream'];
@@ -787,6 +857,36 @@ export class StreamableHTTPClientTransport implements Transport {
                         }
 
                         return this._send(message, options, isAuthRetry);
+                    }
+                }
+
+                // SEP-2243 (and the rest of the inbound validation ladder)
+                // emit ladder rejections as HTTP 400 carrying a JSON-RPC error
+                // response body. Surface those in-band so `Protocol._onresponse`
+                // converts them to a typed `ProtocolError` matched to the
+                // pending request id — instead of an opaque transport error.
+                // Any 400 whose body is not a well-formed JSON-RPC error
+                // response (or whose id does not match an outstanding request)
+                // still falls through to the generic `SdkHttpError`.
+                //
+                // Modern-era only: gated on the outbound message carrying a
+                // 2026-07-28 envelope claim (the same gate the body-derived
+                // `mcp-method`/`mcp-name` headers use), so a legacy-era
+                // exchange keeps surfacing 400 as `SdkHttpError` exactly as
+                // before — the changeset's "legacy-era paths are unchanged"
+                // claim stays true and existing
+                // `e instanceof SdkHttpError && e.status === 400` callers do
+                // not silently stop matching.
+                if (response.status === 400 && typeof text === 'string' && this._isModernEnvelopedRequest(message)) {
+                    try {
+                        const parsed = JSONRPCMessageSchema.parse(JSON.parse(text));
+                        const requests = (Array.isArray(message) ? message : [message]).filter(m => isJSONRPCRequest(m));
+                        if (isJSONRPCErrorResponse(parsed) && requests.some(r => r.id === parsed.id)) {
+                            this.onmessage?.(parsed);
+                            return;
+                        }
+                    } catch {
+                        // not a JSON-RPC error body — fall through to the generic SdkHttpError below.
                     }
                 }
 
