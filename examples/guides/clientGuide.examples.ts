@@ -8,7 +8,7 @@
  */
 
 //#region imports
-import type { AuthProvider, Prompt, Resource, Tool } from '@modelcontextprotocol/client';
+import type { AuthProvider } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     Client,
@@ -196,16 +196,10 @@ async function auth_crossAppAccess(getIdToken: () => Promise<string>) {
 /** Example: List and call tools. */
 async function callTool_basic(client: Client) {
     //#region callTool_basic
-    const allTools: Tool[] = [];
-    let toolCursor: string | undefined;
-    do {
-        const { tools, nextCursor } = await client.listTools({ cursor: toolCursor });
-        allTools.push(...tools);
-        toolCursor = nextCursor;
-    } while (toolCursor);
+    const { tools } = await client.listTools();
     console.log(
         'Available tools:',
-        allTools.map(t => t.name)
+        tools.map(t => t.name)
     );
 
     const result = await client.callTool({
@@ -251,16 +245,10 @@ async function callTool_progress(client: Client) {
 /** Example: List and read resources. */
 async function readResource_basic(client: Client) {
     //#region readResource_basic
-    const allResources: Resource[] = [];
-    let resourceCursor: string | undefined;
-    do {
-        const { resources, nextCursor } = await client.listResources({ cursor: resourceCursor });
-        allResources.push(...resources);
-        resourceCursor = nextCursor;
-    } while (resourceCursor);
+    const { resources } = await client.listResources();
     console.log(
         'Available resources:',
-        allResources.map(r => r.name)
+        resources.map(r => r.name)
     );
 
     const { contents } = await client.readResource({ uri: 'config://app' });
@@ -290,16 +278,10 @@ async function subscribeResource_basic(client: Client) {
 /** Example: List and get prompts. */
 async function getPrompt_basic(client: Client) {
     //#region getPrompt_basic
-    const allPrompts: Prompt[] = [];
-    let promptCursor: string | undefined;
-    do {
-        const { prompts, nextCursor } = await client.listPrompts({ cursor: promptCursor });
-        allPrompts.push(...prompts);
-        promptCursor = nextCursor;
-    } while (promptCursor);
+    const { prompts } = await client.listPrompts();
     console.log(
         'Available prompts:',
-        allPrompts.map(p => p.name)
+        prompts.map(p => p.name)
     );
 
     const { messages } = await client.getPrompt({

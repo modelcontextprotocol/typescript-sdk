@@ -59,6 +59,8 @@ export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, Request
 export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess.js';
 export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware.js';
 export { applyMiddlewares, createMiddleware, withLogging, withOAuth } from './client/middleware.js';
+export type { CacheEntry, CacheKey, CacheScope, MaybePromise, ResponseCacheStore } from './client/responseCache.js';
+export { InMemoryResponseCacheStore } from './client/responseCache.js';
 export type { SSEClientTransportOptions } from './client/sse.js';
 export { SSEClientTransport, SseError } from './client/sse.js';
 export type { VersionNegotiationMode, VersionNegotiationOptions, VersionNegotiationProbeOptions } from './client/versionNegotiation.js';

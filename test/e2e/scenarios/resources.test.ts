@@ -78,21 +78,11 @@ verifies(
         const client = newClient();
         await using _ = await wire(transport, makeServer, client);
 
-        const first = await client.listResources();
-        expect(first.resources.length).toBeLessThan(TOTAL);
-        expect(first.nextCursor).toBeDefined();
-
-        const seen = new Set(first.resources.map(r => r.uri));
-        let result = first;
-        let pages = 1;
-        while (result.nextCursor !== undefined) {
-            result = await client.listResources({ cursor: result.nextCursor });
-            for (const r of result.resources) seen.add(r.uri);
-            pages++;
-            expect(pages).toBeLessThan(50);
-        }
-        expect(seen.size).toBe(TOTAL);
-        expect(pages).toBeGreaterThan(1);
+        // No-arg listResources() auto-aggregates every page.
+        const all = await client.listResources();
+        expect(all.resources.length).toBe(TOTAL);
+        expect(all.nextCursor).toBeUndefined();
+        expect(new Set(all.resources.map(r => r.uri)).size).toBe(TOTAL);
     },
     { title: 'mcpserver' }
 );
@@ -122,30 +112,20 @@ verifies(
         const client = newClient();
         await using _ = await wire(transport, makeServer, client);
 
-        const seen = new Set<string>();
-        const cursorsSent: string[] = [];
-        let pages = 0;
-        let result = await client.listResources();
-        expect(result.nextCursor).toBeDefined();
-        for (;;) {
-            for (const r of result.resources) {
-                expect(seen.has(r.uri)).toBe(false);
-                seen.add(r.uri);
-            }
-            pages++;
-            if (result.nextCursor === undefined) break;
-            cursorsSent.push(result.nextCursor);
-            result = await client.listResources({ cursor: result.nextCursor });
-            expect(pages).toBeLessThan(50);
-        }
-
+        // No-arg listResources() auto-aggregates every page; the server
+        // receives the cursor walk verbatim (protocol-level pagination is
+        // what is verified here).
+        const result = await client.listResources();
         expect(result.nextCursor).toBeUndefined();
-        expect(pages).toBe(3);
+        const seen = new Set(result.resources.map(r => r.uri));
         expect(seen.size).toBe(TOTAL);
         for (const name of all) expect(seen.has(name)).toBe(true);
-
         expect(cursorsReceived).toEqual([undefined, '10', '20']);
-        expect(cursorsSent).toEqual(['10', '20']);
+
+        // Explicit cursor → one raw page (per-page path).
+        const page = await client.listResources({ cursor: '10' });
+        expect(page.resources.length).toBe(PAGE);
+        expect(page.nextCursor).toBe('20');
     },
     { title: 'raw server' }
 );
@@ -498,21 +478,11 @@ verifies(
         const client = newClient();
         await using _ = await wire(transport, makeServer, client);
 
-        const first = await client.listResourceTemplates();
-        expect(first.resourceTemplates.length).toBeLessThan(TOTAL);
-        expect(first.nextCursor).toBeDefined();
-
-        const seen = new Set(first.resourceTemplates.map(t => t.uriTemplate));
-        let result = first;
-        let pages = 1;
-        while (result.nextCursor !== undefined) {
-            result = await client.listResourceTemplates({ cursor: result.nextCursor });
-            for (const t of result.resourceTemplates) seen.add(t.uriTemplate);
-            pages++;
-            expect(pages).toBeLessThan(50);
-        }
-        expect(seen.size).toBe(TOTAL);
-        expect(pages).toBeGreaterThan(1);
+        // No-arg listResourceTemplates() auto-aggregates every page.
+        const all = await client.listResourceTemplates();
+        expect(all.resourceTemplates.length).toBe(TOTAL);
+        expect(all.nextCursor).toBeUndefined();
+        expect(new Set(all.resourceTemplates.map(t => t.uriTemplate)).size).toBe(TOTAL);
     },
     { title: 'mcpserver' }
 );
@@ -539,25 +509,17 @@ verifies(
         const client = newClient();
         await using _ = await wire(transport, makeServer, client);
 
-        const seen = new Set<string>();
-        let pages = 0;
-        let result = await client.listResourceTemplates();
-        expect(result.nextCursor).toBeDefined();
-        for (;;) {
-            for (const t of result.resourceTemplates) {
-                expect(seen.has(t.uriTemplate)).toBe(false);
-                seen.add(t.uriTemplate);
-            }
-            pages++;
-            if (result.nextCursor === undefined) break;
-            result = await client.listResourceTemplates({ cursor: result.nextCursor });
-            expect(pages).toBeLessThan(50);
-        }
-
+        // No-arg listResourceTemplates() auto-aggregates every page.
+        const result = await client.listResourceTemplates();
         expect(result.nextCursor).toBeUndefined();
-        expect(pages).toBe(3);
+        const seen = new Set(result.resourceTemplates.map(t => t.uriTemplate));
         expect(seen.size).toBe(TOTAL);
         for (const name of all) expect(seen.has(name)).toBe(true);
+
+        // Explicit cursor → one raw page (per-page path).
+        const page = await client.listResourceTemplates({ cursor: '10' });
+        expect(page.resourceTemplates.length).toBe(PAGE);
+        expect(page.nextCursor).toBe('20');
     },
     { title: 'raw server' }
 );

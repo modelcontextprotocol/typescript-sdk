@@ -441,13 +441,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'tools:list:pagination': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#listing-tools',
         behavior:
-            'tools/list supports cursor pagination: the nextCursor returned by a list handler round-trips back to the handler as an opaque cursor until the listing is exhausted.',
-        knownFailures: [
-            {
-                test: 'mcpserver',
-                note: 'McpServer does not implement automatic pagination — handlers receive the cursor but the high-level API returns the full list with no nextCursor unless the user implements cursor handling in their own handler.'
-            }
-        ]
+            'tools/list supports cursor pagination: the nextCursor returned by a list handler round-trips back to the handler as an opaque cursor until the listing is exhausted.'
     },
     'tools:call:concurrent': {
         source: 'sdk',
@@ -571,13 +565,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'resources:list:pagination': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#listing-resources',
-        behavior: 'resources/list supports cursor pagination.',
-        knownFailures: [
-            {
-                test: 'mcpserver',
-                note: 'McpServer does not implement automatic pagination — handlers receive the cursor but the high-level API returns the full list with no nextCursor unless the user implements cursor handling in their own handler.'
-            }
-        ]
+        behavior: 'resources/list supports cursor pagination.'
     },
     'resources:read:blob': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#reading-resources',
@@ -612,13 +600,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'resources:templates:pagination': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/utilities/pagination#operations-supporting-pagination',
-        behavior: 'resources/templates/list supports cursor pagination.',
-        knownFailures: [
-            {
-                test: 'mcpserver',
-                note: 'McpServer does not implement automatic pagination — handlers receive the cursor but the high-level API returns the full list with no nextCursor unless the user implements cursor handling in their own handler.'
-            }
-        ]
+        behavior: 'resources/templates/list supports cursor pagination.'
     },
     'resources:unsubscribe:stops-updates': {
         transports: STATEFUL_TRANSPORTS,
@@ -711,13 +693,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'prompts:list:pagination': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#listing-prompts',
-        behavior: 'prompts/list supports cursor pagination.',
-        knownFailures: [
-            {
-                test: 'mcpserver',
-                note: 'McpServer does not implement automatic pagination — handlers receive the cursor but the high-level API returns the full list with no nextCursor unless the user implements cursor handling in their own handler.'
-            }
-        ]
+        behavior: 'prompts/list supports cursor pagination.'
     },
     'prompts:get:multi-message': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#getting-a-prompt',

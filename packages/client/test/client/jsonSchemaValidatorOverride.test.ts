@@ -48,6 +48,12 @@ async function connectInitializedClient(client: Client) {
                     ]
                 }
             } satisfies JSONRPCMessage);
+        } else if ('method' in message && 'id' in message && message.method === 'tools/call') {
+            await serverTransport.send({
+                jsonrpc: '2.0',
+                id: message.id,
+                result: { content: [], structuredContent: { count: 42 } }
+            } satisfies JSONRPCMessage);
         }
     };
 
@@ -56,7 +62,7 @@ async function connectInitializedClient(client: Client) {
 }
 
 describe('client JSON Schema validator overrides', () => {
-    test('Client constructor uses a custom validator for tool output schema caching', async () => {
+    test('Client uses the custom validator for tool output validation (derived from the cached tools/list entry)', async () => {
         const validator = new RecordingValidator();
         const client = new Client(
             { name: 'test-client', version: '1.0.0' },
@@ -67,6 +73,8 @@ describe('client JSON Schema validator overrides', () => {
         );
         const { clientTransport, serverTransport } = await connectInitializedClient(client);
 
+        // The validator index reads the cached `tools/list` entry; populate it
+        // via the public auto-aggregating listTools().
         await expect(client.listTools()).resolves.toMatchObject({
             tools: [
                 {
@@ -80,6 +88,14 @@ describe('client JSON Schema validator overrides', () => {
             ]
         });
 
+        // Derived-view behavior: the validator index re-derives lazily on the
+        // first callTool against the cached entry's stamp — populating the
+        // cache alone does not compile.
+        expect(validator.schemas).toEqual([]);
+
+        await expect(client.callTool({ name: 'structured-tool' })).resolves.toMatchObject({
+            structuredContent: { count: 42 }
+        });
         expect(validator.schemas).toEqual([
             {
                 type: 'object',
@@ -87,6 +103,11 @@ describe('client JSON Schema validator overrides', () => {
                 required: ['count']
             }
         ]);
+        expect(validator.values).toEqual([{ count: 42 }]);
+
+        // Same backing entry stamp → memoized; a second callTool does not recompile.
+        await client.callTool({ name: 'structured-tool' });
+        expect(validator.schemas).toHaveLength(1);
 
         await client.close();
         await clientTransport.close();
