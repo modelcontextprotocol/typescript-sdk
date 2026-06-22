@@ -17,6 +17,13 @@ import { McpServer } from '@modelcontextprotocol/server';
 
 import { runServerFromArgs } from '../harness.js';
 
+// Module-level (process-wide) counters so the values survive the harness's
+// stateless HTTP leg (fresh `buildServer()` per request) as well as stdio's
+// single per-connection instance. The client asserts against these to prove a
+// cache-served call never reached the server.
+let readCount = 0;
+let listCount = 0;
+
 function buildServer(): McpServer {
     const server = new McpServer(
         { name: 'caching-example', version: '1.0.0' },
@@ -40,11 +47,41 @@ function buildServer(): McpServer {
             description: 'Static application config (rarely changes)',
             cacheHint: { ttlMs: 60_000, cacheScope: 'private' }
         },
-        async uri => ({ contents: [{ uri: uri.href, mimeType: 'application/json', text: '{"feature":true}' }] })
+        async uri => {
+            readCount++;
+            return { contents: [{ uri: uri.href, mimeType: 'application/json', text: '{"feature":true}' }] };
+        }
     );
 
     // A tool, so tools/list has something to cache.
     server.registerTool('noop', { description: 'no-op' }, async () => ({ content: [{ type: 'text', text: 'ok' }] }));
+
+    // Exposes the server-side `resources/read` invocation count so the client
+    // can assert that a cache-served call did not reach the wire.
+    server.registerTool('read-count', { description: 'Number of resources/read calls that reached this server' }, async () => ({
+        content: [{ type: 'text', text: String(readCount) }]
+    }));
+
+    // Exposes the server-side `tools/list` invocation count.
+    server.registerTool('request-count', { description: 'Number of tools/list requests that reached this server' }, async () => ({
+        content: [{ type: 'text', text: String(listCount) }]
+    }));
+
+    // Wrap the auto-generated `tools/list` handler so the example can prove a
+    // cache-served `listTools()` never reached the wire. `McpServer` registers
+    // the handler lazily on the first `registerTool()`; we re-seat it here so
+    // every dispatch increments `listCount` before delegating to the original.
+    // (Reaches the underlying request-handler map directly — there is no public
+    // wrapper hook; acceptable for an instrumentation example.)
+    const handlers = (server.server as unknown as { _requestHandlers: Map<string, (...a: unknown[]) => Promise<unknown>> })
+        ._requestHandlers;
+    const original = handlers.get('tools/list');
+    if (original) {
+        handlers.set('tools/list', (...a) => {
+            listCount++;
+            return original(...a);
+        });
+    }
 
     return server;
 }
