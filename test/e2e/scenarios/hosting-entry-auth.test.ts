@@ -20,7 +20,7 @@
  * `entryModern` → a 2026-07-28-pinned client through the modern-only strict
  * path).
  */
-import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { Client, InsufficientScopeError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import type { AuthInfo, McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
@@ -233,4 +233,105 @@ verifies('typescript:hosting:entry:ctx-http-req-headers', async ({ transport }: 
     // The custom header set on the client transport is readable as Fetch
     // Headers inside the handler on the leg the matrix arm selected.
     expect(seenByTool).toEqual([{ isFetchHeaders: true, probe: PROBE_VALUE }]);
+});
+
+verifies('typescript:hosting:entry:auth:insufficient-scope-403', async ({ transport }: TestArgs) => {
+    // Per-operation scope requirements derived from the body's tool name. On the
+    // modern leg the gate reads the SEP-2243 standard `Mcp-Method` / `Mcp-Name`
+    // headers (the entry's documented per-operation routing surface); the legacy
+    // leg has no such header so the gate falls back to one required scope.
+    const REQUIRED_BY_TOOL: Record<string, string> = { 'write-file': 'files:write' };
+    const TOKEN_SCOPES: Record<string, string[]> = {
+        'read-only-token': ['files:read'],
+        'read-write-token': ['files:read', 'files:write']
+    };
+
+    let factoryCalls = 0;
+    const factory = (ctx?: McpRequestContext): McpServer => {
+        factoryCalls++;
+        const server = new McpServer({ name: 'e2e-entry-scoped', version: '1.0.0' }, { capabilities: { tools: {} } });
+        server.registerTool('list-files', { inputSchema: z.object({}) }, () => ({
+            content: [{ type: 'text', text: `listed by ${ctx?.authInfo?.clientId}` }]
+        }));
+        server.registerTool('write-file', { inputSchema: z.object({}) }, () => ({
+            content: [{ type: 'text', text: `written by ${ctx?.authInfo?.clientId}` }]
+        }));
+        return server;
+    };
+
+    const handler = createMcpHandler(factory, { legacy: transport === 'entryStateless' ? 'stateless' : 'reject' });
+    await using _ = { [Symbol.asyncDispose]: () => handler.close() };
+
+    const insufficientScope = (required: string): Response =>
+        Response.json(
+            { error: 'insufficient_scope' },
+            {
+                status: 403,
+                headers: {
+                    'www-authenticate': `Bearer error="insufficient_scope", scope="${required}", error_description="${required} required for this operation"`
+                }
+            }
+        );
+
+    const gatedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        const request = new Request(url, init);
+        const auth = request.headers.get('authorization');
+        const token = auth?.startsWith('Bearer ') ? auth.slice('Bearer '.length) : undefined;
+        if (!token) return unauthorized();
+        const scopes = TOKEN_SCOPES[token];
+        if (scopes === undefined) return unauthorized();
+        const mcpName = request.headers.get('mcp-name') ?? undefined;
+        const required: string =
+            request.headers.get('mcp-method') === 'tools/call' && mcpName ? (REQUIRED_BY_TOOL[mcpName] ?? 'files:read') : 'files:read';
+        if (!scopes.includes(required)) return insufficientScope(required);
+        return handler.fetch(request, { authInfo: { token, clientId: 'e2e-scoped-caller', scopes } });
+    };
+
+    // 1. With the read-only token: list-files reaches the entry; write-file
+    //    (modern leg) is rejected at the gate with 403 + insufficient_scope and
+    //    the entry is never reached for that request.
+    const before = factoryCalls;
+    const readClient = new Client({ name: 'scoped-client', version: '1.0.0' });
+    if (transport === 'entryModern') readClient.setVersionNegotiation({ mode: { pin: MODERN } });
+    await readClient.connect(
+        new StreamableHTTPClientTransport(new URL('http://in-process/mcp'), {
+            fetch: gatedFetch,
+            requestInit: { headers: { Authorization: 'Bearer read-only-token' } },
+            onInsufficientScope: 'throw'
+        })
+    );
+    const listed = await readClient.callTool({ name: 'list-files', arguments: {} });
+    expect(listed.content).toEqual([{ type: 'text', text: 'listed by e2e-scoped-caller' }]);
+    const reachedAfterList = factoryCalls;
+    expect(reachedAfterList).toBeGreaterThan(before);
+
+    if (transport === 'entryModern') {
+        const writePromise = readClient.callTool({ name: 'write-file', arguments: {} });
+        await expect(writePromise).rejects.toBeInstanceOf(InsufficientScopeError);
+        await expect(writePromise).rejects.toMatchObject({ requiredScope: 'files:write' });
+        // The 403 came from the gate; no factory call ran for that POST.
+        expect(factoryCalls).toBe(reachedAfterList);
+    } else {
+        // Legacy leg: no Mcp-Name header → the gate's per-operation derivation
+        // is not available, so write-file passes the gate (single required scope
+        // fallback). The cell pins that the gate composes correctly with the
+        // legacy serving path; per-operation enforcement on legacy is host
+        // responsibility (e.g., by parsing the body).
+        const written = await readClient.callTool({ name: 'write-file', arguments: {} });
+        expect(written.content).toEqual([{ type: 'text', text: 'written by e2e-scoped-caller' }]);
+    }
+    await readClient.close().catch(() => {});
+
+    // 2. With the read-write token: write-file reaches the entry on both legs.
+    const rwClient = new Client({ name: 'scoped-client', version: '1.0.0' });
+    if (transport === 'entryModern') rwClient.setVersionNegotiation({ mode: { pin: MODERN } });
+    await rwClient.connect(
+        new StreamableHTTPClientTransport(new URL('http://in-process/mcp'), {
+            fetch: gatedFetch,
+            requestInit: { headers: { Authorization: 'Bearer read-write-token' } }
+        })
+    );
+    const written = await rwClient.callTool({ name: 'write-file', arguments: {} });
+    expect(written.content).toEqual([{ type: 'text', text: 'written by e2e-scoped-caller' }]);
+    await rwClient.close().catch(() => {});
 });

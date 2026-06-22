@@ -119,7 +119,7 @@ Three error classes now exist:
 | HTTP transport error (legacy era) | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttp*`                        |
 | Failed to open SSE stream         | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpFailedToOpenStream`       |
 | 401 after re-auth (circuit break) | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpAuthentication`           |
-| 403 after upscoping               | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpForbidden`                |
+| 403 insufficient_scope after step-up retry cap | `StreamableHTTPError`           | `SdkHttpError` with `SdkErrorCode.ClientHttpForbidden`                |
 | Unexpected content type           | `StreamableHTTPError`                        | `SdkError` with `SdkErrorCode.ClientHttpUnexpectedContent`            |
 | Session termination failed        | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
 | Response result fails schema      | `ZodError` (raw)                             | `SdkError` with `SdkErrorCode.InvalidResult`                          |
@@ -171,7 +171,7 @@ if (error instanceof SdkHttpError) {
     console.log('Status text:', error.statusText); // string | undefined
     switch (error.code) {
         case SdkErrorCode.ClientHttpAuthentication: // 401 after re-auth
-        case SdkErrorCode.ClientHttpForbidden: // 403 after upscoping
+        case SdkErrorCode.ClientHttpForbidden: // 403 insufficient_scope after step-up retry cap
         case SdkErrorCode.ClientHttpFailedToOpenStream:
         case SdkErrorCode.ClientHttpNotImplemented:
             break;
@@ -207,19 +207,22 @@ Individual OAuth error classes replaced with single `OAuthError` class and `OAut
 | `MethodNotAllowedError`        | `OAuthError` with `OAuthErrorCode.MethodNotAllowed`        |
 | `TooManyRequestsError`         | `OAuthError` with `OAuthErrorCode.TooManyRequests`         |
 | `InvalidClientMetadataError`   | `OAuthError` with `OAuthErrorCode.InvalidClientMetadata`   |
-| `InsufficientScopeError`       | `OAuthError` with `OAuthErrorCode.InsufficientScope`       |
+| `InsufficientScopeError`       | `OAuthError` with `OAuthErrorCode.InsufficientScope` ¹     |
 | `InvalidTargetError`           | `OAuthError` with `OAuthErrorCode.InvalidTarget`           |
 | `CustomOAuthError`             | `new OAuthError(customCode, message)`                      |
 
+¹ v1 server-side OAuth error only. The new transport-layer `InsufficientScopeError` exported from `@modelcontextprotocol/client` for SEP-2350 (RFC 6750 challenge from the resource server) is a DIFFERENT class, extends `OAuthClientFlowError` not `OAuthError`, and MUST NOT be rewritten by this row.
+
 Removed: `OAUTH_ERRORS` constant.
 
-The OAuth client flow additionally throws dedicated classes from `@modelcontextprotocol/client` (all extend `OAuthClientFlowError`, **not** `OAuthError` — `auth()`'s `OAuthError` retry path will not catch them):
+The OAuth client flow additionally throws dedicated classes from `@modelcontextprotocol/client` (all extend `OAuthClientFlowError`, **not** `OAuthError` — `auth()`'s `OAuthError` retry path will not catch them). SEP-2350 adds `InsufficientScopeError` to this set; see the migration guide's [Scope step-up section](./migration.md#scope-step-up-on-403-insufficient_scope-sep-2350).
 
 | Throw site                                                                                                     | v2 class                                                            |
 | -------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | `registerClient()` rejected by AS (any RFC 7591 error incl. `invalid_client_metadata`, `invalid_redirect_uri`) | `RegistrationRejectedError` (`status`, `body`, `submittedMetadata`) |
 | `exchangeAuthorization()` / `refreshAuthorization()` / `fetchToken()` / `requestJwtAuthorizationGrant()` / `exchangeJwtAuthGrant()` non-https token endpoint | `InsecureTokenEndpointError` (`tokenEndpoint`)                      |
 | RFC 9207 `iss` mismatch / RFC 8414 §3.3 issuer-echo mismatch                                                   | `IssuerMismatchError` (`kind`, `expected`, `received`)              |
+| Transport 403 `insufficient_scope` with `onInsufficientScope: 'throw'`, or default mode without an `OAuthClientProvider` | `InsufficientScopeError` (`requiredScope`, `resourceMetadataUrl`, `errorDescription`) |
 
 Update OAuth error handling:
 

@@ -831,11 +831,14 @@ describe('StreamableHTTPClientTransport', () => {
         // Verify fetch was called twice
         expect(fetchMock).toHaveBeenCalledTimes(2);
 
-        // Verify auth was called with the new scope
+        // Verify auth was called with the union scope (no prior scope → just the
+        // challenged scope) and forced fresh authorization (no prior token scope
+        // means the union is a strict superset of the empty grant).
         expect(authSpy).toHaveBeenCalledWith(
             mockAuthProvider,
             expect.objectContaining({
                 scope: 'new_scope',
+                forceReauthorization: true,
                 resourceMetadataUrl: new URL('http://example.com/resource')
             })
         );
@@ -843,7 +846,7 @@ describe('StreamableHTTPClientTransport', () => {
         authSpy.mockRestore();
     });
 
-    it('prevents infinite upscoping on repeated 403', async () => {
+    it('caps step-up retries per send (bounded counter)', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
             method: 'test',
@@ -868,19 +871,94 @@ describe('StreamableHTTPClientTransport', () => {
         const authSpy = vi.spyOn(authModule as typeof import('../../src/client/auth.js'), 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
-        // First send: should trigger upscoping
-        await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
+        // First send: one step-up retry (default cap = 1), then fails.
+        await expect(transport.send(message)).rejects.toThrow(/403 insufficient_scope after step-up re-authorization/);
 
         expect(fetchMock).toHaveBeenCalledTimes(2); // Initial call + one retry after auth
         expect(authSpy).toHaveBeenCalledTimes(1); // Auth called once
 
-        // Second send: should fail immediately without re-calling auth
+        // Second send: counter is per-send-chain, not transport-wide — a fresh
+        // send tries step-up once again (cross-request tracking is host
+        // responsibility).
         fetchMock.mockClear();
         authSpy.mockClear();
-        await expect(transport.send(message)).rejects.toThrow('Server returned 403 after trying upscoping');
+        await expect(transport.send(message)).rejects.toThrow(/403 insufficient_scope after step-up re-authorization/);
 
-        expect(fetchMock).toHaveBeenCalledTimes(1); // Only one fetch call
-        expect(authSpy).not.toHaveBeenCalled(); // Auth not called again
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(authSpy).toHaveBeenCalledTimes(1);
+
+        authSpy.mockRestore();
+    });
+
+    it('step-up scope is the union of transport-tracked, token-granted, and challenged scopes', async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            authProvider: mockAuthProvider,
+            maxStepUpRetries: 2
+        });
+        mockAuthProvider.tokens.mockResolvedValue({ access_token: 't', token_type: 'Bearer', scope: 'a b' });
+
+        const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' };
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="b c"' }),
+                text: () => Promise.resolve('')
+            })
+            .mockResolvedValueOnce({
+                ok: false,
+                status: 403,
+                statusText: 'Forbidden',
+                headers: new Headers({ 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="d"' }),
+                text: () => Promise.resolve('')
+            })
+            .mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
+
+        const authModule = await import('../../src/client/auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        authSpy.mockResolvedValue('AUTHORIZED');
+
+        await transport.send(message);
+
+        expect(authSpy).toHaveBeenCalledTimes(2);
+        // First step-up: union(undefined, token 'a b', challenge 'b c') = 'a b c'
+        expect(authSpy.mock.calls[0]![1].scope?.split(' ').sort()).toEqual(['a', 'b', 'c']);
+        // Second step-up: union(tracked 'a b c', token 'a b', challenge 'd') = 'a b c d'
+        expect(authSpy.mock.calls[1]![1].scope?.split(' ').sort()).toEqual(['a', 'b', 'c', 'd']);
+
+        authSpy.mockRestore();
+    });
+
+    it("throws InsufficientScopeError on 403 when onInsufficientScope is 'throw'", async () => {
+        transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+            authProvider: mockAuthProvider,
+            onInsufficientScope: 'throw'
+        });
+        const message: JSONRPCMessage = { jsonrpc: '2.0', method: 'test', params: {}, id: 'test-id' };
+
+        (globalThis.fetch as Mock).mockResolvedValue({
+            ok: false,
+            status: 403,
+            statusText: 'Forbidden',
+            headers: new Headers({
+                'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="files:write", error_description="needs write"'
+            }),
+            text: () => Promise.resolve('Insufficient scope')
+        });
+
+        const authModule = await import('../../src/client/auth.js');
+        const authSpy = vi.spyOn(authModule, 'auth');
+        const { InsufficientScopeError } = await import('../../src/client/authErrors.js');
+
+        const sendPromise = transport.send(message);
+        await expect(sendPromise).rejects.toBeInstanceOf(InsufficientScopeError);
+        await expect(sendPromise).rejects.toMatchObject({
+            requiredScope: 'files:write',
+            errorDescription: 'needs write'
+        });
+        expect(authSpy).not.toHaveBeenCalled();
 
         authSpy.mockRestore();
     });

@@ -145,7 +145,7 @@ export async function handleOAuthUnauthorized(
  * Adapts an `OAuthClientProvider` to the minimal `AuthProvider` interface that
  * transports consume. Called once at transport construction — the transport stores
  * the adapted provider for `_commonHeaders()` and 401 handling, while keeping the
- * original `OAuthClientProvider` for OAuth-specific paths (`finishAuth()`, 403 upscoping).
+ * original `OAuthClientProvider` for OAuth-specific paths (`finishAuth()`, 403 `insufficient_scope` step-up).
  */
 export function adaptOAuthProvider(
     provider: OAuthClientProvider,
@@ -486,6 +486,60 @@ export function validateAuthorizationResponseIssuer({
     }
 }
 
+/**
+ * Computes the union of one or more OAuth `scope` strings.
+ *
+ * Each argument is a space-delimited scope string per RFC 6749 §3.3, or
+ * `undefined`. The result is a single space-delimited string containing each
+ * distinct scope token exactly once, in first-seen order, or `undefined` if
+ * every input is empty/undefined.
+ *
+ * No hierarchical deduplication is performed: a union may contain semantically
+ * redundant entries (e.g., a broad scope alongside a narrower one it implies).
+ * Authorization servers normalize such redundancy during token issuance; the
+ * spec's step-up flow does not require clients to.
+ *
+ * Used by the transport's `403 insufficient_scope` step-up path to accumulate
+ * previously-requested scopes with newly-challenged scopes so re-authorization
+ * does not lose previously-granted permissions.
+ */
+export function computeScopeUnion(...scopes: ReadonlyArray<string | undefined>): string | undefined {
+    const seen = new Set<string>();
+    for (const scope of scopes) {
+        if (!scope) continue;
+        for (const token of scope.split(/\s+/)) {
+            if (token) seen.add(token);
+        }
+    }
+    return seen.size > 0 ? [...seen].join(' ') : undefined;
+}
+
+/**
+ * Whether `union` contains at least one scope token not present in `current`.
+ * Both arguments are space-delimited scope strings per RFC 6749 §3.3.
+ *
+ * Used to gate the step-up refresh bypass: when the union of previously-requested
+ * and newly-challenged scopes is a strict superset of the current token's
+ * granted scope, refreshing cannot widen the grant (RFC 6749 §6), so the
+ * transport must force a fresh authorization request instead. When the current
+ * token already covers the union, refresh remains valid.
+ *
+ * An undefined or empty `current` is treated as the empty set, so any non-empty
+ * `union` is a strict superset. Note that per RFC 6749 §3.3 an authorization
+ * server MAY omit the token's `scope` field when it equals the requested scope;
+ * this helper is conservative and treats an absent token `scope` as empty, so
+ * step-up always forces a fresh authorization request in that case rather than
+ * risking a refresh that silently drops the widened scope.
+ */
+export function isStrictScopeSuperset(union: string | undefined, current: string | undefined): boolean {
+    if (!union) return false;
+    const currentSet = new Set((current ?? '').split(/\s+/).filter(Boolean));
+    for (const token of union.split(/\s+/)) {
+        if (token && !currentSet.has(token)) return true;
+    }
+    return false;
+}
+
 export type ClientAuthMethod = 'client_secret_basic' | 'client_secret_post' | 'none';
 
 function isClientAuthMethod(method: string): method is ClientAuthMethod {
@@ -750,6 +804,25 @@ export interface AuthOptions {
      * @default false
      */
     skipIssuerMetadataValidation?: boolean;
+    /**
+     * When `true`, {@linkcode auth} skips the refresh-token branch even when a
+     * `refresh_token` is available, and proceeds directly to a fresh
+     * authorization request ({@linkcode startAuthorization}).
+     *
+     * Set by the transport's `403 insufficient_scope` step-up path when the
+     * required scope is a strict superset of the current token's granted scope:
+     * the refresh grant cannot widen scope (RFC 6749 §6), so refreshing would
+     * silently drop the new scope and the next request would 403 again. Forcing
+     * a fresh authorization request ensures the widened scope reaches the
+     * authorization server.
+     *
+     * Hosts driving step-up themselves (with `onInsufficientScope: 'throw'`)
+     * should set this when {@linkcode isStrictScopeSuperset} of the union over
+     * the current token's `scope` is `true`.
+     *
+     * @default false
+     */
+    forceReauthorization?: boolean;
 }
 
 /**
@@ -814,7 +887,16 @@ export function determineScope(options: {
 
 async function authInternal(
     provider: OAuthClientProvider,
-    { serverUrl, authorizationCode, iss, scope, resourceMetadataUrl, fetchFn, skipIssuerMetadataValidation }: AuthOptions
+    {
+        serverUrl,
+        authorizationCode,
+        iss,
+        scope,
+        resourceMetadataUrl,
+        fetchFn,
+        skipIssuerMetadataValidation,
+        forceReauthorization
+    }: AuthOptions
 ): Promise<AuthResult> {
     // SEP-837 / SEP-2207: resolve spec defaults for the DCR body. determineScope()
     // intentionally reads the raw provider.clientMetadata instead.
@@ -987,8 +1069,11 @@ async function authInternal(
 
     const tokens = await provider.tokens();
 
-    // Handle token refresh or new authorization
-    if (tokens?.refresh_token) {
+    // Handle token refresh or new authorization. The step-up path sets
+    // `forceReauthorization` when the requested scope strictly exceeds the
+    // current token's granted scope — refreshing would not widen it (RFC 6749
+    // §6), so skip straight to a fresh authorization request.
+    if (tokens?.refresh_token && !forceReauthorization) {
         try {
             // Attempt to refresh the token
             const newTokens = await refreshAuthorization(authorizationServerUrl, {
@@ -1098,9 +1183,15 @@ export async function selectResourceURL(
 }
 
 /**
- * Extract `resource_metadata`, `scope`, and `error` from `WWW-Authenticate` header.
+ * Extract `resource_metadata`, `scope`, `error`, and `error_description` from a
+ * `WWW-Authenticate` header.
  */
-export function extractWWWAuthenticateParams(res: Response): { resourceMetadataUrl?: URL; scope?: string; error?: string } {
+export function extractWWWAuthenticateParams(res: Response): {
+    resourceMetadataUrl?: URL;
+    scope?: string;
+    error?: string;
+    errorDescription?: string;
+} {
     const authenticateHeader = res.headers.get('WWW-Authenticate');
     if (!authenticateHeader) {
         return {};
@@ -1124,11 +1215,13 @@ export function extractWWWAuthenticateParams(res: Response): { resourceMetadataU
 
     const scope = extractFieldFromWwwAuth(res, 'scope') || undefined;
     const error = extractFieldFromWwwAuth(res, 'error') || undefined;
+    const errorDescription = extractFieldFromWwwAuth(res, 'error_description') || undefined;
 
     return {
         resourceMetadataUrl,
         scope,
-        error
+        error,
+        errorDescription
     };
 }
 
