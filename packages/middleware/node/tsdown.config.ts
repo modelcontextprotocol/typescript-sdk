@@ -29,6 +29,12 @@ export default defineConfig({
         // mappings; `preserveSymlinks` keeps `node_modules` in the resolved path so
         // rolldown-plugin-dts recognises the dep as external instead of inlining the
         // whole upstream type graph (which OOMs once core's surface gets large enough).
+        //
+        // TODO: drop this override once tsdown pulls rolldown-plugin-dts >=0.21.0
+        // (sxzz/rolldown-plugin-dts@03998d41 honours rolldown `external` before the
+        // node_modules path test). Bumping also requires reworking the `dts.resolve`
+        // usage in packages/{server,client}/tsdown.config.ts — that option was removed
+        // in the same release.
         compilerOptions: {
             paths: {},
             preserveSymlinks: true
