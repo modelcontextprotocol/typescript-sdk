@@ -169,7 +169,12 @@ verifies('typescript:hosting:entry:byo-sessionful-legacy', async () => {
         const exchangesBeforeModernProbe = legacyExchanges.length;
         const modernProbe = await fetchViaRouter(url, {
             method: 'POST',
-            headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream' },
+            headers: {
+                'content-type': 'application/json',
+                accept: 'application/json, text/event-stream',
+                'mcp-method': 'tools/call',
+                'mcp-name': 'greet'
+            },
             body: JSON.stringify({
                 jsonrpc: '2.0',
                 id: 100,

@@ -27,7 +27,11 @@ const ENVELOPE = {
 function listenRequest(id: string | number, filter: Record<string, unknown>): Request {
     return new Request('http://localhost/mcp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+        headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json, text/event-stream',
+            'mcp-method': 'subscriptions/listen'
+        },
         body: JSON.stringify({
             jsonrpc: '2.0',
             id,
@@ -165,7 +169,11 @@ describe('createMcpHandler — subscriptions/listen', () => {
         const response = await handler.fetch(
             new Request('http://localhost/mcp', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-method': 'subscriptions/listen'
+                },
                 body: JSON.stringify({ jsonrpc: '2.0', id: 9, method: 'subscriptions/listen', params: { _meta: ENVELOPE } })
             })
         );
