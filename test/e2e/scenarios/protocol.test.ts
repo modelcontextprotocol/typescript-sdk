@@ -18,7 +18,8 @@ import type {
     Progress,
     RequestId,
     Result,
-    Transport
+    Transport,
+    TransportSendOptions
 } from '@modelcontextprotocol/server';
 import {
     InMemoryTransport,
@@ -125,6 +126,62 @@ verifies('protocol:cancel:abort-signal', async ({ transport }: TestArgs) => {
     if (!cancelled || !('params' in cancelled)) throw new Error('notifications/cancelled message has no params');
     expect(cancelled.params?.requestId).toBe(callMsg.id);
     expect(cancelled.params?.reason).toContain('user requested cancellation');
+});
+
+verifies('protocol:cancel:http-stream-close', async ({ transport }: TestArgs) => {
+    // 2026-07-28 Streamable HTTP: closing the per-request SSE stream IS the
+    // cancel signal — no notifications/cancelled is sent on the wire. The body
+    // proves both the caller-signal and timeout paths route to stream-close.
+    const client = newClient();
+    await using _ = await wire(transport, neverRespondingServer, client);
+
+    // Tap send to record outbound messages AND the per-request requestSignal
+    // the protocol layer hands the transport.
+    const sent: Array<{ m: JSONRPCMessage; opts: TransportSendOptions | undefined }> = [];
+    const tx = client.transport;
+    if (!tx) throw new Error('client not connected');
+    expect(tx.hasPerRequestStream).toBe(true);
+    const orig = tx.send.bind(tx);
+    tx.send = async (m, opts) => {
+        sent.push({ m, opts });
+        return orig(m, opts);
+    };
+
+    // Caller-signal abort.
+    const ac = new AbortController();
+    const call = client.listTools(undefined, { signal: ac.signal });
+    await vi.waitFor(() => expect(sent.some(s => isRequest(s.m) && s.m.method === 'tools/list')).toBe(true));
+    const listSend = sent.find(s => isRequest(s.m) && s.m.method === 'tools/list');
+    if (!listSend) throw new Error('tools/list send not captured');
+    expect(listSend.opts?.requestSignal, 'protocol layer must thread a per-request requestSignal on a 2026 HTTP connection').toBeInstanceOf(
+        AbortSignal
+    );
+    expect(listSend.opts?.requestSignal?.aborted).toBe(false);
+
+    ac.abort('user requested cancellation');
+    await expect(call).rejects.toThrow(/user requested cancellation/);
+
+    expect(listSend.opts?.requestSignal?.aborted, 'stream-close IS the cancel signal: requestSignal must be aborted').toBe(true);
+    expect(
+        sent.filter(s => isNotification(s.m) && s.m.method === 'notifications/cancelled'),
+        'no notifications/cancelled on the wire — "not required or expected" per spec'
+    ).toHaveLength(0);
+
+    // Timeout path.
+    sent.length = 0;
+    vi.useFakeTimers();
+    try {
+        const pending = client.listTools(undefined, { timeout: 100 });
+        pending.catch(() => {});
+        await vi.advanceTimersByTimeAsync(100);
+        await expect(pending).rejects.toMatchObject({ code: SdkErrorCode.RequestTimeout });
+    } finally {
+        vi.useRealTimers();
+    }
+    const timedOutSend = sent.find(s => isRequest(s.m) && s.m.method === 'tools/list');
+    if (!timedOutSend) throw new Error('timeout-path tools/list send not captured');
+    expect(timedOutSend.opts?.requestSignal?.aborted).toBe(true);
+    expect(sent.filter(s => isNotification(s.m) && s.m.method === 'notifications/cancelled')).toHaveLength(0);
 });
 
 verifies('protocol:cancel:handler-abort-propagates', async ({ transport }: TestArgs) => {

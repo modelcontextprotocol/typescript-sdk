@@ -128,7 +128,10 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'protocol:cancel:abort-signal': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/cancellation#cancellation-flow',
         behavior:
-            'Cancelling an in-flight request through the client API sends notifications/cancelled with the request id and fails the local call.'
+            'Cancelling an in-flight request through the client API sends notifications/cancelled with the request id and fails the local call.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'protocol:cancel:http-stream-close',
+        note: '2026-07-28 makes Streamable-HTTP cancellation a per-request stream-close (no notifications/cancelled on the wire); the supersedes link names that surface. stdio at the modern era still POSTs cancelled but no modern stdio cell exists in the matrix yet.'
     },
     'protocol:cancel:handler-abort-propagates': {
         transports: STATEFUL_TRANSPORTS,
@@ -250,7 +253,19 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     },
     'protocol:timeout:sends-cancellation': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle#timeouts',
-        behavior: 'When a request times out, the sender issues notifications/cancelled for that request before failing the local call.'
+        behavior: 'When a request times out, the sender issues notifications/cancelled for that request before failing the local call.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'protocol:cancel:http-stream-close',
+        note: '2026-07-28 makes Streamable-HTTP timeout cancellation a per-request stream-close (no notifications/cancelled on the wire); the supersedes link names that surface.'
+    },
+    'protocol:cancel:http-stream-close': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/cancellation#transport-specific-cancellation',
+        behavior:
+            'On a 2026-07-28 Streamable HTTP connection, cancelling an in-flight client request (caller signal or timeout) closes that request’s SSE response stream as the spec cancellation signal; no notifications/cancelled message is sent on the wire and the local call fails.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        supersedes: ['protocol:cancel:abort-signal', 'protocol:timeout:sends-cancellation'],
+        note: 'Streamable-HTTP only; stdio at the modern era still POSTs notifications/cancelled (no modern stdio cell exists in the matrix yet).'
     },
     'mcpserver:onerror:reach-through': {
         entryExclusions: [
@@ -2369,8 +2384,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior:
             'ctx.mcpReq.log() inside a registered tool handler emits a notifications/message logging notification that the client receives while the call is in flight.',
-        transports: STATEFUL_TRANSPORTS,
-        note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
+        transports: [...STATEFUL_TRANSPORTS, 'entryStateless', 'entryModern'],
+        note: 'Emitted request-related, so on per-request hosting (createMcpHandler, either era) the notification rides the in-flight exchange like progress; the streamableHttpStateless arm has no per-request stream visible to the body and stays restricted.'
     },
     'mcpserver:context:elicit-from-handler': {
         source: 'sdk',

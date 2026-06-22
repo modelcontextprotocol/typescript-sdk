@@ -47,6 +47,7 @@ import {
     isModernProtocolVersion,
     LATEST_PROTOCOL_VERSION,
     legacyProtocolVersions,
+    LOG_LEVEL_META_KEY,
     LoggingLevelSchema,
     mergeCapabilities,
     missingClientCapabilities,
@@ -304,7 +305,39 @@ export class Server extends Protocol<ServerContext> {
                 // Deprecated as of protocol version 2026-07-28 (SEP-2577): `log` and
                 // `requestSampling` remain functional during the deprecation window
                 // (at least twelve months). See ServerContext for migration guidance.
-                log: (level, data, logger) => this.sendLoggingMessage({ level, data, logger }),
+                log: (level, data, logger) => {
+                    if (!this._capabilities.logging) {
+                        return Promise.resolve();
+                    }
+                    // Level filter: on a 2026-era request the client declares its
+                    // threshold per request via the `_meta.logLevel` envelope key
+                    // (the modern equivalent of `logging/setLevel`, which is not a
+                    // request method on that revision). The spec at 2026-07-28
+                    // says an absent key means the server MUST NOT send
+                    // `notifications/message` for the request — so an absent key
+                    // suppresses, it does not mean "send everything". On
+                    // 2025-era connections the session-scoped level set via
+                    // `logging/setLevel` applies exactly as before (an absent
+                    // session level there continues to mean no filter).
+                    let threshold: LoggingLevel | undefined;
+                    if (this._servedModernEra()) {
+                        threshold = ctx.mcpReq.envelope?.[LOG_LEVEL_META_KEY] as LoggingLevel | undefined;
+                        if (threshold === undefined) {
+                            return Promise.resolve();
+                        }
+                    } else {
+                        threshold = this._loggingLevels.get(ctx.sessionId) ?? this._loggingLevels.get(undefined);
+                    }
+                    if (threshold !== undefined && this.LOG_LEVEL_SEVERITY.get(level)! < this.LOG_LEVEL_SEVERITY.get(threshold)!) {
+                        return Promise.resolve();
+                    }
+                    // Emit request-related (like progress and `ctx.mcpReq.notify`)
+                    // so the notification rides the in-flight exchange. Without the
+                    // related-request stamp, per-request hosting (`createMcpHandler`,
+                    // either era) silently drops the message because it has no
+                    // session-wide stream to deliver it on.
+                    return ctx.mcpReq.notify({ method: 'notifications/message', params: { level, data, logger } });
+                },
                 elicitInput: (params, options) => this.elicitInput(params, options),
                 requestSampling: (params, options) => this.createMessage(params, options)
             },
