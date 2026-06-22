@@ -64,6 +64,15 @@ const ClientConformanceContextSchema = z.discriminatedUnion('name', [
         idp_id_token: z.string(),
         idp_issuer: z.string(),
         idp_token_endpoint: z.string()
+    }),
+    z.object({
+        name: z.literal('auth/enterprise-managed-authorization'),
+        client_id: z.string(),
+        client_secret: z.string(),
+        idp_client_id: z.string(),
+        idp_id_token: z.string(),
+        idp_issuer: z.string(),
+        idp_token_endpoint: z.string()
     })
 ]);
 
@@ -522,10 +531,16 @@ registerScenario('auth/client-credentials-basic', runClientCredentialsBasic);
  * then exchanges the ID-JAG for an access token at the AS (RFC 7523 JWT bearer grant
  * with client_secret_basic). The provider drives discovery + the JWT bearer step; the
  * assertion callback handles the IdP exchange using the context-supplied ID token.
+ *
+ * The two scenarios share the same context shape and the same client behavior:
+ * `auth/cross-app-access-complete-flow` is the single-AS variant;
+ * `auth/enterprise-managed-authorization` is the SEP-990 extension scenario that
+ * additionally validates `requested_token_type=id-jag`, ID-JAG `typ` and
+ * `client_id`/`resource` claim binding at the AS.
  */
 async function runCrossAppAccessCompleteFlow(serverUrl: string): Promise<void> {
     const ctx = parseContext();
-    if (ctx.name !== 'auth/cross-app-access-complete-flow') {
+    if (ctx.name !== 'auth/cross-app-access-complete-flow' && ctx.name !== 'auth/enterprise-managed-authorization') {
         throw new Error(`Expected cross-app-access context, got ${ctx.name}`);
     }
 
@@ -562,6 +577,7 @@ async function runCrossAppAccessCompleteFlow(serverUrl: string): Promise<void> {
 }
 
 registerScenario('auth/cross-app-access-complete-flow', runCrossAppAccessCompleteFlow);
+registerScenario('auth/enterprise-managed-authorization', runCrossAppAccessCompleteFlow);
 
 // ============================================================================
 // Pre-registration scenario (no dynamic client registration)

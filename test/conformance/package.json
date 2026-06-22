@@ -40,7 +40,7 @@
         "test:conformance:all": "pnpm run test:conformance:client:all && pnpm run test:conformance:server:all"
     },
     "devDependencies": {
-        "@modelcontextprotocol/conformance": "0.2.0-alpha.5",
+        "@modelcontextprotocol/conformance": "0.2.0-alpha.6",
         "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/core": "workspace:^",

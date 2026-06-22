@@ -2,7 +2,7 @@
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.5). Newer conformance releases
+# release pinned in package.json (0.2.0-alpha.6). Newer conformance releases
 # are adopted by deliberately bumping the package.json pin and reconciling
 # this file in the same change.
 #
@@ -17,20 +17,11 @@
 # corresponding scenarios start passing and MUST be removed from this list (the
 # runner fails on stale entries), so the baseline burns down per milestone.
 
-client:
+client: []
     # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-    # SEP-2468 RFC 9207 `iss` validation is now default-ON. The referee's
-    # 2025-03-26 backcompat mock emits a callback `iss` with a `/oauth` path
-    # component that does not match its own metadata `issuer` (conformance#359
-    # fixed the metadata side; the callback `iss` is a follow-up). The SDK
-    # correctly rejects per RFC 9207 §2.4. Scenario is `removedIn: 2025-06-18`.
-    - auth/2025-03-26-oauth-metadata-backcompat
+    # (empty: SEP-2468/2352/2350/837/2207/990 burned by the auth bundle; the
+    # last referee-side gap — conformance#361 callback-iss — closed at alpha.6)
 
-    # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
-    # SEP-990 (enterprise-managed authorization extension): no fixture handler /
-    # client support for the token-exchange + JWT bearer flow.
-    - auth/enterprise-managed-authorization
-
-# No server entries at the 0.2.0-alpha.5 referee — the spec#2907 renumber-mismatch
-# cells burned at this pin.
+# No server entries — the spec#2907 renumber-mismatch cells burned at the
+# alpha.5 referee.
 server: []
