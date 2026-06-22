@@ -1435,6 +1435,22 @@ subpath in some files and rely on the default in others.
 
 To replace validation wholesale rather than customizing the built-in classes, implement the `jsonSchemaValidator` interface and pass your own implementation through the option above.
 
+## Specification clarifications adopted (no SDK behavior change)
+
+The 2026-07-28 specification revision includes a number of documentation-only clarifications that do not change SDK wire behavior or public surface. They are recorded here so an audit of the revision's changelog against this guide is complete; nothing in this section requires
+code changes.
+
+- **Timeouts** — the specification's per-operation timeout guidance section was removed; the SDK's `RequestOptions.timeout` and `DEFAULT_REQUEST_TIMEOUT_MSEC` are unchanged.
+- **stdio shutdown** — the specification clarifies stdio shutdown/termination wording; `StdioServerTransport`/`StdioClientTransport` close semantics are unchanged.
+- **Transports as bindings** — the specification reframes transports as bindings of one protocol; the SDK's `Transport` interface is unchanged.
+- **`resources/read` clarifications** — wording-only; behavior unchanged. The `file://` path-sanitization MUST is server-author guidance: a resource handler that resolves `file://` URIs to real paths is responsible for rejecting traversal (`..`) and symlink escapes itself — the SDK does not interpose on the path.
+- **`PromptMessage` resource links** — `ContentBlock` already includes `ResourceLink` on every revision; no change.
+- **Completion `ref/resource` URI templates** — documentation alignment; the SDK's `completion/complete` handling is unchanged.
+- **Pagination cursors** — the specification clarifies that an empty-string cursor is a valid opaque cursor; the SDK already passes `cursor` through verbatim (it is `z.string().optional()`).
+- **Sampling** — documentation of host requirements; no SDK surface change.
+- **Elicitation** — the specification relaxes elicitation statefulness wording and removes a rate-limiting SHOULD; no SDK surface change.
+- **Cosmetic schema/JSDoc sweeps** — phrasing alignment with the draft specification; the per-revision generated reference types remain pinned to the specification anchor.
+
 ## Unchanged APIs
 
 The following APIs are unchanged between v1 and v2 (only the import paths changed):
