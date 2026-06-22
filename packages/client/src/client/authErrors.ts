@@ -113,3 +113,39 @@ export class InsecureTokenEndpointError extends OAuthClientFlowError {
         this.tokenEndpoint = tokenEndpoint;
     }
 }
+
+/**
+ * Thrown by the HTTP client transport when the server responds with
+ * `403 Forbidden` and `WWW-Authenticate: Bearer error="insufficient_scope"`,
+ * and either (a) the transport's `onInsufficientScope` option is `'throw'`, or
+ * (b) `onInsufficientScope` is the default `'reauthorize'` but the transport
+ * has no {@linkcode index.OAuthClientProvider | OAuthClientProvider} to drive
+ * step-up (e.g. a minimal `AuthProvider`, `requestInit`-only headers, or no
+ * `authProvider`).
+ *
+ * Carries the challenge parameters so the host can decide whether to initiate
+ * step-up authorization itself (e.g., behind a UX gate) or surface the error.
+ *
+ * Does **not** extend `OAuthError`: that class represents OAuth protocol errors
+ * from the authorization server; this is a resource-server challenge surfaced
+ * at the transport layer.
+ *
+ * All fields originate from the resource server's `WWW-Authenticate` header;
+ * treat them as untrusted input when displaying or logging (this includes
+ * `requiredScope`, which appears in the error message).
+ */
+export class InsufficientScopeError extends OAuthClientFlowError {
+    /** The `scope` value from the `WWW-Authenticate` challenge — the scopes the resource server says are required. */
+    readonly requiredScope?: string;
+    /** The `resource_metadata` URL from the `WWW-Authenticate` challenge, if present. */
+    readonly resourceMetadataUrl?: URL;
+    /** The `error_description` from the `WWW-Authenticate` challenge, if present. */
+    readonly errorDescription?: string;
+
+    constructor(init: { requiredScope?: string; resourceMetadataUrl?: URL; errorDescription?: string }) {
+        super(`Insufficient scope${init.requiredScope ? `: required "${init.requiredScope}"` : ''}`);
+        this.requiredScope = init.requiredScope;
+        this.resourceMetadataUrl = init.resourceMetadataUrl;
+        this.errorDescription = init.errorDescription;
+    }
+}

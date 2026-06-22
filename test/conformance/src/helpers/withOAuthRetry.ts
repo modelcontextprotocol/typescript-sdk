@@ -1,5 +1,11 @@
 import type { FetchLike, Middleware } from '@modelcontextprotocol/client';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from '@modelcontextprotocol/client';
+import {
+    auth,
+    computeScopeUnion,
+    extractWWWAuthenticateParams,
+    isStrictScopeSuperset,
+    UnauthorizedError
+} from '@modelcontextprotocol/client';
 
 import { ConformanceOAuthProvider } from './conformanceOAuthProvider.js';
 
@@ -9,11 +15,20 @@ export const handle401 = async (
     next: FetchLike,
     serverUrl: string | URL
 ): Promise<void> => {
-    const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
+    const { resourceMetadataUrl, scope: challengedScope } = extractWWWAuthenticateParams(response);
+    // On a 403 insufficient_scope step-up, request the union of the previously
+    // granted scope and the challenged scope so the existing permissions are
+    // preserved (SEP-2350). On the initial 401 there is no prior token, so the
+    // union degenerates to the challenged scope.
+    const previousTokens = await provider.tokens();
+    const scope = response.status === 403 ? computeScopeUnion(previousTokens?.scope, challengedScope) : challengedScope;
     let result = await auth(provider, {
         serverUrl,
         resourceMetadataUrl,
         scope,
+        // SEP-2350: when the union strictly exceeds the current token's granted scope,
+        // a refresh cannot widen it (RFC 6749 §6) — bypass refresh and re-authorize.
+        forceReauthorization: isStrictScopeSuperset(scope, previousTokens?.scope),
         fetchFn: next
     });
 

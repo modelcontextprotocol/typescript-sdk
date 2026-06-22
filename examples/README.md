@@ -44,6 +44,7 @@ Add `-- --legacy` to the client command for the 2025-era handshake.
 | [`bearer-auth/`](./bearer-auth/README.md)                           | Resource server with bearer token; `401` + `WWW-Authenticate`                                           | http         | dual           |
 | [`oauth/`](./oauth/README.md)                                       | OAuth `authorization_code`: in-repo AS (auto-consent) + headless redirect-following client              | http         | dual           |
 | [`oauth-client-credentials/`](./oauth-client-credentials/README.md) | OAuth `client_credentials` (machine-to-machine): in-repo AS + `ClientCredentialsProvider`               | http         | dual           |
+| [`scoped-tools/`](./scoped-tools/README.md)                         | Per-tool scope on `createMcpHandler` — bearer-verify gate + handler-level `ctx.http?.authInfo` checks   | http         | modern         |
 
 ## HTTP hosting variants
 

@@ -787,7 +787,7 @@ The new `SdkErrorCode` enum contains string-valued codes for local SDK errors:
 | `SdkErrorCode.InvalidResult`                      | Response result failed local schema validation |
 | `SdkErrorCode.ClientHttpNotImplemented`           | HTTP POST request failed                       |
 | `SdkErrorCode.ClientHttpAuthentication`           | Server returned 401 after re-authentication    |
-| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 after trying upscoping     |
+| `SdkErrorCode.ClientHttpForbidden`                | Server returned 403 insufficient_scope after step-up re-authorization (retry cap reached) |
 | `SdkErrorCode.ClientHttpUnexpectedContent`        | Unexpected content type in HTTP response       |
 | `SdkErrorCode.ClientHttpFailedToOpenStream`       | Failed to open SSE stream                      |
 | `SdkErrorCode.ClientHttpFailedToTerminateSession` | Failed to terminate session                    |
@@ -826,7 +826,7 @@ try {
                 console.log('Auth failed — server rejected token after re-auth');
                 break;
             case SdkErrorCode.ClientHttpForbidden:
-                console.log('Forbidden after upscoping attempt');
+                console.log('403 insufficient_scope after step-up re-authorization (retry cap)');
                 break;
             case SdkErrorCode.ClientHttpFailedToOpenStream:
                 console.log('Failed to open SSE stream');
@@ -874,9 +874,11 @@ The following individual error classes have been removed in favor of `OAuthError
 | `MethodNotAllowedError`        | `new OAuthError(OAuthErrorCode.MethodNotAllowed, message)`        |
 | `TooManyRequestsError`         | `new OAuthError(OAuthErrorCode.TooManyRequests, message)`         |
 | `InvalidClientMetadataError`   | `new OAuthError(OAuthErrorCode.InvalidClientMetadata, message)`   |
-| `InsufficientScopeError`       | `new OAuthError(OAuthErrorCode.InsufficientScope, message)`       |
+| `InsufficientScopeError`       | `new OAuthError(OAuthErrorCode.InsufficientScope, message)` ¹     |
 | `InvalidTargetError`           | `new OAuthError(OAuthErrorCode.InvalidTarget, message)`           |
 | `CustomOAuthError`             | `new OAuthError(customCode, message)`                             |
+
+¹ Unrelated to the new transport-layer `InsufficientScopeError` introduced for SEP-2350 — that class carries an RFC 6750 `WWW-Authenticate` challenge from the resource server and does **not** extend `OAuthError`; see [Scope step-up on `403 insufficient_scope`](#scope-step-up-on-403-insufficient_scope-sep-2350).
 
 The `OAUTH_ERRORS` constant has also been removed.
 
@@ -1538,6 +1540,22 @@ await transport.finishAuth(url.searchParams); // SDK reads `code` + `iss`
 **You must not** display or act on `error`, `error_description`, or `error_uri` from the callback URL when `IssuerMismatchError` is thrown — those values are attacker-controlled in a mix-up attack.
 
 `discoverAuthorizationServerMetadata()` now rejects metadata whose `issuer` does not exactly match the URL it was fetched for (RFC 8414 §3.3). If you connect to a known-misconfigured AS, set `skipIssuerMetadataValidation: true` on `StreamableHTTPClientTransportOptions` / `SSEClientTransportOptions` (or on `AuthOptions` if you call `auth()` directly, or `skipIssuerValidation: true` on the low-level helper) — **this weakens the mix-up defense and should be treated as a temporary workaround.** It suppresses only the metadata-echo check; the callback-`iss` validation always runs (and degrades to a no-op only when `iss` is absent and the AS does not advertise support).
+
+### Scope step-up on `403 insufficient_scope` (SEP-2350)
+
+`StreamableHTTPClientTransport` now accepts `onInsufficientScope: 'reauthorize' | 'throw'` (default **`'reauthorize'`**, matching the previous unconditional behavior).
+
+On `'reauthorize'` the transport re-authorizes with the **union** of the previously-requested scope and the challenged scope (new exported helper `computeScopeUnion`), so previously-granted permissions are not lost on step-up. When that union is a strict superset of the current token's granted scope (`isStrictScopeSuperset`), the SDK **bypasses the refresh-token branch** and forces a fresh authorization request — the refresh grant cannot widen scope (RFC 6749 §6), so refreshing would silently drop the new scope. When the token already covers the union, refresh is used as before.
+
+On `'throw'` the transport raises `InsufficientScopeError { requiredScope, resourceMetadataUrl, errorDescription }` and does not re-authorize. Set `'throw'` for `client_credentials` / m2m clients where re-authorization cannot widen scope, and for interactive clients that need to gate the consent prompt behind UX.
+
+If you pass a non-OAuth `authProvider` (or only `requestInit` headers), a `403 insufficient_scope` now throws `InsufficientScopeError` instead of the previous generic `SdkHttpError(ClientHttpNotImplemented)` ("Error POSTing to endpoint: …") — `InsufficientScopeError` extends `Error`, not `SdkError`, so existing `instanceof SdkError` catches no longer match this case. Catch `InsufficientScopeError` explicitly, or set `onInsufficientScope: 'throw'` to make the contract explicit.
+
+Step-up retries are now hard-capped per send (`maxStepUpRetries`, default 1) regardless of `WWW-Authenticate` header content — the previous verbatim-header equality guard is gone. The cap is per request; cross-request "(resource, operation) already failed" tracking is host state.
+
+`AuthOptions` gains `forceReauthorization?: boolean` for hosts driving step-up themselves.
+
+The GET listen-stream open path now applies the same step-up handling as the POST send path.
 
 ### Conformance obligations for `OAuthClientProvider` implementers
 

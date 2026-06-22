@@ -1905,6 +1905,41 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'client-auth:stepup:scope-union': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#step-up-authorization-flow',
+        behavior:
+            'On 403 insufficient_scope the transport re-authorizes with the union of its previously-requested scope and the challenged scope (computeScopeUnion); the union is a plain string-set dedup with no hierarchical collapse.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:stepup:retry-cap': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#step-up-authorization-flow',
+        behavior:
+            'Step-up re-authorization is bounded per send by maxStepUpRetries (default 1), independent of WWW-Authenticate header content; reaching the cap throws an SdkHttpError without further auth() calls.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:stepup:throw-mode': {
+        source: 'sdk',
+        behavior:
+            "With onInsufficientScope: 'throw', a 403 insufficient_scope throws InsufficientScopeError carrying {requiredScope, resourceMetadataUrl, errorDescription} and never calls auth().",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:stepup:get-stream-403': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#step-up-authorization-flow',
+        behavior:
+            'The GET listen-stream open path applies the same 403 insufficient_scope step-up handling as the POST send path (same throw-mode short-circuit, same scope union, same per-open retry cap).',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:stepup:refresh-bypass-on-superset': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#step-up-authorization-flow',
+        behavior:
+            "On 403 insufficient_scope step-up: when the union scope is a strict superset of the current token's granted scope, auth() bypasses the refresh-token branch (forceReauthorization) and forces a fresh authorization request so the widened scope reaches the AS; when the token already covers the union, refresh is used.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'client-auth:as-metadata-discovery:priority-order': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#authorization-server-metadata-discovery',
         behavior:
@@ -2555,6 +2590,13 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             "A verified AuthInfo handed to createMcpHandler.fetch(request, { authInfo }) reaches per-request handlers as ctx.http.authInfo unchanged on both legs, and the same AuthInfo is exposed on the factory's per-request context (McpRequestContext.authInfo) before the instance is built.",
         transports: ['entryStateless', 'entryModern'],
         note: 'The body hosts createMcpHandler itself behind the documented bearer-gate composition; the matrix arm selects the legacy posture and client pin. authInfo is strictly pass-through — the entry never derives it from request headers — so the cell pins delivery, not verification. The OAuth client flow that obtains the token is hosting-agnostic and is covered by the client-auth family; the dedicated client-completes-OAuth-then-negotiates-2026 journey rides the auth-package redo (M13.1) so it is targeted at the surviving auth surface.'
+    },
+    'typescript:hosting:entry:auth:insufficient-scope-403': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#scope-mismatch-handling',
+        behavior:
+            'A bearer-protected createMcpHandler deployment whose gate enforces a per-operation scope (deriving the operation from the standard Mcp-Method/Mcp-Name request headers on the modern leg) answers an under-scoped request with 403 and a WWW-Authenticate insufficient_scope challenge naming the required scope, without the entry ever being reached for that request.',
+        transports: ['entryStateless', 'entryModern'],
+        note: 'The body hosts createMcpHandler behind a per-operation scoped bearer gate; the matrix arm selects the legacy posture and client pin. On the legacy leg the gate falls back to a single required scope (no Mcp-Name header). The cell pins the documented RS-side composition that the client-auth:stepup family drives from the client side.'
     },
 
     'typescript:transport:stdio:dual-era-serving': {
