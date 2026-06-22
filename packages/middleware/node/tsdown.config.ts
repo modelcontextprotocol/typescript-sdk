@@ -21,12 +21,17 @@ export default defineConfig({
     //    Bundles d.ts files into a single output
     dts: {
         resolver: 'tsc',
-        // override just for DTS generation:
+        // The dev tsconfig.json maps @modelcontextprotocol/* to workspace source via
+        // `paths` so typecheck/IDE work without a prior build. For declaration emit we
+        // need the opposite: resolve workspace deps through node_modules and keep them
+        // as *external* imports in the bundled .d.ts (server is a peerDependency, so
+        // consumers already have its types). `paths: {}` disables the dev source
+        // mappings; `preserveSymlinks` keeps `node_modules` in the resolved path so
+        // rolldown-plugin-dts recognises the dep as external instead of inlining the
+        // whole upstream type graph (which OOMs once core's surface gets large enough).
         compilerOptions: {
-            baseUrl: '.',
-            paths: {
-                '@modelcontextprotocol/core': ['../core/src/index.ts']
-            }
+            paths: {},
+            preserveSymlinks: true
         }
     }
 });
