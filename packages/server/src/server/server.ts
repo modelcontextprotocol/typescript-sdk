@@ -138,16 +138,18 @@ export type ServerOptions = ProtocolOptions & {
          * influences authorization, resource access, or business logic is on
          * the server author (basic/patterns/mrtr, server requirements 4–5);
          * the SDK provides NO default verification —
-         * {@linkcode createRequestStateCodec} is the SDK-provided HMAC helper
-         * whose `verify` drops in here directly. Leaving this option
+         * {@linkcode server/requestStateCodec.createRequestStateCodec | createRequestStateCodec}
+         * is the SDK-provided HMAC helper whose `verify` drops in here
+         * directly. Leaving this option
          * unconfigured keeps today's behavior — `ctx.mcpReq.requestState` is
          * passed through raw and MUST be treated as attacker-controlled
          * input.
          *
          * The return value is ignored (the seam awaits-and-discards); the
          * hook signature accepts any return so a verifier that also yields
-         * the decoded payload — as {@linkcode RequestStateCodec.verify} does
-         * — is directly assignable.
+         * the decoded payload — as
+         * {@linkcode server/requestStateCodec.RequestStateCodec | RequestStateCodec}`.verify`
+         * does — is directly assignable.
          */
         verify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
     };

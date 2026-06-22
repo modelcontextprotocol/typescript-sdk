@@ -6,7 +6,7 @@ import type { ServerContext } from '@modelcontextprotocol/core';
 export interface RequestStateCodecOptions {
     /**
      * The HMAC secret. A `string` value is UTF-8-encoded. MUST be at least
-     * 32 bytes (256 bits) long; a {@linkcode RangeError} is thrown at
+     * 32 bytes (256 bits) long; a `RangeError` is thrown at
      * construction otherwise. The same key must be available to every server
      * instance that may receive an echoed `requestState` (so a per-process
      * random key only works when one process serves every round of a flow).
@@ -31,6 +31,11 @@ export interface RequestStateCodecOptions {
      * bind: ctx => `${ctx.mcpReq.method}\0${ctx.http?.authInfo?.clientId ?? ''}`
      * ```
      *
+     * The returned value is stored in the envelope as a domain-separated HMAC
+     * tag (keyed by the codec's `key`), not the raw string — so a principal
+     * identifier in the binding does not appear in the wire value the client
+     * holds.
+     *
      * When configured, {@linkcode RequestStateCodec.mint} requires its `ctx`
      * argument.
      */
@@ -41,7 +46,7 @@ export interface RequestStateCodecOptions {
  * The codec returned by {@linkcode createRequestStateCodec}: `mint` seals a
  * JSON-serializable payload into the wire string a handler returns from
  * `inputRequired({ requestState })`; `verify` is the function to drop into
- * {@linkcode ServerOptions.requestState | ServerOptions.requestState.verify}
+ * {@linkcode server/server.ServerOptions | ServerOptions}`.requestState.verify`
  * (it throws on any failure, which the seam answers as the frozen `-32602`)
  * AND the function a handler calls to read the payload back from
  * `ctx.mcpReq.requestState` after the seam has run.
@@ -79,6 +84,22 @@ function bytesToBase64Url(bytes: Uint8Array): string {
     return btoa(bin).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '');
 }
 
+// Constant-time equality on the fixed-length base64url bind-tag string. Same
+// guarantee as the body-MAC check (which uses `subtle.verify`): the
+// per-character XOR accumulator does not vary its trip count with the position
+// of the first mismatch. Length is fixed (22 chars for the 128-bit truncated
+// tag), so the early length-check leaks nothing.
+function constantTimeTagEqual(a: string, b: string): boolean {
+    if (a.length !== b.length) {
+        return false;
+    }
+    let r = 0;
+    for (let i = 0; i < a.length; i++) {
+        r |= a.codePointAt(i)! ^ b.codePointAt(i)!;
+    }
+    return r === 0;
+}
+
 function base64UrlToBytes(s: string): Uint8Array<ArrayBuffer> {
     const b64 = s.replaceAll('-', '+').replaceAll('_', '/');
     const bin = atob(b64);
@@ -96,10 +117,30 @@ function base64UrlToBytes(s: string): Uint8Array<ArrayBuffer> {
  * the convenience implementation of the spec's integrity MUST so authors don't
  * hand-roll HMAC. Wire shape:
  *
- *     "v1." b64url({"p":<payload>,"exp":<unixSeconds>,"b":<bind>?}) "." b64url(mac)
+ *     "v1." b64url({"p":<payload>,"exp":<unixSeconds>,"b":<bindTag>?}) "." b64url(mac)
  *
- * Verification is fail-closed and constant-time (WebCrypto `subtle.verify`).
- * See `examples/server/src/multiRoundTrip.ts` for a worked end-to-end example.
+ * where `bindTag` is `b64url(HMAC(key, "mcp.requestState.bind:" + bind(ctx))[:16])`
+ * — the binding value is never embedded raw.
+ *
+ * The codec is **signed, not encrypted**: the body is integrity-protected but
+ * the client can base64url-decode it and read the payload (`p`) in clear. Do
+ * not put secrets in the payload; use an AEAD construction if confidentiality
+ * is required. The handler reads its payload back by calling `verify` again on
+ * `ctx.mcpReq.requestState` after the seam has run — re-calling `verify` is
+ * the intended pattern (the seam already proved integrity; the second call is
+ * the decode).
+ *
+ * Verification is fail-closed and constant-time (WebCrypto `subtle.verify` for
+ * the body MAC; a fixed-length XOR-accumulator compare for the bind tag).
+ * See `examples/mrtr/server.ts` for a worked end-to-end example.
+ *
+ * Design comparison (mcp.d `secureRequestState`, the peer SDK's reference
+ * implementation): mcp.d additionally offers an AES-256-GCM encrypted mode and
+ * derives independent cipher / bind-HMAC sub-keys from the operator secret via
+ * HKDF-SHA256, with an auto-generated per-process ephemeral key when none is
+ * supplied. This codec deliberately ships only the signed mode and a single
+ * keyed HMAC (domain-separated by input prefix) — HKDF sub-key derivation and
+ * an encrypted mode are intentionally out of scope for the initial release.
  */
 export function createRequestStateCodec<T = unknown>(options: RequestStateCodecOptions): RequestStateCodec<T> {
     const subtle = globalThis.crypto?.subtle;
@@ -110,22 +151,43 @@ export function createRequestStateCodec<T = unknown>(options: RequestStateCodecO
         );
     }
 
-    const keyBytes = typeof options.key === 'string' ? new TextEncoder().encode(options.key) : options.key;
+    // Snapshot the key bytes at construction. When `options.key` is a
+    // Uint8Array, holding the caller's reference would let a post-construction
+    // mutation (e.g. zeroing the secret for hygiene) silently change the key
+    // the lazy `importedKey()` reads on first mint/verify — a TOCTOU on the
+    // secret. The owned copy here is what every later read sees.
+    const keyBytes = typeof options.key === 'string' ? new TextEncoder().encode(options.key) : Uint8Array.from(options.key);
     if (keyBytes.byteLength < 32) {
         throw new RangeError(`createRequestStateCodec: key must be at least 32 bytes (got ${keyBytes.byteLength})`);
     }
     const ttlSeconds = options.ttlSeconds ?? 600;
+    if (!Number.isFinite(ttlSeconds)) {
+        // Infinity/NaN would serialize `exp` as JSON `null`, which then fails
+        // verify() with the misleading reason 'expired' on every round-trip —
+        // fail loudly at construction instead.
+        throw new RangeError('createRequestStateCodec: ttlSeconds must be a finite number');
+    }
     const bind = options.bind;
 
     // The CryptoKey is imported once (lazily) and reused for every mint/verify.
-    // WebCrypto's `sign`/`verify` only accept BufferSource, and a Uint8Array
-    // backed by a SharedArrayBuffer or a resizable buffer is rejected by some
-    // runtimes — slice to a fresh standalone copy.
+    // `keyBytes` is already an owned standalone Uint8Array (snapshot above), so
+    // it satisfies WebCrypto's BufferSource requirement on every runtime.
     let cryptoKey: ReturnType<typeof subtle.importKey> | undefined;
     const importedKey = (): ReturnType<typeof subtle.importKey> =>
-        (cryptoKey ??= subtle.importKey('raw', Uint8Array.from(keyBytes), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']));
+        (cryptoKey ??= subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign', 'verify']));
 
     const utf8 = new TextEncoder();
+
+    // Domain-separated HMAC tag of the binding value, truncated to 128 bits and
+    // base64url'd. The label keeps the bind-tag computation separate from the
+    // body MAC even though both use the same key (the body MAC's input is the
+    // versioned wire string `"v1." + base64url(...)` and can never start with
+    // this label).
+    const BIND_LABEL = 'mcp.requestState.bind:';
+    const bindTag = async (value: string): Promise<string> => {
+        const mac = new Uint8Array(await subtle.sign('HMAC', await importedKey(), utf8.encode(BIND_LABEL + value)));
+        return bytesToBase64Url(mac.slice(0, 16));
+    };
 
     return {
         async mint(payload, ctx) {
@@ -137,10 +199,13 @@ export function createRequestStateCodec<T = unknown>(options: RequestStateCodecO
                 if (ctx === undefined) {
                     throw new TypeError('createRequestStateCodec: mint() requires ctx when a bind callback is configured');
                 }
-                envelope.b = bind(ctx);
+                envelope.b = await bindTag(bind(ctx));
             }
             const body = bytesToBase64Url(utf8.encode(JSON.stringify(envelope)));
-            const mac = new Uint8Array(await subtle.sign('HMAC', await importedKey(), utf8.encode(body)));
+            // The MAC covers `PREFIX + body` so the version tag is bound: a
+            // valid `body.mac` pair under `v1.` cannot be transplanted to a
+            // future `v2.` codec under the same key.
+            const mac = new Uint8Array(await subtle.sign('HMAC', await importedKey(), utf8.encode(PREFIX + body)));
             return `${PREFIX}${body}.${bytesToBase64Url(mac)}`;
         },
 
@@ -160,8 +225,9 @@ export function createRequestStateCodec<T = unknown>(options: RequestStateCodecO
                 throw new Error('malformed');
             }
             // SubtleCrypto.verify is constant-time by spec — no manual byte
-            // compare, no `timingSafeEqual` dependency.
-            const ok = await subtle.verify('HMAC', await importedKey(), macBytes, utf8.encode(body));
+            // compare, no `timingSafeEqual` dependency. The MAC input mirrors
+            // mint: `PREFIX + body`, so the version tag is authenticated.
+            const ok = await subtle.verify('HMAC', await importedKey(), macBytes, utf8.encode(PREFIX + body));
             if (!ok) {
                 throw new Error('mac');
             }
@@ -181,9 +247,18 @@ export function createRequestStateCodec<T = unknown>(options: RequestStateCodecO
             if (typeof envelope.exp !== 'number' || envelope.exp < Math.floor(Date.now() / 1000)) {
                 throw new Error('expired');
             }
-            if (bind !== undefined && envelope.b !== bind(ctx)) {
-                // Opaque reason only — never interpolate the expected/actual
-                // binding values (they may carry principal identifiers).
+            if (bind !== undefined) {
+                const expected = await bindTag(bind(ctx));
+                if (envelope.b === undefined || !constantTimeTagEqual(envelope.b, expected)) {
+                    // Opaque reason only — never interpolate the expected/actual
+                    // binding values (they may carry principal identifiers).
+                    throw new Error('bind');
+                }
+            } else if (envelope.b !== undefined) {
+                // Fail-closed on configuration drift: a token minted with a
+                // bind callback is rejected when verified by an instance that
+                // has none configured. Accepting it would silently drop the
+                // principal-binding guarantee.
                 throw new Error('bind');
             }
             return envelope.p;

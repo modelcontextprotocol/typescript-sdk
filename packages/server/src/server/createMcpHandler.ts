@@ -201,8 +201,8 @@ export interface CreateMcpHandlerOptions {
 
 /**
  * The handler returned by {@linkcode createMcpHandler}: a web-standard
- * `{ fetch, close, notify }` object — the shape Workers/Bun/Deno expect from
- * `export default`. `fetch` is an arrow-assigned bound property: it can be
+ * `{ fetch, close, notify, bus }` object — the shape Workers/Bun/Deno expect
+ * from `export default`. `fetch` is an arrow-assigned bound property: it can be
  * detached and passed around (`const { fetch } = handler`) without losing its
  * binding.
  *
