@@ -100,7 +100,11 @@ const server = new McpServer(
 
 Tools let clients invoke actions on your server — they are usually the main way LLMs call into your application (see [Tools](https://modelcontextprotocol.io/docs/learn/server-concepts#tools) in the MCP overview).
 
-Register a tool with {@linkcode @modelcontextprotocol/server!server/mcp.McpServer#registerTool | registerTool}. Provide an `inputSchema` (Zod) to validate arguments, and optionally an `outputSchema` for structured return values:
+Register a tool with {@linkcode @modelcontextprotocol/server!server/mcp.McpServer#registerTool | registerTool}. Provide an `inputSchema` (Zod) to validate arguments, and optionally an `outputSchema` for structured return values.
+
+> On the 2026-07-28 draft serving path, a tool whose `inputSchema` carries an `x-mcp-header` annotation has that argument mirrored into an `Mcp-Param-{Name}` HTTP request header by conforming clients. `createMcpHandler` validates those headers before dispatch and rejects a
+> `tools/call` whose `Mcp-Param-*` headers are missing for a present body value, malformed, or disagree with the body — `400 Bad Request` with JSON-RPC `-32001` (`HeaderMismatch`). `registerTool` warns at registration time when an `x-mcp-header` declaration violates the
+> spec's constraints. The 2025-era serving paths and the low-level `Server` factory shape are unchanged.
 
 ```ts source="../examples/guides/serverGuide.examples.ts#registerTool_basic"
 server.registerTool(

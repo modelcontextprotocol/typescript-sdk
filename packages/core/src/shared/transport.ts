@@ -87,6 +87,19 @@ export type TransportSendOptions = {
      * (stdio, in-memory) ignore it.
      */
     onRequestStreamEnd?: (() => void) | undefined;
+
+    /**
+     * Additional HTTP headers to send with THIS outbound message, when the
+     * transport sends one outbound message per underlying HTTP request (the
+     * Streamable HTTP transport's POST-per-request model). Transports that
+     * share a single channel (stdio, in-memory) ignore it.
+     *
+     * The Client uses this to attach SEP-2243 `Mcp-Param-{Name}` headers to a
+     * `tools/call` request on a 2026-07-28 connection. Values are sent
+     * verbatim — encode anything that is not a safe RFC 9110 field value
+     * before passing it here.
+     */
+    headers?: Readonly<Record<string, string>> | undefined;
 };
 /**
  * Describes the minimal contract for an MCP transport that a client or server can communicate over.

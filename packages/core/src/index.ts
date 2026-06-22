@@ -8,6 +8,7 @@ export * from './shared/inboundClassification.js';
 export * from './shared/inputRequired.js';
 export * from './shared/inputRequiredDriver.js';
 export * from './shared/inputRequiredEngine.js';
+export * from './shared/mcpParamHeaders.js';
 export * from './shared/metadataUtils.js';
 export * from './shared/protocol.js';
 export * from './shared/protocolEras.js';

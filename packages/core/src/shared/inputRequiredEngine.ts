@@ -176,6 +176,11 @@ export function buildRetryLegRequestOptions(options: RequestOptions | undefined,
         ...(options?.signal !== undefined && { signal: options.signal }),
         ...(options?.onprogress !== undefined && { onprogress: options.onprogress }),
         ...(options?.resetTimeoutOnProgress !== undefined && { resetTimeoutOnProgress: options.resetTimeoutOnProgress }),
+        // Per-request HTTP headers (SEP-2243 `Mcp-Param-*`) carry over: the
+        // retry's `arguments` are byte-identical to the originating leg (the
+        // driver only adds `inputResponses`/`requestState`), so the param
+        // headers built for the first leg remain correct for every retry leg.
+        ...(options?.headers !== undefined && { headers: options.headers }),
         ...(legOptions.timeout !== undefined && { timeout: legOptions.timeout }),
         ...(legOptions.maxTotalTimeout !== undefined && { maxTotalTimeout: legOptions.maxTotalTimeout }),
         // The driver re-enters the funnel with the manual primitive: a further

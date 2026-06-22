@@ -1125,6 +1125,21 @@ The entry performs no Origin/Host validation (see the origin-validation middlewa
 headers. Power users who want to compose routing themselves can use the exported `isLegacyRequest`, `classifyInboundRequest` and `PerRequestHTTPServerTransport` building blocks directly; the handler faces are bound properties, so they can be detached and passed around
 (`const { fetch } = handler`).
 
+### `Mcp-Param-*` request-metadata headers (SEP-2243, 2026-07-28 draft)
+
+On a 2026-07-28 connection over Streamable HTTP, `Client.callTool()` mirrors tool arguments designated with `x-mcp-header` in the tool's `inputSchema` into `Mcp-Param-{Name}` HTTP request headers (Base64-sentinel-encoded where needed) so HTTP intermediaries can route on them
+without parsing the body, and `createMcpHandler` rejects a `tools/call` whose `Mcp-Param-*` headers are missing for a present body value, malformed, or disagree with the body — `400 Bad Request` with JSON-RPC `-32001` (`HeaderMismatch`). The legacy-era serving paths and the
+client's legacy-era `callTool`/`listTools` are unchanged at the wire level.
+
+The Streamable HTTP transport now also emits the `Mcp-Name` standard header on every modern-enveloped request (`tools/call`/`prompts/get` → `params.name`; `resources/read` → `params.uri`), sentinel-encoded the same way, so intermediaries can route on the resource name without
+parsing the body. **On a modern-enveloped request only**, an HTTP `400` whose body is a well-formed JSON-RPC error response addressed to the pending request id is now delivered in-band as a `ProtocolError` (so the `HEADER_MISMATCH` recovery retry can fire); a legacy-era
+exchange still surfaces `400` as the existing `SdkHttpError`, so `e instanceof SdkHttpError && e.status === 400` callers are unchanged.
+
+Two additive options support this: `CallToolRequestOptions.toolDefinition` (pass the tool definition directly so mirroring and output-schema validation run without a prior `tools/list`) and `TransportSendOptions.headers` (per-request HTTP headers; the Streamable HTTP transport
+skips the reserved standard/auth header names so a per-request header cannot override `mcp-protocol-version`/`mcp-method`/`mcp-name`/`mcp-session-id`/`authorization`; transports that share a single channel — stdio, in-memory — ignore it). On a non-stdio modern connection,
+`Client.listTools()` (and the client's internal `tools/list` cache) exclude tool definitions whose `x-mcp-header` declarations violate the spec's constraints, logging a warning naming the tool and the reason. Browser clients skip mirroring (dynamically named headers cannot be
+statically allow-listed for credentialed CORS); calling an `x-mcp-header` tool with a non-null designated argument from a browser against a conforming SEP-2243 server is therefore a known limitation.
+
 ### Serving the 2026-07-28 draft revision on stdio: `serveStdio`
 
 The server package ships a stdio entry point that mirrors `createMcpHandler` for long-lived connections: the entry owns the transport and the era decision, the client's opening exchange selects the era for the connection, and ONE instance from your factory is pinned to that

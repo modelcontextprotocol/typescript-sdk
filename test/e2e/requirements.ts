@@ -2595,6 +2595,15 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting layer and session management; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    // SEP-2243 request-metadata headers (protocol revision 2026-07-28)
+    'sep-2243:param-header:roundtrip': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/transports/streamable-http#custom-headers-from-tool-parameters',
+        behavior:
+            'A tools/call to a tool whose inputSchema declares an x-mcp-header property carries the corresponding Mcp-Param-{Name} HTTP header on the wire, encoded per the SEP-2243 value-encoding rules, and the call completes successfully against a validating server.',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryModern arm; the Mcp-Param-{Name} header is asserted on the arm-recorded HTTP request headers and the encoded value is checked against the SEP-2243 codec.'
+    },
     // Multi round-trip requests (SEP-2322, protocol revision 2026-07-28)
     'typescript:mrtr:tools-call:write-once-roundtrip': {
         source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr',
