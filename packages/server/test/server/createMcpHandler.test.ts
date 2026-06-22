@@ -41,12 +41,30 @@ function modernToolsCall(name: string, args: Record<string, unknown>, envelope: 
     };
 }
 
+/**
+ * The SEP-2243 standard headers a conformant client derives from the body it
+ * sends. Only emitted for a body carrying a modern envelope claim, so legacy
+ * test cells stay byte-untouched; spread before any explicit `headers` so a
+ * caller that needs to test a stripped or disagreeing header can override.
+ */
+function bodyDerivedStandardHeaders(body: unknown): Record<string, string> {
+    if (body === null || typeof body !== 'object' || Array.isArray(body)) return {};
+    const b = body as { method?: unknown; params?: { name?: unknown; uri?: unknown; _meta?: Record<string, unknown> } };
+    if (typeof b.params?._meta?.[PROTOCOL_VERSION_META_KEY] !== 'string') return {};
+    const out: Record<string, string> = {};
+    if (typeof b.method === 'string') out['mcp-method'] = b.method;
+    const name = b.method === 'resources/read' ? b.params.uri : b.params.name;
+    if (typeof name === 'string') out['mcp-name'] = name;
+    return out;
+}
+
 function postRequest(body: unknown, headers: Record<string, string> = {}): Request {
     return new Request('http://localhost/mcp', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
             Accept: 'application/json, text/event-stream',
+            ...bodyDerivedStandardHeaders(body),
             ...headers
         },
         body: typeof body === 'string' ? body : JSON.stringify(body)
@@ -782,6 +800,7 @@ describe('createMcpHandler — handler faces', () => {
 
         const parsed = modernToolsCall('echo', { text: 'pre-parsed' });
         const { req, res, body } = nodeRequestResponse(undefined);
+        Object.assign(req.headers, bodyDerivedStandardHeaders(parsed));
         await handler.node(req, res, parsed);
         expect(res.statusCode).toBe(200);
         expect(await body()).toContain('pre-parsed');
@@ -939,7 +958,8 @@ function nodeRequestResponse(body: unknown): {
         headers: {
             host: 'localhost:3000',
             'content-type': 'application/json',
-            accept: 'application/json, text/event-stream'
+            accept: 'application/json, text/event-stream',
+            ...bodyDerivedStandardHeaders(body)
         } as Record<string, string>
     });
 

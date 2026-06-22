@@ -169,7 +169,11 @@ describe('createMcpHandler over HTTP — subscriptions/listen honored filter', (
 
         const response = await fetch(new URL('/mcp', baseUrl), {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream',
+                'mcp-method': 'subscriptions/listen'
+            },
             body: JSON.stringify({
                 jsonrpc: '2.0',
                 id: 'sub-1',

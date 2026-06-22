@@ -332,10 +332,9 @@ export class StreamableHTTPClientTransport implements Transport {
         // non-ASCII name/URI (or one with leading/trailing whitespace,
         // control characters, or CR/LF) cannot make `Headers.set()` throw a
         // TypeError or silently normalize to a value that differs from the
-        // body. The spec's value-encoding rules apply to `Mcp-Name`; this
-        // SDK's server does not yet cross-check `Mcp-Name` against the body
-        // (tracked in expected-failures.yaml) — when it does it will decode
-        // the sentinel before comparison.
+        // body. The spec's value-encoding rules apply to `Mcp-Name`; the SDK
+        // server's `validateStandardRequestHeaders` decodes the sentinel via
+        // `decodeMcpParamValue` before the `Mcp-Name` ↔ body cross-check.
         const params = message.params as { name?: unknown; uri?: unknown } | undefined;
         const nameHeader =
             message.method === 'resources/read'

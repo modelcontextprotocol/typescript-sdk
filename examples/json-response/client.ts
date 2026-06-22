@@ -18,7 +18,8 @@ runClient('json-response', async () => {
         headers: {
             'content-type': 'application/json',
             accept: 'application/json, text/event-stream',
-            'mcp-protocol-version': '2026-07-28'
+            'mcp-protocol-version': '2026-07-28',
+            'mcp-method': 'tools/list'
         },
         body: JSON.stringify({
             jsonrpc: '2.0',

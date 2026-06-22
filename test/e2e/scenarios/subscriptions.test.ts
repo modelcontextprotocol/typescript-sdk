@@ -42,7 +42,11 @@ verifies('subscriptions:listen:ack-first-stamped', async () => {
     const response = await handler.fetch(
         new Request('http://in-process/mcp', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+            headers: {
+                'Content-Type': 'application/json',
+                Accept: 'application/json, text/event-stream',
+                'mcp-method': 'subscriptions/listen'
+            },
             body: JSON.stringify({
                 jsonrpc: '2.0',
                 id: 'sub-1',
@@ -140,7 +144,11 @@ verifies('subscriptions:listen:capacity-guard', async () => {
         handler.fetch(
             new Request('http://in-process/mcp', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', Accept: 'application/json, text/event-stream' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    Accept: 'application/json, text/event-stream',
+                    'mcp-method': 'subscriptions/listen'
+                },
                 body: JSON.stringify({
                     jsonrpc: '2.0',
                     id,
