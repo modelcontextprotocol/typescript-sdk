@@ -44,6 +44,15 @@ export enum SdkErrorCode {
      */
     InputRequiredRoundsExceeded = 'INPUT_REQUIRED_ROUNDS_EXCEEDED',
     /**
+     * The auto-aggregating no-`cursor` `listTools()` / `listPrompts()` /
+     * `listResources()` / `listResourceTemplates()` walk hit the
+     * `ClientOptions.listMaxPages` cap without the server's pagination
+     * converging. `data.method` carries the list verb and
+     * `data.listMaxPages` the cap that was hit; raise the cap or fall back to
+     * explicit per-page `{ cursor }` calls.
+     */
+    ListPaginationExceeded = 'LIST_PAGINATION_EXCEEDED',
+    /**
      * The spec method being sent does not exist on the negotiated protocol
      * version's wire era (e.g. `tasks/get` toward a 2026-07-28 peer, or
      * `server/discover` toward a 2025-era peer). Raised locally, before

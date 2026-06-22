@@ -13,7 +13,7 @@ A client connects to a server, discovers what it offers — tools, resources, pr
 The examples below use these imports. Adjust based on which features and transport you need:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#imports"
-import type { AuthProvider, Prompt, Resource, Tool } from '@modelcontextprotocol/client';
+import type { AuthProvider } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     Client,
@@ -252,20 +252,14 @@ For manual control over the token exchange steps, use the Layer 2 utilities from
 
 Tools are callable actions offered by servers — discovering and invoking them is usually how your client enables an LLM to take action (see [Tools](https://modelcontextprotocol.io/docs/learn/server-concepts#tools) in the MCP overview).
 
-Use {@linkcode @modelcontextprotocol/client!client/client.Client#listTools | listTools()} to discover available tools, and {@linkcode @modelcontextprotocol/client!client/client.Client#callTool | callTool()} to invoke one. Results may be paginated — loop on `nextCursor` to collect
-all pages:
+Use {@linkcode @modelcontextprotocol/client!client/client.Client#listTools | listTools()} to discover available tools, and {@linkcode @modelcontextprotocol/client!client/client.Client#callTool | callTool()} to invoke one. `listTools()` walks every page on your behalf and returns
+the complete list (pass an explicit `{ cursor }` for per-page control):
 
 ```ts source="../examples/guides/clientGuide.examples.ts#callTool_basic"
-const allTools: Tool[] = [];
-let toolCursor: string | undefined;
-do {
-    const { tools, nextCursor } = await client.listTools({ cursor: toolCursor });
-    allTools.push(...tools);
-    toolCursor = nextCursor;
-} while (toolCursor);
+const { tools } = await client.listTools();
 console.log(
     'Available tools:',
-    allTools.map(t => t.name)
+    tools.map(t => t.name)
 );
 
 const result = await client.callTool({
@@ -311,20 +305,14 @@ console.log(result.content);
 
 Resources are read-only data — files, database schemas, configuration — that your application can retrieve from a server and attach as context for the model (see [Resources](https://modelcontextprotocol.io/docs/learn/server-concepts#resources) in the MCP overview).
 
-Use {@linkcode @modelcontextprotocol/client!client/client.Client#listResources | listResources()} and {@linkcode @modelcontextprotocol/client!client/client.Client#readResource | readResource()} to discover and read server-provided data. Results may be paginated — loop on
-`nextCursor` to collect all pages:
+Use {@linkcode @modelcontextprotocol/client!client/client.Client#listResources | listResources()} and {@linkcode @modelcontextprotocol/client!client/client.Client#readResource | readResource()} to discover and read server-provided data. `listResources()` walks every page on your
+behalf and returns the complete list (pass an explicit `{ cursor }` for per-page control):
 
 ```ts source="../examples/guides/clientGuide.examples.ts#readResource_basic"
-const allResources: Resource[] = [];
-let resourceCursor: string | undefined;
-do {
-    const { resources, nextCursor } = await client.listResources({ cursor: resourceCursor });
-    allResources.push(...resources);
-    resourceCursor = nextCursor;
-} while (resourceCursor);
+const { resources } = await client.listResources();
 console.log(
     'Available resources:',
-    allResources.map(r => r.name)
+    resources.map(r => r.name)
 );
 
 const { contents } = await client.readResource({ uri: 'config://app' });
@@ -357,20 +345,14 @@ await client.unsubscribeResource({ uri: 'config://app' });
 
 Prompts are reusable message templates that servers offer to help structure interactions with models (see [Prompts](https://modelcontextprotocol.io/docs/learn/server-concepts#prompts) in the MCP overview).
 
-Use {@linkcode @modelcontextprotocol/client!client/client.Client#listPrompts | listPrompts()} and {@linkcode @modelcontextprotocol/client!client/client.Client#getPrompt | getPrompt()} to list available prompts and retrieve them with arguments. Results may be paginated — loop on
-`nextCursor` to collect all pages:
+Use {@linkcode @modelcontextprotocol/client!client/client.Client#listPrompts | listPrompts()} and {@linkcode @modelcontextprotocol/client!client/client.Client#getPrompt | getPrompt()} to list available prompts and retrieve them with arguments. `listPrompts()` walks every page on
+your behalf and returns the complete list (pass an explicit `{ cursor }` for per-page control):
 
 ```ts source="../examples/guides/clientGuide.examples.ts#getPrompt_basic"
-const allPrompts: Prompt[] = [];
-let promptCursor: string | undefined;
-do {
-    const { prompts, nextCursor } = await client.listPrompts({ cursor: promptCursor });
-    allPrompts.push(...prompts);
-    promptCursor = nextCursor;
-} while (promptCursor);
+const { prompts } = await client.listPrompts();
 console.log(
     'Available prompts:',
-    allPrompts.map(p => p.name)
+    prompts.map(p => p.name)
 );
 
 const { messages } = await client.getPrompt({

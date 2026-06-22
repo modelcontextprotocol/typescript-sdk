@@ -560,6 +560,10 @@ side: auto-fulfilment is on by default (`ClientOptions.inputRequired`, `maxRound
 
 `Client.listPrompts()`, `listResources()`, `listResourceTemplates()`, `listTools()` now return empty results when the server lacks the corresponding capability (instead of sending the request). Set `enforceStrictCapabilities: true` in `ClientOptions` to throw an error instead.
 
+`Client.listTools()`, `listPrompts()`, `listResources()`, `listResourceTemplates()` called without a `cursor` now auto-aggregate every page and return the complete result (`nextCursor: undefined`); an explicit `{ cursor }` string still returns one page. Manual `do { … } while (cursor !== undefined)` loops keep working (the first call returns everything and the loop exits after one iteration) — replace them with the bare no-arg call. New `ClientOptions.listMaxPages` (default 64) caps the aggregate walk only; overrun throws `SdkError` (`SdkErrorCode.ListPaginationExceeded`).
+
+Output-schema validator compilation is now lazy (first `callTool()` against the cached `tools/list` entry) and non-throwing (an uncompilable `outputSchema` is `console.warn`-ed and validation is skipped for that tool only); `listTools()` no longer throws on an uncompilable `outputSchema`. Applies on every era — the legacy-era `listTools()` path is unchanged at the wire level only.
+
 ### Server (Streamable HTTP transport)
 
 No code changes required; these are wire-behavior notes:

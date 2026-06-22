@@ -553,6 +553,32 @@ const client = new Client(
 );
 ```
 
+### Client list methods auto-aggregate pagination
+
+`Client.listTools()`, `listPrompts()`, `listResources()`, and `listResourceTemplates()` called **without a `cursor`** now walk every page on your behalf and return the complete aggregated result with `nextCursor: undefined`. This matches the C#, Java, and mcp.d SDKs. Passing an explicit `{ cursor }` string still fetches a single page (the v1 per-page contract).
+
+Existing manual pagination loops keep working — the first iteration returns everything and the loop exits after one pass — but they can now be deleted:
+
+```typescript
+// v1 — manual pagination loop
+const allTools: Tool[] = [];
+let cursor: string | undefined;
+do {
+    const { tools, nextCursor } = await client.listTools({ cursor });
+    allTools.push(...tools);
+    cursor = nextCursor;
+} while (cursor !== undefined);
+
+// v2 — auto-aggregated
+const { tools } = await client.listTools();
+```
+
+The auto-aggregate walk is capped at `ClientOptions.listMaxPages` pages (default 64; `0` disables) and throws an `SdkError` with `SdkErrorCode.ListPaginationExceeded` if the server's pagination does not converge, so a partial aggregate is never returned. The cap applies only to the no-`cursor` aggregate path; explicit per-page calls are never capped. The aggregated result is also written to the client's response cache (the source for `callTool`'s output-schema validation and SEP-2243 header mirroring).
+
+**Output-schema validator lifecycle (every era):** validator compilation is now lazy — validators are compiled on the first `callTool()` against the cached `tools/list` entry, not eagerly inside `listTools()` — and non-throwing: an uncompilable `outputSchema` is `console.warn`-ed
+and validation is skipped for that tool only. In v1, `listTools()` threw on an uncompilable `outputSchema`; now it succeeds, and a pluggable `jsonSchemaValidator` provider observes compilation at `callTool` time, not `listTools` time. The legacy-era `listTools()` path is
+unchanged at the wire level but is observably different at the validator-lifecycle level.
+
 ### `InMemoryTransport` moved
 
 `InMemoryTransport` is now exported from `@modelcontextprotocol/client` and `@modelcontextprotocol/server` (both re-export it). It is still intended for in-process client-server connections and testing.
