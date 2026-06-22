@@ -49,7 +49,7 @@ import type { StandardSchemaV1 } from '../util/standardSchema.js';
 import { isStandardSchema, validateStandardSchema } from '../util/standardSchema.js';
 import { bootstrapOutboundCodec } from '../wire/bootstrap.js';
 import type { LiftedWireMaterial, WireCodec } from '../wire/codec.js';
-import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod } from '../wire/codec.js';
+import { classifiedWireEra, codecForVersion, isSpecNotificationMethod, isSpecRequestMethod, MODERN_WIRE_REVISION } from '../wire/codec.js';
 import { manualInputRequiredValue, partitionInputResponses } from './inputRequiredEngine.js';
 import type { Transport, TransportSendOptions } from './transport.js';
 
@@ -1300,6 +1300,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             options?.signal?.throwIfAborted();
 
+            // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28):
+            // on Streamable HTTP, closing the per-request SSE stream IS the
+            // cancellation signal — "no notifications/cancelled message is
+            // required or expected". When the negotiated era is modern AND the
+            // transport opens a per-request stream (`hasPerRequestStream`),
+            // cancel() aborts that stream via `requestSignal` INSTEAD OF
+            // POSTing `notifications/cancelled`. Every other (era × transport)
+            // combination — legacy era on any transport, modern era on stdio /
+            // in-memory — keeps today's `notifications/cancelled` POST path
+            // unchanged.
+            const streamCloseCancels = codec.era === MODERN_WIRE_REVISION && this._transport.hasPerRequestStream === true;
+            const requestAbort = streamCloseCancels ? new AbortController() : undefined;
+
             const messageId = this._requestMessageId++;
             cleanupMessageId = messageId;
             const jsonrpcRequest: JSONRPCRequest = {
@@ -1333,19 +1346,28 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
                 this._progressHandlers.delete(messageId);
 
-                this._transport
-                    ?.send(
-                        this._envelopeOutbound({
-                            jsonrpc: '2.0',
-                            method: 'notifications/cancelled',
-                            params: {
-                                requestId: messageId,
-                                reason: String(reason)
-                            }
-                        }),
-                        { relatedRequestId, resumptionToken, onresumptiontoken }
-                    )
-                    .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                if (requestAbort === undefined) {
+                    this._transport
+                        ?.send(
+                            this._envelopeOutbound({
+                                jsonrpc: '2.0',
+                                method: 'notifications/cancelled',
+                                params: {
+                                    requestId: messageId,
+                                    reason: String(reason)
+                                }
+                            }),
+                            { relatedRequestId, resumptionToken, onresumptiontoken }
+                        )
+                        .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
+                } else {
+                    // Modern-era per-request-stream transport: aborting the
+                    // request's underlying stream IS the spec cancel signal.
+                    // The transport already swallows the resulting AbortError
+                    // (no spurious `onerror`); a post-abort send() rejection
+                    // re-hits an already-settled promise below and is a no-op.
+                    requestAbort.abort();
+                }
 
                 // Wrap the reason in an SdkError if it isn't already
                 const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
@@ -1430,10 +1452,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
             this._setupTimeout(messageId, timeout, options?.maxTotalTimeout, timeoutHandler, options?.resetTimeoutOnProgress ?? false);
 
-            this._transport.send(outbound, { relatedRequestId, resumptionToken, onresumptiontoken, headers }).catch(error => {
-                this._progressHandlers.delete(messageId);
-                reject(error);
-            });
+            this._transport
+                .send(outbound, { relatedRequestId, resumptionToken, onresumptiontoken, headers, requestSignal: requestAbort?.signal })
+                .catch(error => {
+                    this._progressHandlers.delete(messageId);
+                    reject(error);
+                });
         }).finally(() => {
             // Per-request cleanup that must run on every exit path. Consolidated
             // here so new exit paths added to the promise body can't forget it.

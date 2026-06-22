@@ -1223,6 +1223,18 @@ once the server's acknowledged notification arrives with `{ honoredFilter, close
 you still want events); change notifications dispatch to the existing `setNotificationHandler` registrations. `resources/subscribe` is 2025-only — on a 2026-07-28 connection, request `notifications/resources/updated` via the `resourceSubscriptions` field of the listen filter
 instead.
 
+### Client cancellation on Streamable HTTP (2026-07-28): stream-close is the signal
+
+On a 2026-07-28 Streamable HTTP connection, aborting an in-flight client request (caller `signal` or timeout) now closes that request's SSE response stream — the spec cancellation signal for this transport — instead of POSTing a `notifications/cancelled` message. Nothing to change in calling code: `RequestOptions.signal` and `timeout` behave exactly as before. Cancellation on a 2025-era
+connection, and on stdio at any era, is unchanged and still sends `notifications/cancelled`. Custom `Transport` implementations that open one underlying request per outbound JSON-RPC request and honor `TransportSendOptions.requestSignal` may opt into the same routing by declaring
+`readonly hasPerRequestStream = true`.
+
+### `ctx.mcpReq.log()`: request-related delivery and the 2026-07-28 per-request opt-in
+
+`ctx.mcpReq.log()` now emits its `notifications/message` request-related (it rides the in-flight exchange like progress and `ctx.mcpReq.notify`) on **every** era. On a 2025-era sessionful Streamable HTTP transport this moves handler-emitted logs from the standalone GET stream onto the per-request POST response stream — a spec-conformance correction: the 2025-11-25 specification (`docs/specification/2025-11-25/basic/transports.mdx` §"Sending Messages to the Server" item 6 / §"Listening for Messages from the Server" item 4) says messages on the POST response stream SHOULD relate to the originating client request and messages on the GET stream SHOULD be unrelated to any concurrently-running request. The session-scoped `logging/setLevel` filter applies as before on 2025-era connections, and an unset session level continues to mean no filter.
+
+On a 2026-07-28 request, `ctx.mcpReq.log()` reads the per-request level filter from the `io.modelcontextprotocol/logLevel` `_meta` envelope key (the modern replacement for the `logging/setLevel` RPC, which is not a request method on that revision). When the key is **absent** the server emits no `notifications/message` for that request — absence is opt-out, not "no filter". The SDK `Client` does not auto-attach a `logLevel` key, so handler logs on a default 2026-era exchange are silently suppressed until the client opts in.
+
 ### Multi round-trip requests (2026-07-28): write-once handlers and the client auto-fulfilment driver
 
 The 2026-07-28 revision removes the server→client JSON-RPC request channel: servers obtain client input (elicitation, sampling, roots) **in-band**, by answering `tools/call`, `prompts/get`, or `resources/read` with an `input_required` result that embeds the requests, and the

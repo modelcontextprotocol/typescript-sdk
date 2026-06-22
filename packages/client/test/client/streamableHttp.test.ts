@@ -404,6 +404,15 @@ describe('StreamableHTTPClientTransport', () => {
         ).toBe(true);
     });
 
+    it('declares hasPerRequestStream so the protocol layer routes 2026-era cancellation to stream-close', () => {
+        // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28):
+        // closing the per-request SSE stream IS the cancel signal on
+        // Streamable HTTP. Protocol.request() keys on this flag (plus the
+        // negotiated era) to abort `requestSignal` instead of POSTing
+        // `notifications/cancelled`.
+        expect(transport.hasPerRequestStream).toBe(true);
+    });
+
     it('should support custom reconnection options', () => {
         // Create a transport with custom reconnection options
         transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {

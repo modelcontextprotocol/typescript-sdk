@@ -127,6 +127,18 @@ export interface Transport {
     close(): Promise<void>;
 
     /**
+     * `true` when this transport opens one underlying request per outbound
+     * JSON-RPC request (the Streamable HTTP POST-per-request model) and
+     * therefore honors {@linkcode TransportSendOptions.requestSignal}. The
+     * 2026-07-28 spec makes closing that per-request stream the cancellation
+     * signal — the protocol layer aborts `requestSignal` instead of POSTing
+     * `notifications/cancelled` when this flag is set on a 2026-era
+     * connection. Transports that share a single channel (stdio, in-memory)
+     * leave it `undefined`.
+     */
+    readonly hasPerRequestStream?: boolean;
+
+    /**
      * Callback for when the connection is closed for any reason.
      *
      * This should be invoked when {@linkcode Transport.close | close()} is called as well.
