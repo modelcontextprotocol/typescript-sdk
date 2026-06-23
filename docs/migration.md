@@ -575,6 +575,25 @@ const { tools } = await client.listTools();
 
 The auto-aggregate walk is capped at `ClientOptions.listMaxPages` pages (default 64; `0` disables) and throws an `SdkError` with `SdkErrorCode.ListPaginationExceeded` if the server's pagination does not converge, so a partial aggregate is never returned. The cap applies only to the no-`cursor` aggregate path; explicit per-page calls are never capped. The aggregated result is also written to the client's response cache (the source for `callTool`'s output-schema validation and SEP-2243 header mirroring).
 
+### Client honours server cache hints (SEP-2549)
+
+On a 2026-07-28 connection the cacheable verbs — `listTools()`, `listPrompts()`, `listResources()`, `listResourceTemplates()`, and `readResource()` — now serve a still-fresh held entry without a round trip when the server-stamped `ttlMs` has not elapsed. The behaviour is opt-in **by server hint**: a server that sends `ttlMs: 0` (the conservative default the SDK's `McpServer` stamps unless configured otherwise) sees byte-identical behaviour — every call fetches. A `list_changed` notification still evicts immediately regardless of TTL.
+
+Per-call control via the new `CacheableRequestOptions.cacheMode` (`'use'` is the default):
+
+```typescript
+await client.listTools(); // serve from cache if fresh
+await client.listTools(undefined, { cacheMode: 'refresh' }); // always fetch, then re-store
+await client.listTools(undefined, { cacheMode: 'bypass' }); // fetch; do not read or write the cache
+```
+
+New `ClientOptions`:
+
+- `cachePartition?: string` — the opaque per-principal identifier for `'private'`-scoped entries (the spec's "MUST NOT share across authorization contexts"). Entries are automatically scoped by connected-server identity (derived from `serverInfo`), so one `responseCacheStore` may back several clients without consumer-side encoding; set `cachePartition` to your principal identifier (e.g. the auth subject) when sharing a store across principals. With the default `''` every entry — public or private — lives at the connected server's shared partition (the safe single-tenant posture). Note `serverInfo` is self-reported, so a server that deliberately impersonates another's `name`/`version` shares its `'public'` slot; the per-principal isolation holds regardless.
+- `defaultCacheTtlMs?: number` — applied when a cacheable result lacks `ttlMs` (e.g. a legacy-era response). Default `0` — never serve from cache; the list aggregate is still **stored** so `callTool`'s mirroring/output-validation index keeps working regardless. The server-supplied `ttlMs` is clamped at 24 h (`MAX_CACHE_TTL_MS`).
+
+The `ResponseCacheStore` interface gained `delete(key)` (the per-URI invalidation `notifications/resources/updated` drives) — custom stores written against the alpha substrate need to add it. The default `InMemoryResponseCacheStore` is now bounded (default 512 entries, oldest-first eviction; configurable via `{ maxEntries }`).
+
 **Output-schema validator lifecycle (every era):** validator compilation is now lazy — validators are compiled on the first `callTool()` against the cached `tools/list` entry, not eagerly inside `listTools()` — and non-throwing: an uncompilable `outputSchema` is `console.warn`-ed
 and validation is skipped for that tool only. In v1, `listTools()` threw on an uncompilable `outputSchema`; now it succeeds, and a pluggable `jsonSchemaValidator` provider observes compilation at `callTool` time, not `listTools` time. The legacy-era `listTools()` path is
 unchanged at the wire level but is observably different at the validator-lifecycle level.

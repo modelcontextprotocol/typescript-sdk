@@ -379,6 +379,32 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
+    it('options.signal already aborted: listen() rejects with SdkError(RequestTimeout) before any setup (parity with request())', async () => {
+        const { clientTx, written } = await scriptedModern();
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        written.length = 0;
+        const ac = new AbortController();
+        ac.abort('user cancelled');
+        const error = await client.listen({ toolsListChanged: true }, { signal: ac.signal }).catch(e => e as SdkError);
+        // Same wrap as `Protocol.request()` / `_serveFromCache`: a non-SdkError
+        // reason is wrapped as RequestTimeout; the reason text is preserved.
+        expect(error).toBeInstanceOf(SdkError);
+        expect((error as SdkError).code).toBe(SdkErrorCode.RequestTimeout);
+        expect((error as SdkError).message).toContain('user cancelled');
+        // No subscriptions/listen reached the wire; no listen state registered.
+        await flush();
+        expect(written.find(m => (m as { method?: string }).method === 'subscriptions/listen')).toBeUndefined();
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        // An SdkError reason is preserved verbatim (not double-wrapped).
+        const ac2 = new AbortController();
+        const own = new SdkError(SdkErrorCode.NotConnected, 'upstream');
+        ac2.abort(own);
+        const error2 = await client.listen({ toolsListChanged: true }, { signal: ac2.signal }).catch(e => e as SdkError);
+        expect(error2).toBe(own);
+        await client.close();
+    });
+
     it('options.signal aborted while opening: listen() rejects fast with the signal reason', async () => {
         const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
         const written: JSONRPCMessage[] = [];

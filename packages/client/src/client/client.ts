@@ -82,8 +82,8 @@ import {
     SubscriptionFilterSchema
 } from '@modelcontextprotocol/core';
 
-import type { ResponseCacheStore } from './responseCache.js';
-import { ClientResponseCache, InMemoryResponseCacheStore } from './responseCache.js';
+import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache.js';
+import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache.js';
 import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation.js';
 import { detectProbeEnvironment, detectProbeTransportKind, negotiateEra, resolveVersionNegotiation } from './versionNegotiation.js';
 
@@ -278,18 +278,65 @@ export type ClientOptions = ProtocolOptions & {
     /**
      * The response-cache store backing the client's derived views (the cached
      * `tools/list` result that {@linkcode Client.callTool | callTool}'s output
-     * validation and SEP-2243 header mirroring will read once the stacked
-     * SEP-2243 PR lands; this commit ships only the seam). Defaults to a fresh
+     * validation and SEP-2243 header mirroring read) and the SEP-2549
+     * cache-hint serving on the cacheable verbs. Defaults to a fresh
      * {@linkcode InMemoryResponseCacheStore} per client.
      *
-     * **Do not share one store across clients at all in v2.0.x** — entries
-     * are keyed by method + params only, so two clients connected to
-     * different servers (even under the same credential) collide on
-     * `tools/list`, and one client's `list_changed` evicts every co-tenant's
-     * entry. Supply your own only as a single-client backing store.
-     * Per-principal partitioning that enables safe sharing is #39.
+     * Entries are automatically scoped by connected-server identity (derived
+     * from `serverInfo` after connect) AND, for `'private'`-scoped results,
+     * by `cachePartition` — encoded collision-free via `JSON.stringify`, so a
+     * server cannot craft a `serverInfo` that bleeds into another server's
+     * namespace or another principal's slot. One store may therefore back
+     * several clients (e.g. a host pool against the same server, or one
+     * persistent KV across servers); `list_changed` evictions are scoped to
+     * the connected server's partitions, so co-tenants are unaffected. Set
+     * `cachePartition` to your principal identifier (e.g. the auth subject)
+     * when sharing across principals. Note `serverInfo` is self-reported — a
+     * server that deliberately impersonates
+     * another's `name`/`version` shares its `'public'` slot; the
+     * per-principal isolation via `cachePartition` holds regardless.
      */
     responseCacheStore?: ResponseCacheStore;
+
+    /**
+     * Opaque per-principal identifier for response-cache writes whose
+     * server-reported `cacheScope` is `'private'` (the spec's "MUST NOT share
+     * across authorization contexts"). Within the connected server's
+     * namespace, `'public'`-scoped entries live at the shared
+     * `[serverIdentity, '']` partition and `'private'`-scoped entries at
+     * `[serverIdentity, cachePartition]`. Set this to a stable identity of
+     * the authorization context (e.g. the auth subject) when one
+     * `responseCacheStore` backs several principals; with the
+     * default `''` every entry — public or private — lives at the server's
+     * shared partition, which is the safe single-tenant posture.
+     */
+    cachePartition?: string;
+
+    /**
+     * TTL (ms) applied when a cacheable result arrives without a `ttlMs`
+     * field. Default `0` — a result without an explicit hint is never served
+     * from cache (every call refetches), but it is still **stored** so the
+     * `tools/list`-derived index that {@linkcode Client.callTool | callTool}'s
+     * SEP-2243 mirroring and output-schema validation read keeps working
+     * regardless. The spec defines absent-or-≤0 as "immediately stale".
+     */
+    defaultCacheTtlMs?: number;
+};
+
+/**
+ * {@linkcode RequestOptions} extended with the per-call cache disposition for
+ * the cacheable verbs (`listTools()` / `listPrompts()` / `listResources()` /
+ * `listResourceTemplates()` / `readResource()`). See {@linkcode CacheMode}.
+ */
+export type CacheableRequestOptions = RequestOptions & {
+    /**
+     * `'use'` (default) serves a still-fresh cached entry without a round
+     * trip; `'refresh'` always fetches and re-stores; `'bypass'` fetches
+     * without consulting or writing the cache. Applies to the no-`cursor`
+     * auto-aggregate path on the list verbs and to `readResource`; ignored
+     * elsewhere.
+     */
+    cacheMode?: CacheMode;
 };
 
 /**
@@ -418,6 +465,7 @@ export class Client extends Protocol<ClientContext> {
      * `Mcp-Param-*` mirroring through `toolDefinition` on top.
      */
     private readonly _cache: ClientResponseCache;
+    private readonly _defaultCacheTtlMs: number;
     private readonly _listMaxPages: number;
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     /**
@@ -516,8 +564,10 @@ export class Client extends Protocol<ClientContext> {
         this._cache = new ClientResponseCache(
             options?.responseCacheStore ?? new InMemoryResponseCacheStore(),
             options?.responseCacheStore !== undefined,
-            error => this._reportStoreError(error)
+            error => this._reportStoreError(error),
+            options?.cachePartition ?? ''
         );
+        this._defaultCacheTtlMs = options?.defaultCacheTtlMs ?? 0;
         this._listMaxPages = options?.listMaxPages ?? DEFAULT_LIST_MAX_PAGES;
 
         // Store list changed config for setup after connection (when we know server capabilities)
@@ -618,23 +668,29 @@ export class Client extends Protocol<ClientContext> {
      * @internal
      */
     private _setupListChangedHandlers(config: ListChangedHandlers): void {
+        // Every autoRefresh fetcher forces `cacheMode: 'refresh'`: the
+        // notification handler's `_cache.evict()` runs first, but a custom
+        // store whose `delete()` no-ops (or rejects) leaves the stale entry
+        // in place — a default-mode `list*()` would then cache-serve the very
+        // entry the notification declared stale. `'refresh'` bypasses the
+        // cache read so the fetcher always reaches the wire and overwrites.
         if (config.tools && this._serverCapabilities?.tools?.listChanged) {
             this._setupListChangedHandler('tools', 'notifications/tools/list_changed', config.tools, async () => {
-                const result = await this.listTools();
+                const result = await this.listTools(undefined, { cacheMode: 'refresh' });
                 return result.tools;
             });
         }
 
         if (config.prompts && this._serverCapabilities?.prompts?.listChanged) {
             this._setupListChangedHandler('prompts', 'notifications/prompts/list_changed', config.prompts, async () => {
-                const result = await this.listPrompts();
+                const result = await this.listPrompts(undefined, { cacheMode: 'refresh' });
                 return result.prompts;
             });
         }
 
         if (config.resources && this._serverCapabilities?.resources?.listChanged) {
             this._setupListChangedHandler('resources', 'notifications/resources/list_changed', config.resources, async () => {
-                const result = await this.listResources();
+                const result = await this.listResources(undefined, { cacheMode: 'refresh' });
                 return result.resources;
             });
         }
@@ -913,6 +969,7 @@ export class Client extends Protocol<ClientContext> {
 
             this._serverCapabilities = result.capabilities;
             this._serverVersion = result.serverInfo;
+            this._cache.setServerIdentity(this._deriveServerIdentity(transport));
             // HTTP transports must set the protocol version in each header after initialization.
             if (transport.setProtocolVersion) {
                 transport.setProtocolVersion(result.protocolVersion);
@@ -996,6 +1053,7 @@ export class Client extends Protocol<ClientContext> {
 
         this._serverCapabilities = result.discover.capabilities;
         this._serverVersion = result.discover.serverInfo;
+        this._cache.setServerIdentity(this._deriveServerIdentity(transport));
         this._instructions = result.discover.instructions;
         // Modern selection: the same connection state the legacy handshake completion sets.
         this._negotiatedProtocolVersion = result.version;
@@ -1103,6 +1161,20 @@ export class Client extends Protocol<ClientContext> {
      */
     getServerVersion(): Implementation | undefined {
         return this._serverVersion;
+    }
+
+    /**
+     * The connected server's identity for response-cache partitioning. The
+     * `serverInfo` `name@version` pair when available (the spec requires it on
+     * both `initialize` and `server/discover`); falls back to the transport's
+     * `sessionId` otherwise. The value itself is server-controlled — the
+     * collision-safety of the storage partition comes from
+     * {@linkcode ClientResponseCache}'s JSON-array encoding around it, not
+     * from any character it does or does not contain.
+     */
+    private _deriveServerIdentity(transport: Transport): string {
+        const v = this._serverVersion;
+        return v === undefined ? (transport.sessionId ?? '') : `${v.name}@${v.version}`;
     }
 
     /**
@@ -1345,7 +1417,7 @@ export class Client extends Protocol<ClientContext> {
      * );
      * ```
      */
-    async listPrompts(params?: ListPromptsRequest['params'], options?: RequestOptions): Promise<ListPromptsResult> {
+    async listPrompts(params?: ListPromptsRequest['params'], options?: CacheableRequestOptions): Promise<ListPromptsResult> {
         if (!this._serverCapabilities?.prompts && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support prompts
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
@@ -1354,6 +1426,8 @@ export class Client extends Protocol<ClientContext> {
         if (params?.cursor !== undefined) {
             return this.request({ method: 'prompts/list', params }, options);
         }
+        const hit = await this._serveFromCache<ListPromptsResult>('prompts/list', undefined, options);
+        if (hit !== undefined) return hit;
         return this._listAllPages<ListPromptsResult>('prompts/list', params, options, (acc, page) => acc.prompts.push(...page.prompts));
     }
 
@@ -1383,7 +1457,7 @@ export class Client extends Protocol<ClientContext> {
      * );
      * ```
      */
-    async listResources(params?: ListResourcesRequest['params'], options?: RequestOptions): Promise<ListResourcesResult> {
+    async listResources(params?: ListResourcesRequest['params'], options?: CacheableRequestOptions): Promise<ListResourcesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
@@ -1392,6 +1466,8 @@ export class Client extends Protocol<ClientContext> {
         if (params?.cursor !== undefined) {
             return this.request({ method: 'resources/list', params }, options);
         }
+        const hit = await this._serveFromCache<ListResourcesResult>('resources/list', undefined, options);
+        if (hit !== undefined) return hit;
         return this._listAllPages<ListResourcesResult>('resources/list', params, options, (acc, page) =>
             acc.resources.push(...page.resources)
         );
@@ -1411,7 +1487,7 @@ export class Client extends Protocol<ClientContext> {
      */
     async listResourceTemplates(
         params?: ListResourceTemplatesRequest['params'],
-        options?: RequestOptions
+        options?: CacheableRequestOptions
     ): Promise<ListResourceTemplatesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
@@ -1423,6 +1499,8 @@ export class Client extends Protocol<ClientContext> {
         if (params?.cursor !== undefined) {
             return this.request({ method: 'resources/templates/list', params }, options);
         }
+        const hit = await this._serveFromCache<ListResourceTemplatesResult>('resources/templates/list', undefined, options);
+        if (hit !== undefined) return hit;
         return this._listAllPages<ListResourceTemplatesResult>('resources/templates/list', params, options, (acc, page) =>
             acc.resourceTemplates.push(...page.resourceTemplates)
         );
@@ -1453,10 +1531,14 @@ export class Client extends Protocol<ClientContext> {
     private async _listAllPages<R extends { nextCursor?: string }>(
         method: RequestMethod,
         baseParams: { readonly [key: string]: unknown } | undefined,
-        options: RequestOptions | undefined,
+        options: CacheableRequestOptions | undefined,
         append: (acc: R, page: R) => void,
         finalize?: (acc: R) => void
     ): Promise<R> {
+        // `'bypass'` is the no-touch path: the cache is neither read nor
+        // written, so the substrate is byte-untouched (the `tools/list`
+        // derived index keeps whatever it held).
+        const bypass = options?.cacheMode === 'bypass';
         // Capture the eviction generation BEFORE page 1: a `list_changed` that
         // lands mid-walk bumps the counter, and the terminal `write` skips
         // when it observes the bump (the result still returns to the caller —
@@ -1482,8 +1564,74 @@ export class Client extends Protocol<ClientContext> {
         }
         acc.nextCursor = undefined;
         finalize?.(acc);
-        await this._cache.write(method, acc, generation);
+        if (bypass) return acc;
+        // The aggregate is ALWAYS written: even when the resolved TTL is ≤0
+        // the entry is stored already-stale (mcp.d's `retainForSchema`
+        // posture) so the `tools/list`-derived index keeps working regardless,
+        // while the freshness gate in `_serveFromCache` never serves it.
+        // Page-1 carries the result-level `ttlMs`/`cacheScope` (`acc` IS the
+        // mutated page-1 object).
+        await this._cache.write(method, acc, generation, this._freshness(acc));
         return acc;
+    }
+
+    /**
+     * Compute the {@linkcode ClientResponseCache.write} freshness payload from
+     * a cacheable result body. The single seam through which the client reads
+     * `ttlMs`/`cacheScope` (mcp.d's `cachedFetch` engine). The fields pass
+     * through the loose result schema, so they are read off the runtime body;
+     * a missing `ttlMs` falls back to
+     * {@linkcode ClientOptions | ClientOptions.defaultCacheTtlMs}; an explicit server-sent
+     * `ttlMs` (including `0` — the spec's "immediately stale") is honoured
+     * as-is. The default of `0` means `expiresAt === now()` ⇒ never served,
+     * only stored. A missing `cacheScope` is treated as `'private'` — the
+     * spec's `'public'` grant ("any client … MAY serve to any user") is too
+     * strong to infer by default, and matches this SDK's server-side stamp
+     * default.
+     */
+    private _freshness(result: unknown, params?: string): { expiresAt: number; scope: CacheScope; params?: string } {
+        const body = result as { ttlMs?: unknown; cacheScope?: unknown };
+        const ttlMs = typeof body.ttlMs === 'number' ? body.ttlMs : this._defaultCacheTtlMs;
+        const scope: CacheScope = body.cacheScope === 'public' ? 'public' : 'private';
+        // Clamp at 24h (`MAX_CACHE_TTL_MS`) so a server cannot pin an entry
+        // indefinitely; floor at 0 so a negative `ttlMs` is treated as
+        // immediately stale (the spec's absent-or-≤0 rule).
+        return { expiresAt: this._cache.now() + Math.min(Math.max(0, ttlMs), MAX_CACHE_TTL_MS), scope, params };
+    }
+
+    /**
+     * The cache-serving front of every cacheable verb (mcp.d's `cachedFetch`
+     * read half): under `cacheMode: 'use'` (the default), a held entry whose
+     * `expiresAt` is in the future is returned as a `structuredClone` and the
+     * round trip is skipped. `'refresh'` and `'bypass'` always fetch (the
+     * caller decides whether to write). A custom store whose `get()` rejects
+     * is routed to `onerror` and treated as a miss — cache bookkeeping never
+     * blocks a request from reaching the wire.
+     */
+    private async _serveFromCache<R>(
+        method: string,
+        params: string | undefined,
+        options: CacheableRequestOptions | undefined
+    ): Promise<R | undefined> {
+        if (options?.cacheMode === 'bypass' || options?.cacheMode === 'refresh') return undefined;
+        const entry = await this._cache.read(method, params).catch(error => void this._reportStoreError(error));
+        if (entry?.expiresAt !== undefined && entry.expiresAt > this._cache.now()) {
+            // A pre-aborted caller signal must reject the same way it would on
+            // the wire path (`Protocol.request()` wraps an already-aborted
+            // signal as `SdkError(RequestTimeout, reason)`); without this guard
+            // a cache hit would resolve successfully and silently swallow the
+            // abort.
+            if (options?.signal?.aborted) {
+                const reason = options.signal.reason;
+                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+            }
+            // Clone on the way out so a caller mutating the returned aggregate
+            // (e.g. `result.tools.sort(...)`) cannot reach the cache or the
+            // stamp-memoized indices derived from it — the same invariant
+            // `_cache.write` upholds on the way in.
+            return structuredClone(entry.value) as R;
+        }
+        return undefined;
     }
 
     /** Route a custom-store failure to `onerror` without aborting the surrounding dispatch. */
@@ -1529,9 +1677,48 @@ export class Client extends Protocol<ClientContext> {
         return tool === undefined ? undefined : scanXMcpHeaderDeclarations(tool.inputSchema);
     }
 
-    /** Reads the contents of a resource by URI. */
-    async readResource(params: ReadResourceRequest['params'], options?: RequestOptions): Promise<ReadResourceResult> {
-        return this.request({ method: 'resources/read', params }, options);
+    /**
+     * Reads the contents of a resource by URI.
+     *
+     * Honours the result's `ttlMs`/`cacheScope` (SEP-2549): a still-fresh
+     * cached body for the same `uri` is returned without a round trip
+     * (`cacheMode: 'use'`, the default). The cache key is `{method, uri}`
+     * partitioned by the resolved scope — `'private'` (the default when the
+     * server omits the field) is stored under this client's
+     * {@linkcode ClientOptions | ClientOptions.cachePartition}, so a shared
+     * store cannot serve one principal's resource body to another. Unlike the
+     * list verbs, a result whose resolved TTL is ≤0 is **not** stored
+     * (`resources/read` has no derived index and the URI keyspace is
+     * unbounded).
+     */
+    async readResource(params: ReadResourceRequest['params'], options?: CacheableRequestOptions): Promise<ReadResourceResult> {
+        const hit = await this._serveFromCache<ReadResourceResult>('resources/read', params.uri, options);
+        if (hit !== undefined) return hit;
+        // Capture the per-URI eviction generation BEFORE the request: a
+        // `notifications/resources/updated` for this URI arriving while the
+        // read is in flight bumps it (via `evictKey`), and the terminal
+        // `write` skips so the now-stale body is not re-cached. Same guard as
+        // the list verbs' `_listAllPages`, keyed by `{method, uri}`.
+        const generation = this._cache.captureGeneration('resources/read', params.uri);
+        const result = await this.request({ method: 'resources/read', params }, options);
+        if (options?.cacheMode !== 'bypass') {
+            const freshness = this._freshness(result, params.uri);
+            if (freshness.expiresAt > this._cache.now()) {
+                await this._cache.write('resources/read', result, generation, freshness);
+            } else if (options?.cacheMode === 'refresh') {
+                // ttl≤0 → drop any held positive-TTL entry so the next
+                // default-mode read fetches fresh — a `'refresh'` that
+                // returns ttl≤0 must not leave the previously-warm entry
+                // serving stale until its old expiry (mcp.d's `cachedFetch`
+                // write half evicts on the no-store branch). Only on the
+                // `'refresh'` path: a default-mode miss already proved
+                // nothing fresh is held (`_serveFromCache` returned
+                // `undefined`), so `evictKey`'s store deletes would be wasted
+                // round trips against an async store on a ttl≤0 working set.
+                await this._cache.evictKey('resources/read', params.uri);
+            }
+        }
+        return result;
     }
 
     /** Subscribes to change notifications for a resource. The server must support resource subscriptions. */
@@ -1587,8 +1774,14 @@ export class Client extends Protocol<ClientContext> {
         }
 
         // Honor RequestOptions.signal exactly as request() does: an
-        // already-aborted signal rejects synchronously before any setup.
-        options?.signal?.throwIfAborted();
+        // already-aborted signal rejects synchronously before any setup, and
+        // the rejection is the same `SdkError(RequestTimeout, reason)` wrap
+        // request() / `_serveFromCache` apply (unless `reason` is already an
+        // SdkError — preserved verbatim).
+        if (options?.signal?.aborted) {
+            const reason = options.signal.reason;
+            throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+        }
 
         const requestAbort = new AbortController();
         // The listen request's JSON-RPC id (= the spec's subscription id
@@ -1773,16 +1966,27 @@ export class Client extends Protocol<ClientContext> {
         // `Object.prototype` member name (`constructor`, `toString`, …) does
         // not reach the iteration as a non-iterable function.
         const evicted = Object.hasOwn(LIST_CHANGED_EVICTIONS, raw.method) ? LIST_CHANGED_EVICTIONS[raw.method] : undefined;
-        if (evicted !== undefined) {
+        if (raw.method === 'notifications/resources/updated') {
+            // Per-URI eviction (mcp.d's `invalidateLogical`): the now-cached
+            // `resources/read` body for this URI is stale on receipt; drop it
+            // from BOTH partitions so the next `readResource` for the same URI
+            // refetches even within TTL (the documented subscribe → updated →
+            // re-read flow). Fire-and-forget like the `list_changed` path —
+            // dispatch must not block on an async store.
+            const uri = (raw.params as { uri?: unknown } | undefined)?.uri;
+            if (typeof uri === 'string') void this._cache.evictKey('resources/read', uri);
+        } else if (evicted !== undefined) {
             for (const method of evicted) {
                 // `evict()` bumps the generation FIRST and unconditionally
                 // (the `_cacheListResult` race guard relies on the bump, not
-                // on the store's evict completing), then awaits the store. A
-                // custom store's `evict()` may throw or reject; route to
-                // `onerror` and proceed so dispatch (and the user's
-                // `listChanged` handler) runs regardless. Fire-and-forget —
-                // dispatch must not block on an async store.
-                void this._cache.evict(method).catch(error => this._reportStoreError(error));
+                // on the store's deletes completing), then drops only THIS
+                // server's two partition singletons — co-tenants on a shared
+                // store keep their entries. Store failures are reported via
+                // `onerror` inside `evict()` and the call resolves, so
+                // dispatch (and the user's `listChanged` handler) runs
+                // regardless. Fire-and-forget — dispatch must not block on
+                // an async store.
+                void this._cache.evict(method);
             }
         }
         if (raw.method === 'notifications/subscriptions/acknowledged') {
@@ -1966,12 +2170,15 @@ export class Client extends Protocol<ClientContext> {
             if (!mirroringActive || !isHeaderMismatch || options?.toolDefinition !== undefined) {
                 throw error;
             }
-            const refreshOptions = { signal: options?.signal, timeout: options?.timeout };
-            // A custom store's `evict()` may throw or reject (the documented
-            // store contract); route that to `onerror` and proceed — the
-            // generation bump already happened, so the refetch overwrites the
-            // stale entry regardless.
-            await this._cache.evict('tools/list').catch(error_ => this._reportStoreError(error_));
+            // `cacheMode: 'refresh'` so the recovery refetch always reaches
+            // the wire — `evict()` reports a custom store's `delete()`
+            // failure via `onerror` and resolves, but a no-op/failing
+            // `delete()` leaves the stale entry in place; without `'refresh'`
+            // the `listTools()` below would cache-serve the very entry whose
+            // staleness triggered this recovery. The generation bump still
+            // happens regardless, so the refetch's write overwrites.
+            const refreshOptions = { signal: options?.signal, timeout: options?.timeout, cacheMode: 'refresh' as const };
+            await this._cache.evict('tools/list');
             // The recovery refetch may itself fail (e.g. `listMaxPages`, a
             // transient error that hits only the `tools/list` walk). Surface
             // it via `onerror` so the real cause is observable, then proceed
@@ -2063,7 +2270,7 @@ export class Client extends Protocol<ClientContext> {
      * );
      * ```
      */
-    async listTools(params?: ListToolsRequest['params'], options?: RequestOptions): Promise<ListToolsResult> {
+    async listTools(params?: ListToolsRequest['params'], options?: CacheableRequestOptions): Promise<ListToolsResult> {
         if (!this._serverCapabilities?.tools && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support tools
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
@@ -2079,6 +2286,8 @@ export class Client extends Protocol<ClientContext> {
             this._excludeInvalidXMcpHeaderTools(page);
             return page;
         }
+        const hit = await this._serveFromCache<ListToolsResult>('tools/list', undefined, options);
+        if (hit !== undefined) return hit;
         // Auto-aggregate: SEP-2243 invalid-`x-mcp-header` exclusion runs on
         // the complete aggregate via the `finalize` hook before the cache
         // write, so the cached entry never holds an unmirrorable tool.

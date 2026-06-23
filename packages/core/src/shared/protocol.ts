@@ -1298,7 +1298,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 }
             }
 
-            options?.signal?.throwIfAborted();
+            // An already-aborted caller signal must surface the same way an
+            // in-flight abort does (`SdkError(RequestTimeout, reason)` via
+            // `cancel()` below). Bare `throwIfAborted()` would propagate the
+            // raw `signal.reason` instead, so callers that introduce an async
+            // hop before `request()` (e.g. a cache freshness check) would see
+            // a different rejection type depending on where the abort lands.
+            if (options?.signal?.aborted) {
+                const reason = options.signal.reason;
+                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+            }
 
             // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28):
             // on Streamable HTTP, closing the per-request SSE stream IS the
