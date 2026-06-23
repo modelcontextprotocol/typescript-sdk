@@ -368,9 +368,26 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
     }
 
     /**
+     * Returns true if the client's protocol version supports empty SSE data in
+     * priming events (the fix shipped with protocol version `2025-11-25`).
+     *
+     * The version is checked for membership in this transport instance's
+     * supported protocol versions rather than with an open-ended
+     * `>= '2025-11-25'` comparison: the value may come from an `initialize`
+     * request body, which (unlike the `MCP-Protocol-Version` header) is not
+     * validated against `supportedProtocolVersions` before reaching this
+     * check. An unknown future version string must not silently enable
+     * behavior reserved for versions this transport actually supports.
+     */
+    private supportsEmptySSEData(protocolVersion: string): boolean {
+        return this._supportedProtocolVersions.includes(protocolVersion) && protocolVersion >= '2025-11-25';
+    }
+
+    /**
      * Writes a priming event to establish resumption capability.
      * Only sends if `eventStore` is configured (opt-in for resumability) and
-     * the client's protocol version supports empty SSE data (>= `2025-11-25`).
+     * the client's protocol version supports empty SSE data (a supported
+     * version that is >= `2025-11-25`).
      */
     private async writePrimingEvent(
         controller: ReadableStreamDefaultController<Uint8Array>,
@@ -383,9 +400,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         }
 
         // Priming events have empty data which older clients cannot handle.
-        // Only send priming events to clients with protocol version >= 2025-11-25
-        // which includes the fix for handling empty SSE data.
-        if (protocolVersion < '2025-11-25') {
+        // Only send priming events to clients whose protocol version includes
+        // the fix for handling empty SSE data.
+        if (!this.supportsEmptySSEData(protocolVersion)) {
             return;
         }
 
@@ -795,12 +812,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // handle each message
             for (const message of messages) {
                 // Build closeSSEStream callback for requests when eventStore is configured
-                // AND client supports resumability (protocol version >= 2025-11-25).
+                // AND client supports resumability (a supported protocol version >= 2025-11-25).
                 // Old clients can't resume if the stream is closed early because they
                 // didn't receive a priming event with an event ID.
                 let closeSSEStream: (() => void) | undefined;
                 let closeStandaloneSSEStream: (() => void) | undefined;
-                if (isJSONRPCRequest(message) && this._eventStore && clientProtocolVersion >= '2025-11-25') {
+                if (isJSONRPCRequest(message) && this._eventStore && this.supportsEmptySSEData(clientProtocolVersion)) {
                     closeSSEStream = () => {
                         this.closeSSEStream(message.id);
                     };

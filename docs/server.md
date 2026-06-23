@@ -22,7 +22,7 @@ import { randomUUID } from 'node:crypto';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, ResourceLink } from '@modelcontextprotocol/server';
-import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
+import { completable, McpServer, ResourceTemplate, TRACEPARENT_META_KEY } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
 ```
@@ -252,6 +252,9 @@ server.registerResource(
 );
 ```
 
+> [!IMPORTANT]
+> **Security note:** If a resource is backed by the filesystem (for example, a `file://` server or a template whose variables map onto file paths), the spec requires sanitizing any user-influenced path before use. Resolve the requested path and verify it stays within the intended root directory, rejecting traversal sequences such as `..` (including encoded forms) and symlinks that escape the root. Never pass template variables or client-supplied URIs to filesystem APIs unchecked.
+
 ## Prompts
 
 Prompts are reusable templates that help structure interactions with models (see [Prompts](https://modelcontextprotocol.io/docs/learn/server-concepts#prompts) in the MCP overview). Use a prompt when you want to offer a canned interaction pattern that users invoke explicitly; use a [tool](#tools) when the LLM should decide when to call it.
@@ -311,6 +314,9 @@ server.registerPrompt(
 ```
 
 ## Logging
+
+> [!WARNING]
+> MCP logging is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to stderr logging (STDIO servers) or OpenTelemetry.
 
 Logging lets your server send structured diagnostics — debug traces, progress updates, warnings — to the connected client as notifications (see [Logging](https://modelcontextprotocol.io/specification/latest/server/utilities/logging) in the MCP specification).
 
@@ -378,11 +384,42 @@ server.registerTool(
 
 `progress` must increase on each call. `total` and `message` are optional. If the client does not provide a `progressToken`, skip the notification.
 
+## Trace context propagation
+
+The MCP specification ([SEP-414](https://github.com/modelcontextprotocol/modelcontextprotocol/pull/414)) reserves the unprefixed `_meta` keys `traceparent`, `tracestate`, and `baggage` for distributed trace context, as an exception to the usual `_meta` key prefix rule. When present, the values must follow the [W3C Trace Context](https://www.w3.org/TR/trace-context/) and [W3C Baggage](https://www.w3.org/TR/baggage/) formats. The SDK does not interpret these keys — `_meta` passes through untouched on any transport, including stdio. The key names are exported as `TRACEPARENT_META_KEY`, `TRACESTATE_META_KEY`, and `BAGGAGE_META_KEY`.
+
+Read the caller's trace context from `ctx.mcpReq._meta` in a handler:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#registerTool_traceContext"
+server.registerTool(
+    'traced-operation',
+    {
+        description: 'Operation that participates in distributed tracing',
+        inputSchema: z.object({ query: z.string() })
+    },
+    async ({ query }, ctx): Promise<CallToolResult> => {
+        // e.g. '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+        const traceparent = ctx.mcpReq._meta?.[TRACEPARENT_META_KEY];
+        if (typeof traceparent === 'string') {
+            // Continue the caller's trace, e.g. start a child span with your
+            // OpenTelemetry tracer using this trace context.
+        }
+
+        return { content: [{ type: 'text', text: `Results for ${query}` }] };
+    }
+);
+```
+
+To propagate context onward (for example on a server-initiated sampling request, or back on a response), set the same keys in the outgoing `_meta`. See the [client guide](./client.md#trace-context-propagation) for injecting trace context on the client side.
+
 ## Server-initiated requests
 
 MCP is bidirectional — servers can send requests *to* the client during tool execution, as long as the client declares matching capabilities (see [Architecture](https://modelcontextprotocol.io/docs/learn/architecture) in the MCP overview).
 
 ### Sampling
+
+> [!WARNING]
+> Sampling is deprecated as of protocol version 2026-07-28 (SEP-2577). It remains fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to calling LLM provider APIs directly from your server.
 
 Sampling lets a tool handler request an LLM completion from the connected client — the handler describes a prompt and the client returns the model's response (see [Sampling](https://modelcontextprotocol.io/docs/learn/client-concepts#sampling) in the MCP overview). Use sampling when a tool needs the model to generate or transform text mid-execution.
 
@@ -477,6 +514,9 @@ server.registerTool(
 For runnable examples, see [`elicitationFormExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/elicitationFormExample.ts) (form) and [`elicitationUrlExample.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/server/src/elicitationUrlExample.ts) (URL).
 
 ### Roots
+
+> [!WARNING]
+> Roots are deprecated as of protocol version 2026-07-28 (SEP-2577). They remain fully functional during the deprecation window (at least twelve months); see the [deprecated features registry](https://modelcontextprotocol.io/specification/draft/deprecated). Migrate to passing paths via tool parameters, resource URIs, or configuration.
 
 Roots let a tool handler discover the client's workspace directories — for example, to scope a file search or identify project boundaries (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Call {@linkcode @modelcontextprotocol/server!server/server.Server#listRoots | server.server.listRoots()} (requires the client to declare the `roots` capability):
 

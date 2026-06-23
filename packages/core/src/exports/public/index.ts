@@ -71,6 +71,7 @@ export * from '../../types/types.js';
 
 // Constants
 export {
+    BAGGAGE_META_KEY,
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
@@ -84,7 +85,9 @@ export {
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
     RELATED_TASK_META_KEY,
-    SUPPORTED_PROTOCOL_VERSIONS
+    SUPPORTED_PROTOCOL_VERSIONS,
+    TRACEPARENT_META_KEY,
+    TRACESTATE_META_KEY
 } from '../../types/constants.js';
 
 // Enums
