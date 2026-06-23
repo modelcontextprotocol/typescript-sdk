@@ -24,8 +24,17 @@ import type {
     TaskStatusNotificationSchema,
     TaskStatusSchema
 } from '../wire/rev2025-11-25/schemas.js';
-import type { RequestMetaEnvelopeSchema } from '../wire/rev2026-07-28/schemas.js';
-import type { INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR } from './constants.js';
+import type {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    INTERNAL_ERROR,
+    INVALID_PARAMS,
+    INVALID_REQUEST,
+    LOG_LEVEL_META_KEY,
+    METHOD_NOT_FOUND,
+    PARSE_ERROR,
+    PROTOCOL_VERSION_META_KEY
+} from './constants.js';
 import type {
     AnnotationsSchema,
     AudioContentSchema,
@@ -235,8 +244,19 @@ export type NotificationParams = Infer<typeof NotificationsParamsSchema>;
 /**
  * The per-request `_meta` envelope carried by every request under protocol revision
  * 2026-07-28 (protocol version, client info, client capabilities, optional log level).
+ *
+ * Neutral hand-written shape keyed by the public meta-key constants — never
+ * inferred from a wire-module schema (this neutral layer does not import from
+ * `wire/rev*` for runtime types; the deprecated 2025-11-25 task vocabulary
+ * above is the sole, type-only carve-out). A `type` alias rather than an
+ * interface so it stays assignable to `_meta`'s string-indexed object slot.
  */
-export type RequestMetaEnvelope = Infer<typeof RequestMetaEnvelopeSchema>;
+export type RequestMetaEnvelope = {
+    [PROTOCOL_VERSION_META_KEY]: string;
+    [CLIENT_INFO_META_KEY]: Implementation;
+    [CLIENT_CAPABILITIES_META_KEY]: ClientCapabilities;
+    [LOG_LEVEL_META_KEY]?: LoggingLevel;
+};
 
 /* Empty result */
 export type EmptyResult = StripWireOnly<Infer<typeof EmptyResultSchema>>;

@@ -41,8 +41,6 @@ import {
     attachCacheHintFallback,
     CLIENT_CAPABILITIES_META_KEY,
     codecForVersion,
-    CreateMessageResultSchema,
-    CreateMessageResultWithToolsSchema,
     isInputRequiredResult,
     isModernProtocolVersion,
     LATEST_PROTOCOL_VERSION,
@@ -445,23 +443,22 @@ export class Server extends Protocol<ServerContext> {
             };
         }
         return async (request, ctx) => {
-            // Era-exact validation: the request and result schemas come from
-            // the instance era, resolved at dispatch time (the era gate
-            // guarantees tools/call exists on the serving era).
+            // Era-exact validation via the function-only WireCodec contract:
+            // resolved from the instance era at dispatch time (the era gate
+            // guarantees tools/call exists on the serving era, so the
+            // `not-in-era` arm is an internal error). The era registry entry
+            // IS the plain CallToolResult schema (the result map is aligned
+            // to the typed map — no widened unions), so no narrower surface
+            // is needed.
             const codec = codecForVersion(this._negotiatedProtocolVersion);
-            const callToolRequestSchema = codec.requestSchema('tools/call');
-            // The era registry entry IS the plain CallToolResult schema (the
-            // result map is aligned to the typed map — no widened unions),
-            // so no narrower surface is needed.
-            const callToolResultSchema = codec.resultSchema('tools/call');
-            if (!callToolRequestSchema || !callToolResultSchema) {
-                throw new ProtocolError(ProtocolErrorCode.InternalError, 'No wire schema for tools/call in the resolved era');
-            }
-            const validatedRequest = parseSchema(callToolRequestSchema, request);
-            if (!validatedRequest.success) {
-                const errorMessage =
-                    validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call request: ${errorMessage}`);
+            const validatedRequest = codec.validateRequest('tools/call', request);
+            if (!validatedRequest.ok) {
+                throw new ProtocolError(
+                    validatedRequest.reason === 'not-in-era' ? ProtocolErrorCode.InternalError : ProtocolErrorCode.InvalidParams,
+                    validatedRequest.reason === 'not-in-era'
+                        ? 'No wire schema for tools/call in the resolved era'
+                        : `Invalid tools/call request: ${validatedRequest.message}`
+                );
             }
 
             const result = await this._invokeInputRequiredCapableHandler('tools/call', handler, request, ctx);
@@ -472,14 +469,17 @@ export class Server extends Protocol<ServerContext> {
                 return result;
             }
 
-            const validationResult = parseSchema(callToolResultSchema, result);
-            if (!validationResult.success) {
-                const errorMessage =
-                    validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid tools/call result: ${errorMessage}`);
+            const validationResult = codec.validateResult('tools/call', result);
+            if (!validationResult.ok) {
+                throw new ProtocolError(
+                    validationResult.reason === 'not-in-era' ? ProtocolErrorCode.InternalError : ProtocolErrorCode.InvalidParams,
+                    validationResult.reason === 'not-in-era'
+                        ? 'No wire schema for tools/call in the resolved era'
+                        : `Invalid tools/call result: ${validationResult.message}`
+                );
             }
 
-            return validationResult.data;
+            return validationResult.value;
         };
     }
 
@@ -996,16 +996,25 @@ export class Server extends Protocol<ServerContext> {
             }
         }
 
-        // Use different schemas based on whether tools are provided. The
-        // result schema depends on the REQUEST params, which a method-keyed
-        // registry entry cannot express, so it goes through the explicit-
-        // schema path (still era-gated: sampling/createMessage is not a wire
-        // request on the 2026 era, so a modern-era instance fails with the
-        // typed era error before anything reaches the transport).
-        if (params.tools) {
-            return await this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultWithToolsSchema, options);
+        // The result schema depends on the REQUEST params (tools vs no tools),
+        // which a method-keyed registry entry cannot express — the era codec's
+        // `samplingResultVariant` owns the with-tools/plain pair. The funnel's
+        // registry-result path runs first (era-gated: sampling/createMessage
+        // is not a wire request on the 2026 era, so a modern-era instance
+        // fails with the typed era error before anything reaches the
+        // transport), then the variant validator narrows the wide result.
+        const hasTools = Boolean(params.tools || params.toolChoice);
+        const wide = await this.request({ method: 'sampling/createMessage', params }, options);
+        const outcome = this._wireCodec().samplingResultVariant(hasTools, wide);
+        if (!outcome.ok) {
+            // `not-in-era` is unreachable on the path that gets here (the era
+            // gate above filters out 2026 instances); `invalid` is a peer bug.
+            throw new SdkError(
+                SdkErrorCode.InvalidResult,
+                `Invalid sampling/createMessage result: ${outcome.reason === 'invalid' ? outcome.message : outcome.reason}`
+            );
         }
-        return await this._requestWithSchema({ method: 'sampling/createMessage', params }, CreateMessageResultSchema, options);
+        return outcome.value;
     }
 
     /**

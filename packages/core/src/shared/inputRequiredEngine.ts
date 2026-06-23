@@ -131,7 +131,8 @@ export async function dispatchInputRequest(
         );
     }
     const method = entry['method'];
-    if (codec.inputRequestSchema(method) === undefined) {
+    const membership = codec.validateInputRequest(method, entry);
+    if (!membership.ok && membership.reason === 'not-in-era') {
         throw new SdkError(
             SdkErrorCode.InvalidResult,
             `Invalid input request '${key}': '${method}' is not an embedded request the ${codec.era} revision defines ` +

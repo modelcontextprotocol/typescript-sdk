@@ -13,14 +13,12 @@
  */
 import type { ClientCapabilities, DiscoverResult, Implementation, JSONRPCRequest, Transport } from '@modelcontextprotocol/core';
 import {
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
+    codecForVersion,
     isJSONRPCErrorResponse,
     isJSONRPCResultResponse,
     isModernProtocolVersion,
     legacyProtocolVersions,
     modernProtocolVersions,
-    PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode,
     SdkHttpError,
@@ -273,11 +271,13 @@ export function buildProbeRequest(
         id,
         method: 'server/discover',
         params: {
-            _meta: {
-                [PROTOCOL_VERSION_META_KEY]: protocolVersion,
-                [CLIENT_INFO_META_KEY]: clientInfo,
-                [CLIENT_CAPABILITIES_META_KEY]: capabilities
-            }
+            // The era codec owns the keyed-envelope shape; the probe is sent
+            // for a modern version, so this is always the 2026 envelope.
+            _meta: codecForVersion(protocolVersion).outboundEnvelope({
+                protocolVersion,
+                clientInfo,
+                clientCapabilities: capabilities
+            })
         }
     };
 }

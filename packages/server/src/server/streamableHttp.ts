@@ -10,7 +10,6 @@
 import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
-    isInitializeRequest,
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
     isJSONRPCResultResponse,
@@ -723,7 +722,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             // Check if this is an initialization request
             // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
-            const isInitializationRequest = messages.some(element => isInitializeRequest(element));
+            // Method-literal check on the era-invariant JSON-RPC substrate —
+            // the transport layer never reaches into per-era wire schemas.
+            const isInitializationRequest = messages.some(m => isJSONRPCRequest(m) && m.method === 'initialize');
             if (isInitializationRequest) {
                 // If it's a server with session management and the session ID is already set we should reject the request
                 // to avoid re-initialization.
@@ -777,10 +778,12 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             // Extract protocol version for priming event decision.
             // For initialize requests, get from request params.
             // For other requests, get from header (already validated).
-            const initRequest = messages.find(m => isInitializeRequest(m));
-            const clientProtocolVersion = initRequest
-                ? initRequest.params.protocolVersion
-                : (req.headers.get('mcp-protocol-version') ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
+            const initRequest = messages.find(m => isJSONRPCRequest(m) && m.method === 'initialize');
+            const rawVersion = isJSONRPCRequest(initRequest) ? initRequest.params?.['protocolVersion'] : undefined;
+            const clientProtocolVersion =
+                typeof rawVersion === 'string'
+                    ? rawVersion
+                    : (req.headers.get('mcp-protocol-version') ?? DEFAULT_NEGOTIATED_PROTOCOL_VERSION);
 
             if (this._enableJsonResponse) {
                 // For JSON response mode, return a Promise that resolves when all responses are ready

@@ -250,6 +250,40 @@ function liftWireOnlyMaterial<T extends JSONRPCRequest | JSONRPCNotification>(
 }
 
 /**
+ * Standard Schema adapter over the era codec's `validateResult` function (the
+ * function-only WireCodec contract exposes no schema objects). Used by the
+ * spec-method `request()` overload so the request funnel keeps a single
+ * `StandardSchemaV1`-shaped validation seam for both spec and explicit-schema
+ * paths.
+ *
+ * Returns `undefined` when the method has no result entry on this era's
+ * registry — the caller maps that to the synchronous "pass a result schema"
+ * TypeError, exactly matching the pre-function-only behavior the
+ * typedMapAlignment suite pins (the result map deliberately excludes the
+ * `tasks/*` methods, so the spec-method overload refuses them up front).
+ */
+function codecResultValidator(codec: WireCodec, method: string): StandardSchemaV1 | undefined {
+    // Probe for result-registry membership through the function-only
+    // contract: a `not-in-era` outcome means no result entry for this method
+    // (the probe value is irrelevant — every spec result schema rejects
+    // `undefined`, so a method with an entry returns `invalid`, never
+    // `not-in-era`).
+    const probe = codec.validateResult(method, undefined);
+    if (!probe.ok && probe.reason === 'not-in-era') return undefined;
+    return {
+        '~standard': {
+            version: 1,
+            vendor: 'mcp-wire-codec',
+            validate(value: unknown): StandardSchemaV1.Result<unknown> {
+                const outcome = codec.validateResult(method, value);
+                if (outcome.ok) return { value: outcome.value };
+                return { issues: [{ message: outcome.reason === 'invalid' ? outcome.message : `not-in-era: ${method}` }] };
+            }
+        }
+    };
+}
+
+/**
  * Base context provided to all request handlers.
  */
 export type BaseContext = {
@@ -1001,13 +1035,13 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     if (isStandardSchema(schemaOrOptions)) {
                         return sendRequest(r, schemaOrOptions, maybeOptions);
                     }
-                    const resultSchema = sendCodec.resultSchema(r.method);
-                    if (!resultSchema) {
+                    const validate = codecResultValidator(sendCodec, r.method);
+                    if (validate === undefined) {
                         throw new TypeError(
                             `'${r.method}' is not a spec method; pass a result schema as the second argument to ctx.mcpReq.send().`
                         );
                     }
-                    return sendRequest(r, resultSchema, schemaOrOptions);
+                    return sendRequest(r, validate, schemaOrOptions);
                 }) as BaseContext['mcpReq']['send'],
                 notify: sendNotification
             },
@@ -1193,11 +1227,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
         if (isStandardSchema(schemaOrOptions)) {
             return this._requestWithSchemaViaCodec(codec, request, schemaOrOptions, maybeOptions);
         }
-        const resultSchema = codec.resultSchema(request.method);
-        if (!resultSchema) {
+        const validate = codecResultValidator(codec, request.method);
+        if (validate === undefined) {
             throw new TypeError(`'${request.method}' is not a spec method; pass a result schema as the second argument to request().`);
         }
-        return this._requestWithSchemaViaCodec(codec, request, resultSchema, schemaOrOptions);
+        return this._requestWithSchemaViaCodec(codec, request, validate, schemaOrOptions);
     }
 
     /**
@@ -1207,6 +1241,17 @@ export abstract class Protocol<ContextT extends BaseContext> {
      */
     private _negotiatedWireCodec(): WireCodec {
         return codecForVersion(this._negotiatedProtocolVersion);
+    }
+
+    /**
+     * Protected accessor for the instance's negotiated wire codec, for role
+     * classes (Client/Server/McpServer) routing era-dependent behavior
+     * through the codec's function-only surface — `samplingResultVariant`,
+     * `outboundEnvelope`, `projectCallToolResult` — instead of branching on
+     * the protocol version themselves.
+     */
+    protected _wireCodec(): WireCodec {
+        return this._negotiatedWireCodec();
     }
 
     /**
@@ -1610,13 +1655,23 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // in-band schema instead.
             stored = (request, ctx) => {
                 const dispatchCodec = this._negotiatedWireCodec();
-                const schema = dispatchCodec.requestSchema(method) ?? dispatchCodec.inputRequestSchema(method);
-                if (!schema) {
-                    // Unreachable: the dispatch era gate rejects era-mismatched
-                    // spec methods with −32601 before any handler runs.
-                    throw new ProtocolError(ProtocolErrorCode.InternalError, `No wire schema for ${method} in the resolved era`);
+                let outcome = dispatchCodec.validateRequest(method, request);
+                if (!outcome.ok && outcome.reason === 'not-in-era') {
+                    outcome = dispatchCodec.validateInputRequest(method, request);
                 }
-                return Promise.resolve(schemasOrHandler(schema.parse(request), ctx));
+                if (!outcome.ok) {
+                    if (outcome.reason === 'not-in-era') {
+                        // Unreachable: the dispatch era gate rejects
+                        // era-mismatched spec methods with −32601 before any
+                        // handler runs.
+                        throw new ProtocolError(ProtocolErrorCode.InternalError, `No wire schema for ${method} in the resolved era`);
+                    }
+                    // Preserves the pre-function-only error surface: the Zod
+                    // parse threw out of the handler and the funnel mapped it
+                    // to −32603 Internal error (specCorpusDispatch pins this).
+                    throw new Error(outcome.message);
+                }
+                return Promise.resolve(schemasOrHandler(outcome.value, ctx));
             };
         } else if (maybeHandler) {
             stored = async (request, ctx) => {
@@ -1705,13 +1760,19 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // Dispatch-time schema resolution, same as setRequestHandler: the
             // era serving the message picks the schema.
             this._notificationHandlers.set(method, (notification, codec) => {
-                const schema = codec.notificationSchema(method);
-                if (!schema) {
-                    // Unreachable: the dispatch era gate drops era-mismatched
-                    // spec notifications before any handler runs.
-                    throw new ProtocolError(ProtocolErrorCode.InternalError, `No wire schema for ${method} in the resolved era`);
+                const outcome = codec.validateNotification(method, notification);
+                if (!outcome.ok) {
+                    if (outcome.reason === 'not-in-era') {
+                        // Unreachable: the dispatch era gate drops
+                        // era-mismatched spec notifications before any
+                        // handler runs.
+                        throw new ProtocolError(ProtocolErrorCode.InternalError, `No wire schema for ${method} in the resolved era`);
+                    }
+                    // Preserves the pre-function-only error surface (parse
+                    // threw out of the handler).
+                    throw new Error(outcome.message);
                 }
-                return Promise.resolve(schemasOrHandler(schema.parse(notification)));
+                return Promise.resolve(schemasOrHandler(outcome.value));
             });
             return;
         }
