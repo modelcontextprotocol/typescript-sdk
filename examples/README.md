@@ -36,6 +36,7 @@ Add `-- --legacy` to the client command for the 2025-era handshake.
 | [`sampling/`](./sampling/README.md)                                 | Tool that requests LLM sampling from the client, both eras: push-style on 2025, `inputRequired` on 2026 | stdio + http | dual           |
 | [`stickynotes/`](./stickynotes/README.md)                           | "Real app" capstone: tools mutate state, a resource per note, listChanged, elicitation-confirmed clear  | stdio + http | dual           |
 | [`caching/`](./caching/README.md)                                   | `cacheHints` stamping on cacheable results (2026-07-28)                                                 | stdio + http | modern         |
+| [`gateway/`](./gateway/README.md)                                   | `connect({ prior })` — probe once, zero-round-trip connect for every worker (gateway pattern)           | http         | modern         |
 | [`custom-methods/`](./custom-methods/README.md)                     | Vendor-prefixed methods + custom notifications                                                          | stdio + http | dual           |
 | [`schema-validators/`](./schema-validators/README.md)               | ArkType, Valibot, Zod, and `outputSchema`                                                               | stdio + http | dual           |
 | [`custom-version/`](./custom-version/README.md)                     | `supportedProtocolVersions` / version negotiation                                                       | stdio + http | legacy         |

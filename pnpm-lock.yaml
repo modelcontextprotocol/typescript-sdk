@@ -460,6 +460,22 @@ importers:
         specifier: catalog:devTools
         version: 4.21.0
 
+  examples/gateway:
+    dependencies:
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/server':
+        specifier: workspace:*
+        version: link:../../packages/server
+      zod:
+        specifier: catalog:runtimeShared
+        version: 4.3.6
+    devDependencies:
+      tsx:
+        specifier: catalog:devTools
+        version: 4.21.0
+
   examples/hono:
     dependencies:
       '@hono/node-server':
