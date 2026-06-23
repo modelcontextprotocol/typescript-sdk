@@ -719,12 +719,14 @@ export const SamplingMessageSchema = z.object({
 });
 
 /* ------------------------------------------------------------------------ *
- * Result side. `resultType` is REQUIRED at parse (spec.types.2026-07-28
+ * Result side. `resultType` is a sender obligation (spec.types.2026-07-28
  * Result.resultType: "Servers implementing this protocol version MUST
- * include this field"); requiredness is bare because no 2025-era traffic
- * touches this module. These are the WIRE-TRUE artifacts — the corpus and
- * the parity suite parse them; `decodeResult` parses with them and then
- * LIFTS (drops resultType) to the neutral shape.
+ * include this field") and a receiver default (schema.ts:208 — clients MUST
+ * treat absent `resultType` as 'complete'). These are the WIRE-TRUE
+ * artifacts — the corpus and the parity suite parse them; `decodeResult`
+ * parses with them and then LIFTS (drops resultType) to the neutral shape.
+ * Sender-side requiredness is enforced by construction (`encodeResult`
+ * stamps it), so the parse side carries the receiver default.
  * ------------------------------------------------------------------------ */
 
 /** Open union per the anchor: 'complete' | 'input_required' | string. */
@@ -735,8 +737,8 @@ const wireMeta = z.record(z.string(), z.unknown()).optional();
 function wireResult<T extends z.core.$ZodLooseShape>(shape: T) {
     return z.looseObject({
         _meta: wireMeta,
-        /** REQUIRED on this revision (see module header). */
-        resultType: ResultTypeSchema,
+        /** Sender MUST set; receiver defaults absent → 'complete' (spec receiver leniency). */
+        resultType: ResultTypeSchema.default('complete'),
         ...shape
     });
 }
@@ -809,8 +811,11 @@ export const CacheableResultSchema = wireResult({
 });
 
 export const DiscoverResultSchema = wireResult({
-    ttlMs: z.number().int().min(0),
-    cacheScope: z.enum(['public', 'private']),
+    // Receiver-side defaults per caching.mdx:56 — the probe classifier must
+    // accept a DiscoverResult that omits the cache hints (sender obligation
+    // is enforced by `encodeResult`, not by parse).
+    ttlMs: z.number().int().min(0).default(0),
+    cacheScope: z.enum(['public', 'private']).default('private'),
     supportedVersions: z.array(z.string()),
     capabilities: ServerCapabilities2026Schema,
     serverInfo: ImplementationSchema,
@@ -1096,8 +1101,8 @@ export const dispatchResultSchemas: { readonly [M in Rev2026RequestMethod]: z.Zo
             .loose()
     }),
     'server/discover': liftedResult({
-        ttlMs: z.number().int().min(0),
-        cacheScope: z.enum(['public', 'private']),
+        ttlMs: z.number().int().min(0).default(0),
+        cacheScope: z.enum(['public', 'private']).default('private'),
         supportedVersions: z.array(z.string()),
         capabilities: ServerCapabilities2026Schema,
         serverInfo: ImplementationSchema,

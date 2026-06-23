@@ -12,7 +12,8 @@
  */
 import type { DiscoverResult } from '@modelcontextprotocol/core';
 import {
-    DiscoverResultSchema,
+    codecForVersion,
+    MODERN_WIRE_REVISION,
     modernProtocolVersions,
     SdkError,
     SdkErrorCode,
@@ -134,15 +135,19 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
 }
 
 function classifyResult(result: unknown, context: ProbeClassifierContext): ProbeVerdict {
-    const parsed = DiscoverResultSchema.safeParse(result);
-    if (!parsed.success) {
+    // The 2026 wire schema carries the spec receiver-side defaults for
+    // `resultType` ('complete'), `ttlMs` (0) and `cacheScope` ('private'), so
+    // routing through the codec is behavior-neutral with the prior public-schema
+    // parse: a server that omits them still classifies `modern`.
+    const parsed = codecForVersion(MODERN_WIRE_REVISION).validateResult('server/discover', result);
+    if (!parsed.ok) {
         // Unrecognized result shape: not modern evidence — conservative legacy fallback.
         return { kind: 'legacy' };
     }
-    const supportedVersions = parsed.data.supportedVersions;
+    const supportedVersions = parsed.value.supportedVersions;
     const overlap = context.clientModernVersions.find(version => supportedVersions.includes(version));
     if (overlap !== undefined) {
-        return { kind: 'modern', version: overlap, discover: parsed.data };
+        return { kind: 'modern', version: overlap, discover: parsed.value };
     }
     // A DiscoverResult with no overlap still drives era selection: initialize on
     // the same connection when fallback is possible, otherwise a typed error.
