@@ -41,10 +41,14 @@
  * nothing per-revision is public surface, and nothing here may ever be
  * exported from `core/public`.
  */
-import type * as z from 'zod/v4';
-
 import type { SdkError } from '../errors/sdkErrors.js';
 import type {
+    CallToolResult,
+    ClientCapabilities,
+    CreateMessageResult,
+    CreateMessageResultWithTools,
+    Implementation,
+    LoggingLevel,
     MessageClassification,
     NotificationMethod,
     NotificationTypeMap,
@@ -85,6 +89,47 @@ export interface LiftedWireMaterial {
     requestState?: string;
 }
 
+/**
+ * Tri-state validation outcome — the function-only contract for what the
+ * schema-getter pair (`hasRequestMethod` ⇒ −32601-by-absence; `…Schema(m)
+ * .parse` throw ⇒ −32602) used to encode in two pieces. Preserving the split
+ * is the point: collapsing 'absent from this era's registry' into 'invalid'
+ * would make the in-band fallback chain (validate → on `not-in-era` fall to
+ * validateInputRequest) treat absence as failure and never fall through.
+ */
+export type ValidateOutcome<T> =
+    | { readonly ok: true; readonly value: T }
+    /**
+     * Method is spec vocabulary but absent from THIS era's registry. Callers
+     * map to −32601 (inbound) or a typed local SdkError (outbound), or fall
+     * through to the in-band validator.
+     */
+    | { readonly ok: false; readonly reason: 'not-in-era' }
+    /**
+     * Method is in this era's registry; payload failed the era-exact schema.
+     * Callers map to −32602.
+     */
+    | { readonly ok: false; readonly reason: 'invalid'; readonly message: string };
+
+/** A single self-identifying problem found while validating a per-request `_meta` envelope. */
+export interface EnvelopeIssue {
+    /**
+     * The envelope key the problem is about: one of the reserved `_meta`
+     * keys, or a dotted path inside one.
+     */
+    readonly key: string;
+    /** A short description of what is wrong with that key (`missing`, or a validation message). */
+    readonly problem: string;
+}
+
+/** Material a Client supplies for an era to build its per-request `_meta` envelope from. */
+export interface OutboundEnvelopeMaterial {
+    readonly protocolVersion: string;
+    readonly clientInfo: Implementation;
+    readonly clientCapabilities: ClientCapabilities;
+    readonly logLevel?: LoggingLevel;
+}
+
 /** Result decode outcomes — the raw-first discrimination (V-1) lives in `decodeResult`. */
 export type DecodedResult =
     | {
@@ -117,33 +162,70 @@ export interface WireCodec {
     hasRequestMethod(method: string): boolean;
     hasNotificationMethod(method: string): boolean;
 
-    /**
-     * Era-exact dispatch schemas, resolved at dispatch time (never at
-     * registration time). The method-literal overloads carry the typed parse
-     * result for statically known spec methods, so call sites need no type
-     * assertion; `undefined` means the method has no entry on this era's
-     * registry.
-     */
-    requestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]> | undefined;
-    requestSchema(method: string): z.ZodType | undefined;
-    resultSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]> | undefined;
-    resultSchema(method: string): z.ZodType | undefined;
-    notificationSchema<M extends NotificationMethod>(method: M): z.ZodType<NotificationTypeMap[M]> | undefined;
-    notificationSchema(method: string): z.ZodType | undefined;
+    // ── Function-only validation surface ──────────────────────────────────
+    // The validator-agnostic contract: callers never see a Zod schema, only a
+    // tri-state outcome. The method-literal overloads carry the typed parse
+    // result exactly as the (now-deprecated) *Schema getters did.
+
+    /** Era-exact request validation. `not-in-era` ≡ −32601-by-absence; `invalid` ≡ −32602. */
+    validateRequest<M extends RequestMethod>(method: M, raw: unknown): ValidateOutcome<RequestTypeMap[M]>;
+    validateRequest(method: string, raw: unknown): ValidateOutcome<unknown>;
+
+    /** Era-exact result validation (same registry as `validateRequest`). */
+    validateResult<M extends RequestMethod>(method: M, raw: unknown): ValidateOutcome<ResultTypeMap[M]>;
+    validateResult(method: string, raw: unknown): ValidateOutcome<unknown>;
+
+    /** Era-exact notification validation. */
+    validateNotification<M extends NotificationMethod>(method: M, raw: unknown): ValidateOutcome<NotificationTypeMap[M]>;
+    validateNotification(method: string, raw: unknown): ValidateOutcome<unknown>;
 
     /**
-     * In-band (de-JSON-RPC'd) input-request vocabulary of this era — the
-     * embedded requests a multi-round-trip `input_required` result may carry
-     * and the bare responses that answer them. `undefined` means the method
-     * is not in-band vocabulary on this era (the 2025-era codec has none:
-     * elicitation/sampling/roots are wire request methods there). These do
-     * NOT grant registry membership — a peer sending one of these as a wire
-     * request on an era that demoted it still gets −32601 by absence.
+     * In-band (de-JSON-RPC'd) input-request validation — the embedded
+     * requests a multi-round-trip `input_required` result may carry. Always
+     * `not-in-era` on the 2025 era (elicitation/sampling/roots are wire
+     * request methods there). Does NOT grant registry membership.
      */
-    inputRequestSchema<M extends RequestMethod>(method: M): z.ZodType<RequestTypeMap[M]> | undefined;
-    inputRequestSchema(method: string): z.ZodType | undefined;
-    inputResponseSchema<M extends RequestMethod>(method: M): z.ZodType<ResultTypeMap[M]> | undefined;
-    inputResponseSchema(method: string): z.ZodType | undefined;
+    validateInputRequest<M extends RequestMethod>(method: M, raw: unknown): ValidateOutcome<RequestTypeMap[M]>;
+    validateInputRequest(method: string, raw: unknown): ValidateOutcome<unknown>;
+
+    /** In-band bare-response validation answering an embedded input request. */
+    validateInputResponse<M extends RequestMethod>(method: M, raw: unknown): ValidateOutcome<ResultTypeMap[M]>;
+    validateInputResponse(method: string, raw: unknown): ValidateOutcome<unknown>;
+
+    /**
+     * Param-conditional `sampling/createMessage` result validation — the one
+     * spec result whose schema depends on REQUEST params (tools vs no tools).
+     * The 2025 era owns the with-tools/plain frozen schemas; the 2026 era
+     * returns `not-in-era` (sampling is in-band there — callers fall through
+     * to `validateInputResponse`).
+     */
+    samplingResultVariant(hasTools: true, raw: unknown): ValidateOutcome<CreateMessageResultWithTools>;
+    samplingResultVariant(hasTools: false, raw: unknown): ValidateOutcome<CreateMessageResult>;
+    samplingResultVariant(hasTools: boolean, raw: unknown): ValidateOutcome<CreateMessageResult | CreateMessageResultWithTools>;
+
+    /**
+     * Outbound per-request `_meta` envelope encode. Returns the keyed object
+     * to merge into `params._meta` on this era, or `undefined` when this era
+     * carries no per-request envelope (the 2025 era — legacy wire stays
+     * byte-identical).
+     */
+    outboundEnvelope(material: OutboundEnvelopeMaterial): Readonly<Record<string, unknown>> | undefined;
+
+    /**
+     * Structured envelope validation: maps a `_meta` object to
+     * self-identifying issues. The 2025 era never requires an envelope and
+     * always returns `[]`; the 2026 era owns the required-key pre-pass plus
+     * the wire-exact `RequestMetaEnvelopeSchema` parse.
+     */
+    validateEnvelopeMeta(meta: Readonly<Record<string, unknown>>): EnvelopeIssue[];
+
+    /**
+     * Per-registration `tools/call` result projection — applies the SEP-2106
+     * `{result:…}` wrap to `structuredContent` on the 2025 era when the
+     * tool's ADVERTISED `outputSchema` has a non-object root (so the result
+     * matches the `tools/list` projection). Identity on the 2026 era.
+     */
+    projectCallToolResult(result: CallToolResult, advertisedOutputSchema: Readonly<Record<string, unknown>> | undefined): CallToolResult;
 
     /**
      * Step 1 of result decoding: RAW `resultType` handling BEFORE any schema
@@ -179,11 +261,12 @@ export interface WireCodec {
     encodeErrorCode(code: number): number;
 
     /**
-     * Inbound envelope enforcement for era-classified traffic: validates the
-     * lifted envelope material of a request. Returns an error message when
-     * the era requires an envelope and it is missing/invalid (→ −32602 at the
-     * dispatch layer); `undefined` when acceptable. The 2025 era never
-     * requires an envelope.
+     * @deprecated Use {@link validateEnvelopeMeta}. Inbound envelope
+     * enforcement for era-classified traffic: validates the lifted envelope
+     * material of a request. Returns an error message when the era requires
+     * an envelope and it is missing/invalid (→ −32602 at the dispatch
+     * layer); `undefined` when acceptable. The 2025 era never requires an
+     * envelope.
      */
     checkInboundEnvelope(material: LiftedWireMaterial): string | undefined;
 }
