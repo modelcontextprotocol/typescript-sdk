@@ -425,6 +425,19 @@ interface ListenStateEntry {
 }
 
 /**
+ * Per-tool result of compiling an `outputSchema` (SEP-2106). Stored on the
+ * response-cache substrate's stamp-keyed `name → validator` index so it
+ * inherits that substrate's invalidation lifecycle (`list_changed` evicts,
+ * a refetched `tools/list` re-derives, `resetForReconnect` clears) — no
+ * parallel map to keep in sync.
+ *
+ * @internal
+ */
+type OutputSchemaCompileResult =
+    | { ok: true; validator: JsonSchemaValidator<unknown> }
+    | { ok: false; validator?: undefined; compileError: unknown };
+
+/**
  * An MCP client on top of a pluggable transport.
  *
  * The client will automatically begin the initialization flow with the server when {@linkcode connect} is called.
@@ -1704,22 +1717,29 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Compile a single tool's `outputSchema` (or `undefined` when absent /
-     * uncompilable) — the caller-supplied-definition path of
-     * {@linkcode callTool} so an explicit `options.toolDefinition` is the
-     * source for BOTH mirroring AND output validation. Also passed as the
-     * compile callback to {@linkcode ClientResponseCache.outputValidator} so
-     * the cache class stays free of any validator-provider dependency.
+     * Compile a single tool's `outputSchema`. Passed as the compile callback to
+     * {@linkcode ClientResponseCache.outputValidator} so the cache class stays
+     * free of any validator-provider dependency, and called directly for the
+     * `options.toolDefinition` path of {@linkcode callTool} (a one-off
+     * caller-supplied definition is compiled in isolation and never enters the
+     * cache, so it cannot poison the listed tool of the same name).
+     *
+     * Returns `undefined` when the tool has no `outputSchema`, or a
+     * discriminated `{ok}` result otherwise. SEP-2106: ANY throw from the
+     * validator engine — unsupported `$schema` dialect, invalid `pattern`
+     * regex, unresolvable `$ref`, or any other engine error — is captured as
+     * `{ok: false, compileError}` so one bad schema does not poison the rest
+     * of the listing; `callTool()` surfaces it as an `InvalidParams` error
+     * before the request. The `{ok}` discriminator (not
+     * `compileError !== undefined`) means a custom provider that does
+     * `throw undefined` is still treated as a captured failure.
      */
-    private _compileOutputValidator(tool: Tool): JsonSchemaValidator<unknown> | undefined {
+    private _compileOutputValidator(tool: Tool): OutputSchemaCompileResult | undefined {
         if (!tool.outputSchema) return undefined;
         try {
-            return this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
+            return { ok: true, validator: this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType) };
         } catch (error) {
-            console.warn(
-                `[mcp-sdk] tool '${tool.name}': outputSchema failed to compile and will not be validated — ${error instanceof Error ? error.message : String(error)}`
-            );
-            return undefined;
+            return { ok: false, compileError: error };
         }
     }
 
@@ -2165,9 +2185,13 @@ export class Client extends Protocol<ClientContext> {
      *     arguments: { weightKg: 70, heightM: 1.75 }
      * });
      *
-     * // Machine-readable output for the client application
-     * if (result.structuredContent) {
-     *     console.log(result.structuredContent); // e.g. { bmi: 22.86 }
+     * // Machine-readable output for the client application. SEP-2106: structuredContent is
+     * // `unknown` (any JSON value). Check for presence with `!== undefined` and narrow before use.
+     * if (result.structuredContent !== undefined) {
+     *     const sc: unknown = result.structuredContent; // e.g. { bmi: 22.86 }
+     *     if (typeof sc === 'object' && sc !== null && 'bmi' in sc) {
+     *         console.log(sc.bmi);
+     *     }
      * }
      * ```
      */
@@ -2217,6 +2241,28 @@ export class Client extends Protocol<ClientContext> {
             return Object.keys(paramHeaders).length === 0 ? options : { ...options, headers: { ...options?.headers, ...paramHeaders } };
         };
 
+        // SEP-2106: resolve the output validator BEFORE the request so a tool whose outputSchema
+        // fails to compile (unsupported `$schema` dialect / invalid pattern / unresolvable `$ref` /
+        // any engine error) is surfaced here, per-tool, without a wasted network round-trip and
+        // server-side handler execution. When the caller supplied `toolDefinition`, that definition
+        // is the source for BOTH the `Mcp-Param-*` mirroring above AND output validation — the two
+        // derived views must agree — and is compiled in isolation (never written to the cache). The
+        // cache read is guarded: a custom store whose `get()` rejects routes to `onerror` and
+        // degrades to skipping validation (same outcome as a cold cache).
+        let compiled =
+            options?.toolDefinition === undefined
+                ? await this._cache
+                      .outputValidator(params.name, tool => this._compileOutputValidator(tool))
+                      .catch(error => void this._reportStoreError(error))
+                : this._compileOutputValidator(options.toolDefinition);
+        const assertCompiled = (): void => {
+            if (compiled === undefined || compiled.ok) return;
+            const err = compiled.compileError;
+            const message = (err instanceof Error ? err.message : String(err)).slice(0, 200);
+            throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Tool '${params.name}' has an invalid outputSchema: ${message}`);
+        };
+        assertCompiled();
+
         // The method-keyed request() path validates the era registry's plain
         // CallToolResult schema — with the result map aligned to the typed
         // map there is no wider union to narrow away.
@@ -2254,28 +2300,25 @@ export class Client extends Protocol<ClientContext> {
             // `HEADER_MISMATCH` — the refetch failure is observable only
             // through `onerror`.
             await this.listTools(undefined, refreshOptions).catch(error_ => this._reportStoreError(error_));
+            // Re-resolve the output validator against the freshly-fetched entry — the pre-flight
+            // `compiled` was resolved from the now-evicted cache and may be stale (different
+            // outputSchema) or absent (cold cache on the first attempt). The recovery path is only
+            // entered when `options.toolDefinition` is undefined, so the cache is the sole source.
+            // Re-run the same fail-fast compile-error check before issuing the retry.
+            compiled = await this._cache
+                .outputValidator(params.name, tool => this._compileOutputValidator(tool))
+                .catch(error_ => void this._reportStoreError(error_));
+            assertCompiled();
             result = await this.request({ method: 'tools/call', params }, await buildSendOptions());
         }
 
-        // Check if the tool has an outputSchema. When the caller supplied
-        // `toolDefinition`, that definition is the source for BOTH the
-        // `Mcp-Param-*` mirroring above AND the output validation here — the
-        // two derived views must agree. The cache read is guarded the same
-        // way as `evict()`/`set()` above: a custom store whose `get()`
-        // rejects AFTER the server has already executed the call must not
-        // surface as a `callTool()` rejection (a caller that retries on
-        // failure would re-execute a possibly side-effecting tool). Route to
-        // `onerror` and degrade to skipping validation — the same outcome as
-        // a cold cache.
-        const validator =
-            options?.toolDefinition === undefined
-                ? await this._cache
-                      .outputValidator(params.name, tool => this._compileOutputValidator(tool))
-                      .catch(error => void this._reportStoreError(error))
-                : this._compileOutputValidator(options.toolDefinition);
+        const validator = compiled !== undefined && compiled.ok ? compiled.validator : undefined;
         if (validator) {
-            // If tool has outputSchema, it MUST return structuredContent (unless it's an error)
-            if (!result.structuredContent && !result.isError) {
+            // If tool has outputSchema, it MUST return structuredContent (unless it's an error).
+            // SEP-2106: presence is `=== undefined`, not falsy — `null`/`0`/`false`/`""` are legal
+            // values and are validated below (so a falsy value against an object-typed schema still
+            // fails; this is not a guard weakening).
+            if (result.structuredContent === undefined && !result.isError) {
                 throw new ProtocolError(
                     ProtocolErrorCode.InvalidRequest,
                     `Tool ${params.name} has an output schema but did not return structured content`
@@ -2283,7 +2326,7 @@ export class Client extends Protocol<ClientContext> {
             }
 
             // Only validate structured content if present (not when there's an error)
-            if (result.structuredContent) {
+            if (result.structuredContent !== undefined && !result.isError) {
                 try {
                     // Validate the structured content against the schema
                     const validationResult = validator(result.structuredContent);

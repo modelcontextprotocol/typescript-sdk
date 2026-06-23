@@ -105,9 +105,13 @@ async function Client_callTool_structuredOutput(client: Client) {
         arguments: { weightKg: 70, heightM: 1.75 }
     });
 
-    // Machine-readable output for the client application
-    if (result.structuredContent) {
-        console.log(result.structuredContent); // e.g. { bmi: 22.86 }
+    // Machine-readable output for the client application. SEP-2106: structuredContent is
+    // `unknown` (any JSON value). Check for presence with `!== undefined` and narrow before use.
+    if (result.structuredContent !== undefined) {
+        const sc: unknown = result.structuredContent; // e.g. { bmi: 22.86 }
+        if (typeof sc === 'object' && sc !== null && 'bmi' in sc) {
+            console.log(sc.bmi);
+        }
     }
     //#endregion Client_callTool_structuredOutput
 }

@@ -114,6 +114,89 @@ describe('client JSON Schema validator overrides', () => {
         await serverTransport.close();
     });
 
+    describe('outputSchema compile-error lifecycle (substrate-held; no parallel map)', () => {
+        // SEP-2106 §invalid-outputSchema: a tool whose outputSchema fails to compile is
+        // surfaced as a typed InvalidParams BEFORE the request is sent. The compile error is
+        // held on the response-cache substrate's stamp-keyed `name → validator` index, so it
+        // inherits that substrate's invalidation lifecycle — a refetched `tools/list` re-derives
+        // it from scratch (no stale-entry bug when the server fixes the tool by removing the
+        // schema). The caller-supplied `toolDefinition` path is compiled in isolation and never
+        // touches the cache, so a one-off bad definition cannot poison the listed tool.
+        async function connectMutableToolsClient(getTools: () => unknown[]) {
+            const client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            serverTransport.onmessage = async message => {
+                if (!('method' in message) || !('id' in message)) return;
+                if (message.method === 'initialize') {
+                    await serverTransport.send({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: {
+                            protocolVersion: LATEST_PROTOCOL_VERSION,
+                            capabilities: { tools: {} },
+                            serverInfo: { name: 'test-server', version: '1.0.0' }
+                        }
+                    });
+                } else if (message.method === 'tools/list') {
+                    await serverTransport.send({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: { tools: getTools() }
+                    } satisfies JSONRPCMessage);
+                } else if (message.method === 'tools/call') {
+                    await serverTransport.send({
+                        jsonrpc: '2.0',
+                        id: message.id,
+                        result: { content: [{ type: 'text', text: 'ok' }], structuredContent: { count: 1 } }
+                    } satisfies JSONRPCMessage);
+                }
+            };
+            await Promise.all([client.connect(clientTransport), serverTransport.start()]);
+            return { client, close: () => Promise.all([client.close(), clientTransport.close(), serverTransport.close()]) };
+        }
+
+        // An external `$ref` throws at compile time inside Ajv (MissingRefError — no fetch is
+        // attempted) and is captured per-tool by `_compileOutputValidator`.
+        const BAD_SCHEMA = { type: 'object', $ref: 'https://example.invalid/schema.json' } as const;
+        const GOOD_SCHEMA = { type: 'object', properties: { count: { type: 'number' } } } as const;
+
+        test('re-advertising a tool WITHOUT the bad outputSchema clears the captured failure', async () => {
+            let tools: unknown[] = [{ name: 't', inputSchema: { type: 'object' }, outputSchema: BAD_SCHEMA }];
+            const { client, close } = await connectMutableToolsClient(() => tools);
+
+            await client.listTools();
+            await expect(client.callTool({ name: 't' })).rejects.toThrow(/invalid outputSchema/);
+
+            // Server fixes the tool by removing outputSchema entirely; refetched `tools/list`
+            // re-derives the index from scratch — no stale compile-error entry survives.
+            tools = [{ name: 't', inputSchema: { type: 'object' } }];
+            await client.listTools();
+            await expect(client.callTool({ name: 't' })).resolves.toMatchObject({
+                content: [{ type: 'text', text: 'ok' }]
+            });
+
+            await close();
+        });
+
+        test('a one-off `toolDefinition` with a bad outputSchema does not poison the listed tool', async () => {
+            const tools: unknown[] = [{ name: 't', inputSchema: { type: 'object' }, outputSchema: GOOD_SCHEMA }];
+            const { client, close } = await connectMutableToolsClient(() => tools);
+
+            await client.listTools();
+            await expect(
+                client.callTool({ name: 't' }, { toolDefinition: { name: 't', inputSchema: { type: 'object' }, outputSchema: BAD_SCHEMA } })
+            ).rejects.toThrow(/invalid outputSchema/);
+
+            // Subsequent plain callTool of the same name (against the cached, valid listed
+            // schema) succeeds — the one-off definition never entered the cache.
+            await expect(client.callTool({ name: 't' })).resolves.toMatchObject({
+                structuredContent: { count: 1 }
+            });
+
+            await close();
+        });
+    });
+
     test('fromJsonSchema uses an explicitly supplied custom validator', async () => {
         const validator = new RecordingValidator();
         const schema: JsonSchemaType = {
