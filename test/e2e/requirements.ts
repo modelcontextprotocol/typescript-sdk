@@ -595,8 +595,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'resources/read returns text contents carrying uri, mimeType, and the text.'
     },
     'resources:read:unknown-uri': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling',
-        behavior: 'resources/read for an unknown URI returns JSON-RPC error -32002 (resource not found).'
+        source: 'https://modelcontextprotocol.io/specification/draft/server/resources#error-handling',
+        behavior:
+            'resources/read for an unknown URI returns JSON-RPC error -32602 (Invalid Params) with data.uri echoing the requested URI; clients also recognise -32002 from older peers. Servers do not return an empty contents array for a non-existent resource.'
     },
     'resources:subscribe:capability-required': {
         entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],

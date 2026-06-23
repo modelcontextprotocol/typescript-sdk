@@ -44,9 +44,5 @@ client:
     # client support for the token-exchange + JWT bearer flow.
     - auth/enterprise-managed-authorization
 
-server:
-    # --- Draft-spec scenarios (in `--suite draft`; the default `active` suite is green) ---
-    # WARNING-only entry: the scenario emits no FAILURE checks, only a SHOULD-level
-    # WARNING, but the expected-failures evaluator counts WARNINGs as failures.
-    # SEP-2164: server returns -32002 without the requested URI in error.data.
-    - sep-2164-resource-not-found
+server: []
+# (sep-2164-resource-not-found burned by the resources/read -32602 fix.)

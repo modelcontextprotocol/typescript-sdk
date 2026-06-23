@@ -199,7 +199,9 @@ describe('era-parity error shapes', () => {
 
         expect(legacy.status).toBe(200);
         expect(modern.status).toBe(200);
-        expect(legacy.error).toMatchObject({ code: -32_002, message: 'resource missing' });
+        // The encode seam selects the wire code: a handler-thrown −32002 is
+        // emitted as −32602 on BOTH eras (no era branch preserves −32002).
+        expect(legacy.error).toMatchObject({ code: -32_602, message: 'resource missing' });
         expect(modern.error).toEqual(legacy.error);
     });
 

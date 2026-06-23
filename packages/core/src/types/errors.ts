@@ -39,6 +39,24 @@ export class ProtocolError extends Error {
             }
         }
 
+        // Resource not found is recognised on BOTH the spec-mandated −32602 and
+        // the legacy −32002 (the spec's "clients SHOULD also accept −32002"
+        // backwards-compatibility clause). On −32602 the data-shape parse is
+        // narrowed to "exactly `{ uri: string }` and nothing else": a server's
+        // own Invalid Params that happens to carry `data.uri` alongside other
+        // keys (e.g. `{ uri, reason: 'uri must be https' }`) stays a generic
+        // ProtocolError. On −32002 the code itself is the discriminator, so any
+        // `data.uri` string suffices.
+        if (code === ProtocolErrorCode.InvalidParams || code === ProtocolErrorCode.ResourceNotFound) {
+            const errorData = data as Record<string, unknown> | undefined;
+            if (
+                typeof errorData?.uri === 'string' &&
+                (code === ProtocolErrorCode.ResourceNotFound || Object.keys(errorData).length === 1)
+            ) {
+                return new ResourceNotFoundError(errorData.uri, message);
+            }
+        }
+
         if (code === ProtocolErrorCode.MissingRequiredClientCapability && data) {
             const errorData = data as Partial<MissingRequiredClientCapabilityErrorData>;
             if (
@@ -52,6 +70,32 @@ export class ProtocolError extends Error {
 
         // Default to generic ProtocolError
         return new ProtocolError(code, message, data);
+    }
+}
+
+/**
+ * Error type for a `resources/read` miss: the requested resource does not
+ * exist. The wire code is `-32602` (Invalid Params) on every protocol
+ * revision — the spec MUST for revision 2026-07-28, and the value the v1.x
+ * SDK has always emitted on earlier revisions. The error data echoes the
+ * requested URI.
+ *
+ * Recognise this error by checking `error.data.uri` is a string (a
+ * `-32602` with `data.uri` is resource-not-found; any other `-32602` is an
+ * ordinary Invalid Params). For backwards compatibility, clients should also
+ * accept `-32002` as resource not found — earlier SDK builds emitted that
+ * code, and {@linkcode ProtocolError.fromError} recognises both. Do not rely
+ * on `instanceof` — it does not work across separately bundled copies of the
+ * SDK.
+ */
+export class ResourceNotFoundError extends ProtocolError {
+    constructor(uri: string, message: string = `Resource not found: ${uri}`) {
+        super(ProtocolErrorCode.InvalidParams, message, { uri });
+    }
+
+    /** The URI that was requested and not found. */
+    get uri(): string {
+        return (this.data as { uri: string }).uri;
     }
 }
 

@@ -1055,11 +1055,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
                         return;
                     }
 
+                    // The error half of the encode seam: the era codec selects
+                    // the wire code for a handler-thrown error, so per-era
+                    // wire-code policy lives in the codec rather than in any
+                    // handler. Non-integer codes still fall through to −32603.
+                    const thrownCode = Number.isSafeInteger(error['code']) ? (error['code'] as number) : ProtocolErrorCode.InternalError;
                     const errorResponse: JSONRPCErrorResponse = {
                         jsonrpc: '2.0',
                         id: request.id,
                         error: {
-                            code: Number.isSafeInteger(error['code']) ? error['code'] : ProtocolErrorCode.InternalError,
+                            code: codec.encodeErrorCode(thrownCode),
                             message: error.message ?? 'Internal error',
                             ...(error['data'] !== undefined && { data: error['data'] })
                         }

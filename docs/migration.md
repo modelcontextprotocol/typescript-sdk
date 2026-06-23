@@ -1305,6 +1305,28 @@ identifiers from rejections. See `examples/mrtr/server.ts` for a worked end-to-e
 keep returning their plain result types — the interactive rounds happen inside the call, and a registered handler written for the 2025 flow keeps working unchanged. Configure or opt out via `ClientOptions.inputRequired` (`{ autoFulfill: false }`), drive the flow manually per call
 with the `allowInputRequired: true` request option plus the `withInputRequired()` schema wrapper, and expect the typed `InputRequiredRoundsExceeded` error when the round cap is exhausted. 2025-era connections are unaffected (the legacy wire has no `input_required` vocabulary).
 
+### Resource not found is `-32602` on every revision; typed `ResourceNotFoundError`
+
+`resources/read` for an unknown URI now answers with JSON-RPC error code **`-32602` (Invalid Params)** on every protocol revision, with `error.data.uri` echoing the requested URI. The 2026-07-28 specification requires `-32602`; the v1.x SDK already emitted `-32602` on earlier
+revisions, so v1.x peers see no change. An interim `-32002` emission that shipped in earlier v2 alphas is reverted: the era encode seam maps any handler-thrown `-32002` to `-32602` on the wire, so a handler written against the older alpha behaves identically without changes.
+
+`ProtocolErrorCode.ResourceNotFound` (`-32002`) **remains importable** as receive-tolerated vocabulary: clients should accept both `-32602` and `-32002` from peers (the specification's backwards-compatibility clause). The new typed `ResourceNotFoundError` class carries the URI on
+`.uri`, and `ProtocolError.fromError` recognizes both codes by the `data.uri` shape — recognize peers' errors by their code and `error.data`, not by `instanceof`, which does not survive bundling. Servers must not return an empty `contents` array for a non-existent resource (an
+empty array is ambiguous between "exists but empty" and "does not exist").
+
+```typescript
+import { ProtocolError, ResourceNotFoundError } from '@modelcontextprotocol/client';
+
+try {
+    await client.readResource({ uri: 'file:///nope' });
+} catch (error) {
+    const typed = error instanceof ProtocolError ? ProtocolError.fromError(error.code, error.message, error.data) : undefined;
+    if (typed instanceof ResourceNotFoundError) {
+        console.log('not found:', typed.uri);
+    }
+}
+```
+
 ### Typed `-32003` missing-client-capability error
 
 `MissingRequiredClientCapabilityError` is the typed error class for the 2026-07-28 `-32003` protocol error: processing a request requires a capability the client did not declare in the request's `clientCapabilities`. Its `data.requiredCapabilities` lists the missing capabilities,
