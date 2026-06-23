@@ -223,9 +223,8 @@ export class McpServer {
                 // `{result:…}` wrap on the 2025 era) lives behind the wire codec's
                 // `projectCallToolResult`. The codec receives the SAME advertised JSON Schema
                 // `tools/list` emits (and that the codec's `encodeResult('tools/list', …)` may have
-                // wrapped) so the listing and the call cannot diverge — the wrap predicate follows
-                // the schema's root, never the runtime value shape.
-                return this.server.codec.projectCallToolResult(result, tool.outputSchemaJson);
+                // wrapped) so the listing and the call cannot diverge.
+                return this.server.projectCallToolResult(result, tool.outputSchemaJson);
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult

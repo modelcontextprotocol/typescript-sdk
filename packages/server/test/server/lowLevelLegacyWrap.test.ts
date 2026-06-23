@@ -74,7 +74,7 @@ describe('SEP-2106: the 2025 wire codec owns the legacy {result:…} wrap (low-l
         // (McpServer's tools/call handler does the same call). The codec is the ONLY place
         // the era branch lives.
         server.setRequestHandler('tools/call', () =>
-            server.codec.projectCallToolResult({ content: [], structuredContent: [1, 2, 3] }, advertised)
+            server.projectCallToolResult({ content: [], structuredContent: [1, 2, 3] }, advertised)
         );
         const { request, notify } = await wire(server);
         await request(initializeRequest(1));
@@ -85,6 +85,30 @@ describe('SEP-2106: the 2025 wire codec owns the legacy {result:…} wrap (low-l
         const result = reply.result as { structuredContent?: unknown; content?: ReadonlyArray<{ type: string; text?: string }> };
         expect(result.structuredContent).toEqual({ result: [1, 2, 3] });
         // The era-agnostic SEP-2106 §4.3 TextContent auto-append also lives behind the codec.
+        expect(result.content).toContainEqual({ type: 'text', text: JSON.stringify([1, 2, 3]) });
+    });
+
+    it('projectCallToolResult wraps a non-object structuredContent value as {result:…} REGARDLESS of advertised schema (schema-less tool)', async () => {
+        // A schema-less tool (no `outputSchema` advertised) returning a non-object
+        // `structuredContent` would otherwise ship wire-illegal bytes on the 2025
+        // era — the wire shape requires `structuredContent` to be an object. The
+        // projection wraps on value shape alone, so the result is always
+        // wire-legal even when there is no schema to consult.
+        const server = new Server({ name: 's', version: '1' }, { capabilities: { tools: {} } });
+        server.setRequestHandler('tools/list', () => ({
+            tools: [{ name: 'x', inputSchema: { type: 'object' as const } }]
+        }));
+        server.setRequestHandler('tools/call', () =>
+            server.projectCallToolResult({ content: [], structuredContent: [1, 2, 3] }, undefined)
+        );
+        const { request, notify } = await wire(server);
+        await request(initializeRequest(1));
+        await notify({ jsonrpc: '2.0', method: 'notifications/initialized' });
+
+        const reply = await request({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'x', arguments: {} } });
+        if (!isJSONRPCResultResponse(reply)) throw new Error(`expected result, got ${JSON.stringify(reply)}`);
+        const result = reply.result as { structuredContent?: unknown; content?: ReadonlyArray<{ type: string; text?: string }> };
+        expect(result.structuredContent).toEqual({ result: [1, 2, 3] });
         expect(result.content).toContainEqual({ type: 'text', text: JSON.stringify([1, 2, 3]) });
     });
 });

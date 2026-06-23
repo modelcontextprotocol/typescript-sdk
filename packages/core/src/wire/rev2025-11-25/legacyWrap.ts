@@ -25,11 +25,27 @@ export function isNonObjectJsonSchemaRoot(json: Readonly<Record<string, unknown>
 }
 
 /**
- * Keys whose values are instance-data positions in a JSON Schema (not
- * subschemas). A `{$ref:…}` appearing inside one is a literal value, not a
- * JSON Pointer to rewrite.
+ * Keyword-position keys whose values are instance data (not subschemas). A
+ * `{$ref:…}` appearing inside one is a literal value, not a JSON Pointer to
+ * rewrite. Only consulted when the current object is in keyword position —
+ * a PROPERTY named `default`/`const` (under `properties`/`$defs`/…) is a name
+ * position whose value IS a subschema and is recursed into.
  */
 const REF_REWRITE_DATA_POSITION_KEYS: ReadonlySet<string> = new Set(['const', 'enum', 'default', 'examples']);
+
+/**
+ * Keyword-position keys whose value is a name→subschema map. Entries inside
+ * such a map are in NAME position: their keys are author-chosen property
+ * names (which may collide with JSON Schema keywords), their values are
+ * subschemas to recurse into.
+ */
+const REF_REWRITE_NAME_MAP_KEYS: ReadonlySet<string> = new Set([
+    'properties',
+    'patternProperties',
+    '$defs',
+    'definitions',
+    'dependentSchemas'
+]);
 
 /**
  * Wrap a non-object output schema in the 2025-era envelope:
@@ -39,25 +55,48 @@ const REF_REWRITE_DATA_POSITION_KEYS: ReadonlySet<string> = new Set(['const', 'e
  * (e.g. `#/properties/foo` produced by zod for de-duplicated/recursive types)
  * are rewritten to account for the new `#/properties/result` root: bare `#` →
  * `#/properties/result`, `#/…` → `#/properties/result/…`. Cross-document refs
- * (anything not starting with `#`) are left untouched. Data positions
- * (`const`/`enum`/`default`/`examples`) are NOT descended into — their values
- * are instance data, not subschemas.
+ * (anything not starting with `#`) are left untouched.
+ *
+ * The rewrite is position-aware: data-valued keywords
+ * (`const`/`enum`/`default`/`examples`) in keyword position are NOT descended
+ * into; the same names appearing as property names under
+ * `properties`/`patternProperties`/`$defs`/`definitions`/`dependentSchemas`
+ * ARE descended into (they're subschemas). The rewrite is also `$id`-scoped:
+ * if the natural root carries `$id` no pointer is rewritten (same-document
+ * refs inside resolve against the embedded `$id` base, not the wrapper root),
+ * and any subtree that establishes its own `$id` is left untouched for the
+ * same reason.
  */
 export function wrapOutputSchemaForLegacy(natural: Readonly<Record<string, unknown>>): Record<string, unknown> {
-    const rewriteRefs = (node: unknown): unknown => {
-        if (Array.isArray(node)) return node.map(item => rewriteRefs(item));
+    // `$id` at the natural root: every same-document `#/…` ref inside resolves
+    // against that base URI, not against the wrapper root — skip the rewrite.
+    if (natural['$id'] !== undefined) {
+        return { type: 'object', properties: { result: natural }, required: ['result'] };
+    }
+    const rewriteRefs = (node: unknown, parentIsNameMap: boolean): unknown => {
+        if (Array.isArray(node)) return node.map(item => rewriteRefs(item, false));
         if (node === null || typeof node !== 'object') return node;
+        // A nested `$id` establishes its own resolution base for the subtree —
+        // same-document refs inside are no longer relative to the wrapper root.
+        // Only applies in keyword position (a property NAMED `$id` is just a name).
+        if (!parentIsNameMap && (node as Record<string, unknown>)['$id'] !== undefined) return node;
         const out: Record<string, unknown> = {};
         for (const [k, v] of Object.entries(node)) {
-            if ((k === '$ref' || k === '$dynamicRef') && typeof v === 'string') {
+            if (parentIsNameMap) {
+                // Name position: `k` is an author-chosen property/def name, `v` is a
+                // subschema in keyword position. Never treat `k` as a keyword here.
+                out[k] = rewriteRefs(v, false);
+            } else if ((k === '$ref' || k === '$dynamicRef') && typeof v === 'string') {
                 out[k] = v === '#' ? '#/properties/result' : v.startsWith('#/') ? `#/properties/result${v.slice(1)}` : v;
             } else if (REF_REWRITE_DATA_POSITION_KEYS.has(k)) {
                 out[k] = v;
+            } else if (REF_REWRITE_NAME_MAP_KEYS.has(k)) {
+                out[k] = rewriteRefs(v, true);
             } else {
-                out[k] = rewriteRefs(v);
+                out[k] = rewriteRefs(v, false);
             }
         }
         return out;
     };
-    return { type: 'object', properties: { result: rewriteRefs(natural) }, required: ['result'] };
+    return { type: 'object', properties: { result: rewriteRefs(natural, false) }, required: ['result'] };
 }

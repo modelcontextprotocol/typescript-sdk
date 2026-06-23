@@ -454,6 +454,29 @@ verifies('server:jsonschema:union-output-natural', async ({ transport }: TestArg
     expect(str.content).toContainEqual({ type: 'text', text: '"x"' });
 });
 
+verifies('2025:jsonschema:schemaless-non-object-sc-wrapped', async ({ transport }: TestArgs) => {
+    // Low-level Server with NO advertised outputSchema, returning a non-object
+    // structuredContent. The 2025 wire shape requires structuredContent to be an
+    // object — `server.projectCallToolResult` wraps on value shape alone so the
+    // result is wire-legal even with nothing to consult on the schema side.
+    const makeServer = (): Server => {
+        const s = new Server({ name: 's', version: '0' }, { capabilities: { tools: {} } });
+        s.setRequestHandler('tools/list', () => ({
+            tools: [{ name: 'schemaless', inputSchema: { type: 'object' } }]
+        }));
+        s.setRequestHandler('tools/call', () => s.projectCallToolResult({ content: [], structuredContent: [1, 2, 3] }, undefined));
+        return s;
+    };
+    const client = newClient();
+    await using _ = await wire(transport, makeServer, client);
+
+    await client.listTools();
+    const r = await client.callTool({ name: 'schemaless', arguments: {} });
+    expect(r.isError).toBeFalsy();
+    expect(r.structuredContent).toEqual({ result: [1, 2, 3] });
+    expect(r.content).toContainEqual({ type: 'text', text: JSON.stringify([1, 2, 3]) });
+});
+
 verifies('2025:jsonschema:ref-rewrite-on-wrap', async ({ transport }: TestArgs) => {
     // A non-object outputSchema with a same-document `$ref` (e.g. a recursive array). On the
     // legacy era the schema is wrapped under `#/properties/result`, so the `$ref` JSON Pointer
@@ -490,9 +513,12 @@ verifies('2025:jsonschema:ref-rewrite-on-wrap', async ({ transport }: TestArgs) 
 });
 
 verifies('2025:jsonschema:ref-rewrite-scope', async ({ transport }: TestArgs) => {
-    // The legacy-wrap `$ref` rewrite applies to `$ref` AND `$dynamicRef` in subschema positions,
-    // but NOT to instance-data positions (`const`/`enum`/`default`/`examples`) — a `{$ref:…}`
-    // there is a literal value. (The TypeScript SDK goes beyond the C# RewriteRefPointers on both.)
+    // The legacy-wrap `$ref` rewrite is position-aware: it applies to `$ref`/`$dynamicRef` in
+    // subschema positions, but NOT to keyword-position data (`const`/`enum`/`default`/`examples`)
+    // where a `{$ref:…}` is a literal value. A property NAMED `default`/`const` under
+    // `properties`/`$defs` is a NAME position whose value IS a subschema — recursed into. The
+    // rewrite is also `$id`-scoped: a natural schema carrying `$id` keeps its same-document refs
+    // unrewritten (they resolve against the embedded base, not the wrapper root).
     //
     // Listing-only assertion: Ajv2020 stack-overflows compiling a `$dynamicRef` whose fragment is
     // a JSON Pointer (rather than a `$dynamicAnchor`), so the tool is intentionally never called
@@ -502,15 +528,28 @@ verifies('2025:jsonschema:ref-rewrite-scope', async ({ transport }: TestArgs) =>
         $defs: {
             X: {
                 type: 'object',
-                properties: { v: { type: 'number', default: { $ref: '#' }, examples: [{ $ref: '#/bar' }] } },
-                required: ['v']
+                // The OUTER `default` here is a property NAME under `properties` — its value is a
+                // subschema in keyword position, so the `$ref` inside the subschema is rewritten;
+                // the INNER `default`/`examples` are keywords whose values are instance data.
+                properties: { default: { $ref: '#/$defs/X', default: { $ref: '#' }, examples: [{ $ref: '#/bar' }] } },
+                required: ['default']
             }
         }
+    } as const;
+    const WITH_ID = {
+        $id: 'https://example/x',
+        type: 'array',
+        items: { $ref: '#/$defs/D' },
+        $defs: { D: { type: 'number' } }
     } as const;
     const makeServer = (): McpServer => {
         const s = new McpServer({ name: 's', version: '0' });
         s.registerTool('scope', { inputSchema: z.object({}), outputSchema: fromJsonSchema<unknown>(NATURAL) }, () => ({
-            structuredContent: { v: 7 },
+            structuredContent: { default: { default: 7 } },
+            content: []
+        }));
+        s.registerTool('with-id', { inputSchema: z.object({}), outputSchema: fromJsonSchema<unknown>(WITH_ID) }, () => ({
+            structuredContent: [1],
             content: []
         }));
         return s;
@@ -525,24 +564,32 @@ verifies('2025:jsonschema:ref-rewrite-scope', async ({ transport }: TestArgs) =>
         properties: {
             result: {
                 anyOf: [
-                    { $dynamicRef: '#/properties/result/$defs/X' }, // rewritten
-                    { const: { $ref: '#/foo' } } // data position — NOT rewritten
+                    { $dynamicRef: '#/properties/result/$defs/X' }, // keyword position — rewritten
+                    { const: { $ref: '#/foo' } } // keyword data position — NOT rewritten
                 ],
                 $defs: {
                     X: {
                         type: 'object',
                         properties: {
-                            v: {
-                                type: 'number',
-                                default: { $ref: '#' }, // data position — NOT rewritten
-                                examples: [{ $ref: '#/bar' }] // data position — NOT rewritten
+                            default: {
+                                // name-position `default` recursed into; its `$ref` rewritten
+                                $ref: '#/properties/result/$defs/X',
+                                default: { $ref: '#' }, // keyword data position — NOT rewritten
+                                examples: [{ $ref: '#/bar' }] // keyword data position — NOT rewritten
                             }
                         },
-                        required: ['v']
+                        required: ['default']
                     }
                 }
             }
         },
+        required: ['result']
+    });
+    // `$id` at the natural root: same-document refs resolve against the embedded base, so the
+    // embedded schema is wrapped but its `$ref` is NOT rewritten.
+    expect(tools.find(t => t.name === 'with-id')?.outputSchema).toEqual({
+        type: 'object',
+        properties: { result: WITH_ID },
         required: ['result']
     });
 });

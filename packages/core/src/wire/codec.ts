@@ -232,11 +232,13 @@ export interface WireCodec {
      *   only `content` still receive a rendering. The author opts out by
      *   returning any `text` block themselves.
      *
-     * - `{result:…}` wrap (2025 era only, schema-based): when the tool's
-     *   ADVERTISED `outputSchema` has a non-object root, wrap as
-     *   `{result:<value>}` so the result matches the `encodeResult
-     *   ('tools/list')` projection of the same tool. Identity on the 2026
-     *   era — the wire shape carries the natural value directly.
+     * - `{result:…}` wrap (2025 era only): wrap as `{result:<value>}` when the
+     *   value is non-object (the 2025 wire shape requires `structuredContent`
+     *   to be an object — a schema-less tool returning `[1,2,3]` would
+     *   otherwise ship wire-illegal bytes) OR when the tool's ADVERTISED
+     *   `outputSchema` has a non-object root (so the result matches the
+     *   `encodeResult('tools/list')` projection of the same tool). Identity on
+     *   the 2026 era — the wire shape carries the natural value directly.
      */
     projectCallToolResult(result: CallToolResult, advertisedOutputSchema: Readonly<Record<string, unknown>> | undefined): CallToolResult;
 

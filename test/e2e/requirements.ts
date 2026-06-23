@@ -600,8 +600,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         removedInSpecVersion: '2026-07-28',
         source: 'sdk',
         behavior:
-            'The legacy-wrap $ref rewrite applies to $ref AND $dynamicRef in subschema positions, but NOT to instance-data positions (const/enum/default/examples) — a {$ref:…} appearing inside a data position is a literal value and is left untouched.',
+            'The legacy-wrap $ref rewrite is position-aware: it applies to $ref AND $dynamicRef in subschema positions, but NOT to keyword-position data (const/enum/default/examples) where a {$ref:…} is a literal value; a property NAMED default/const under properties/$defs IS recursed into. The rewrite is $id-scoped: a natural schema (or any subtree) carrying $id keeps its same-document refs unrewritten — they resolve against the embedded base, not the wrapper root.',
         note: 'Bounded to the 2025-11-25 axis on the entryStateless arm. Goes beyond the C# RewriteRefPointers on both points.'
+    },
+    '2025:jsonschema:schemaless-non-object-sc-wrapped': {
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'On a 2025-era tools/call, a tool with NO advertised outputSchema whose handler returns non-object structuredContent (array/primitive/null) has the value wrapped as {result:<value>} regardless: the 2025 wire shape requires structuredContent to be an object, so the projection wraps on value shape alone when there is no schema to consult.',
+        note: 'Bounded to the 2025-11-25 axis on the entryStateless arm. The schema-less twin of 2025:jsonschema:non-object-structured-content-wrapped.'
     },
     '2025:jsonschema:wrap-follows-schema-not-value': {
         transports: ['entryStateless'],

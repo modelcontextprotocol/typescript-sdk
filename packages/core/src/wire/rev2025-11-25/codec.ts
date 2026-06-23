@@ -87,12 +87,20 @@ export const rev2025Codec: WireCodec = {
     projectCallToolResult(result: CallToolResult, advertisedOutputSchema): CallToolResult {
         // Era-agnostic SEP-2106 §4.3 TextContent auto-append first (value-shape-based).
         const withText = appendTextFallbackForNonObject(result);
-        // SEP-2106 result-side projection: wrap follows the ADVERTISED schema
-        // (so a `tools/list` that wrapped its outputSchema and a `tools/call`
-        // that wraps the value agree), never the runtime value shape.
-        if (advertisedOutputSchema === undefined || !isNonObjectJsonSchemaRoot(advertisedOutputSchema)) return withText;
-        if (withText.structuredContent === undefined) return withText;
-        return { ...withText, structuredContent: { result: withText.structuredContent } };
+        const sc = withText.structuredContent;
+        if (sc === undefined) return withText;
+        // SEP-2106 result-side projection. Wrap as `{result:<sc>}` when EITHER:
+        //  - the value is non-object (array/primitive/`null`) — REGARDLESS of
+        //    advertised schema, because the 2025 wire shape requires
+        //    `structuredContent` to be an object (a schema-less tool returning
+        //    `[1,2,3]` would otherwise ship wire-illegal bytes), or
+        //  - the advertised `outputSchema` has a non-object root — so the
+        //    result satisfies the wrapped schema this codec's
+        //    `encodeResult('tools/list', …)` advertised for the same tool.
+        const valueIsNonObject = typeof sc !== 'object' || sc === null || Array.isArray(sc);
+        const schemaWrapped = advertisedOutputSchema !== undefined && isNonObjectJsonSchemaRoot(advertisedOutputSchema);
+        if (!valueIsNonObject && !schemaWrapped) return withText;
+        return { ...withText, structuredContent: { result: sc } };
     },
 
     decodeResult(_method: string, raw: unknown): DecodedResult {
