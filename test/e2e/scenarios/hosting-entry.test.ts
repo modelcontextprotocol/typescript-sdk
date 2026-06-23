@@ -123,7 +123,7 @@ verifies('typescript:hosting:entry:strict-rejects-legacy', async ({ transport }:
 
 verifies('typescript:hosting:entry:notification-202', async ({ transport }: TestArgs) => {
     const client = new Client({ name: 'notify-client', version: '1.0.0' });
-    await using wired = await wire(transport, greetFactory, client, { entry: { legacy: 'stateless' } });
+    await using wired = await wire(transport, greetFactory, client);
 
     // 2025 leg: an envelope-less notification rides the legacy stateless slot.
     // 2026 leg: the notification carries the per-request envelope and a method
