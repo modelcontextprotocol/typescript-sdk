@@ -193,6 +193,10 @@ export class McpServer {
                         };
 
                         if (tool.outputSchema) {
+                            // SEP-2106 legacy interop (non-object outputSchema roots wrapped in
+                            // `{type:'object',properties:{result:<natural>},required:['result']}` toward
+                            // 2025-era clients) lives in the 2025 wire codec's `encodeResult('tools/list', …)`
+                            // — this handler is era-blind and emits the natural converted schema.
                             toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
                         }
 
@@ -214,7 +218,14 @@ export class McpServer {
                 const args = await this.validateToolInput(tool, request.params.arguments, request.params.name);
                 const result = await this.executeToolHandler(tool, args, ctx);
                 await this.validateToolOutput(tool, result, request.params.name);
-                return result;
+                if (isInputRequiredResult(result)) return result;
+                // SEP-2106 result-side projection (the era-agnostic TextContent auto-append; the
+                // `{result:…}` wrap on the 2025 era) lives behind the wire codec's
+                // `projectCallToolResult`. The codec receives the SAME advertised JSON Schema
+                // `tools/list` emits (and that the codec's `encodeResult('tools/list', …)` may have
+                // wrapped) so the listing and the call cannot diverge — the wrap predicate follows
+                // the schema's root, never the runtime value shape.
+                return this.server.codec.projectCallToolResult(result, tool.outputSchemaJson);
             } catch (error) {
                 if (error instanceof ProtocolError && error.code === ProtocolErrorCode.UrlElicitationRequired) {
                     throw error; // Return the error to the caller without wrapping in CallToolResult
@@ -288,7 +299,11 @@ export class McpServer {
             return;
         }
 
-        if (!result.structuredContent) {
+        // SEP-2106: `structuredContent` may legally be any JSON value including `null`, `0`,
+        // `false`, `""`. The presence check is therefore `=== undefined` (not falsy); when present,
+        // the value is ALWAYS validated against the output schema — a falsy value against an
+        // object-typed schema fails validation, so this is not a guard weakening.
+        if (result.structuredContent === undefined) {
             throw new ProtocolError(
                 ProtocolErrorCode.InvalidParams,
                 `Output validation error: Tool ${toolName} has an output schema but no structured content was provided`
@@ -823,6 +838,7 @@ export class McpServer {
             description,
             inputSchema,
             outputSchema,
+            outputSchemaJson: convertOutputSchemaJson(outputSchema),
             annotations,
             execution,
             _meta,
@@ -874,7 +890,10 @@ export class McpServer {
                     registeredTool.executor = createToolExecutor(registeredTool.inputSchema, currentHandler);
                 }
 
-                if (updates.outputSchema !== undefined) registeredTool.outputSchema = updates.outputSchema;
+                if (updates.outputSchema !== undefined) {
+                    registeredTool.outputSchema = updates.outputSchema;
+                    registeredTool.outputSchemaJson = convertOutputSchemaJson(updates.outputSchema);
+                }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
@@ -1223,6 +1242,15 @@ export type RegisteredTool = {
     description?: string;
     inputSchema?: StandardSchemaWithJSON;
     outputSchema?: StandardSchemaWithJSON;
+    /**
+     * @hidden
+     * The converted JSON Schema of `outputSchema`, memoised at registration (and on
+     * `update({outputSchema})`) so the `tools/call` handler passes the SAME advertised schema
+     * `tools/list` emits to the wire codec's `projectCallToolResult` — the SEP-2106 `{result:…}`
+     * wrap predicate follows the schema's root, never the runtime value shape. `undefined` when
+     * no `outputSchema` is registered or its conversion threw (see {@link convertOutputSchemaJson}).
+     */
+    outputSchemaJson?: Record<string, unknown>;
     annotations?: ToolAnnotations;
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
@@ -1271,6 +1299,21 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
     type: 'object' as const,
     properties: {}
 };
+
+/**
+ * Convert a registered `outputSchema` to JSON Schema, memoised on {@link RegisteredTool.outputSchemaJson}
+ * so `tools/call` passes the SAME advertised schema to the wire codec's `projectCallToolResult` that
+ * `tools/list` emits (and that the 2025 codec's `encodeResult('tools/list', …)` may wrap). A conversion
+ * failure yields `undefined` so the failure surfaces where it always has (`tools/list`).
+ */
+function convertOutputSchemaJson(outputSchema: StandardSchemaWithJSON | undefined): Record<string, unknown> | undefined {
+    if (outputSchema === undefined) return undefined;
+    try {
+        return standardSchemaToJsonSchema(outputSchema, 'output');
+    } catch {
+        return undefined;
+    }
+}
 
 /**
  * Additional, optional information for annotating a resource.

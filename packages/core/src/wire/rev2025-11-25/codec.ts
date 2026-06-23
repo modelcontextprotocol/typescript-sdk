@@ -6,10 +6,15 @@
  * are today's schemas, its registry is today's method map, and its encode
  * path is the identity.
  *
- * Never-stamp guarantee: `encodeResult` is the identity function. There is no
- * stamp code path in this module — a 2025-era response cannot carry
- * `resultType`, `ttlMs`, `cacheScope`, or envelope keys because no code here
- * can write them, not because a stamping branch is gated off.
+ * Never-stamp guarantee: this module NEVER WRITES 2026 vocabulary
+ * (`resultType`, `ttlMs`, `cacheScope`, the `_meta` envelope keys) — there is
+ * no code path that can. `encodeResult` is the identity for every result
+ * EXCEPT the SEP-2106 `tools/list` projection: when a tool's neutral
+ * `outputSchema` has a non-object root, the 2025 wire shape requires
+ * `type:'object'` there, so the codec PROJECTS the public superset down by
+ * wrapping the advertised schema as `{type:'object',
+ * properties:{result:<natural>}, required:['result']}`. That projection
+ * narrows neutral→2025-wire; it never adds 2026 vocabulary.
  *
  * One deliberate exception to "no 2026 code path" (Q1-SD3 ii, amending the
  * V-2 'no code path at all' design claim): `decodeResult` STRIPS a foreign
@@ -25,6 +30,8 @@ import type * as z from 'zod/v4';
 
 import type { CallToolResult, Result } from '../../types/types.js';
 import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec.js';
+import { appendTextFallbackForNonObject } from '../codec.js';
+import { isNonObjectJsonSchemaRoot, wrapOutputSchemaForLegacy } from './legacyWrap.js';
 import { getNotificationSchema, getRequestSchema, getResultSchema, hasNotificationMethod2025, hasRequestMethod2025 } from './registry.js';
 import { CreateMessageResultSchema, CreateMessageResultWithToolsSchema } from './schemas.js';
 
@@ -40,6 +47,11 @@ function triState<T>(schema: z.ZodType<T> | undefined, raw: unknown): ValidateOu
 }
 
 const NOT_IN_ERA: ValidateOutcome<never> = { ok: false, reason: 'not-in-era' };
+
+/** Whether a `tools/list` entry advertises a non-object `outputSchema` root that needs the SEP-2106 legacy wrap. */
+function toolNeedsLegacyWrap(t: unknown): t is { outputSchema: Record<string, unknown> } {
+    return isPlainObject(t) && isPlainObject(t['outputSchema']) && isNonObjectJsonSchemaRoot(t['outputSchema']);
+}
 
 /** The wire→neutral trust boundary: a decoded 2025-era wire result is adopted as the neutral `Result` here (the module's single deliberate assertion). */
 function toNeutralResult(value: unknown): Result {
@@ -72,11 +84,16 @@ export const rev2025Codec: WireCodec = {
     outboundEnvelope: (_material: OutboundEnvelopeMaterial): undefined => undefined,
     validateEnvelopeMeta: (_meta: Readonly<Record<string, unknown>>): EnvelopeIssue[] => [],
 
-    // Identity stub in this commit. The SEP-2106 wrap (and the matching
-    // `encodeResult('tools/list')` projection) is wired by the commit that
-    // widens the public schemas — see `./legacyWrap.ts` for the helpers it
-    // consumes. Kept identity here so both halves activate together.
-    projectCallToolResult: (result: CallToolResult): CallToolResult => result,
+    projectCallToolResult(result: CallToolResult, advertisedOutputSchema): CallToolResult {
+        // Era-agnostic SEP-2106 §4.3 TextContent auto-append first (value-shape-based).
+        const withText = appendTextFallbackForNonObject(result);
+        // SEP-2106 result-side projection: wrap follows the ADVERTISED schema
+        // (so a `tools/list` that wrapped its outputSchema and a `tools/call`
+        // that wraps the value agree), never the runtime value shape.
+        if (advertisedOutputSchema === undefined || !isNonObjectJsonSchemaRoot(advertisedOutputSchema)) return withText;
+        if (withText.structuredContent === undefined) return withText;
+        return { ...withText, structuredContent: { result: withText.structuredContent } };
+    },
 
     decodeResult(_method: string, raw: unknown): DecodedResult {
         // Strip-on-lift (Q1-SD3 ii): a foreign `resultType` on the 2025 leg is
@@ -90,8 +107,19 @@ export const rev2025Codec: WireCodec = {
         return { kind: 'complete', result: toNeutralResult(raw) };
     },
 
-    // The never-stamp guarantee: identity. No stamp code path exists.
-    encodeResult: (_method: string, result: Result): Result => result,
+    // The never-stamp guarantee: never writes 2026 vocabulary. Identity for
+    // every result EXCEPT the SEP-2106 `tools/list` projection (see header).
+    // Copy-on-write: a listing with no non-object outputSchema roots returns
+    // the same reference (the byte-identity suite pins this).
+    encodeResult(method: string, result: Result): Result {
+        if (method !== 'tools/list') return result;
+        const tools = (result as { tools?: unknown }).tools;
+        if (!Array.isArray(tools) || !tools.some(t => toolNeedsLegacyWrap(t))) return result;
+        return {
+            ...result,
+            tools: tools.map(t => (toolNeedsLegacyWrap(t) ? { ...t, outputSchema: wrapOutputSchemaForLegacy(t.outputSchema) } : t))
+        } as Result;
+    },
 
     // The −32002 resource-not-found domain code maps to −32602 on the wire on
     // this era too (matching what the deployed v1.x SDK already emits — this

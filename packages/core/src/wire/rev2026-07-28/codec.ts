@@ -36,6 +36,7 @@ import {
 } from '../../types/constants.js';
 import type { CallToolResult, Result } from '../../types/types.js';
 import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec.js';
+import { appendTextFallbackForNonObject } from '../codec.js';
 import { fillCacheFields, stampResultType } from './encodeContract.js';
 import { getInputRequestSchema2026, getInputResponseSchema2026 } from './inputRequired.js';
 import {
@@ -165,9 +166,10 @@ export const rev2026Codec: WireCodec & {
         return issues;
     },
 
-    // SEP-2106 result-side projection is identity on the modern era — the
-    // wire shape carries the natural `structuredContent` directly.
-    projectCallToolResult: (result: CallToolResult): CallToolResult => result,
+    // SEP-2106 result-side projection: no `{result:…}` wrap on the modern era
+    // (the wire shape carries the natural `structuredContent` directly), but
+    // the era-agnostic §4.3 TextContent auto-append still applies.
+    projectCallToolResult: (result: CallToolResult): CallToolResult => appendTextFallbackForNonObject(result),
 
     // Retained off-interface for the inputRequiredFunnel registry-membership
     // pin (asserts the in-band schema set without exercising parse): the

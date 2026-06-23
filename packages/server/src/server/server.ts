@@ -34,7 +34,8 @@ import type {
     ServerCapabilities,
     ServerContext,
     ToolResultContent,
-    ToolUseContent
+    ToolUseContent,
+    WireCodec
 } from '@modelcontextprotocol/core';
 import {
     assertValidCacheHint,
@@ -882,6 +883,17 @@ export class Server extends Protocol<ServerContext> {
      */
     getNegotiatedProtocolVersion(): string | undefined {
         return this._negotiatedProtocolVersion;
+    }
+
+    /**
+     * The wire codec for this instance's negotiated era. Era-dependent
+     * behavior (the SEP-2106 `tools/call` result projection, the sampling
+     * result variant, the outbound envelope) routes through the codec's
+     * function-only surface — never through a protocol-version branch in
+     * server-side code.
+     */
+    get codec(): WireCodec {
+        return this._wireCodec();
     }
 
     /**

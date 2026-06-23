@@ -222,13 +222,21 @@ export interface WireCodec {
     validateEnvelopeMeta(meta: Readonly<Record<string, unknown>>): EnvelopeIssue[];
 
     /**
-     * Per-registration `tools/call` result projection — applies the SEP-2106
-     * `{result:…}` wrap to `structuredContent` on the 2025 era when the
-     * tool's ADVERTISED `outputSchema` has a non-object root (so the result
-     * matches the `tools/list` projection). Identity on the 2026 era.
+     * Per-registration `tools/call` result projection. Two independent
+     * decisions, both owned here so server-side code never re-derives them:
      *
-     * Stub in this commit (identity on both eras); the SEP-2106 wrap is wired
-     * by the commit that widens the public schemas.
+     * - SEP-2106 §4.3 TextContent auto-append (EVERY era, value-shape-based):
+     *   when `structuredContent` is a non-object value (array/primitive/
+     *   `null`) and the handler authored no `type:'text'` block, append
+     *   `{type:'text', text: JSON.stringify(value)}` so consumers that read
+     *   only `content` still receive a rendering. The author opts out by
+     *   returning any `text` block themselves.
+     *
+     * - `{result:…}` wrap (2025 era only, schema-based): when the tool's
+     *   ADVERTISED `outputSchema` has a non-object root, wrap as
+     *   `{result:<value>}` so the result matches the `encodeResult
+     *   ('tools/list')` projection of the same tool. Identity on the 2026
+     *   era — the wire shape carries the natural value directly.
      */
     projectCallToolResult(result: CallToolResult, advertisedOutputSchema: Readonly<Record<string, unknown>> | undefined): CallToolResult;
 
@@ -318,3 +326,20 @@ export function isSpecNotificationMethod(method: string): boolean {
 }
 
 const ALL_CODECS: readonly WireCodec[] = [rev2025Codec, rev2026Codec];
+
+/**
+ * SEP-2106 §4.3 TextContent auto-append, era-agnostic, called from BOTH
+ * codecs' {@link WireCodec.projectCallToolResult}: when `structuredContent`
+ * is a non-object value (array/primitive/`null`) and the handler authored no
+ * `type:'text'` block, append `{type:'text', text: JSON.stringify(value)}`.
+ * Object-shaped (or absent) `structuredContent` returns the same reference.
+ */
+export function appendTextFallbackForNonObject(result: CallToolResult): CallToolResult {
+    const sc = result.structuredContent;
+    if (sc === undefined) return result;
+    const isNonObjectValue = typeof sc !== 'object' || sc === null || Array.isArray(sc);
+    if (!isNonObjectValue) return result;
+    const hasTextContent = result.content?.some(c => c.type === 'text') ?? false;
+    if (hasTextContent) return result;
+    return { ...result, content: [...(result.content ?? []), { type: 'text' as const, text: JSON.stringify(sc) }] };
+}
