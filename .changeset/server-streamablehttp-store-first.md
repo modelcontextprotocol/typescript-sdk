@@ -1,0 +1,5 @@
+---
+'@modelcontextprotocol/server': patch
+---
+
+`WebStandardStreamableHTTPServerTransport`: request-related events (progress, `ctx.mcpReq.notify`, handler-emitted log) and the final response are now persisted to the configured `eventStore` whenever the request is in flight, regardless of whether a live SSE writer currently exists — mirroring the standalone-SSE path's store-first semantics. This fixes the `closeSSE()` poll-and-replay drop (events emitted after `closeSSE()` were previously silently lost) and aligns with the 2025-11-25 specification ("disconnection SHOULD NOT be interpreted as the client cancelling its request"). When an `eventStore` is configured, a final response sent while no per-request stream is connected is stored for replay and returns cleanly instead of throwing "No connection established"; a `Last-Event-ID` reconnect after the request has been retired replays the stored response and then closes the resumed stream. When no `eventStore` is configured, the same condition is surfaced via `onerror` (the response is undeliverable) and the request id is retired.
