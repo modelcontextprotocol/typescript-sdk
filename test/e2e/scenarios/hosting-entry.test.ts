@@ -87,6 +87,33 @@ verifies('typescript:hosting:entry:pin-negotiation', async ({ transport }: TestA
     expect(requestBodies().some(body => body.includes('"initialize"'))).toBe(false);
 });
 
+verifies('typescript:client:connect:prior-zero-roundtrip', async ({ transport }: TestArgs) => {
+    // Bootstrap: the wired negotiating client (the entryModern arm pins it to
+    // the modern revision) populates getDiscoverResult().
+    const bootstrap = new Client({ name: 'bootstrap', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+    await using wired = await wire(transport, greetFactory, bootstrap);
+    const prior = bootstrap.getDiscoverResult();
+    expect(prior).toBeDefined();
+    expect(prior!.supportedVersions).toContain(MODERN);
+
+    // Fresh worker → SAME hosted server, connect({ prior }): zero round trips.
+    const before = wired.httpLog!.length;
+    const worker = new Client({ name: 'worker', version: '1.0.0' });
+    await worker.connect(new StreamableHTTPClientTransport(wired.url!, { fetch: wired.fetch }), { prior });
+    try {
+        // No HTTP exchange was added by the worker's connect().
+        expect(wired.httpLog!.length).toBe(before);
+        expect(worker.getNegotiatedProtocolVersion()).toBe(MODERN);
+        // First wire traffic from the worker is the tools/call itself.
+        const result = await worker.callTool({ name: 'greet', arguments: { name: 'prior' } });
+        expect(result.content).toEqual([{ type: 'text', text: 'hello prior (modern)' }]);
+        expect(wired.httpLog!.length).toBe(before + 1);
+        expect(wired.httpLog![before]!.requestBody).toContain('"tools/call"');
+    } finally {
+        await worker.close().catch(() => {});
+    }
+});
+
 verifies('typescript:hosting:entry:strict-rejects-legacy', async ({ transport }: TestArgs) => {
     // legacy: 'reject' → modern-only strict (the entryModern arm hosting): no silent 2025 serving.
     const modernClient = new Client({ name: 'strict-modern-client', version: '1.0.0' }, { versionNegotiation: { mode: { pin: MODERN } } });
