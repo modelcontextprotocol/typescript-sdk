@@ -5,7 +5,7 @@ import type { Diagnostic, Transform, TransformContext, TransformResult } from '.
 import { actionRequired, v2Gap, warning } from '../../../utils/diagnostics.js';
 import { isSdkSpecifier } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
-import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
+import { isAuthImport, lookupImportMapping } from '../mappings/importMap.js';
 import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
 
 const MOCK_METHODS = new Set([
@@ -58,7 +58,7 @@ function resolveTarget(
     | { target: string; renamedSymbols?: Record<string, string>; symbolTargetOverrides?: Record<string, string> }
     | { removed: true; isV2Gap?: boolean; removalMessage?: string }
     | null {
-    const mapping = IMPORT_MAP[specifier];
+    const mapping = lookupImportMapping(specifier);
     if (!mapping && isAuthImport(specifier)) return { target: '@modelcontextprotocol/server-legacy/auth' };
     if (!mapping) return null;
     if (mapping.status === 'removed') return { removed: true, isV2Gap: mapping.isV2Gap, removalMessage: mapping.removalMessage };

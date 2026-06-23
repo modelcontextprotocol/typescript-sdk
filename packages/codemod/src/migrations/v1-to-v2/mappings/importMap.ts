@@ -190,3 +190,28 @@ for (const barrelSpecifier of ['@modelcontextprotocol/sdk/validation/index.js', 
 export function isAuthImport(specifier: string): boolean {
     return specifier.includes('/server/auth/') || specifier.includes('/server/auth.');
 }
+
+// SDK subpath specifiers can be written with or without a JS extension
+// (e.g. `@modelcontextprotocol/sdk/types` vs `.../types.js`) depending on the
+// consumer's module resolution (`bundler`/`nodenext` allow the extensionless form).
+// Normalize the extension so both spellings resolve to the same mapping. Built
+// after every IMPORT_MAP entry above is populated; entries whose `.js` and
+// extensionless forms coexist (e.g. `experimental/tasks`) share an identical
+// mapping, so the collapse is lossless.
+function stripJsExtension(specifier: string): string {
+    return specifier.replace(/\.(?:js|mjs|cjs)$/, '');
+}
+
+const NORMALIZED_IMPORT_MAP: Record<string, ImportMapping> = {};
+for (const [key, mapping] of Object.entries(IMPORT_MAP)) {
+    NORMALIZED_IMPORT_MAP[stripJsExtension(key)] = mapping;
+}
+
+/**
+ * Resolves the v2 mapping for a v1 SDK import/export/mock specifier, tolerating
+ * JS extension variance. An exact match always wins; otherwise the specifier is
+ * matched ignoring a trailing `.js`/`.mjs`/`.cjs` (or its absence).
+ */
+export function lookupImportMapping(specifier: string): ImportMapping | undefined {
+    return IMPORT_MAP[specifier] ?? NORMALIZED_IMPORT_MAP[stripJsExtension(specifier)];
+}

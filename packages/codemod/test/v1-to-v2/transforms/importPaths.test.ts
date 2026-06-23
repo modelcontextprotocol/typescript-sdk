@@ -95,6 +95,18 @@ describe('import-paths transform', () => {
         expect(result).toContain(`from "@modelcontextprotocol/server"`);
     });
 
+    it('resolves extensionless sdk/types (no .js suffix) the same as sdk/types.js', () => {
+        const input = `import { CallToolResult } from '@modelcontextprotocol/sdk/types';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const output = sourceFile.getFullText();
+        expect(output).toContain(`from "@modelcontextprotocol/server"`);
+        expect(output).toContain('CallToolResult');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('Unknown SDK import path');
+    });
+
     it('preserves type-only imports separately', () => {
         const input = [
             `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
@@ -337,6 +349,17 @@ describe('import-paths transform', () => {
         expect(output).toContain('@modelcontextprotocol/server-legacy/sse');
         expect(output).toContain('SSEServerTransport');
         expect(result.diagnostics.some(d => d.message.includes('SSEServerTransport is deprecated'))).toBe(true);
+    });
+
+    it('resolves extensionless sdk/types re-export (no .js suffix)', () => {
+        const input = `export { CallToolResult } from '@modelcontextprotocol/sdk/types';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const output = sourceFile.getFullText();
+        expect(output).toContain('@modelcontextprotocol/server');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('Unknown SDK export path');
     });
 
     it('includes server-legacy in usedPackages for SSE import', () => {

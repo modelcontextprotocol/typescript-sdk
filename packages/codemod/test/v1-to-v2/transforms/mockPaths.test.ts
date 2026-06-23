@@ -63,6 +63,19 @@ describe('mock-paths transform', () => {
             expect(result).toContain(`'@modelcontextprotocol/server'`);
             expect(result).not.toContain('@modelcontextprotocol/sdk');
         });
+
+        it('rewrites extensionless sdk/types path (no .js suffix)', () => {
+            const input = [
+                `vi.doMock('@modelcontextprotocol/sdk/types', async importOriginal => {`,
+                `    const original = await importOriginal();`,
+                `    return { ...original, isInitializeRequest: mockFn };`,
+                `});`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/server'`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
     });
 
     describe('vi.mock', () => {
