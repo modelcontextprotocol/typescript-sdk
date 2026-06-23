@@ -1,7 +1,7 @@
 /**
  * Probe outcome classifier (pure module): maps the outcome of the connect-time
  * `server/discover` probe onto one of four verdicts — modern era, the
- * spec-mandated `-32004` corrective continuation, legacy fallback (the plain
+ * spec-mandated `-32022` corrective continuation, legacy fallback (the plain
  * 2025 `initialize` handshake on the same connection), or a typed connect error.
  *
  * The classifier is deliberately conservative: anything it does not positively
@@ -57,7 +57,7 @@ export interface ProbeClassifierContext {
      * Whether a legacy `initialize` fallback is possible — `false` for a
      * modern-only client and for `pin` mode. Without a fallback, rows carrying
      * modern evidence but no usable version overlap — a `DiscoverResult` with
-     * no overlapping version, or a `-32004` whose `data.supported` lists only
+     * no overlapping version, or a `-32022` whose `data.supported` lists only
      * legacy revisions — yield a typed `UnsupportedProtocolVersionError` built
      * from that evidence; the remaining rows that would have fallen back still
      * classify as `legacy`, and the caller reports them as a typed negotiation
@@ -74,7 +74,7 @@ export type ProbeVerdict =
     /** Definitive modern evidence: select `version` and continue without `initialize`. */
     | { kind: 'modern'; version: string; discover: DiscoverResult }
     /**
-     * `-32004` with a mutual modern version: re-send the probe at `version`.
+     * `-32022` with a mutual modern version: re-send the probe at `version`.
      * Spec-mandated select-and-continue — the caller runs it exactly once and
      * arms a loop guard on the second rejection, throwing `error`.
      */
@@ -84,14 +84,16 @@ export type ProbeVerdict =
     /** Typed connect error — never converted to an era verdict. */
     | { kind: 'error'; error: Error };
 
-/** The `-32004` UnsupportedProtocolVersion protocol error code (negotiation-phase recognition). */
-const UNSUPPORTED_PROTOCOL_VERSION = -32_004;
+/** The `-32022` UnsupportedProtocolVersion protocol error code (negotiation-phase recognition). */
+const UNSUPPORTED_PROTOCOL_VERSION = -32_022;
 /**
  * Deliberately not probe-recognized in either direction: deployed servers
- * overload `-32001` and the error-code ladder for these cells is still being
- * derived upstream, so both fall into the conservative legacy default.
+ * overload `-32001` (the SDK-conventional `Session not found` body on a 2025
+ * stateful server), and the spec-assigned `-32020` (`HeaderMismatch`) /
+ * `-32021` (`MissingRequiredClientCapability`) are not era evidence — all
+ * fall into the conservative legacy default.
  */
-const NOT_PROBE_RECOGNIZED = new Set([-32_001, -32_003]);
+const NOT_PROBE_RECOGNIZED = new Set([-32_001, -32_020, -32_021]);
 
 /**
  * Classify a single probe outcome. Pure: no I/O, no state — loop-guard and
@@ -159,7 +161,7 @@ function classifyRpcError(outcome: { code: number; message: string; data?: unkno
     if (code === UNSUPPORTED_PROTOCOL_VERSION) {
         const supported = parseSupportedList(data);
         if (supported === undefined) {
-            // -32004 without a valid data.supported list is not actionable modern evidence.
+            // -32022 without a valid data.supported list is not actionable modern evidence.
             return { kind: 'legacy' };
         }
         const requested = parseRequested(data) ?? context.requestedVersion;

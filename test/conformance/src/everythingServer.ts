@@ -930,7 +930,7 @@ function createMcpServer() {
 
     // Capability-aware input requests: only ask for kinds the request's
     // declared client capabilities cover (the server seam enforces the same
-    // rule with a -32003 error; the tool simply never trips it).
+    // rule with a -32021 error; the tool simply never trips it).
     mcpServer.registerTool(
         'test_input_required_result_capabilities',
         {

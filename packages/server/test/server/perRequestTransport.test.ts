@@ -127,7 +127,7 @@ describe('classification handoff into dispatch', () => {
         const response = await transport.handleMessage(toolsCall(1, null));
         expect(response.status).toBe(400);
         const error = errorOf(await response.json());
-        expect(error?.code).toBe(-32_004);
+        expect(error?.code).toBe(-32_022);
         expect(error?.data).toMatchObject({ requested: expect.any(String), supported: expect.any(Array) });
     });
 
@@ -140,7 +140,7 @@ describe('classification handoff into dispatch', () => {
         const transport = await connectedTransport(server, { classification: MODERN });
         const response = await transport.handleMessage(toolsCall());
         expect(response.status).toBe(400);
-        expect(errorOf(await response.json())?.code).toBe(-32_004);
+        expect(errorOf(await response.json())?.code).toBe(-32_022);
     });
 });
 
@@ -195,13 +195,13 @@ describe('HTTP status mapping', () => {
     it('keeps a handler-thrown unsupported-protocol-version error in-band on HTTP 200', async () => {
         const { server } = modernServer({
             toolsCallHandler: async () => {
-                throw new ProtocolError(-32_004, 'Unsupported protocol version: 2099-01-01');
+                throw new ProtocolError(-32_022, 'Unsupported protocol version: 2099-01-01');
             }
         });
         const transport = await connectedTransport(server);
         const response = await transport.handleMessage(toolsCall());
         expect(response.status).toBe(200);
-        expect(errorOf(await response.json())?.code).toBe(-32_004);
+        expect(errorOf(await response.json())?.code).toBe(-32_022);
     });
 
     it('keeps handler-produced invalid-params errors in-band on HTTP 200 (never status-mapped)', async () => {

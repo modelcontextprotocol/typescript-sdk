@@ -987,7 +987,7 @@ The protocol layer enforces the same boundary at runtime:
 The wire layer is now split into per-revision codecs inside the (private, bundled) core: one codec serves every 2025-era protocol version (2024-10-07 … 2025-11-25) and one serves 2026-07-28. The codec is selected by the negotiated protocol version, which is connection state on
 the `Client`/`Server` instance: the client stores it when its initialize handshake completes, the server stores it when it answers `initialize`, and instances with no negotiated version default to the 2025 era (with the pre-negotiation lifecycle messages routed by method:
 `initialize`/`notifications/initialized` are 2025-era vocabulary, `server/discover` is 2026-era vocabulary). An edge classification (`MessageExtraInfo.classification`) no longer switches the era per message — it is validated against the instance era, and a mismatch is rejected as
-an entry/routing error (`-32004 Unsupported protocol version` for requests, a drop plus `onerror` for notifications). Methods deleted by a protocol revision are now PHYSICALLY absent from that era's registry: an inbound `tasks/get` on a 2026-era connection gets `-32601` even if a
+an entry/routing error (`-32022 Unsupported protocol version` for requests, a drop plus `onerror` for notifications). Methods deleted by a protocol revision are now PHYSICALLY absent from that era's registry: an inbound `tasks/get` on a 2026-era connection gets `-32601` even if a
 handler is registered, and sending an era-mismatched spec method (for example `server/discover` toward a 2025-era peer, or any `tasks/*` method toward a 2026-era peer) throws a typed local error — `SdkError` with the new code `SdkErrorCode.MethodNotSupportedByProtocolVersion` —
 before anything reaches the transport.
 
@@ -1075,7 +1075,7 @@ versionNegotiation: {
 }
 ```
 
-`maxRetries` governs timeout re-sends only (the spec-mandated `-32004` corrective continuation — select-and-continue with a mutual version — is a separate negotiation step and is never counted against it). Negotiation can also be configured pre-connect on an already-constructed
+`maxRetries` governs timeout re-sends only (the spec-mandated `-32022` corrective continuation — select-and-continue with a mutual version — is a separate negotiation step and is never counted against it). Negotiation can also be configured pre-connect on an already-constructed
 instance via `client.setVersionNegotiation(options)` (equivalent to the constructor option; throws after connecting).
 
 Once a modern era is negotiated, the client **automatically attaches the per-request `_meta` envelope** (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification — you never set it by hand. Any `_meta` keys you pass in a
@@ -1114,7 +1114,7 @@ How the `legacy` option behaves:
 - **omitted / `legacy: 'stateless'`** (the default) — 2025-era (non-envelope) traffic is served per request through the established stateless idiom: a fresh instance from the same factory and a streamable HTTP transport constructed with only `sessionIdGenerator: undefined`.
   Because this serving is per-request and stateless, GET and DELETE (2025 session operations) are answered `405` / `Method not allowed.`, exactly like the canonical stateless example. The exported `legacyStatelessFallback(factory)` is the same serving as a standalone fetch-shaped
   handler for hand-wired compositions.
-- **`legacy: 'reject'`** — modern-only strict. 2026-07-28 (per-request `_meta` envelope) requests are served; 2025-era requests are rejected with `-32004` naming the supported revisions, and 2025-era notifications are acknowledged with `202` and dropped. **There is no 2025
+- **`legacy: 'reject'`** — modern-only strict. 2026-07-28 (per-request `_meta` envelope) requests are served; 2025-era requests are rejected with `-32022` naming the supported revisions, and 2025-era notifications are acknowledged with `202` and dropped. **There is no 2025
   serving in this mode.**
 
 > **If you have an existing sessionful 1.x Streamable HTTP setup** (a `StreamableHTTPServerTransport` wiring with session IDs that your deployed 2025-era clients depend on), keep that handler serving 2025 traffic and route it in front of a strict (`legacy: 'reject'`) entry with
@@ -1151,7 +1151,7 @@ passed around (`const { fetch } = handler`).
 ### `Mcp-Param-*` request-metadata headers (SEP-2243, 2026-07-28 draft)
 
 On a 2026-07-28 connection over Streamable HTTP, `Client.callTool()` mirrors tool arguments designated with `x-mcp-header` in the tool's `inputSchema` into `Mcp-Param-{Name}` HTTP request headers (Base64-sentinel-encoded where needed) so HTTP intermediaries can route on them
-without parsing the body, and `createMcpHandler` rejects a `tools/call` whose `Mcp-Param-*` headers are missing for a present body value, malformed, or disagree with the body — `400 Bad Request` with JSON-RPC `-32001` (`HeaderMismatch`). The legacy-era serving paths and the
+without parsing the body, and `createMcpHandler` rejects a `tools/call` whose `Mcp-Param-*` headers are missing for a present body value, malformed, or disagree with the body — `400 Bad Request` with JSON-RPC `-32020` (`HeaderMismatch`). The legacy-era serving paths and the
 client's legacy-era `callTool`/`listTools` are unchanged at the wire level.
 
 The Streamable HTTP transport now also emits the `Mcp-Name` standard header on every modern-enveloped request (`tools/call`/`prompts/get` → `params.name`; `resources/read` → `params.uri`), sentinel-encoded the same way, so intermediaries can route on the resource name without
@@ -1163,7 +1163,7 @@ skips the reserved standard/auth header names so a per-request header cannot ove
 `Client.listTools()` (and the client's internal `tools/list` cache) exclude tool definitions whose `x-mcp-header` declarations violate the spec's constraints, logging a warning naming the tool and the reason. Browser clients skip mirroring (dynamically named headers cannot be
 statically allow-listed for credentialed CORS); calling an `x-mcp-header` tool with a non-null designated argument from a browser against a conforming SEP-2243 server is therefore a known limitation.
 
-On the modern path, `createMcpHandler` also validates the SEP-2243 **standard** request-metadata headers against the body and rejects with the same `400` / `-32001` (`HeaderMismatch`) when the `MCP-Protocol-Version` or `Mcp-Method` header disagrees with the body, when the
+On the modern path, `createMcpHandler` also validates the SEP-2243 **standard** request-metadata headers against the body and rejects with the same `400` / `-32020` (`HeaderMismatch`) when the `MCP-Protocol-Version` or `Mcp-Method` header disagrees with the body, when the
 required `Mcp-Method` header is absent, when the required `Mcp-Name` header is absent on a `tools/call` / `prompts/get` / `resources/read` request, and when the (Base64-sentinel-decoded) `Mcp-Name` value disagrees with `params.name` / `params.uri`. These checks only fire on the
 modern (2026-07-28) serving path — 2025-era traffic is unchanged — and a hand-built modern HTTP request must carry the `Mcp-Method` (and where applicable `Mcp-Name`) header; the SDK client already sends them.
 
@@ -1330,11 +1330,15 @@ try {
 }
 ```
 
-### Typed `-32003` missing-client-capability error
+### Typed `-32021` missing-client-capability error
 
-`MissingRequiredClientCapabilityError` is the typed error class for the 2026-07-28 `-32003` protocol error: processing a request requires a capability the client did not declare in the request's `clientCapabilities`. Its `data.requiredCapabilities` lists the missing capabilities,
+`MissingRequiredClientCapabilityError` is the typed error class for the 2026-07-28 `-32021` protocol error: processing a request requires a capability the client did not declare in the request's `clientCapabilities`. Its `data.requiredCapabilities` lists the missing capabilities,
 and `ProtocolError.fromError` recognizes the code/data shape (recognize peers' errors by their code and `error.data`, not by `instanceof`). When the HTTP entry refuses such a request, the response uses HTTP status `400` as the specification requires. The multi-round-trip seam
 answers with the same error when a handler embeds an input request (for example an elicitation) that the request's declared client capabilities do not cover.
+
+> **Draft-only renumber**: the 2026-07-28 protocol error codes (`HeaderMismatch`, `MissingRequiredClientCapability`, `UnsupportedProtocolVersion`) were renumbered upstream from `-32001`/`-32003`/`-32004` to `-32020`/`-32021`/`-32022` between v2 alpha builds. These codes have only
+> ever appeared on the draft 2026-07-28 wire, so there is **no v1.x → v2 migration impact** — but code written against an earlier v2 alpha that hard-coded the old numeric values must update to the new ones (or, preferably, use the exported `ProtocolErrorCode` enum members /
+> `HEADER_MISMATCH_ERROR_CODE` constant).
 
 ### Client identity accessors deprecated in favor of per-request context
 

@@ -8,4 +8,4 @@ Per-request `_meta` envelope auto-emission on modern-era connections: once a cli
 (the default, and the `'auto'`-mode fallback) never gain these keys, so 2025-era outbound traffic is byte-identical to before.
 
 Adds `Client.getProtocolEra()` (`'legacy' | 'modern' | undefined`), the `ProtocolEra` type, `Client.setVersionNegotiation()` for configuring negotiation pre-connect on an already-constructed instance, and the `probe.maxRetries` knob (default `0`) which governs probe-timeout
-re-sends only — the spec-mandated `-32004` corrective continuation is never counted against it. The `versionNegotiation` default remains `'legacy'`: absent (or `mode: 'legacy'`), `connect()` runs the plain 2025 sequence, byte-identical to a v1.x client.
+re-sends only — the spec-mandated `-32022` corrective continuation is never counted against it. The `versionNegotiation` default remains `'legacy'`: absent (or `mode: 'legacy'`), `connect()` runs the plain 2025 sequence, byte-identical to a v1.x client.

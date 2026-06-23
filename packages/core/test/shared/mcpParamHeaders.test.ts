@@ -267,12 +267,12 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
     });
 
     // sep-2243-server-reject-missing-required — globally-untested manifest check, covered here.
-    test('body has the value but the header is absent → reject 400/-32001', () => {
+    test('body has the value but the header is absent → reject 400/-32020', () => {
         const r = validateMcpParamHeaders(DECLS, { region: 'us-west1' }, new Headers());
         expect(r).toMatchObject({ kind: 'reject', httpStatus: 400, code: HEADER_MISMATCH_ERROR_CODE, cell: 'param-header-missing' });
     });
 
-    test('header present but disagreeing → reject 400/-32001 with the mismatch in data', () => {
+    test('header present but disagreeing → reject 400/-32020 with the mismatch in data', () => {
         const r = validateMcpParamHeaders(DECLS, { region: 'us-west1' }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}Region`]: 'eu' }));
         expect(r).toMatchObject({
             kind: 'reject',
@@ -283,7 +283,7 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
         });
     });
 
-    test('invalid Base64 sentinel → reject 400/-32001', () => {
+    test('invalid Base64 sentinel → reject 400/-32020', () => {
         const r = validateMcpParamHeaders(
             DECLS,
             { region: 'Hello' },
@@ -313,8 +313,8 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
     });
 });
 
-describe('paramHeaderMismatchRejection — consumes the inbound-classifier −32001 shape verbatim', () => {
-    test('shape: 400 / -32001 / settled, with data.mismatch and the same message prefix', () => {
+describe('paramHeaderMismatchRejection — consumes the inbound-classifier −32020 shape verbatim', () => {
+    test('shape: 400 / -32020 / settled, with data.mismatch and the same message prefix', () => {
         const r = paramHeaderMismatchRejection('param-header-mismatch', 'Mcp-Param-Region', 'body says us-west1');
         expect(r).toEqual({
             kind: 'reject',

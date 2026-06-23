@@ -6,10 +6,10 @@ import { ProtocolError, UnsupportedProtocolVersionError } from '../../src/types/
 describe('UnsupportedProtocolVersionError', () => {
     const data = { supported: ['2025-11-25', '2025-06-18'], requested: '2026-07-28' };
 
-    it('carries code -32004 and the supported/requested data', () => {
+    it('carries code -32022 and the supported/requested data', () => {
         const error = new UnsupportedProtocolVersionError(data);
         expect(error.code).toBe(ProtocolErrorCode.UnsupportedProtocolVersion);
-        expect(error.code).toBe(-32004);
+        expect(error.code).toBe(-32022);
         expect(error.supported).toEqual(['2025-11-25', '2025-06-18']);
         expect(error.requested).toBe('2026-07-28');
         expect(error.data).toEqual(data);
@@ -23,7 +23,7 @@ describe('UnsupportedProtocolVersionError', () => {
     });
 
     it('is materialized by ProtocolError.fromError', () => {
-        const error = ProtocolError.fromError(-32004, 'Unsupported protocol version: 2026-07-28', data);
+        const error = ProtocolError.fromError(-32022, 'Unsupported protocol version: 2026-07-28', data);
         expect(error).toBeInstanceOf(UnsupportedProtocolVersionError);
         if (error instanceof UnsupportedProtocolVersionError) {
             expect(error.supported).toEqual(['2025-11-25', '2025-06-18']);
@@ -34,10 +34,10 @@ describe('UnsupportedProtocolVersionError', () => {
 
     it('falls back to a generic ProtocolError when the data is missing or malformed', () => {
         for (const malformed of [undefined, {}, { supported: 'not-an-array', requested: '2026-07-28' }, { supported: ['2025-11-25'] }]) {
-            const error = ProtocolError.fromError(-32004, 'unsupported', malformed);
+            const error = ProtocolError.fromError(-32022, 'unsupported', malformed);
             expect(error).toBeInstanceOf(ProtocolError);
             expect(error).not.toBeInstanceOf(UnsupportedProtocolVersionError);
-            expect(error.code).toBe(-32004);
+            expect(error.code).toBe(-32022);
             expect(error.data).toEqual(malformed);
         }
     });

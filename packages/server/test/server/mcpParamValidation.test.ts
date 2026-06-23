@@ -4,7 +4,7 @@
  *
  * Pre-dispatch ladder rung: a `tools/call` whose `Mcp-Param-{Name}` headers
  * disagree with the body `arguments` (or are missing for a present body value,
- * or carry an invalid Base64 sentinel) is rejected `400` / `-32001` with the
+ * or carry an invalid Base64 sentinel) is rejected `400` / `-32020` with the
  * same `HeaderMismatch` shape the inbound classifier emits for the
  * standard-header cross-checks. A `null`/absent body value passes regardless
  * of the header (the spec's "server MUST NOT expect" rows). The
@@ -79,25 +79,25 @@ describe('SEP-2243 Mcp-Param-* server validation (createMcpHandler, modern era)'
         expect(response.status).toBe(200);
     });
 
-    it('a disagreeing header is rejected 400/-32001 (HeaderMismatch) and reports the rejection', async () => {
+    it('a disagreeing header is rejected 400/-32020 (HeaderMismatch) and reports the rejection', async () => {
         const onerror = vi.fn();
         const handler = createMcpHandler(makeFactory(), { onerror });
         const response = await handler.fetch(call({ region: 'us-west1' }, { 'Mcp-Param-Region': 'eu' }));
         expect(response.status).toBe(400);
         const body = (await response.json()) as { id: unknown; error: { code: number; data?: { mismatch?: { header?: string } } } };
-        expect(body.error.code).toBe(-32_001);
+        expect(body.error.code).toBe(-32_020);
         expect(body.error.data?.mismatch?.header).toBe('Mcp-Param-Region');
         expect(body.id).toBe(7);
         expect(onerror).toHaveBeenCalled();
     });
 
     // sep-2243-server-reject-missing-required (globally-untested manifest check).
-    it('a missing header for a present body value is rejected 400/-32001', async () => {
+    it('a missing header for a present body value is rejected 400/-32020', async () => {
         const handler = createMcpHandler(makeFactory());
         const response = await handler.fetch(call({ region: 'us-west1' }));
         expect(response.status).toBe(400);
         const body = (await response.json()) as { error: { code: number } };
-        expect(body.error.code).toBe(-32_001);
+        expect(body.error.code).toBe(-32_020);
     });
 
     // sep-2243-server-not-expect-null (globally-untested manifest check).
@@ -109,11 +109,11 @@ describe('SEP-2243 Mcp-Param-* server validation (createMcpHandler, modern era)'
         expect(r2.status).toBe(200);
     });
 
-    it('an invalid Base64 sentinel is rejected 400/-32001', async () => {
+    it('an invalid Base64 sentinel is rejected 400/-32020', async () => {
         const handler = createMcpHandler(makeFactory());
         const response = await handler.fetch(call({ region: 'Hello' }, { 'Mcp-Param-Region': '=?base64?SGVsbG8?=' }));
         expect(response.status).toBe(400);
-        expect(((await response.json()) as { error: { code: number } }).error.code).toBe(-32_001);
+        expect(((await response.json()) as { error: { code: number } }).error.code).toBe(-32_020);
     });
 });
 

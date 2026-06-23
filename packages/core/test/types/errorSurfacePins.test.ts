@@ -45,8 +45,8 @@ describe('ProtocolErrorCode', () => {
             InvalidParams: -32602,
             InternalError: -32603,
             ResourceNotFound: -32002,
-            MissingRequiredClientCapability: -32003,
-            UnsupportedProtocolVersion: -32004,
+            MissingRequiredClientCapability: -32021,
+            UnsupportedProtocolVersion: -32022,
             UrlElicitationRequired: -32042
         });
     });
@@ -113,13 +113,13 @@ describe('ProtocolError', () => {
         expect(urlError).toBeInstanceOf(UrlElicitationRequiredError);
         expect((urlError as UrlElicitationRequiredError).elicitations).toHaveLength(1);
 
-        const versionError = ProtocolError.fromError(-32004, 'unsupported', { supported: ['2025-11-25'], requested: '1999-01-01' });
+        const versionError = ProtocolError.fromError(-32022, 'unsupported', { supported: ['2025-11-25'], requested: '1999-01-01' });
         expect(versionError).toBeInstanceOf(UnsupportedProtocolVersionError);
         expect((versionError as UnsupportedProtocolVersionError).supported).toEqual(['2025-11-25']);
         expect((versionError as UnsupportedProtocolVersionError).requested).toBe('1999-01-01');
 
         // Malformed/missing data falls back to the generic class instead of throwing.
-        const generic = ProtocolError.fromError(-32004, 'unsupported', { wrong: 'shape' });
+        const generic = ProtocolError.fromError(-32022, 'unsupported', { wrong: 'shape' });
         expect(generic).toBeInstanceOf(ProtocolError);
         expect(generic).not.toBeInstanceOf(UnsupportedProtocolVersionError);
     });

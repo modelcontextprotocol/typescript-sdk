@@ -118,7 +118,7 @@ export class UrlElicitationRequiredError extends ProtocolError {
 }
 
 /**
- * Error type for the `-32004` UnsupportedProtocolVersion protocol error (protocol
+ * Error type for the `-32022` UnsupportedProtocolVersion protocol error (protocol
  * revision 2026-07-28): the request's protocol version is unknown to the server or
  * unsupported by it.
  *
@@ -147,7 +147,7 @@ export class UnsupportedProtocolVersionError extends ProtocolError {
 }
 
 /**
- * Error type for the `-32003` MissingRequiredClientCapability protocol error
+ * Error type for the `-32021` MissingRequiredClientCapability protocol error
  * (protocol revision 2026-07-28): processing the request requires a capability
  * the client did not declare in the request's `clientCapabilities`.
  *
