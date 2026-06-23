@@ -811,11 +811,15 @@ export const CacheableResultSchema = wireResult({
 });
 
 export const DiscoverResultSchema = wireResult({
-    // Receiver-side defaults per caching.mdx:56 — the probe classifier must
-    // accept a DiscoverResult that omits the cache hints (sender obligation
-    // is enforced by `encodeResult`, not by parse).
-    ttlMs: z.number().int().min(0).default(0),
-    cacheScope: z.enum(['public', 'private']).default('private'),
+    // Receiver-side leniency per caching.mdx:56-58 — the probe classifier must
+    // accept a DiscoverResult that omits OR malforms the cache hints (spec:
+    // "if ttlMs is negative, clients SHOULD ignore it and treat it as 0").
+    // `.catch()` returns the fallback for both absence and parse failure;
+    // sender obligation is enforced by `encodeResult`, not by parse.
+    // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod `.catch()`, not a Promise
+    ttlMs: z.number().int().min(0).catch(0),
+    // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod `.catch()`, not a Promise
+    cacheScope: z.enum(['public', 'private']).catch('private'),
     supportedVersions: z.array(z.string()),
     capabilities: ServerCapabilities2026Schema,
     serverInfo: ImplementationSchema,
@@ -1101,8 +1105,10 @@ export const dispatchResultSchemas: { readonly [M in Rev2026RequestMethod]: z.Zo
             .loose()
     }),
     'server/discover': liftedResult({
-        ttlMs: z.number().int().min(0).default(0),
-        cacheScope: z.enum(['public', 'private']).default('private'),
+        // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod `.catch()`, not a Promise
+        ttlMs: z.number().int().min(0).catch(0),
+        // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod `.catch()`, not a Promise
+        cacheScope: z.enum(['public', 'private']).catch('private'),
         supportedVersions: z.array(z.string()),
         capabilities: ServerCapabilities2026Schema,
         serverInfo: ImplementationSchema,

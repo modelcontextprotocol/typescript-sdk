@@ -135,10 +135,11 @@ export function classifyProbeOutcome(outcome: ProbeOutcome, context: ProbeClassi
 }
 
 function classifyResult(result: unknown, context: ProbeClassifierContext): ProbeVerdict {
-    // The 2026 wire schema carries the spec receiver-side defaults for
+    // The 2026 wire schema carries the spec receiver-side leniency for
     // `resultType` ('complete'), `ttlMs` (0) and `cacheScope` ('private'), so
     // routing through the codec is behavior-neutral with the prior public-schema
-    // parse: a server that omits them still classifies `modern`.
+    // parse for absent and malformed cache hints (`.catch()` per spec receiver
+    // leniency): a server that omits or malforms them still classifies `modern`.
     const parsed = codecForVersion(MODERN_WIRE_REVISION).validateResult('server/discover', result);
     if (!parsed.ok) {
         // Unrecognized result shape: not modern evidence — conservative legacy fallback.

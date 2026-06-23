@@ -227,6 +227,24 @@ describe('inbound receiver-side defaults (the parse-side leniency that lets the 
         expect(parsed.cacheScope).toBe('private');
     });
 
+    test('present-but-invalid cache hints (negative ttlMs, unknown cacheScope) fall back to defaults per spec receiver leniency', () => {
+        // caching.mdx:58 — "if ttlMs is negative, clients SHOULD ignore it and
+        // treat it as 0". `.catch()` covers both absence and malformed values.
+        const outcome = rev2026Codec.validateResult('server/discover', {
+            ...minimalDiscover,
+            ttlMs: -1,
+            cacheScope: 'session'
+        });
+        expect(outcome.ok).toBe(true);
+        if (!outcome.ok) throw new Error('unreachable');
+        expect(outcome.value.ttlMs).toBe(0);
+        expect(outcome.value.cacheScope).toBe('private');
+        // The wire-true schema applies the same `.catch()` leniency.
+        const parsed = Wire2026DiscoverResultSchema.parse({ ...minimalDiscover, ttlMs: -1, cacheScope: 'session' });
+        expect(parsed.ttlMs).toBe(0);
+        expect(parsed.cacheScope).toBe('private');
+    });
+
     test('explicit values still win over the defaults', () => {
         const outcome = rev2026Codec.validateResult('server/discover', {
             ...minimalDiscover,
