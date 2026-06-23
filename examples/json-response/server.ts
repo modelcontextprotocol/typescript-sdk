@@ -6,6 +6,7 @@
  */
 import { createServer } from 'node:http';
 
+import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
@@ -25,6 +26,6 @@ const handler = createMcpHandler(
 const argv = process.argv.slice(2);
 const portIdx = argv.indexOf('--port');
 const port = portIdx === -1 ? 3000 : Number(argv[portIdx + 1]);
-createServer((req, res) => void handler.node(req, res)).listen(port, () => {
+createServer(toNodeHandler(handler)).listen(port, () => {
     console.error(`json-response example server listening on http://127.0.0.1:${port}/`);
 });

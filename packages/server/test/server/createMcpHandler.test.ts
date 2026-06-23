@@ -7,13 +7,11 @@
  * faces, the per-request era write + client-identity backfill, notification
  * routing, the response-mode knob, and close() teardown of the modern leg.
  */
-import { Readable } from 'node:stream';
-
 import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
-import type { McpRequestContext, NodeServerResponseLike } from '../../src/server/createMcpHandler.js';
+import type { McpRequestContext } from '../../src/server/createMcpHandler.js';
 import { createMcpHandler, isLegacyRequest } from '../../src/server/createMcpHandler.js';
 import { McpServer } from '../../src/server/mcp.js';
 import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport.js';
@@ -783,129 +781,10 @@ describe('createMcpHandler — handler faces', () => {
         expect(await response.text()).toContain('detached');
     });
 
-    it('serves through the duck-typed node face, reading the request stream when no parsed body is given', async () => {
-        const { factory } = testFactory();
-        const handler = createMcpHandler(factory);
-
-        const { req, res, body } = nodeRequestResponse(modernToolsCall('echo', { text: 'node face' }));
-        // Express mounts pass `next` as the third argument; a function is never a parsed body.
-        await handler.node(req, res, () => {});
-        expect(res.statusCode).toBe(200);
-        expect(await body()).toContain('node face');
-    });
-
-    it('prefers a pre-parsed body over the request stream on the node face', async () => {
-        const { factory } = testFactory();
-        const handler = createMcpHandler(factory);
-
-        const parsed = modernToolsCall('echo', { text: 'pre-parsed' });
-        const { req, res, body } = nodeRequestResponse(undefined);
-        Object.assign(req.headers, bodyDerivedStandardHeaders(parsed));
-        await handler.node(req, res, parsed);
-        expect(res.statusCode).toBe(200);
-        expect(await body()).toContain('pre-parsed');
-    });
-
-    it('serves a pre-parsed legacy body through the node face on the default fallback (the documented express.json mounting)', async () => {
-        const { factory, state } = testFactory();
-        const handler = createMcpHandler(factory);
-
-        // The documented Express mounting: express.json() consumed the stream
-        // and hands the parsed object as the third argument; the raw headers
-        // still describe the original (already-consumed) bytes.
-        const legacyMessage = { jsonrpc: '2.0', id: 7, method: 'tools/call', params: { name: 'echo', arguments: { text: 'node legacy' } } };
-        const { req, res, body } = nodeRequestResponse(undefined);
-        req.headers['content-length'] = '999';
-        req.headers['transfer-encoding'] = 'chunked';
-        await handler.node(req, res, legacyMessage);
-
-        expect(res.statusCode).toBe(200);
-        expect(await body()).toContain('node legacy');
-        expect(state.contexts).toHaveLength(1);
-        expect(state.contexts[0]?.era).toBe('legacy');
-    });
-
-    it('forwards req.auth from upstream middleware as pass-through authInfo on the node face', async () => {
-        const { factory } = testFactory();
-        const handler = createMcpHandler(factory);
-
-        const { req, res, body } = nodeRequestResponse(modernToolsCall('whoami', {}));
-        req.auth = { token: 'verified', clientId: 'node-client', scopes: [] };
-        await handler.node(req, res);
-        expect(res.statusCode).toBe(200);
-        expect(await body()).toContain('node-client');
-    });
-
-    it('skips HTTP/2 pseudo-headers when copying node request headers', async () => {
-        const { factory } = testFactory();
-        const handler = createMcpHandler(factory);
-
-        const { req, res, body } = nodeRequestResponse(modernToolsCall('echo', { text: 'http2 served' }));
-        Object.assign(req.headers, {
-            ':method': 'POST',
-            ':path': '/mcp',
-            ':scheme': 'http',
-            ':authority': 'localhost:3000'
-        });
-        await handler.node(req, res);
-
-        expect(res.statusCode).toBe(200);
-        expect(await body()).toContain('http2 served');
-    });
-
-    it('waits for drain before writing the next chunk when res.write reports backpressure', async () => {
-        const { factory } = testFactory();
-        const handler = createMcpHandler(factory);
-
-        const writes: string[] = [];
-        const listeners = new Map<string, Array<(...args: unknown[]) => void>>();
-        const res: NodeServerResponseLike & { statusCode: number } = {
-            statusCode: 0,
-            writeHead(statusCode: number) {
-                this.statusCode = statusCode;
-                return this;
-            },
-            write(chunk: string | Uint8Array) {
-                writes.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
-                // Always report a full buffer.
-                return false;
-            },
-            end() {
-                return this;
-            },
-            on(event: string, listener: (...args: unknown[]) => void) {
-                const existing = listeners.get(event) ?? [];
-                existing.push(listener);
-                listeners.set(event, existing);
-                return this;
-            }
-        };
-        const emitDrain = () => {
-            for (const listener of listeners.get('drain') ?? []) {
-                listener();
-            }
-        };
-
-        // The default (auto) response mode streams this exchange over SSE, so
-        // the loop sees at least two chunks (the progress frame and the result).
-        const { req } = nodeRequestResponse(modernToolsCall('progress-then-echo', { text: 'paced' }));
-        const served = handler.node(req, res);
-
-        await vi.waitFor(() => expect(writes.length).toBe(1));
-        // With the buffer reported full and no drain yet, no further chunk is written.
-        await new Promise(resolve => setTimeout(resolve, 25));
-        expect(writes).toHaveLength(1);
-
-        // Draining releases the loop chunk by chunk until the stream completes.
-        const pump = setInterval(emitDrain, 5);
-        await served;
-        clearInterval(pump);
-
-        const streamed = writes.join('');
-        expect(writes.length).toBeGreaterThan(1);
-        expect(streamed).toContain('notifications/progress');
-        expect(streamed).toContain('paced');
-    });
+    // The Node `(req, res, parsedBody?)` adaptation moved to
+    // `toNodeHandler(handler)` in `@modelcontextprotocol/node`; its conversion
+    // semantics (stream read, pre-parsed body, req.auth pass-through, HTTP/2
+    // pseudo-headers, write backpressure) are pinned at unit level there.
 });
 
 describe('createMcpHandler — close()', () => {
@@ -931,76 +810,6 @@ describe('createMcpHandler — close()', () => {
         await expect(handler.fetch(postRequest({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} }))).rejects.toThrow(/closed/);
     });
 });
-
-/* ------------------------------------------------------------------------ *
- * Node face fixtures (duck-typed, no real sockets)
- * ------------------------------------------------------------------------ */
-
-interface FakeNodeResponse extends NodeServerResponseLike {
-    statusCode: number;
-    headers: Record<string, string> | undefined;
-}
-
-function nodeRequestResponse(body: unknown): {
-    req: Readable & {
-        method: string;
-        url: string;
-        headers: Record<string, string>;
-        auth?: { token: string; clientId: string; scopes: string[] };
-    };
-    res: FakeNodeResponse;
-    body: () => Promise<string>;
-} {
-    const payload = body === undefined ? [] : [JSON.stringify(body)];
-    const req = Object.assign(Readable.from(payload), {
-        method: 'POST',
-        url: '/mcp',
-        headers: {
-            host: 'localhost:3000',
-            'content-type': 'application/json',
-            accept: 'application/json, text/event-stream',
-            ...bodyDerivedStandardHeaders(body)
-        } as Record<string, string>
-    });
-
-    const chunks: string[] = [];
-    let resolveFinished: () => void;
-    const finished = new Promise<void>(resolve => {
-        resolveFinished = resolve;
-    });
-    const res: FakeNodeResponse = {
-        statusCode: 0,
-        headers: undefined,
-        writeHead(statusCode: number, headers?: Record<string, string>) {
-            this.statusCode = statusCode;
-            this.headers = headers;
-            return this;
-        },
-        write(chunk: string | Uint8Array) {
-            chunks.push(typeof chunk === 'string' ? chunk : new TextDecoder().decode(chunk));
-            return true;
-        },
-        end(chunk?: string | Uint8Array) {
-            if (chunk !== undefined) {
-                this.write(chunk);
-            }
-            resolveFinished();
-            return this;
-        },
-        on() {
-            return this;
-        }
-    };
-
-    return {
-        req,
-        res,
-        body: async () => {
-            await finished;
-            return chunks.join('');
-        }
-    };
-}
 
 // Type-level pin: a zero-argument factory stays assignable to McpServerFactory unchanged.
 const zeroArgFactory = () => new McpServer({ name: 'zero-arg', version: '1.0.0' });

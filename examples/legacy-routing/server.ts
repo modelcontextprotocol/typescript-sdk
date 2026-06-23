@@ -13,7 +13,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, isInitializeRequest, isLegacyRequest, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
@@ -55,6 +55,7 @@ const handleLegacy = async (req: Request, res: Response) => {
 
 // --- the strict modern entry alongside it ---
 const modern = createMcpHandler((ctx: McpRequestContext) => buildServer(ctx.era), { legacy: 'reject' });
+const modernNode = toNodeHandler(modern);
 
 const app = createMcpExpressApp();
 // Browser-client CORS recipe: expose the response headers a browser-based MCP
@@ -77,7 +78,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
         method: req.method,
         headers: req.headers as Record<string, string>
     });
-    await ((await isLegacyRequest(probe, req.body)) ? handleLegacy(req, res) : modern.node(req, res, req.body));
+    await ((await isLegacyRequest(probe, req.body)) ? handleLegacy(req, res) : modernNode(req, res, req.body));
 });
 // GET (standalone SSE stream / reconnect with Last-Event-ID) and DELETE
 // (explicit session termination per the MCP spec) are sessionful-2025-only —

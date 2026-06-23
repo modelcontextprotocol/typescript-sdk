@@ -1081,10 +1081,14 @@ const handler = createMcpHandler(ctx => {
 });
 
 // Web-standard runtimes (Cloudflare Workers, Deno, Bun, Hono):
-//   handler.fetch(request)
-// Node frameworks (Express, Fastify, plain node:http):
-//   handler.node(req, res, req.body)
+//   export default handler;            // or handler.fetch(request)
+// Node frameworks (Express, Fastify, plain node:http) — wrap once:
+//   import { toNodeHandler } from '@modelcontextprotocol/node';
+//   const node = toNodeHandler(handler, { onerror: console.error });
+//   app.all('/mcp', (req, res) => void node(req, res, req.body));
 ```
+
+`toNodeHandler` accepts an optional `{ onerror }` callback that receives the adapter-level error fallback (request conversion / `handler.fetch` throw) before the `500` response is written — entry-internal failures continue to surface through the entry's own `onerror` option.
 
 How the `legacy` option behaves:
 
@@ -1121,9 +1125,9 @@ The optional `responseMode` controls how modern request exchanges are answered: 
 DROPS mid-call notifications** (progress, logging, and any other related message emitted before the result) — only the terminal result is delivered. Subscription (listen-class) streams are always served over SSE regardless of the setting. `onerror` receives out-of-band errors and
 rejected requests for logging.
 
-The entry performs no Origin/Host validation (see the origin-validation middleware below) and no token verification: `authInfo` passed to `handler.fetch(request, { authInfo })` / attached as `req.auth` on the Node face is forwarded to handlers as-is and never derived from request
-headers. Power users who want to compose routing themselves can use the exported `isLegacyRequest`, `classifyInboundRequest` and `PerRequestHTTPServerTransport` building blocks directly; the handler faces are bound properties, so they can be detached and passed around
-(`const { fetch } = handler`).
+The entry performs no Origin/Host validation (see the origin-validation middleware below) and no token verification: `authInfo` passed to `handler.fetch(request, { authInfo })` is forwarded to handlers as-is and never derived from request headers (the Node adapter forwards
+`req.auth` to that same option). Power users who want to compose routing themselves can use the exported `isLegacyRequest`, `classifyInboundRequest` and `PerRequestHTTPServerTransport` building blocks directly; `handler.fetch` is a bound property, so it can be detached and
+passed around (`const { fetch } = handler`).
 
 ### `Mcp-Param-*` request-metadata headers (SEP-2243, 2026-07-28 draft)
 

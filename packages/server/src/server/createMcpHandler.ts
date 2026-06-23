@@ -200,41 +200,18 @@ export interface CreateMcpHandlerOptions {
 }
 
 /**
- * Minimal duck-typed shape of a Node.js `IncomingMessage` accepted by
- * {@linkcode McpHttpHandler.node}. Kept structural so the handler stays free of
- * `node:` imports and bundles for non-Node runtimes.
- */
-export interface NodeIncomingMessageLike extends AsyncIterable<unknown> {
-    method?: string;
-    url?: string;
-    headers: Record<string, string | string[] | undefined>;
-    /** Validated authentication info attached by upstream middleware (pass-through). */
-    auth?: AuthInfo;
-}
-
-/** Minimal duck-typed shape of a Node.js `ServerResponse` accepted by {@linkcode McpHttpHandler.node}. */
-export interface NodeServerResponseLike {
-    writeHead(statusCode: number, headers?: Record<string, string>): unknown;
-    write(chunk: string | Uint8Array): unknown;
-    end(chunk?: string | Uint8Array): unknown;
-    on(event: string, listener: (...args: unknown[]) => void): unknown;
-}
-
-/**
- * The handler returned by {@linkcode createMcpHandler}. Both faces are
- * arrow-assigned bound properties: they can be detached and passed around
- * (`const { fetch } = handler`) without losing their binding.
+ * The handler returned by {@linkcode createMcpHandler}: a web-standard
+ * `{ fetch, close, notify }` object — the shape Workers/Bun/Deno expect from
+ * `export default`. `fetch` is an arrow-assigned bound property: it can be
+ * detached and passed around (`const { fetch } = handler`) without losing its
+ * binding.
+ *
+ * Node frameworks (Express, Fastify, plain `node:http`) wrap the handler once
+ * with `toNodeHandler(handler)` from `@modelcontextprotocol/node`.
  */
 export interface McpHttpHandler {
     /** Web-standard face: serve one HTTP request and resolve with the response. */
     fetch: (request: Request, options?: McpHandlerRequestOptions) => Promise<Response>;
-    /**
-     * Node face: serve one Node.js request/response pair. The third argument is
-     * an optional pre-parsed body (`req.body` from `express.json()`); a function
-     * third argument (Express's `next` when the handler is mounted as
-     * middleware) is ignored.
-     */
-    node: (req: NodeIncomingMessageLike, res: NodeServerResponseLike, parsedBody?: unknown) => Promise<void>;
     /**
      * Tears down the modern leg: aborts in-flight modern exchanges and closes
      * their per-request instances. Legacy serving is unaffected — the
@@ -561,10 +538,11 @@ export async function isLegacyRequest(request: Request, parsedBody?: unknown): P
  * modern-only strict endpoint.
  *
  * Mounting: `handler.fetch` is the web-standard face (Cloudflare Workers,
- * Deno, Bun, Hono's `c.req.raw`); `handler.node(req, res, req.body)` is the
- * Node face for Express/Fastify/plain `node:http`. When mounting bare on a
- * fetch-native runtime, put Origin/Host validation in front of the handler —
- * the entry itself is deliberately validation-free:
+ * Deno, Bun, Hono's `c.req.raw`); for Express/Fastify/plain `node:http`, wrap
+ * the handler once with `toNodeHandler(handler)` from
+ * `@modelcontextprotocol/node`. When mounting bare on a fetch-native runtime,
+ * put Origin/Host validation in front of the handler — the entry itself is
+ * deliberately validation-free:
  *
  * ```ts
  * import { hostHeaderValidationResponse, originValidationResponse, localhostAllowedHostnames, localhostAllowedOrigins } from '@modelcontextprotocol/server';
@@ -590,7 +568,7 @@ export async function isLegacyRequest(request: Request, parsedBody?: unknown): P
  * the era decision and `PerRequestHTTPServerTransport` for single-exchange
  * serving.
  *
- * The entry performs no token verification: `authInfo` given to the faces is
+ * The entry performs no token verification: `authInfo` given to `fetch` is
  * passed through to handlers and the factory as-is and is never derived from
  * request headers.
  */
@@ -881,79 +859,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         }
     };
 
-    const nodeFace = async (req: NodeIncomingMessageLike, res: NodeServerResponseLike, parsedBody?: unknown): Promise<void> => {
-        // Express passes (req, res, next) when the handler is mounted as a
-        // middleware function; a function third argument is `next`, not a body.
-        if (typeof parsedBody === 'function') {
-            parsedBody = undefined;
-        }
-
-        let finished = false;
-        const abort = new AbortController();
-        res.on('close', () => {
-            if (!finished) {
-                abort.abort();
-            }
-        });
-
-        let response: Response;
-        try {
-            const request = await nodeRequestToFetchRequest(req, parsedBody, abort.signal);
-            response = await fetchFace(request, {
-                ...(req.auth !== undefined && { authInfo: req.auth }),
-                ...(parsedBody !== undefined && { parsedBody })
-            });
-        } catch (error) {
-            reportError(toError(error));
-            response = internalServerErrorResponse(echoableRequestId(parsedBody));
-        }
-
-        const headers: Record<string, string> = {};
-        for (const [name, value] of response.headers) {
-            headers[name] = value;
-        }
-        res.writeHead(response.status, headers);
-        if (response.body === null) {
-            finished = true;
-            res.end();
-            return;
-        }
-        const reader = response.body.getReader();
-        // Honor write backpressure: when write() reports a full buffer (Node's
-        // `false` return), wait for the response to drain before pulling the
-        // next chunk. A single listener resolves whichever wait is pending; a
-        // closed response also releases the wait so a vanished client cannot
-        // park the loop forever.
-        let drainResolve: (() => void) | undefined;
-        const releaseDrainWait = () => {
-            drainResolve?.();
-            drainResolve = undefined;
-        };
-        res.on('drain', releaseDrainWait);
-        res.on('close', releaseDrainWait);
-        try {
-            for (;;) {
-                const { done, value } = await reader.read();
-                if (done) {
-                    break;
-                }
-                if (value !== undefined && res.write(value) === false) {
-                    await new Promise<void>(resolve => {
-                        drainResolve = resolve;
-                    });
-                }
-            }
-        } catch {
-            // The client went away while streaming; the abort signal already
-            // cancelled the exchange.
-        }
-        finished = true;
-        res.end();
-    };
-
     return {
         fetch: fetchFace,
-        node: nodeFace,
         notify,
         bus,
         close: async () => {
@@ -964,76 +871,4 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
             await Promise.all(closing);
         }
     };
-}
-
-/* ------------------------------------------------------------------------ *
- * Node request conversion (duck-typed; no node: imports)
- * ------------------------------------------------------------------------ */
-
-function singleHeaderValue(value: string | string[] | undefined): string | undefined {
-    return Array.isArray(value) ? value[0] : value;
-}
-
-async function nodeRequestToFetchRequest(req: NodeIncomingMessageLike, parsedBody: unknown, signal: AbortSignal): Promise<Request> {
-    const method = (req.method ?? 'GET').toUpperCase();
-    const host = singleHeaderValue(req.headers['host']) ?? 'localhost';
-    const url = `http://${host}${req.url ?? '/'}`;
-
-    const headers = new Headers();
-    for (const [name, value] of Object.entries(req.headers)) {
-        // HTTP/2 pseudo-headers (`:method`, `:path`, `:authority`, …) are
-        // connection metadata, not header fields — `Headers` rejects their
-        // names, so they are skipped rather than copied.
-        if (value === undefined || name.startsWith(':')) {
-            continue;
-        }
-        if (Array.isArray(value)) {
-            for (const item of value) {
-                headers.append(name, item);
-            }
-        } else {
-            headers.set(name, value);
-        }
-    }
-
-    // The body is carried as text: MCP request bodies are JSON, and a string
-    // body keeps the constructed Request portable across runtime lib versions.
-    let body: string | undefined;
-    if (method !== 'GET' && method !== 'HEAD') {
-        if (parsedBody === undefined) {
-            const decoder = new TextDecoder();
-            let collected = '';
-            for await (const chunk of req) {
-                collected += typeof chunk === 'string' ? chunk : decoder.decode(chunk as Uint8Array, { stream: true });
-            }
-            collected += decoder.decode();
-            if (collected.length > 0) {
-                body = collected;
-            }
-        } else {
-            // The caller already consumed and parsed the Node stream (the
-            // documented `handler.node(req, res, req.body)` mounting behind
-            // `express.json()`), so the bytes cannot be re-read. Re-serialize
-            // the parsed value so consumers of the forwarded Request — anything
-            // on the legacy leg reading `request.json()`/`text()` instead of
-            // the pass-through parsedBody — still receive the body, and replace
-            // the entity headers that described the original raw bytes.
-            const serialized: string | undefined = JSON.stringify(parsedBody);
-            headers.delete('content-encoding');
-            headers.delete('transfer-encoding');
-            if (serialized === undefined) {
-                headers.delete('content-length');
-            } else {
-                body = serialized;
-                headers.set('content-length', String(new TextEncoder().encode(serialized).byteLength));
-            }
-        }
-    }
-
-    return new Request(url, {
-        method,
-        headers,
-        signal,
-        ...(body !== undefined && { body })
-    });
 }
