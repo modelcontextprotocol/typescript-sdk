@@ -144,6 +144,7 @@ export class McpServer {
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             execution: tool.execution,
+                            icons: tool.icons,
                             _meta: tool._meta
                         };
 
@@ -699,7 +700,8 @@ export class McpServer {
         annotations: ToolAnnotations | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
-        handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
+        handler: AnyToolHandler<StandardSchemaWithJSON | undefined>,
+        icons?: Tool['icons'],
     ): RegisteredTool {
         // Validate tool name according to SEP specification
         validateAndWarnToolName(name);
@@ -714,6 +716,7 @@ export class McpServer {
             outputSchema,
             annotations,
             execution,
+            icons,
             _meta,
             handler: handler,
             executor: createToolExecutor(inputSchema, handler),
@@ -796,6 +799,7 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            icons?: Tool['icons'];
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -829,7 +833,7 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
+        const { title, description, inputSchema, outputSchema, annotations, icons, _meta } = config;
 
         return this._createRegisteredTool(
             name,
@@ -840,7 +844,8 @@ export class McpServer {
             annotations,
             undefined,
             _meta,
-            cb as ToolCallback<StandardSchemaWithJSON | undefined>
+            cb as ToolCallback<StandardSchemaWithJSON | undefined>,
+            icons,
         );
     }
 
@@ -1092,6 +1097,7 @@ export type RegisteredTool = {
     outputSchema?: StandardSchemaWithJSON;
     annotations?: ToolAnnotations;
     execution?: ToolExecution;
+    icons?: Tool['icons'];
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
     /** @hidden */
