@@ -1,6 +1,16 @@
 /**
  * 2026-era wire schemas (protocol revision 2026-07-28).
  *
+ * Fully self-contained — no runtime imports from types/schemas.ts. The
+ * neutral types/schemas.ts layer is the public-API superset and is free to
+ * evolve; this file is the 2026 wire-parse contract and is BEHAVIOR-FROZEN
+ * against the 2026-07-28 anchor. Every era-shared building block (content
+ * blocks, resources, prompts, capabilities, notifications, …) that the wire
+ * shapes compose is a frozen LOCAL copy — verbatim from the neutral layer at
+ * the point this revision was sealed, dependencies first. The only cross-layer
+ * dependency is `import type { JSONObject, JSONValue }` from the neutral types
+ * barrel — pure structural type aliases with no parse behavior.
+ *
  * This module is the only place the per-request `_meta` envelope is modeled.
  * The envelope is wire-only vocabulary: the protocol layer lifts it off
  * inbound requests before any handler runs and surfaces it at
@@ -20,57 +30,573 @@ import {
     LOG_LEVEL_META_KEY,
     PROTOCOL_VERSION_META_KEY
 } from '../../types/constants.js';
-import {
-    AnnotationsSchema,
-    AudioContentSchema,
-    BaseMetadataSchema,
-    BlobResourceContentsSchema,
-    ClientCapabilitiesSchema,
-    ContentBlockSchema,
-    CursorSchema,
-    ElicitRequestFormParamsSchema,
-    IconsSchema,
-    ImageContentSchema,
-    ImplementationSchema,
-    JSONObjectSchema,
-    LoggingLevelSchema,
-    LoggingMessageNotificationSchema,
-    ModelPreferencesSchema,
-    ProgressNotificationSchema,
-    ProgressTokenSchema,
-    PromptListChangedNotificationSchema,
-    PromptMessageSchema,
-    PromptReferenceSchema,
-    PromptSchema,
-    RequestIdSchema,
-    ResourceContentsSchema,
-    ResourceListChangedNotificationSchema,
-    ResourceSchema,
-    ResourceTemplateReferenceSchema,
-    ResourceTemplateSchema,
-    ResourceUpdatedNotificationSchema,
-    RoleSchema,
-    RootSchema,
-    ServerCapabilitiesSchema,
+import type { JSONObject, JSONValue } from '../../types/types.js';
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * Frozen neutral-layer building blocks
+ *
+ * Everything from this point until the next ═-banner is a verbatim frozen
+ * copy of a schema that, at the time this revision was sealed, lived in the
+ * neutral types/schemas.ts. They are copied dependencies-first so no forward
+ * references exist. They are NOT re-derived from the public layer at runtime —
+ * a widening or tightening landed on types/schemas.ts has no effect here until
+ * a deliberate per-revision re-freeze.
+ * ════════════════════════════════════════════════════════════════════════════ */
+
+export const JSONValueSchema: z.ZodType<JSONValue, JSONValue> = z.lazy(() =>
+    z.union([z.string(), z.number(), z.boolean(), z.null(), z.record(z.string(), JSONValueSchema), z.array(JSONValueSchema)])
+);
+export const JSONObjectSchema: z.ZodType<JSONObject, JSONObject> = z.record(z.string(), JSONValueSchema);
+
+/**
+ * A progress token, used to associate progress notifications with the original request.
+ */
+export const ProgressTokenSchema = z.union([z.string(), z.number().int()]);
+
+/**
+ * An opaque token used to represent a cursor for pagination.
+ */
+export const CursorSchema = z.string();
+
+/**
+ * A uniquely identifying ID for a request in JSON-RPC.
+ */
+export const RequestIdSchema = z.union([z.string(), z.number().int()]);
+
+/**
+ * The sender or recipient of messages and data in a conversation.
+ */
+export const RoleSchema = z.enum(['user', 'assistant']);
+
+/**
+ * The severity of a log message.
+ */
+export const LoggingLevelSchema = z.enum(['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']);
+
+/**
+ * A Zod schema for validating Base64 strings that is more performant and
+ * robust for very large inputs than the default regex-based check. It avoids
+ * stack overflows by using the native `atob` function for validation.
+ */
+const Base64Schema = z.string().refine(
+    val => {
+        try {
+            atob(val);
+            return true;
+        } catch {
+            return false;
+        }
+    },
+    { message: 'Invalid Base64 string' }
+);
+
+/* ─── Request/notification meta and base params ─── */
+
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
+export const TaskMetadataSchema = z.object({
+    ttl: z.number().optional()
+});
+
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
+export const RelatedTaskMetadataSchema = z.object({
+    taskId: z.string()
+});
+
+export const RequestMetaSchema = z.looseObject({
+    /**
+     * If specified, the caller is requesting out-of-band progress notifications for this request (as represented by notifications/progress). The value of this parameter is an opaque token that will be attached to any subsequent notifications. The receiver is not obligated to provide these notifications.
+     */
+    progressToken: ProgressTokenSchema.optional(),
+    /**
+     * If specified, this request is related to the provided task.
+     */
+    'io.modelcontextprotocol/related-task': RelatedTaskMetadataSchema.optional()
+});
+
+export const BaseRequestParamsSchema = z.object({
+    _meta: RequestMetaSchema.optional()
+});
+
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
+export const TaskAugmentedRequestParamsSchema = BaseRequestParamsSchema.extend({
+    task: TaskMetadataSchema.optional()
+});
+
+export const NotificationsParamsSchema = z.object({
+    _meta: RequestMetaSchema.optional()
+});
+
+export const NotificationSchema = z.object({
+    method: z.string(),
+    params: NotificationsParamsSchema.loose().optional()
+});
+
+/* ─── Icons / base metadata / implementation ─── */
+
+export const IconSchema = z.object({
+    src: z.string(),
+    mimeType: z.string().optional(),
+    sizes: z.array(z.string()).optional(),
+    theme: z.enum(['light', 'dark']).optional()
+});
+
+export const IconsSchema = z.object({
+    icons: z.array(IconSchema).optional()
+});
+
+export const BaseMetadataSchema = z.object({
+    name: z.string(),
+    title: z.string().optional()
+});
+
+export const ImplementationSchema = BaseMetadataSchema.extend({
+    ...BaseMetadataSchema.shape,
+    ...IconsSchema.shape,
+    version: z.string(),
+    websiteUrl: z.string().optional(),
+    description: z.string().optional()
+});
+
+/* ─── Capability schemas ─── */
+
+const FormElicitationCapabilitySchema = z.intersection(
+    z.object({
+        applyDefaults: z.boolean().optional()
+    }),
+    JSONObjectSchema
+);
+
+const ElicitationCapabilitySchema = z.preprocess(
+    value => {
+        if (value && typeof value === 'object' && !Array.isArray(value) && Object.keys(value as Record<string, unknown>).length === 0) {
+            return { form: {} };
+        }
+        return value;
+    },
+    z.intersection(
+        z.object({
+            form: FormElicitationCapabilitySchema.optional(),
+            url: JSONObjectSchema.optional()
+        }),
+        JSONObjectSchema.optional()
+    )
+);
+
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
+export const ClientTasksCapabilitySchema = z.looseObject({
+    list: JSONObjectSchema.optional(),
+    cancel: JSONObjectSchema.optional(),
+    requests: z
+        .looseObject({
+            sampling: z
+                .looseObject({
+                    createMessage: JSONObjectSchema.optional()
+                })
+                .optional(),
+            elicitation: z
+                .looseObject({
+                    create: JSONObjectSchema.optional()
+                })
+                .optional()
+        })
+        .optional()
+});
+
+/** @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only. */
+export const ServerTasksCapabilitySchema = z.looseObject({
+    list: JSONObjectSchema.optional(),
+    cancel: JSONObjectSchema.optional(),
+    requests: z
+        .looseObject({
+            tools: z
+                .looseObject({
+                    call: JSONObjectSchema.optional()
+                })
+                .optional()
+        })
+        .optional()
+});
+
+export const ClientCapabilitiesSchema = z.object({
+    experimental: z.record(z.string(), JSONObjectSchema).optional(),
+    sampling: z
+        .object({
+            context: JSONObjectSchema.optional(),
+            tools: JSONObjectSchema.optional()
+        })
+        .optional(),
+    elicitation: ElicitationCapabilitySchema.optional(),
+    roots: z
+        .object({
+            listChanged: z.boolean().optional()
+        })
+        .optional(),
+    tasks: ClientTasksCapabilitySchema.optional(),
+    extensions: z.record(z.string(), JSONObjectSchema).optional()
+});
+
+export const ServerCapabilitiesSchema = z.object({
+    experimental: z.record(z.string(), JSONObjectSchema).optional(),
+    logging: JSONObjectSchema.optional(),
+    completions: JSONObjectSchema.optional(),
+    prompts: z
+        .object({
+            listChanged: z.boolean().optional()
+        })
+        .optional(),
+    resources: z
+        .object({
+            subscribe: z.boolean().optional(),
+            listChanged: z.boolean().optional()
+        })
+        .optional(),
+    tools: z
+        .object({
+            listChanged: z.boolean().optional()
+        })
+        .optional(),
+    tasks: ServerTasksCapabilitySchema.optional(),
+    extensions: z.record(z.string(), JSONObjectSchema).optional()
+});
+
+/* ─── Progress / logging notifications ─── */
+
+export const ProgressSchema = z.object({
+    progress: z.number(),
+    total: z.optional(z.number()),
+    message: z.optional(z.string())
+});
+
+export const ProgressNotificationParamsSchema = z.object({
+    ...NotificationsParamsSchema.shape,
+    ...ProgressSchema.shape,
+    progressToken: ProgressTokenSchema
+});
+
+export const ProgressNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/progress'),
+    params: ProgressNotificationParamsSchema
+});
+
+export const LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.extend({
+    level: LoggingLevelSchema,
+    logger: z.string().optional(),
+    data: z.unknown()
+});
+
+export const LoggingMessageNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/message'),
+    params: LoggingMessageNotificationParamsSchema
+});
+
+/* ─── Resource contents / annotations ─── */
+
+export const ResourceContentsSchema = z.object({
+    uri: z.string(),
+    mimeType: z.optional(z.string()),
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+export const TextResourceContentsSchema = ResourceContentsSchema.extend({
+    text: z.string()
+});
+
+export const BlobResourceContentsSchema = ResourceContentsSchema.extend({
+    blob: Base64Schema
+});
+
+export const AnnotationsSchema = z.object({
+    audience: z.array(RoleSchema).optional(),
+    priority: z.number().min(0).max(1).optional(),
+    lastModified: z.iso.datetime({ offset: true }).optional()
+});
+
+/* ─── Resources / templates / list-changed notifications ─── */
+
+export const ResourceSchema = z.object({
+    ...BaseMetadataSchema.shape,
+    ...IconsSchema.shape,
+    uri: z.string(),
+    description: z.optional(z.string()),
+    mimeType: z.optional(z.string()),
+    size: z.optional(z.number()),
+    annotations: AnnotationsSchema.optional(),
+    _meta: z.optional(z.looseObject({}))
+});
+
+export const ResourceTemplateSchema = z.object({
+    ...BaseMetadataSchema.shape,
+    ...IconsSchema.shape,
+    uriTemplate: z.string(),
+    description: z.optional(z.string()),
+    mimeType: z.optional(z.string()),
+    annotations: AnnotationsSchema.optional(),
+    _meta: z.optional(z.looseObject({}))
+});
+
+export const ResourceListChangedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/resources/list_changed'),
+    params: NotificationsParamsSchema.optional()
+});
+
+export const ResourceUpdatedNotificationParamsSchema = NotificationsParamsSchema.extend({
+    uri: z.string()
+});
+
+export const ResourceUpdatedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/resources/updated'),
+    params: ResourceUpdatedNotificationParamsSchema
+});
+
+/* ─── Prompts / content blocks ─── */
+
+export const PromptArgumentSchema = z.object({
+    name: z.string(),
+    description: z.optional(z.string()),
+    required: z.optional(z.boolean())
+});
+
+export const PromptSchema = z.object({
+    ...BaseMetadataSchema.shape,
+    ...IconsSchema.shape,
+    description: z.optional(z.string()),
+    arguments: z.optional(z.array(PromptArgumentSchema)),
+    _meta: z.optional(z.looseObject({}))
+});
+
+export const PromptListChangedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/prompts/list_changed'),
+    params: NotificationsParamsSchema.optional()
+});
+
+export const TextContentSchema = z.object({
+    type: z.literal('text'),
+    text: z.string(),
+    annotations: AnnotationsSchema.optional(),
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+export const ImageContentSchema = z.object({
+    type: z.literal('image'),
+    data: Base64Schema,
+    mimeType: z.string(),
+    annotations: AnnotationsSchema.optional(),
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+export const AudioContentSchema = z.object({
+    type: z.literal('audio'),
+    data: Base64Schema,
+    mimeType: z.string(),
+    annotations: AnnotationsSchema.optional(),
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+export const ToolUseContentSchema = z.object({
+    type: z.literal('tool_use'),
+    name: z.string(),
+    id: z.string(),
+    input: z.record(z.string(), z.unknown()),
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+export const EmbeddedResourceSchema = z.object({
+    type: z.literal('resource'),
+    resource: z.union([TextResourceContentsSchema, BlobResourceContentsSchema]),
+    annotations: AnnotationsSchema.optional(),
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+export const ResourceLinkSchema = ResourceSchema.extend({
+    type: z.literal('resource_link')
+});
+
+export const ContentBlockSchema = z.union([
     TextContentSchema,
-    TextResourceContentsSchema,
-    ToolAnnotationsSchema,
-    ToolChoiceSchema,
-    ToolListChangedNotificationSchema,
-    ToolUseContentSchema
-} from '../../types/schemas.js';
+    ImageContentSchema,
+    AudioContentSchema,
+    ResourceLinkSchema,
+    EmbeddedResourceSchema
+]);
+
+export const PromptMessageSchema = z.object({
+    role: RoleSchema,
+    content: ContentBlockSchema
+});
+
+/* ─── Tool annotations / tool list-changed / sampling primitives ─── */
+
+export const ToolAnnotationsSchema = z.object({
+    title: z.string().optional(),
+    readOnlyHint: z.boolean().optional(),
+    destructiveHint: z.boolean().optional(),
+    idempotentHint: z.boolean().optional(),
+    openWorldHint: z.boolean().optional()
+});
+
+export const ToolListChangedNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/tools/list_changed'),
+    params: NotificationsParamsSchema.optional()
+});
+
+export const ModelHintSchema = z.object({
+    name: z.string().optional()
+});
+
+export const ModelPreferencesSchema = z.object({
+    hints: z.array(ModelHintSchema).optional(),
+    costPriority: z.number().min(0).max(1).optional(),
+    speedPriority: z.number().min(0).max(1).optional(),
+    intelligencePriority: z.number().min(0).max(1).optional()
+});
+
+export const ToolChoiceSchema = z.object({
+    mode: z.enum(['auto', 'required', 'none']).optional()
+});
+
+/* ─── Elicitation primitive-schema vocabulary ─── */
+
+export const BooleanSchemaSchema = z.object({
+    type: z.literal('boolean'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    default: z.boolean().optional()
+});
+
+export const StringSchemaSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minLength: z.number().optional(),
+    maxLength: z.number().optional(),
+    format: z.enum(['email', 'uri', 'date', 'date-time']).optional(),
+    default: z.string().optional()
+});
+
+export const NumberSchemaSchema = z.object({
+    type: z.enum(['number', 'integer']),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minimum: z.number().optional(),
+    maximum: z.number().optional(),
+    default: z.number().optional()
+});
+
+export const UntitledSingleSelectEnumSchemaSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    enum: z.array(z.string()),
+    default: z.string().optional()
+});
+
+export const TitledSingleSelectEnumSchemaSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    oneOf: z.array(
+        z.object({
+            const: z.string(),
+            title: z.string()
+        })
+    ),
+    default: z.string().optional()
+});
+
+export const LegacyTitledEnumSchemaSchema = z.object({
+    type: z.literal('string'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    enum: z.array(z.string()),
+    enumNames: z.array(z.string()).optional(),
+    default: z.string().optional()
+});
+
+export const SingleSelectEnumSchemaSchema = z.union([UntitledSingleSelectEnumSchemaSchema, TitledSingleSelectEnumSchemaSchema]);
+
+export const UntitledMultiSelectEnumSchemaSchema = z.object({
+    type: z.literal('array'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minItems: z.number().optional(),
+    maxItems: z.number().optional(),
+    items: z.object({
+        type: z.literal('string'),
+        enum: z.array(z.string())
+    }),
+    default: z.array(z.string()).optional()
+});
+
+export const TitledMultiSelectEnumSchemaSchema = z.object({
+    type: z.literal('array'),
+    title: z.string().optional(),
+    description: z.string().optional(),
+    minItems: z.number().optional(),
+    maxItems: z.number().optional(),
+    items: z.object({
+        anyOf: z.array(
+            z.object({
+                const: z.string(),
+                title: z.string()
+            })
+        )
+    }),
+    default: z.array(z.string()).optional()
+});
+
+export const MultiSelectEnumSchemaSchema = z.union([UntitledMultiSelectEnumSchemaSchema, TitledMultiSelectEnumSchemaSchema]);
+
+export const EnumSchemaSchema = z.union([LegacyTitledEnumSchemaSchema, SingleSelectEnumSchemaSchema, MultiSelectEnumSchemaSchema]);
+
+export const PrimitiveSchemaDefinitionSchema = z.union([EnumSchemaSchema, BooleanSchemaSchema, StringSchemaSchema, NumberSchemaSchema]);
+
+export const ElicitRequestFormParamsSchema = TaskAugmentedRequestParamsSchema.extend({
+    mode: z.literal('form').optional(),
+    message: z.string(),
+    requestedSchema: z
+        .object({
+            type: z.literal('object'),
+            properties: z.record(z.string(), PrimitiveSchemaDefinitionSchema),
+            required: z.array(z.string()).optional()
+        })
+        .catchall(z.unknown())
+});
+
+/* ─── Completion references / roots ─── */
+
+export const ResourceTemplateReferenceSchema = z.object({
+    type: z.literal('ref/resource'),
+    uri: z.string()
+});
+
+export const PromptReferenceSchema = z.object({
+    type: z.literal('ref/prompt'),
+    name: z.string()
+});
+
+export const RootSchema = z.object({
+    uri: z.string().startsWith('file://'),
+    name: z.string().optional(),
+    _meta: z.record(z.string(), z.unknown()).optional()
+});
+
+/* ════════════════════════════════════════════════════════════════════════════
+ * End of frozen neutral-layer building blocks. Everything below is the
+ * 2026-07-28 wire-specific vocabulary (envelope, forks, results, requests,
+ * notifications) composed against the frozen copies above.
+ * ════════════════════════════════════════════════════════════════════════════ */
 
 /* 2026-era capability forks (defined ahead of the envelope, which composes
- * the client fork). The shared shapes minus the deleted `tasks` key: `tasks`
+ * the client fork). The frozen shapes minus the deleted `tasks` key: `tasks`
  * is 2025-only vocabulary with no slot on this revision, consistent with the
  * encode-side deletion (Q1-SD3 iii).
  *
- * The client fork lists its members EXPLICITLY (composing the shared member
+ * Both forks list their members EXPLICITLY (composing the frozen member
  * schemas by reference) rather than using `.omit()`: the envelope schema
  * below reaches the bundled package declarations, and an `.omit()` inference
  * is a mapped type whose printed member order is unstable across dts-rollup
  * builds (api-report flap). The explicit list doubles as the fork's deletion
- * statement — a member added to the shared shape must be re-adjudicated here. */
+ * statement — a member added to the frozen shape must be re-adjudicated here. */
 const sharedClientCapabilityShape = ClientCapabilitiesSchema.shape;
 export const ClientCapabilities2026Schema = z.object({
     experimental: sharedClientCapabilityShape.experimental,
@@ -79,7 +605,16 @@ export const ClientCapabilities2026Schema = z.object({
     roots: sharedClientCapabilityShape.roots,
     extensions: sharedClientCapabilityShape.extensions
 });
-export const ServerCapabilities2026Schema = ServerCapabilitiesSchema.omit({ tasks: true });
+const sharedServerCapabilityShape = ServerCapabilitiesSchema.shape;
+export const ServerCapabilities2026Schema = z.object({
+    experimental: sharedServerCapabilityShape.experimental,
+    logging: sharedServerCapabilityShape.logging,
+    completions: sharedServerCapabilityShape.completions,
+    prompts: sharedServerCapabilityShape.prompts,
+    resources: sharedServerCapabilityShape.resources,
+    tools: sharedServerCapabilityShape.tools,
+    extensions: sharedServerCapabilityShape.extensions
+});
 
 /* Per-request `_meta` envelope */
 /**
@@ -683,8 +1218,3 @@ export const ListResourceTemplatesResultResponseSchema = wireResultResponse(List
 export const ReadResourceResultResponseSchema = wireResultResponse(z.union([ReadResourceResultSchema, InputRequiredResultSchema]));
 export const CompleteResultResponseSchema = wireResultResponse(CompleteResultSchema);
 export const DiscoverResultResponseSchema = wireResultResponse(DiscoverResultSchema);
-
-// Referenced by reference to keep the compose-by-reference relationships
-// explicit for tooling (these shared payloads serve both eras unchanged).
-void AnnotationsSchema;
-void ResourceContentsSchema;
