@@ -195,7 +195,7 @@ async function runToolsCallModernClient(serverUrl: string): Promise<void> {
 // request-metadata scenario (SEP-2575): every request must carry the
 // MCP-Protocol-Version header and the per-request _meta envelope, and the
 // client must retry with a supported version when its first choice is
-// rejected with -32004. The version-negotiation probe (server/discover plus
+// rejected with -32022. The version-negotiation probe (server/discover plus
 // the corrective continuation) is exactly that mechanism.
 async function runRequestMetadataClient(serverUrl: string): Promise<void> {
     const clientInfo = { name: 'test-client', version: '1.0.0' };

@@ -6,7 +6,7 @@
  * status. The header/body mismatch and missing-envelope cells were originally
  * parameterized (asserted as candidate-set membership) while their error codes
  * were under discussion upstream; they are now pinned to the assignments the
- * published conformance suite asserts (`-32001` HeaderMismatch for header/body
+ * published conformance suite asserts (`-32020` HeaderMismatch for header/body
  * disagreements, `-32602` invalid params naming the missing key(s) for a
  * missing envelope or missing protocol-version key). If a future published
  * conformance release changes an assignment, the affected rows are re-derived
@@ -203,7 +203,7 @@ const SHEET: readonly SheetRow[] = [
         conformance: ['server-stateless'],
         input: post(bare('tools/list')),
         strict: true,
-        reject: { rung: 'era-classification', httpStatus: 400, code: -32_004, settled: true },
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_022, settled: true },
         rationale:
             'A modern-only endpoint answers envelope-less requests with the unsupported-protocol-version error and its supported list. ' +
             'This cell shares its numeric code with the disputed mismatch family but is itself settled.'
@@ -216,7 +216,7 @@ const SHEET: readonly SheetRow[] = [
         reject: {
             rung: 'era-classification',
             httpStatus: 400,
-            code: -32_004,
+            code: -32_022,
             settled: true,
             data: { supported: [MODERN_REVISION], requested: '2025-06-18' }
         },
@@ -254,9 +254,9 @@ const SHEET: readonly SheetRow[] = [
         cell: 'header-body-version-mismatch',
         conformance: ['server-stateless', 'http-header-validation', 'http-custom-header-server-validation'],
         input: post(enveloped('tools/call', { name: 'echo', arguments: {} }), { protocolVersion: '2025-06-18' }),
-        reject: { rung: 'era-classification', httpStatus: 400, code: -32_001, settled: true },
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_020, settled: true },
         rationale:
-            'Header/body protocol-version disagreement is a header-validation failure: -32001 (HeaderMismatch) on HTTP 400, as ' +
+            'Header/body protocol-version disagreement is a header-validation failure: -32020 (HeaderMismatch) on HTTP 400, as ' +
             'asserted by the published conformance suite.'
     },
     {
@@ -274,10 +274,10 @@ const SHEET: readonly SheetRow[] = [
         input: post(bare('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'c', version: '1' } }), {
             protocolVersion: MODERN_REVISION
         }),
-        reject: { rung: 'era-classification', httpStatus: 400, code: -32_001, settled: true },
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_020, settled: true },
         rationale:
             'An envelope-less initialize classifies legacy; a modern header on it is a header/body disagreement and answers the ' +
-            'same -32001 (HeaderMismatch) as the rest of the mismatch family.'
+            'same -32020 (HeaderMismatch) as the rest of the mismatch family.'
     },
     {
         cell: 'method-header-mismatch',
@@ -286,10 +286,10 @@ const SHEET: readonly SheetRow[] = [
             protocolVersion: MODERN_REVISION,
             mcpMethod: 'tools/list'
         }),
-        reject: { rung: 'era-classification', httpStatus: 400, code: -32_001, settled: true },
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_020, settled: true },
         rationale:
             'The Mcp-Method header must describe the body it accompanies; a disagreement is a header-validation failure and ' +
-            'answers -32001 (HeaderMismatch) on HTTP 400.'
+            'answers -32020 (HeaderMismatch) on HTTP 400.'
     },
     {
         cell: 'notification-header-body-version-mismatch',
@@ -298,10 +298,10 @@ const SHEET: readonly SheetRow[] = [
             { jsonrpc: '2.0', method: 'notifications/progress', params: { _meta: { [PROTOCOL_VERSION_META_KEY]: MODERN_REVISION } } },
             { protocolVersion: '2025-06-18' }
         ),
-        reject: { rung: 'era-classification', httpStatus: 400, code: -32_001, settled: true },
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_020, settled: true },
         rationale:
             'A notification body claim disagreeing with the protocol-version header is the same header-validation failure as the ' +
-            'request cells above and answers the same -32001 (HeaderMismatch).'
+            'request cells above and answers the same -32020 (HeaderMismatch).'
     },
     {
         cell: 'notification-method-header-mismatch',
@@ -310,10 +310,10 @@ const SHEET: readonly SheetRow[] = [
             { jsonrpc: '2.0', method: 'notifications/progress', params: { progressToken: 1, progress: 1 } },
             { protocolVersion: MODERN_REVISION, mcpMethod: 'notifications/cancelled' }
         ),
-        reject: { rung: 'era-classification', httpStatus: 400, code: -32_001, settled: true },
+        reject: { rung: 'era-classification', httpStatus: 400, code: -32_020, settled: true },
         rationale:
             'The Mcp-Method header must describe the notification body it accompanies (validated only when the notification ' +
-            'classifies modern); a disagreement answers -32001 (HeaderMismatch).'
+            'classifies modern); a disagreement answers -32020 (HeaderMismatch).'
     },
     {
         cell: 'multi-fault-mismatched-claim-and-malformed-envelope',
@@ -407,9 +407,9 @@ describe('HTTP status mapping for ladder-originated errors (origin-keyed)', () =
             [-32_700]: 400,
             [-32_601]: 404,
             [-32_600]: 400,
-            [-32_004]: 400,
-            [-32_003]: 400,
-            [-32_001]: 400
+            [-32_022]: 400,
+            [-32_021]: 400,
+            [-32_020]: 400
         });
     });
 
@@ -419,15 +419,15 @@ describe('HTTP status mapping for ladder-originated errors (origin-keyed)', () =
     });
 
     test('handler-originated errors stay in-band on HTTP 200, whatever their code', () => {
-        for (const code of [-32_603, -32_602, -32_601, -32_004, -32_002, -32_000, 1234]) {
+        for (const code of [-32_603, -32_602, -32_601, -32_022, -32_002, -32_000, 1234]) {
             expect(httpStatusForErrorCode(code, 'in-band')).toBe(200);
         }
     });
 
     test('ladder-originated codes map to their HTTP statuses', () => {
         expect(httpStatusForErrorCode(-32_601, 'ladder')).toBe(404);
-        expect(httpStatusForErrorCode(-32_004, 'ladder')).toBe(400);
-        expect(httpStatusForErrorCode(-32_003, 'ladder')).toBe(400);
-        expect(httpStatusForErrorCode(-32_001, 'ladder')).toBe(400);
+        expect(httpStatusForErrorCode(-32_022, 'ladder')).toBe(400);
+        expect(httpStatusForErrorCode(-32_021, 'ladder')).toBe(400);
+        expect(httpStatusForErrorCode(-32_020, 'ladder')).toBe(400);
     });
 });

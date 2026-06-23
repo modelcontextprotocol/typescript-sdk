@@ -209,7 +209,7 @@ describe('the error half of the encode seam — encodeErrorCode', () => {
     });
 
     test('every other code passes through identically on both eras', () => {
-        for (const code of [-32_700, -32_600, -32_601, -32_602, -32_603, -32_000, -32_001, -32_003, -32_004, -32_042, -1, 0]) {
+        for (const code of [-32_700, -32_600, -32_601, -32_602, -32_603, -32_000, -32_020, -32_021, -32_022, -32_042, -1, 0]) {
             expect(rev2026Codec.encodeErrorCode(code)).toBe(code);
             expect(rev2025Codec.encodeErrorCode(code)).toBe(code);
         }

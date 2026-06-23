@@ -6,11 +6,15 @@
 # are adopted by deliberately bumping the package.json pin and reconciling
 # this file in the same change.
 #
-# NOTE: the SDK's modern-path rejection codes are aligned with what this
-# referee asserts: header/body mismatches answer -32001 (HeaderMismatch) and a
-# missing _meta envelope (or missing protocolVersion key) answers -32602.
-# If a future published conformance release changes those assignments, the
-# affected cells are re-derived when that release is pinned.
+# NOTE: the SDK's modern-path rejection codes are AHEAD of this referee's
+# assignments — the SDK has adopted the spec#2907 / conformance#353 renumber
+# (-32020 HeaderMismatch / -32021 MissingRequiredClientCapability / -32022
+# UnsupportedProtocolVersion) on both the emission and recognition paths,
+# while the 0.2.0-alpha.4 referee still asserts the pre-renumber codes
+# (-32001 / -32003 / -32004). The affected cells are listed below and burn
+# when the conformance pin bumps to >=0.2.0-alpha.5 (carries conformance#353).
+# A missing _meta envelope (or missing protocolVersion key) still answers
+# -32602 on both sides.
 #
 # Entries are grouped by SEP. As each SEP/milestone is implemented in the SDK the
 # corresponding scenarios start passing and MUST be removed from this list (the
@@ -44,5 +48,18 @@ client:
     # client support for the token-exchange + JWT bearer flow.
     - auth/enterprise-managed-authorization
 
-server: []
-# (sep-2164-resource-not-found burned by the resources/read -32602 fix.)
+    # --- spec#2907 error-code renumber (SDK ahead of referee) ---
+    # SDK adopted spec#2907 renumber; burns when conformance pin bumps to
+    # >=0.2.0-alpha.5 (carries conformance#353). The alpha.4 mock rejects with
+    # -32004 where the SDK probe classifier now recognises -32022, so the
+    # corrective continuation never fires.
+    - request-metadata
+
+server:
+    # --- spec#2907 error-code renumber (SDK ahead of referee) ---
+    # SDK adopted spec#2907 renumber; burns when conformance pin bumps to
+    # >=0.2.0-alpha.5 (carries conformance#353). SDK emits -32020/-32021/-32022;
+    # the alpha.4 referee asserts -32001/-32003/-32004.
+    - http-custom-header-server-validation
+    - http-header-validation
+    - server-stateless

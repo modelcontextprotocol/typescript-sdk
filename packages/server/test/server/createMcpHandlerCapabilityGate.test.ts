@@ -1,7 +1,7 @@
 /**
  * The pre-dispatch client-capability gate at the HTTP entry: a request to a
  * method that requires a client capability the request's envelope did not
- * declare is refused with the typed `-32003` error and HTTP 400, before any
+ * declare is refused with the typed `-32021` error and HTTP 400, before any
  * server instance is constructed or dispatched.
  *
  * No request method served on the 2026-07-28 registry has a static
@@ -71,7 +71,7 @@ describe('the pre-dispatch client-capability gate', () => {
         expect(body.result.content[0]?.text).toBe('hi');
     });
 
-    it('refuses a request missing a required capability with -32003 and HTTP 400, echoing the request id', async () => {
+    it('refuses a request missing a required capability with -32021 and HTTP 400, echoing the request id', async () => {
         requirementTable['tools/call'] = { sampling: {} };
         let factoryRan = false;
         const handler = createMcpHandler(() => {
@@ -85,7 +85,7 @@ describe('the pre-dispatch client-capability gate', () => {
             id: unknown;
             error: { code: number; data?: { requiredCapabilities?: ClientCapabilities } };
         };
-        expect(body.error.code).toBe(-32_003);
+        expect(body.error.code).toBe(-32_021);
         expect(body.error.data?.requiredCapabilities).toEqual({ sampling: {} });
         expect(body.id).toBe(7);
         // Pre-dispatch: the refusal happens before any per-request instance exists.

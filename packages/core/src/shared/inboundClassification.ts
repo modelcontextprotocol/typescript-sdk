@@ -31,7 +31,7 @@
  *   posture, not a spec requirement: the spec leaves header rules for posted
  *   notifications undefined (core client notifications do not occur over
  *   Streamable HTTP); applying the request rules symmetrically is what an
- *   ecosystem custom-notification POST expects, and the −32001 cells stay
+ *   ecosystem custom-notification POST expects, and the −32020 cells stay
  *   passing for them.
  * - `GET`/`DELETE` (and any other non-`POST` method) are body-less 2025-era
  *   session operations: the modern era is `POST`-only, so they are routed to
@@ -52,7 +52,7 @@
  *
  * - A header/body cross-check mismatch (the `MCP-Protocol-Version` header
  *   disagreeing with the body, or the `Mcp-Method` header disagreeing with the
- *   body method) is rejected with `-32001` (`HeaderMismatch`) on HTTP 400.
+ *   body method) is rejected with `-32020` (`HeaderMismatch`) on HTTP 400.
  * - A request whose protocol-version header names a modern revision but whose
  *   body carries no `_meta` envelope claim — including an envelope present but
  *   missing the required protocol-version key — is rejected with `-32602`
@@ -208,13 +208,13 @@ export type InboundClassificationOutcome = InboundLegacyRoute | InboundModernRou
  * with the body's classification), and the `Mcp-Method` header disagreeing
  * with the body method.
  *
- * `-32001` is the draft schema's `HEADER_MISMATCH` constant (the SEP-2243
+ * `-32020` is the draft schema's `HEADER_MISMATCH` constant (the SEP-2243
  * `HeaderMismatch` code; the spec requires HTTP 400 for it), as also asserted
  * by the published conformance suite for header-validation failures. It has no
  * {@linkcode ProtocolErrorCode} member because it is not part of the 2025-era
  * wire vocabulary; the validation ladder is its only emitter.
  */
-export const HEADER_MISMATCH_ERROR_CODE = -32_001;
+export const HEADER_MISMATCH_ERROR_CODE = -32_020;
 
 /* ------------------------------------------------------------------------ *
  * The validation ladder as data
@@ -281,7 +281,7 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
         conformance: ['server-stateless', 'http-header-validation', 'http-custom-header-server-validation'],
         rationale:
             'Body-primary era classification with the protocol-version header as a cross-check; a header/body disagreement is rejected ' +
-            'with -32001 (HeaderMismatch), and an envelope-less request on a modern-only endpoint is answered with the ' +
+            'with -32020 (HeaderMismatch), and an envelope-less request on a modern-only endpoint is answered with the ' +
             'unsupported-protocol-version error naming the supported revisions.'
     },
     {
@@ -352,10 +352,10 @@ export const INBOUND_VALIDATION_LADDER: readonly InboundValidationRungDescriptor
         rationale:
             'SEP-2243 `Mcp-Param-*` headers are validated against the named tool’s `x-mcp-header` declarations and the body ' +
             '`arguments` after the tool registry is known and before dispatch reaches the handler; a missing/disagreeing/malformed ' +
-            'header is rejected 400 / -32001 with the same shape as the standard-header cross-checks. The documented order ' +
+            'header is rejected 400 / -32020 with the same shape as the standard-header cross-checks. The documented order ' +
             '(after method resolution and params validation) is preserved observably only when the body `arguments` would ' +
             'otherwise validate: the check runs pre-dispatch, so a `tools/call` that fails BOTH this rung and a dispatch-time ' +
-            'rung (e.g. order-6 `request-params`, -32602) is answered by this gate first with 400 / -32001, not by the ' +
+            'rung (e.g. order-6 `request-params`, -32602) is answered by this gate first with 400 / -32020, not by the ' +
             'earlier-ordered rung.'
     }
 ];
@@ -454,7 +454,7 @@ export const MCP_NAME_HEADER_SOURCE: Readonly<Record<string, 'name' | 'uri'>> = 
  * entry on a modern-classified request immediately after
  * {@linkcode classifyInboundRequest} returns a modern route.
  *
- * Returns the `-32001` (`HeaderMismatch`) ladder rejection (HTTP `400`,
+ * Returns the `-32020` (`HeaderMismatch`) ladder rejection (HTTP `400`,
  * `standard-header-validation` rung — the same shape
  * {@linkcode classifyInboundRequest} already emits on the edge
  * `era-classification` rung for the `MCP-Protocol-Version` and

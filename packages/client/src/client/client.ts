@@ -200,7 +200,7 @@ export type ClientOptions = ProtocolOptions & {
      * Probe policy lives under `probe: { timeoutMs?, maxRetries? }`; the probe
      * inherits the client's standard request timeout unless overridden, and
      * `maxRetries` (default `0`) governs timeout re-sends only — the
-     * spec-mandated `-32004` corrective continuation is never counted against it.
+     * spec-mandated `-32022` corrective continuation is never counted against it.
      *
      * Once a modern era is negotiated, the client automatically attaches the
      * per-request `_meta` envelope (the reserved protocol-version / client-info /

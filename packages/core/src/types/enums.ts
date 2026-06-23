@@ -27,11 +27,11 @@ export enum ProtocolErrorCode {
      * Processing the request requires a capability the client did not declare
      * in the request's `clientCapabilities` (protocol revision 2026-07-28).
      */
-    MissingRequiredClientCapability = -32_003,
+    MissingRequiredClientCapability = -32_021,
     /**
      * The request's protocol version is unknown to the server or unsupported
      * by it (protocol revision 2026-07-28).
      */
-    UnsupportedProtocolVersion = -32_004,
+    UnsupportedProtocolVersion = -32_022,
     UrlElicitationRequired = -32_042
 }

@@ -10,13 +10,13 @@
  *
  * The standard-header half (`MCP-Protocol-Version`, `Mcp-Method`, `Mcp-Name`)
  * lives with the inbound classifier — this module is the custom-header half
- * only, and it consumes the same `-32001` (`HeaderMismatch`) emission shape the
+ * only, and it consumes the same `-32020` (`HeaderMismatch`) emission shape the
  * classifier established for header/body cross-check failures.
  *
  * Spec text at the implementation's spec pin:
  * - draft/basic/transports/streamable-http.mdx § "Custom Headers from Tool Parameters"
  *   (constraints, value encoding, the 5-step client algorithm, the
- *   server-behavior table, the `400` + `-32001` rejection)
+ *   server-behavior table, the `400` + `-32020` rejection)
  * - draft/server/tools.mdx § "x-mcp-header" (the schema-extension property and
  *   its constraints)
  */
@@ -328,7 +328,7 @@ export function buildMcpParamHeaders(
  * `42.0` and `42` are equal); everything else is compared as decoded strings.
  *
  * Returns `undefined` when every check passes, or an
- * {@linkcode InboundLadderRejection} carrying the same `-32001`
+ * {@linkcode InboundLadderRejection} carrying the same `-32020`
  * (`HeaderMismatch`) shape the inbound classifier emits for the
  * standard-header cross-checks — `400 Bad Request` with the disagreeing pair
  * in `data.mismatch`.
@@ -392,7 +392,7 @@ export function validateMcpParamHeaders(
 }
 
 /**
- * Build the `-32001` (`HeaderMismatch`) rejection for an `Mcp-Param-*`
+ * Build the `-32020` (`HeaderMismatch`) rejection for an `Mcp-Param-*`
  * disagreement. Same shape as the inbound classifier's standard-header
  * cross-check mismatch (HTTP `400`, `data.mismatch` naming the disagreeing
  * pair, `settled: true`); only the rung differs because this check runs at the

@@ -6,7 +6,7 @@
  * request (`io.modelcontextprotocol/clientCapabilities`), and a server MUST
  * NOT rely on capabilities the client did not declare: when processing a
  * request requires an undeclared capability, the server answers
- * `MissingRequiredClientCapabilityError` (`-32003`) with
+ * `MissingRequiredClientCapabilityError` (`-32021`) with
  * `data.requiredCapabilities` listing what is missing — HTTP status `400` on
  * HTTP transports.
  *
@@ -112,7 +112,7 @@ export function requiredClientCapabilitiesForInputRequest(entry: {
  * declare. Returns `undefined` when every required capability is declared;
  * otherwise returns an object in the `ClientCapabilities` shape containing
  * exactly the missing capabilities (suitable for
- * `data.requiredCapabilities` on the `-32003` error).
+ * `data.requiredCapabilities` on the `-32021` error).
  *
  * A capability counts as declared when its top-level key is present on the
  * declared capabilities; when the requirement names nested members (for

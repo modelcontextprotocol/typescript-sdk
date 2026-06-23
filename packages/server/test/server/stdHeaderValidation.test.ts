@@ -8,7 +8,7 @@
  * header, a missing `Mcp-Name` header on a `tools/call` / `prompts/get` /
  * `resources/read` request, an `Mcp-Name` value disagreeing with
  * `params.name` / `params.uri`, and an invalid `Mcp-Name` Base64 sentinel are
- * all rejected `400` / `-32001` (`HeaderMismatch`) on the
+ * all rejected `400` / `-32020` (`HeaderMismatch`) on the
  * `standard-header-validation` rung — the same shape the classifier already
  * emits for the `MCP-Protocol-Version` and `Mcp-Method` mismatch cells on the
  * edge `era-classification` rung. Legacy-era traffic is byte-unchanged.
@@ -59,7 +59,7 @@ async function expectHeaderMismatch(response: Response): Promise<{ code: number;
     expect(response.status).toBe(400);
     const body = (await response.json()) as { id: unknown; error: { code: number; message: string } };
     expect(body.id).toBe(5);
-    expect(body.error.code).toBe(-32_001);
+    expect(body.error.code).toBe(-32_020);
     return body.error;
 }
 
@@ -74,13 +74,13 @@ describe('SEP-2243 standard-header validation (createMcpHandler, modern era)', (
         expect(body.result.content[0]?.text).toBe('hi');
     });
 
-    it('a missing Mcp-Method header is rejected 400/-32001', async () => {
+    it('a missing Mcp-Method header is rejected 400/-32020', async () => {
         const handler = createMcpHandler(makeFactory());
         const error = await expectHeaderMismatch(await handler.fetch(modernRequest('tools/list', {})));
         expect(error.message).toContain('Mcp-Method header is absent');
     });
 
-    it('a missing Mcp-Name header on tools/call is rejected 400/-32001', async () => {
+    it('a missing Mcp-Name header on tools/call is rejected 400/-32020', async () => {
         const handler = createMcpHandler(makeFactory());
         const error = await expectHeaderMismatch(
             await handler.fetch(modernRequest('tools/call', { name: 'echo', arguments: {} }, { 'mcp-method': 'tools/call' }))
@@ -88,7 +88,7 @@ describe('SEP-2243 standard-header validation (createMcpHandler, modern era)', (
         expect(error.message).toContain('Mcp-Name header is absent');
     });
 
-    it('an Mcp-Name header disagreeing with params.name is rejected 400/-32001', async () => {
+    it('an Mcp-Name header disagreeing with params.name is rejected 400/-32020', async () => {
         const handler = createMcpHandler(makeFactory());
         const error = await expectHeaderMismatch(
             await handler.fetch(
@@ -128,7 +128,7 @@ describe('SEP-2243 standard-header validation (createMcpHandler, modern era)', (
         expect(sentinel.status).toBe(200);
     });
 
-    it('an invalid Mcp-Name Base64 sentinel is rejected 400/-32001', async () => {
+    it('an invalid Mcp-Name Base64 sentinel is rejected 400/-32020', async () => {
         const handler = createMcpHandler(makeFactory());
         await expectHeaderMismatch(
             await handler.fetch(

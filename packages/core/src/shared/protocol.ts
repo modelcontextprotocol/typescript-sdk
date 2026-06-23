@@ -887,7 +887,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Edge→instance handoff check: a classification that disagrees with
         // the instance era means the entry routed another era's traffic onto
         // this instance. That is a routing error: answer with the typed era
-        // error (−32004 Unsupported protocol version) and surface it out of
+        // error (−32022 Unsupported protocol version) and surface it out of
         // band — never serve the request on a guessed era.
         if (extra?.classification !== undefined) {
             const classified = classifiedWireEra(extra.classification);

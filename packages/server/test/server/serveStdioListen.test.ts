@@ -182,7 +182,7 @@ describe('serveStdio — subscriptions/listen', () => {
         expect(err.id).toBe(9);
         // Same shape the opening classifier produces for an unsupported
         // revision (ProtocolErrorCode.UnsupportedProtocolVersion).
-        expect(err.error.code).toBe(-32_004);
+        expect(err.error.code).toBe(-32_022);
         expect(err.error.data).toMatchObject({ requested: '2099-01-01' });
         expect(inbound.some(m => (m as JSONRPCNotification).method === 'notifications/subscriptions/acknowledged')).toBe(false);
         await handle.close();

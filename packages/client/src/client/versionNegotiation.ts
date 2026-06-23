@@ -53,7 +53,7 @@ export interface VersionNegotiationProbeOptions {
     /**
      * Number of times to re-send the probe after a timeout before reaching the
      * timeout verdict. Governs timeout re-sends only — the spec-mandated
-     * `-32004` corrective continuation (select-and-continue with a mutual
+     * `-32022` corrective continuation (select-and-continue with a mutual
      * version) is a separate negotiation step and is never counted against
      * `maxRetries`.
      *
@@ -342,7 +342,7 @@ export async function negotiateEra(
 
     const probe = async (): Promise<NegotiationResult> => {
         let requestedVersion = clientModernVersions[0]!;
-        // The -32004 corrective continuation runs exactly once (even when the
+        // The -32022 corrective continuation runs exactly once (even when the
         // mutual version equals the just-rejected one); the loop guard arms on
         // the second rejection.
         let correctiveUsed = false;

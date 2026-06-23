@@ -233,7 +233,7 @@ describe('modern opening', () => {
         await handle.close();
     });
 
-    it('once the modern era is pinned, a late claim-less initialize answers -32004 naming the supported revisions', async () => {
+    it('once the modern era is pinned, a late claim-less initialize answers -32022 naming the supported revisions', async () => {
         const { handle, request } = await startEntry();
 
         const list = await request({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: { _meta: envelope() } });
@@ -242,7 +242,7 @@ describe('modern opening', () => {
         const init = await request(initializeRequest(2));
         expect(isJSONRPCErrorResponse(init)).toBe(true);
         if (isJSONRPCErrorResponse(init)) {
-            expect(init.error.code).toBe(-32_004);
+            expect(init.error.code).toBe(-32_022);
             const data = init.error.data as { supported?: string[]; requested?: string };
             expect(data.supported).toContain(MODERN);
             expect(data.requested).toBe(LATEST_PROTOCOL_VERSION);
@@ -457,7 +457,7 @@ describe('server/discover probe window', () => {
         const init = await request(initializeRequest(3));
         expect(isJSONRPCErrorResponse(init)).toBe(true);
         if (isJSONRPCErrorResponse(init)) {
-            expect(init.error.code).toBe(-32_004);
+            expect(init.error.code).toBe(-32_022);
         }
         // The probe instance is the pinned instance: the factory ran exactly once.
         expect(eras).toEqual(['modern']);
@@ -493,13 +493,13 @@ describe('server/discover probe window', () => {
 });
 
 describe("legacy: 'reject'", () => {
-    it('answers a legacy opening with -32004 naming the supported modern revisions and never pins a legacy instance', async () => {
+    it('answers a legacy opening with -32022 naming the supported modern revisions and never pins a legacy instance', async () => {
         const { handle, request, eras } = await startEntry({ legacy: 'reject' });
 
         const init = await request(initializeRequest(1));
         expect(isJSONRPCErrorResponse(init)).toBe(true);
         if (isJSONRPCErrorResponse(init)) {
-            expect(init.error.code).toBe(-32_004);
+            expect(init.error.code).toBe(-32_022);
             const data = init.error.data as { supported?: string[]; requested?: string };
             expect(data.supported).toContain(MODERN);
             expect(data.requested).toBe(LATEST_PROTOCOL_VERSION);
@@ -553,7 +553,7 @@ describe('malformed and unsupported envelope claims (entry-answered, never pinne
         await handle.close();
     });
 
-    it('a valid claim naming an unsupported revision answers -32004 with the supported list', async () => {
+    it('a valid claim naming an unsupported revision answers -32022 with the supported list', async () => {
         const { handle, request, eras } = await startEntry();
 
         const response = await request({
@@ -564,7 +564,7 @@ describe('malformed and unsupported envelope claims (entry-answered, never pinne
         });
         expect(isJSONRPCErrorResponse(response)).toBe(true);
         if (isJSONRPCErrorResponse(response)) {
-            expect(response.error.code).toBe(-32_004);
+            expect(response.error.code).toBe(-32_022);
             const data = (response as JSONRPCErrorResponse).error.data as { supported?: string[]; requested?: string };
             expect(data.supported).toContain(MODERN);
             expect(data.requested).toBe('2099-01-01');

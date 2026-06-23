@@ -838,8 +838,8 @@ describe('Spec Types (2026-07-28)', () => {
 
     it('pins the 2026-07-28 protocol version and the new error codes', () => {
         expect(LATEST_PROTOCOL_VERSION).toBe('2026-07-28');
-        expect(MISSING_REQUIRED_CLIENT_CAPABILITY).toBe(-32003);
-        expect(UNSUPPORTED_PROTOCOL_VERSION).toBe(-32004);
+        expect(MISSING_REQUIRED_CLIENT_CAPABILITY).toBe(-32021);
+        expect(UNSUPPORTED_PROTOCOL_VERSION).toBe(-32022);
         expect(ProtocolErrorCode.MissingRequiredClientCapability).toBe(MISSING_REQUIRED_CLIENT_CAPABILITY);
         expect(ProtocolErrorCode.UnsupportedProtocolVersion).toBe(UNSUPPORTED_PROTOCOL_VERSION);
     });

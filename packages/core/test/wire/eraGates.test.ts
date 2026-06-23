@@ -29,7 +29,7 @@
  * `MessageExtraInfo.classification` (INJECTED here; the production
  * classifier is the entry/edge's job) no longer selects the era per message:
  * the funnel VALIDATES it against the instance era — a mismatch is an
- * entry/routing error (typed −32004 rejection / notification drop, plus
+ * entry/routing error (typed −32022 rejection / notification drop, plus
  * onerror), and unclassified traffic on a legacy instance behaves exactly as
  * before the codec split (the B-2 rule).
  */
@@ -377,7 +377,7 @@ describe('encode-side deleted-field strictness (Q1-SD3 iii)', () => {
 });
 
 describe('the edge→instance handoff — classification is validated, never an era switch', () => {
-    test('a modern-classified request on a legacy-era instance is an entry/routing error: typed −32004, handler never runs', async () => {
+    test('a modern-classified request on a legacy-era instance is an entry/routing error: typed −32022, handler never runs', async () => {
         let handlerRan = false;
         const h = await harness({
             setup: receiver => {
@@ -394,7 +394,7 @@ describe('the edge→instance handoff — classification is validated, never an 
         expect(handlerRan).toBe(false);
         expect(h.sent).toHaveLength(1);
         const error = errorOf(h.sent[0]);
-        expect(error?.code).toBe(-32004);
+        expect(error?.code).toBe(-32022);
         expect(error?.message).toContain('Unsupported protocol version');
         // Surfaced out of band too: the mismatch is the entry's bug, not the peer's.
         expect(h.errors.some(e => e.message.includes('Era mismatch'))).toBe(true);
@@ -414,7 +414,7 @@ describe('the edge→instance handoff — classification is validated, never an 
         });
         await h.flush();
 
-        expect(errorOf(h.sent[0])).toMatchObject({ code: -32004 });
+        expect(errorOf(h.sent[0])).toMatchObject({ code: -32022 });
         expect(h.errors.some(e => e.message.includes('Era mismatch'))).toBe(true);
     });
 
@@ -433,7 +433,7 @@ describe('the edge→instance handoff — classification is validated, never an 
         await h.flush();
 
         const error = errorOf(h.sent[0]) as { code: number; data?: { requested?: string } } | undefined;
-        expect(error?.code).toBe(-32004);
+        expect(error?.code).toBe(-32022);
         expect(error?.data?.requested).toBe('2025-06-18');
     });
 

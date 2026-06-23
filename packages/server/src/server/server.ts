@@ -509,7 +509,7 @@ export class Server extends Protocol<ServerContext> {
      *   must satisfy the at-least-one rule (`inputRequests` or
      *   `requestState`), and every embedded request must be covered by the
      *   capabilities the client declared on this request's envelope
-     *   (violations answer with the typed `-32003` error).
+     *   (violations answer with the typed `-32021` error).
      */
     private async _invokeInputRequiredCapableHandler(
         method: string,
@@ -601,7 +601,7 @@ export class Server extends Protocol<ServerContext> {
         }
 
         // Per-embedded-request capability check against the capabilities the
-        // client declared on THIS request's envelope (-32003 on violation).
+        // client declared on THIS request's envelope (-32021 on violation).
         if (hasInputRequests) {
             const declared = ctx.mcpReq.envelope?.[CLIENT_CAPABILITIES_META_KEY] as ClientCapabilities | undefined;
             for (const [key, entry] of Object.entries(inputRequests)) {

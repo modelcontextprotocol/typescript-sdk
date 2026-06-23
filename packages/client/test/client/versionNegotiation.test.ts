@@ -438,11 +438,11 @@ describe('probe timeout policy (transport-aware)', () => {
 });
 
 /* ------------------------------------------------------------------------- *
- * -32004 corrective continuation — exactly once; loop guard on second
+ * -32022 corrective continuation — exactly once; loop guard on second
  * rejection.
  * ------------------------------------------------------------------------- */
 
-describe('-32004 corrective continuation', () => {
+describe('-32022 corrective continuation', () => {
     test('select-and-continue runs exactly once, even when the mutual version equals the just-rejected one', async () => {
         let discoverCalls = 0;
         const script: Script = (message, t) => {
@@ -455,7 +455,7 @@ describe('-32004 corrective continuation', () => {
                         jsonrpc: '2.0',
                         id: message.id,
                         error: {
-                            code: -32_004,
+                            code: -32_022,
                             message: 'Unsupported protocol version',
                             data: { supported: [MODERN], requested: MODERN }
                         }
@@ -486,7 +486,7 @@ describe('-32004 corrective continuation', () => {
             t.reply({
                 jsonrpc: '2.0',
                 id: message.id,
-                error: { code: -32_004, message: 'Unsupported protocol version', data: { supported: [MODERN], requested: MODERN } }
+                error: { code: -32_022, message: 'Unsupported protocol version', data: { supported: [MODERN], requested: MODERN } }
             });
         };
 
@@ -498,13 +498,13 @@ describe('-32004 corrective continuation', () => {
         expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
     });
 
-    test('-32004 with a disjoint-but-modern list: typed error, never initialize', async () => {
+    test('-32022 with a disjoint-but-modern list: typed error, never initialize', async () => {
         const script: Script = (message, t) => {
             if (!isJSONRPCRequest(message)) return;
             t.reply({
                 jsonrpc: '2.0',
                 id: message.id,
-                error: { code: -32_004, message: 'Unsupported protocol version', data: { supported: ['2027-12-31'] } }
+                error: { code: -32_022, message: 'Unsupported protocol version', data: { supported: ['2027-12-31'] } }
             });
         };
 
@@ -515,14 +515,14 @@ describe('-32004 corrective continuation', () => {
         expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
     });
 
-    test('-32004 with a legacy-only list: definitive legacy signal, initialize on the same connection', async () => {
+    test('-32022 with a legacy-only list: definitive legacy signal, initialize on the same connection', async () => {
         const script: Script = (message, t) => {
             if (!isJSONRPCRequest(message)) return;
             if (message.method === 'server/discover') {
                 t.reply({
                     jsonrpc: '2.0',
                     id: message.id,
-                    error: { code: -32_004, message: 'Unsupported protocol version', data: { supported: ['2025-11-25'] } }
+                    error: { code: -32_022, message: 'Unsupported protocol version', data: { supported: ['2025-11-25'] } }
                 });
             } else {
                 legacyServerScript(message, t);
@@ -537,13 +537,13 @@ describe('-32004 corrective continuation', () => {
         await client.close();
     });
 
-    test('modern-only client + legacy-only -32004 list: typed error carrying data.supported', async () => {
+    test('modern-only client + legacy-only -32022 list: typed error carrying data.supported', async () => {
         const script: Script = (message, t) => {
             if (!isJSONRPCRequest(message)) return;
             t.reply({
                 jsonrpc: '2.0',
                 id: message.id,
-                error: { code: -32_004, message: 'Unsupported protocol version', data: { supported: ['2025-11-25'] } }
+                error: { code: -32_022, message: 'Unsupported protocol version', data: { supported: ['2025-11-25'] } }
             });
         };
 

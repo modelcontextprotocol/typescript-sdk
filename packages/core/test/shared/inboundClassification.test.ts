@@ -5,7 +5,7 @@
  * cross-checks, notification routing, element-wise batch classification, and
  * the modern-only (strict) rejection mapping.
  *
- * The header/body mismatch cells are pinned to `-32001` (HeaderMismatch) and
+ * The header/body mismatch cells are pinned to `-32020` (HeaderMismatch) and
  * the missing-envelope / missing-protocol-version cells to `-32602` (invalid
  * params naming the missing key(s)) — the assignments asserted by the
  * published conformance suite.
@@ -61,9 +61,9 @@ const expectMismatch = (outcome: ReturnType<typeof classifyInboundRequest>, cell
     expect(outcome.rung).toBe('era-classification');
     expect(outcome.httpStatus).toBe(400);
     // Pinned: a header/body disagreement is a header-validation failure and
-    // answers -32001 (HeaderMismatch), per the published conformance suite.
+    // answers -32020 (HeaderMismatch), per the published conformance suite.
     expect(outcome.settled).toBe(true);
-    expect(outcome.code).toBe(-32_001);
+    expect(outcome.code).toBe(-32_020);
 };
 
 describe('envelope claim detection (claim = the reserved protocol-version key)', () => {
@@ -211,7 +211,7 @@ describe('body-primary era predicate', () => {
     });
 });
 
-describe('header cross-checks (-32001 HeaderMismatch) and the missing-envelope rejection (-32602)', () => {
+describe('header cross-checks (-32020 HeaderMismatch) and the missing-envelope rejection (-32602)', () => {
     test('a body claim disagreeing with the protocol-version header is a mismatch outcome', () => {
         const outcome = classifyInboundRequest(post(modernToolsCall(), { protocolVersion: '2025-06-18' }));
         expectMismatch(outcome, 'header-body-version-mismatch');
@@ -426,7 +426,7 @@ describe('modern-only (strict) rejection mapping', () => {
         expect(rejectionOutcome).toMatchObject({
             cell: 'modern-only-missing-envelope',
             httpStatus: 400,
-            code: -32_004,
+            code: -32_022,
             settled: true,
             data: { supported: SUPPORTED }
         });
@@ -437,12 +437,12 @@ describe('modern-only (strict) rejection mapping', () => {
 
     test('an envelope-less initialize names the version it requested', () => {
         const rejectionOutcome = modernOnlyStrictRejection(legacyRoute(initializeRequest('2025-06-18')), SUPPORTED);
-        expect(rejectionOutcome).toMatchObject({ code: -32_004, data: { supported: SUPPORTED, requested: '2025-06-18' } });
+        expect(rejectionOutcome).toMatchObject({ code: -32_022, data: { supported: SUPPORTED, requested: '2025-06-18' } });
     });
 
     test('an envelope-less request echoes the protocol-version header it sent', () => {
         const rejectionOutcome = modernOnlyStrictRejection(legacyRoute(legacyToolsList(), { protocolVersion: '2025-03-26' }), SUPPORTED);
-        expect(rejectionOutcome).toMatchObject({ code: -32_004, data: { requested: '2025-03-26' } });
+        expect(rejectionOutcome).toMatchObject({ code: -32_022, data: { requested: '2025-03-26' } });
     });
 
     test('batch and response POSTs are invalid requests on a modern-only endpoint', () => {

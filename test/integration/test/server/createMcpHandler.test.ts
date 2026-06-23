@@ -139,7 +139,7 @@ describe('createMcpHandler over HTTP (legacy postures end to end)', () => {
         });
         expect(response.status).toBe(400);
         const body = (await response.json()) as { id: unknown; error: { code: number; data: { supported: string[] } } };
-        expect(body.error.code).toBe(-32_004);
+        expect(body.error.code).toBe(-32_022);
         expect(body.error.data.supported).toEqual([MODERN]);
         // The rejection echoes the request id it answers (it could be read from the body).
         expect(body.id).toBe(1);

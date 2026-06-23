@@ -1,5 +1,5 @@
 /**
- * The `-32003` MissingRequiredClientCapability typed error.
+ * The `-32021` MissingRequiredClientCapability typed error.
  *
  * Recognition is data-parse based: a peer (or another bundled copy of the SDK)
  * is recognized by the error code plus the `data.requiredCapabilities` shape,
@@ -11,10 +11,10 @@ import { ProtocolErrorCode } from '../../src/types/enums.js';
 import { MissingRequiredClientCapabilityError, ProtocolError } from '../../src/types/errors.js';
 
 describe('MissingRequiredClientCapabilityError', () => {
-    test('carries the -32003 code and the missing capabilities in data.requiredCapabilities', () => {
+    test('carries the -32021 code and the missing capabilities in data.requiredCapabilities', () => {
         const error = new MissingRequiredClientCapabilityError({ requiredCapabilities: { sampling: {}, elicitation: { url: {} } } });
         expect(error.code).toBe(ProtocolErrorCode.MissingRequiredClientCapability);
-        expect(error.code).toBe(-32_003);
+        expect(error.code).toBe(-32_021);
         expect(error.requiredCapabilities).toEqual({ sampling: {}, elicitation: { url: {} } });
         expect(error.data).toEqual({ requiredCapabilities: { sampling: {}, elicitation: { url: {} } } });
         expect(error.message).toContain('sampling');
@@ -30,7 +30,7 @@ describe('MissingRequiredClientCapabilityError', () => {
         // Simulates an error received from the wire or from a separately
         // bundled SDK copy: plain code/message/data, no class identity.
         const wireShape = {
-            code: -32_003,
+            code: -32_021,
             message: 'Missing required client capabilities: sampling',
             data: { requiredCapabilities: { sampling: {} } }
         };
@@ -40,14 +40,14 @@ describe('MissingRequiredClientCapabilityError', () => {
     });
 
     test('fromError falls back to the generic ProtocolError when the data shape does not match', () => {
-        expect(ProtocolError.fromError(-32_003, 'missing', undefined)).not.toBeInstanceOf(MissingRequiredClientCapabilityError);
-        expect(ProtocolError.fromError(-32_003, 'missing', { requiredCapabilities: ['sampling'] })).not.toBeInstanceOf(
+        expect(ProtocolError.fromError(-32_021, 'missing', undefined)).not.toBeInstanceOf(MissingRequiredClientCapabilityError);
+        expect(ProtocolError.fromError(-32_021, 'missing', { requiredCapabilities: ['sampling'] })).not.toBeInstanceOf(
             MissingRequiredClientCapabilityError
         );
-        expect(ProtocolError.fromError(-32_003, 'missing', { somethingElse: true })).not.toBeInstanceOf(
+        expect(ProtocolError.fromError(-32_021, 'missing', { somethingElse: true })).not.toBeInstanceOf(
             MissingRequiredClientCapabilityError
         );
-        expect(ProtocolError.fromError(-32_003, 'missing', { requiredCapabilities: { sampling: {} } })).toBeInstanceOf(
+        expect(ProtocolError.fromError(-32_021, 'missing', { requiredCapabilities: { sampling: {} } })).toBeInstanceOf(
             MissingRequiredClientCapabilityError
         );
     });
@@ -57,7 +57,7 @@ describe('MissingRequiredClientCapabilityError', () => {
             requiredCapabilities: { sampling: {} }
         });
         const looksLikeMissingCapability =
-            fromAnotherBundle.code === -32_003 &&
+            fromAnotherBundle.code === -32_021 &&
             typeof (fromAnotherBundle.data as { requiredCapabilities?: unknown } | undefined)?.requiredCapabilities === 'object';
         expect(looksLikeMissingCapability).toBe(true);
     });
