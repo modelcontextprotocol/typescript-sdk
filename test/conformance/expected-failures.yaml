@@ -21,9 +21,6 @@ client:
     # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
     # SEP-2106 (JSON Schema $ref handling): client still dereferences network $refs.
     - json-schema-ref-no-deref
-    # SEP-2352 (authorization server migration): client does not re-register when
-    # PRM authorization_servers changes.
-    - auth/authorization-server-migration
     # SEP-2468 RFC 9207 `iss` validation is now default-ON. The referee's
     # 2025-03-26 backcompat mock emits a callback `iss` with a `/oauth` path
     # component that does not match its own metadata `issuer` (conformance#359

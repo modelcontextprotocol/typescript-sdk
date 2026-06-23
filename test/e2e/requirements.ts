@@ -2209,6 +2209,46 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'Verify-only pin of behavior already correct at the v2 baseline. Runs as a single streamableHttp-labelled cell.'
     },
+    'client-auth:as-migration:reregister': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#authorization-server-migration',
+        behavior:
+            "When the protected resource's authorization_servers list changes to a different issuer, auth() reads back the issuer-stamped client credential as undefined (key not found) and re-runs Dynamic Client Registration at the new authorization server.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:as-migration:no-cred-reuse': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#authorization-server-migration',
+        behavior:
+            'A single-slot OAuthClientProvider that round-trips the SDK-stamped value is protected: the previous-AS client_id is never transmitted to any endpoint of the new authorization server because the issuer stamp reads back as undefined.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:as-migration:no-token-reuse': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#authorization-server-migration',
+        behavior:
+            "auth() never POSTs a refresh_token to a different authorization server's token endpoint: a token whose issuer stamp does not match the resolved AS reads back as undefined and the refresh branch is skipped.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:as-migration:cimd-portable': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#authorization-server-migration',
+        behavior:
+            'CIMD (URL-based) client_ids are portable across authorization servers: when the issuer changes, auth() re-saves the same clientMetadataUrl as the client_id at the new AS without dynamic registration.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:as-migration:m2m-expected-issuer': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#authorization-server-migration',
+        behavior:
+            'ClientCredentialsProvider (and the other m2m providers) constructed with expectedIssuer refuse to send the static credential to a different authorization server: the issuer-stamped clientInformation() is discarded and auth() fails before any token request.',
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
 
     // Client middleware (SDK)
 

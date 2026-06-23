@@ -1560,9 +1560,27 @@ Step-up retries are now hard-capped per send (`maxStepUpRetries`, default 1) reg
 
 The GET listen-stream open path now applies the same step-up handling as the POST send path.
 
+### Credentials are bound to the issuing authorization server (SEP-2352)
+
+`auth()` now stamps an `issuer` field onto every value it passes to `saveTokens()` and `saveClientInformation()`, and passes `{ issuer }` as the second (`ctx`) argument to `tokens()` / `saveTokens()` / `clientInformation()` / `saveClientInformation()`. On read, a stored value whose `issuer` stamp names a different authorization server is treated as `undefined` — the flow re-registers / re-authorizes exactly as if nothing were stored. A `client_id` or `refresh_token` issued by one authorization server is therefore never sent to another.
+
+**Round-trip the stored object unchanged and you're protected** — single-slot storage works. To hold credentials for several authorization servers at once, key your storage on `ctx.issuer` instead (and treat **`ctx === undefined` as "return the most-recently-saved token set"** — the transport's per-request `Authorization: Bearer` read (`adaptOAuthProvider().token()`) calls `tokens()` with no `ctx`).
+
+Implement `discoveryState()` / `saveDiscoveryState()` so the callback leg can verify it is exchanging the authorization code at the same AS the redirect targeted; without it the SDK `console.warn`s once per callback. **`discoveryState` must persist with the same durability as `codeVerifier`** — it has to survive the redirect round-trip (page navigation, app restart). A provider that implements `saveDiscoveryState()` but cannot return it on the callback leg fails closed with `AuthorizationServerMismatchError`. Hosts that drive 401 handling themselves (custom middleware / `withOAuthRetry`) should call `provider.invalidateCredentials?.('discovery')` on a fresh 401 so a changed `authorization_servers` list is picked up on re-discovery. The built-in `StreamableHTTPClientTransport` / `SSEClientTransport` 401 path does not currently invalidate discovery state.
+
+`OAuthClientProvider.saveAuthorizationServerUrl()` / `authorizationServerUrl()` are **deprecated** — `auth()` still calls `saveAuthorizationServerUrl()` for back-compat with providers that read it internally (Cross-App Access), but the SDK never reads `authorizationServerUrl()`. The call timing changed in v2: it was post-discovery, it is now post-`saveTokens` (after a successful token exchange). Read the `issuer` stamp on stored tokens, or `ctx.issuer`, instead.
+
+The bundled `ClientCredentialsProvider`, `PrivateKeyJwtProvider`, `StaticPrivateKeyJwtProvider`, and `CrossAppAccessProvider` gain an `expectedIssuer` option that stamps the constructor-supplied credential; when set, `auth()` against any other authorization server fails before the credential leaves the process. These providers no longer define `saveClientInformation()`.
+
 ### Conformance obligations for `OAuthClientProvider` implementers
 
 <!-- Filled in as the SEP-2352/2350/837/2207 behavior PRs land. -->
+
+#### SEP-2352 — per-authorization-server credential isolation
+
+**No code change required for the common case.** If your `saveTokens()` / `saveClientInformation()` persist the value passed to them verbatim and your `tokens()` / `clientInformation()` return it verbatim, the SDK-stamped `issuer` round-trips and the binding holds.
+
+If you serialise to a custom format, persist the `issuer` field alongside the rest of the value. If you key storage by `ctx.issuer`, return `undefined` for an issuer you have no entry for, and treat **`ctx === undefined` as "return the most-recently-saved token set"** — the transport's per-request `Authorization: Bearer` read (`adaptOAuthProvider().token()`) calls `tokens()` with no `ctx`.
 
 ## Using an LLM to migrate your code
 

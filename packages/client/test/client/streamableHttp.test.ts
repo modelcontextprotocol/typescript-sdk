@@ -2085,12 +2085,15 @@ describe('StreamableHTTPClientTransport', () => {
             expect(tokenCalls.length).toBeGreaterThan(0);
 
             // Verify tokens were saved
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-access-token',
-                token_type: 'Bearer',
-                expires_in: 3600,
-                refresh_token: 'new-refresh-token'
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
 
             // Global fetch should never have been called
             expect(globalThis.fetch).not.toHaveBeenCalled();
@@ -2364,12 +2367,15 @@ describe('StreamableHTTPClientTransport', () => {
             expect((error as SdkHttpError).code).toBe(SdkErrorCode.ClientHttpAuthentication);
             expect((error as SdkHttpError).status).toBe(401);
             expect((error as SdkHttpError).statusText).toBe('Unauthorized');
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-access-token',
-                token_type: 'Bearer',
-                expires_in: 3600,
-                refresh_token: 'refresh-token' // Refresh token is preserved
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'refresh-token' // Refresh token is preserved
+                }),
+                expect.anything()
+            );
         });
     });
 

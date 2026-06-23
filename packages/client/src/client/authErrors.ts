@@ -134,6 +134,31 @@ export class InsecureTokenEndpointError extends OAuthClientFlowError {
  * treat them as untrusted input when displaying or logging (this includes
  * `requiredScope`, which appears in the error message).
  */
+/**
+ * Thrown by `auth()` on the authorization-code callback leg when the
+ * authorization server resolved by discovery differs from the one recorded in
+ * `discoveryState()` at redirect time. The `authorization_code` and PKCE
+ * `code_verifier` are bound to the AS that minted the code (RFC 7636); sending
+ * them to a different AS's token endpoint is a credential-exfiltration vector.
+ *
+ * This is the only runtime check left in the SEP-2352 model — stored tokens and
+ * client credentials are protected structurally by the `issuer` stamp instead.
+ */
+export class AuthorizationServerMismatchError extends OAuthClientFlowError {
+    constructor(
+        /** The issuer recorded in `discoveryState()` when the authorization redirect was issued. */
+        public readonly recordedIssuer: string,
+        /** The issuer resolved by discovery on this call. */
+        public readonly currentIssuer: string
+    ) {
+        super(
+            `Authorization server changed between redirect and callback ` +
+                `(redirected to ${JSON.stringify(recordedIssuer)}, callback resolved ${JSON.stringify(currentIssuer)}); ` +
+                `refusing to send authorization_code/code_verifier to a different token endpoint`
+        );
+    }
+}
+
 export class InsufficientScopeError extends OAuthClientFlowError {
     /** The `scope` value from the `WWW-Authenticate` challenge — the scopes the resource server says are required. */
     readonly requiredScope?: string;

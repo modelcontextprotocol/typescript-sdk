@@ -8,10 +8,11 @@
 
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 
-import type { AuthProvider, OAuthClientProvider } from '@modelcontextprotocol/client';
+import type { AuthProvider, OAuthClientProvider, OAuthDiscoveryState } from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     auth,
+    AuthorizationServerMismatchError,
     Client,
     ClientCredentialsProvider,
     computeScopeUnion,
@@ -46,7 +47,9 @@ import type {
     OAuthClientInformationFull,
     OAuthClientInformationMixed,
     OAuthClientMetadata,
-    OAuthTokens
+    OAuthTokens,
+    StoredOAuthClientInformation,
+    StoredOAuthTokens
 } from '@modelcontextprotocol/server';
 import { LATEST_PROTOCOL_VERSION, McpServer } from '@modelcontextprotocol/server';
 import { importSPKI, jwtVerify } from 'jose';
@@ -1056,9 +1059,11 @@ verifies('client-auth:invalid-client-clears-all', async (_args: TestArgs) => {
             expect(as.tokenCalls).toHaveLength(1);
             expect(defined(as.tokenCalls[0], 'token call').body.get('grant_type')).toBe('refresh_token');
 
-            // Everything is invalidated: tokens are gone and the stale client_id was discarded,
-            // forcing a fresh dynamic registration on the retry.
-            expect(provider.invalidatedCredentials).toContain('all');
+            // Client + tokens are invalidated (NOT 'all', so discoveryState survives — SEP-2352):
+            // tokens are gone and the stale client_id was discarded, forcing a fresh dynamic
+            // registration on the retry.
+            expect(provider.invalidatedCredentials).toContain('client');
+            expect(provider.invalidatedCredentials).toContain('tokens');
             expect(provider.saved.tokens).toBeUndefined();
             expect(as.registerCalls).toHaveLength(1);
             expect(provider.saved.clientInformation?.client_id).toBe('registered-client-id');
@@ -2617,4 +2622,229 @@ verifies('client-auth:scope:offline-access-gate', async (_args: TestArgs) => {
 
     const redirectWithout = defined(providerWithout.redirectedTo[0], 'authorization redirect URL');
     expect((redirectWithout.searchParams.get('scope') ?? '').split(' ')).not.toContain('offline_access');
+});
+
+// ---------------------------------------------------------------------------
+// SEP-2352 — per-authorization-server credential isolation. Stored tokens and
+// client credentials carry an SDK-stamped `issuer`; a value stamped for a
+// different AS reads back as undefined, so it is never reused on the wire.
+// ---------------------------------------------------------------------------
+
+/**
+ * A protected resource whose `authorization_servers` PRM entry can be swapped
+ * between calls. Each issuer hosts its own DCR endpoint that mints a distinct
+ * `client_id`, so reuse of an old-AS `client_id` is observable on the wire.
+ */
+function createMigratingAuthorizationServer() {
+    const issuers = { one: 'https://as-one.example.com', two: 'https://as-two.example.com' } as const;
+    let active: keyof typeof issuers = 'one';
+    const registerCalls: Array<{ issuer: string }> = [];
+    const clientIdsSeen: Array<{ issuer: string; clientId: string | null }> = [];
+    const tokenCalls: Array<{ issuer: string; body: URLSearchParams }> = [];
+
+    const asMetadata = (issuer: string): AuthorizationServerMetadata => ({
+        issuer,
+        authorization_endpoint: `${issuer}/authorize`,
+        token_endpoint: `${issuer}/token`,
+        registration_endpoint: `${issuer}/register`,
+        response_types_supported: ['code'],
+        code_challenge_methods_supported: ['S256'],
+        client_id_metadata_document_supported: true,
+        token_endpoint_auth_methods_supported: ['client_secret_basic', 'client_secret_post', 'none'],
+        grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials']
+    });
+
+    const fetchFn = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        const u = typeof url === 'string' ? new URL(url) : url;
+        if (u.pathname.includes('/.well-known/oauth-protected-resource')) {
+            return Response.json({ resource: RESOURCE, authorization_servers: [issuers[active]] });
+        }
+        if (u.pathname.includes('/.well-known/oauth-authorization-server') || u.pathname.includes('/.well-known/openid-configuration')) {
+            return Response.json(asMetadata(u.origin));
+        }
+        if (u.pathname === '/register' && init?.method === 'POST') {
+            const body = z.record(z.string(), z.unknown()).parse(JSON.parse(String(init.body)));
+            registerCalls.push({ issuer: u.origin });
+            return Response.json({ ...body, client_id: `cid-at-${u.host}`, client_secret: `secret-at-${u.host}` }, { status: 201 });
+        }
+        if (u.pathname === '/authorize') {
+            clientIdsSeen.push({ issuer: u.origin, clientId: u.searchParams.get('client_id') });
+            return new Response('Authorize', { status: 200 });
+        }
+        if (u.pathname === '/token' && init?.method === 'POST') {
+            const body = new URLSearchParams(String(init.body));
+            clientIdsSeen.push({ issuer: u.origin, clientId: body.get('client_id') });
+            tokenCalls.push({ issuer: u.origin, body });
+            return Response.json({ access_token: `tok-${u.host}`, token_type: 'Bearer' });
+        }
+        return new Response('Not Found', { status: 404 });
+    };
+
+    return {
+        issuers,
+        registerCalls,
+        clientIdsSeen,
+        tokenCalls,
+        fetchFn,
+        switchTo(which: keyof typeof issuers) {
+            active = which;
+        }
+    };
+}
+
+/** Single-slot blob provider — round-trips the SDK-stamped values verbatim. */
+class StampedBlobProvider implements OAuthClientProvider {
+    redirectedTo: URL[] = [];
+    info?: StoredOAuthClientInformation;
+    storedTokens?: StoredOAuthTokens;
+    discovery?: OAuthDiscoveryState;
+    private _verifier?: string;
+
+    constructor(public readonly clientMetadataUrl?: string) {}
+
+    get redirectUrl() {
+        return 'http://localhost:3000/callback';
+    }
+    get clientMetadata() {
+        return { client_name: 'Test Client', redirect_uris: [this.redirectUrl] };
+    }
+    clientInformation() {
+        return this.info;
+    }
+    saveClientInformation(i: OAuthClientInformationMixed) {
+        this.info = i;
+    }
+    tokens() {
+        return this.storedTokens;
+    }
+    saveTokens(t: OAuthTokens) {
+        this.storedTokens = t;
+    }
+    redirectToAuthorization(u: URL) {
+        this.redirectedTo.push(u);
+    }
+    saveCodeVerifier(v: string) {
+        this._verifier = v;
+    }
+    codeVerifier() {
+        if (!this._verifier) throw new Error('no verifier');
+        return this._verifier;
+    }
+    discoveryState() {
+        return this.discovery;
+    }
+    saveDiscoveryState(s: OAuthDiscoveryState) {
+        this.discovery = s;
+    }
+    invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery') {
+        if (scope === 'all' || scope === 'discovery') this.discovery = undefined;
+    }
+}
+
+verifies('client-auth:as-migration:reregister', async (_args: TestArgs) => {
+    const server = createMigratingAuthorizationServer();
+    const provider = new StampedBlobProvider();
+
+    expect(await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn })).toBe('REDIRECT');
+    expect(server.registerCalls).toEqual([{ issuer: server.issuers.one }]);
+    expect(provider.info?.issuer).toBe(server.issuers.one);
+
+    // PRM now lists AS-two. Drop cached discovery (as a host would on a fresh 401) so
+    // re-discovery picks up the new AS.
+    server.switchTo('two');
+    provider.invalidateCredentials('discovery');
+    expect(await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn })).toBe('REDIRECT');
+
+    // Stamp mismatch → undefined → re-registers at AS-two, redirect carries the fresh client_id.
+    expect(server.registerCalls).toEqual([{ issuer: server.issuers.one }, { issuer: server.issuers.two }]);
+    const redirect = defined(provider.redirectedTo.at(-1), 'second redirect');
+    expect(redirect.origin).toBe(server.issuers.two);
+    expect(redirect.searchParams.get('client_id')).toBe('cid-at-as-two.example.com');
+});
+
+verifies('client-auth:as-migration:no-cred-reuse', async (_args: TestArgs) => {
+    const server = createMigratingAuthorizationServer();
+    const provider = new StampedBlobProvider();
+
+    expect(await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn })).toBe('REDIRECT');
+    expect(provider.info?.client_id).toBe('cid-at-as-one.example.com');
+
+    server.switchTo('two');
+    provider.invalidateCredentials('discovery');
+    await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn });
+
+    // Wire MUST: AS-two never received AS-one's client_id at any endpoint.
+    for (const seen of server.clientIdsSeen.filter(c => c.issuer === server.issuers.two)) {
+        expect(seen.clientId).not.toBe('cid-at-as-one.example.com');
+    }
+    expect(provider.info?.client_id).toBe('cid-at-as-two.example.com');
+    expect(provider.info?.issuer).toBe(server.issuers.two);
+});
+
+verifies('client-auth:as-migration:no-token-reuse', async (_args: TestArgs) => {
+    const server = createMigratingAuthorizationServer();
+    const provider = new StampedBlobProvider();
+
+    // Completed flow against AS-one — provider holds an AS-one-stamped refresh_token.
+    expect(await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn })).toBe('REDIRECT');
+    expect(await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn, authorizationCode: 'code-a' })).toBe('AUTHORIZED');
+    provider.storedTokens = { ...defined(provider.storedTokens, 'tokens'), refresh_token: 'rt-one' };
+    expect(provider.storedTokens.issuer).toBe(server.issuers.one);
+
+    server.switchTo('two');
+    provider.invalidateCredentials('discovery');
+    expect(await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn })).toBe('REDIRECT');
+
+    // Wire MUST: AS-two's /token never received a refresh_token grant or rt-one.
+    for (const { body } of server.tokenCalls.filter(c => c.issuer === server.issuers.two)) {
+        expect(body.get('grant_type')).not.toBe('refresh_token');
+        expect(body.get('refresh_token')).not.toBe('rt-one');
+    }
+});
+
+verifies('client-auth:as-migration:cimd-portable', async (_args: TestArgs) => {
+    const cimdUrl = 'https://client.example.com/.well-known/client-metadata.json';
+    const server = createMigratingAuthorizationServer();
+    const provider = new StampedBlobProvider(cimdUrl);
+
+    expect(await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn })).toBe('REDIRECT');
+    expect(server.registerCalls).toHaveLength(0);
+    expect(provider.info?.client_id).toBe(cimdUrl);
+
+    server.switchTo('two');
+    provider.invalidateCredentials('discovery');
+    expect(await auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn })).toBe('REDIRECT');
+
+    // No DCR; the same URL-based client_id is presented to the new AS (re-stamped).
+    expect(server.registerCalls).toHaveLength(0);
+    const redirect = defined(provider.redirectedTo.at(-1), 'second redirect');
+    expect(redirect.origin).toBe(server.issuers.two);
+    expect(redirect.searchParams.get('client_id')).toBe(cimdUrl);
+    expect(provider.info?.issuer).toBe(server.issuers.two);
+});
+
+verifies('client-auth:as-migration:m2m-expected-issuer', async (_args: TestArgs) => {
+    const server = createMigratingAuthorizationServer();
+
+    // expectedIssuer = AS-one, but PRM points to AS-two → stamp mismatch → undefined →
+    // no saveClientInformation → AuthorizationServerMismatchError before any token request.
+    server.switchTo('two');
+    const provider = new ClientCredentialsProvider({
+        clientId: 'static-cid',
+        clientSecret: 'static-secret',
+        expectedIssuer: server.issuers.one
+    });
+    await expect(auth(provider, { serverUrl: MCP_URL, fetchFn: server.fetchFn })).rejects.toThrow(AuthorizationServerMismatchError);
+    expect(server.tokenCalls.filter(c => c.issuer === server.issuers.two)).toHaveLength(0);
+    expect(server.clientIdsSeen.filter(c => c.issuer === server.issuers.two)).toHaveLength(0);
+
+    // Matching expectedIssuer proceeds and stamps the saved tokens.
+    server.switchTo('one');
+    const ok = new ClientCredentialsProvider({
+        clientId: 'static-cid',
+        clientSecret: 'static-secret',
+        expectedIssuer: server.issuers.one
+    });
+    expect(await auth(ok, { serverUrl: MCP_URL, fetchFn: server.fetchFn })).toBe('AUTHORIZED');
+    expect(ok.tokens()?.issuer).toBe(server.issuers.one);
 });

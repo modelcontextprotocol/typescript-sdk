@@ -22,6 +22,7 @@ export {
     auth,
     buildDiscoveryUrls,
     computeScopeUnion,
+    discardIfIssuerMismatch,
     discoverAuthorizationServerMetadata,
     discoverOAuthMetadata,
     discoverOAuthProtectedResourceMetadata,
@@ -45,6 +46,7 @@ export {
     validateClientMetadataUrl
 } from './client/auth.js';
 export {
+    AuthorizationServerMismatchError,
     InsecureTokenEndpointError,
     InsufficientScopeError,
     IssuerMismatchError,
