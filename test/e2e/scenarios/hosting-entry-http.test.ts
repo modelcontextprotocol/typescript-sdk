@@ -32,9 +32,11 @@ function echoFactory(_ctx?: McpRequestContext): McpServer {
 
 verifies('typescript:hosting:entry:method-405', async ({ transport }: TestArgs) => {
     const client = new Client({ name: 'method-405-client', version: '1.0.0' });
-    await using wired = await wire(transport, echoFactory, client, { entry: { legacy: 'stateless' } });
+    // No `entry` override: the arm posture (`stateless` on entryStateless,
+    // `reject` on entryModern) is the configuration under test.
+    await using wired = await wire(transport, echoFactory, client);
 
-    for (const method of ['PUT', 'PATCH']) {
+    for (const method of ['GET', 'DELETE', 'PUT', 'PATCH']) {
         const response = await wired.fetch!(wired.url!, { method });
         expect(response.status).toBe(405);
         const body = (await response.json()) as { jsonrpc: string; error: { code: number; message: string } };
@@ -46,7 +48,7 @@ verifies('typescript:hosting:entry:method-405', async ({ transport }: TestArgs) 
 
 verifies('typescript:hosting:entry:parse-error-400', async ({ transport }: TestArgs) => {
     const client = new Client({ name: 'parse-error-client', version: '1.0.0' });
-    await using wired = await wire(transport, echoFactory, client, { entry: { legacy: 'stateless' } });
+    await using wired = await wire(transport, echoFactory, client);
 
     const response = await wired.fetch!(wired.url!, {
         method: 'POST',
@@ -138,7 +140,7 @@ verifies('typescript:hosting:entry:legacy-protocol-version-default', async ({ tr
 
 verifies('typescript:hosting:entry:no-session-id', async ({ transport }: TestArgs) => {
     const client = new Client({ name: 'no-session-id-client', version: '1.0.0' });
-    await using wired = await wire(transport, echoFactory, client, { entry: { legacy: 'stateless' } });
+    await using wired = await wire(transport, echoFactory, client);
 
     // A typed round trip through the wired client (so both the connect-time
     // negotiation and a follow-up request are recorded), then assert no

@@ -2381,9 +2381,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:hosting:entry:method-405': {
         source: 'sdk',
         behavior:
-            'An unsupported HTTP method (PUT, PATCH) on a createMcpHandler endpoint is answered 405 with a JSON-RPC Method-not-allowed body on both legs: the stateless legacy fallback rejects every non-POST method, and the modern-only strict path rejects body-less non-POST traffic via the modern-only-method-not-allowed cell.',
+            'A non-POST HTTP method (GET, DELETE, PUT, PATCH) on a createMcpHandler endpoint is answered 405 with a JSON-RPC Method-not-allowed body on both legs: the stateless legacy fallback rejects every non-POST method, and the modern-only strict path rejects body-less non-POST traffic via the modern-only-method-not-allowed cell.',
         transports: ['entryStateless', 'entryModern'],
-        note: 'Runs on the createMcpHandler entry arms; the unsupported methods are POSTed through wired.fetch so the HTTP status and body are observed directly. The entry does not emit an Allow header (the per-session server transport does), so only the status and JSON-RPC error shape are pinned.'
+        note: 'Runs on the createMcpHandler entry arms; each non-POST method is sent through wired.fetch so the HTTP status and body are observed directly. The entry does not emit an Allow header (the per-session server transport does), so only the status and JSON-RPC error shape are pinned.'
     },
     'typescript:hosting:entry:parse-error-400': {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
