@@ -554,6 +554,7 @@ export class McpServer {
         metadata: ResourceMetadata | undefined,
         readCallback: ReadResourceCallback
     ): RegisteredResource {
+        let currentUri = uri;
         const registeredResource: RegisteredResource = {
             name,
             title,
@@ -564,9 +565,12 @@ export class McpServer {
             enable: () => registeredResource.update({ enabled: true }),
             remove: () => registeredResource.update({ uri: null }),
             update: updates => {
-                if (updates.uri !== undefined && updates.uri !== uri) {
-                    delete this._registeredResources[uri];
-                    if (updates.uri) this._registeredResources[updates.uri] = registeredResource;
+                if (updates.uri !== undefined && updates.uri !== currentUri) {
+                    delete this._registeredResources[currentUri];
+                    if (updates.uri) {
+                        this._registeredResources[updates.uri] = registeredResource;
+                        currentUri = updates.uri;
+                    }
                 }
                 if (updates.name !== undefined) registeredResource.name = updates.name;
                 if (updates.title !== undefined) registeredResource.title = updates.title;
@@ -587,6 +591,7 @@ export class McpServer {
         metadata: ResourceMetadata | undefined,
         readCallback: ReadResourceTemplateCallback
     ): RegisteredResourceTemplate {
+        let currentName = name;
         const registeredResourceTemplate: RegisteredResourceTemplate = {
             resourceTemplate: template,
             title,
@@ -597,9 +602,12 @@ export class McpServer {
             enable: () => registeredResourceTemplate.update({ enabled: true }),
             remove: () => registeredResourceTemplate.update({ name: null }),
             update: updates => {
-                if (updates.name !== undefined && updates.name !== name) {
-                    delete this._registeredResourceTemplates[name];
-                    if (updates.name) this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
+                if (updates.name !== undefined && updates.name !== currentName) {
+                    delete this._registeredResourceTemplates[currentName];
+                    if (updates.name) {
+                        this._registeredResourceTemplates[updates.name] = registeredResourceTemplate;
+                        currentName = updates.name;
+                    }
                 }
                 if (updates.title !== undefined) registeredResourceTemplate.title = updates.title;
                 if (updates.template !== undefined) registeredResourceTemplate.resourceTemplate = updates.template;
@@ -630,6 +638,7 @@ export class McpServer {
         _meta: Record<string, unknown> | undefined
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
+        let currentName = name;
         let currentArgsSchema = argsSchema;
         let currentCallback = callback;
 
@@ -644,16 +653,20 @@ export class McpServer {
             enable: () => registeredPrompt.update({ enabled: true }),
             remove: () => registeredPrompt.update({ name: null }),
             update: updates => {
-                if (updates.name !== undefined && updates.name !== name) {
-                    delete this._registeredPrompts[name];
-                    if (updates.name) this._registeredPrompts[updates.name] = registeredPrompt;
+                // Track if we need to regenerate the handler
+                let needsHandlerRegen = false;
+                if (updates.name !== undefined && updates.name !== currentName) {
+                    delete this._registeredPrompts[currentName];
+                    if (updates.name) {
+                        this._registeredPrompts[updates.name] = registeredPrompt;
+                        currentName = updates.name;
+                    }
+                    needsHandlerRegen = true;
                 }
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
                 if (updates._meta !== undefined) registeredPrompt._meta = updates._meta;
 
-                // Track if we need to regenerate the handler
-                let needsHandlerRegen = false;
                 if (updates.argsSchema !== undefined) {
                     registeredPrompt.argsSchema = updates.argsSchema;
                     currentArgsSchema = updates.argsSchema;
@@ -664,7 +677,7 @@ export class McpServer {
                     needsHandlerRegen = true;
                 }
                 if (needsHandlerRegen) {
-                    registeredPrompt.handler = createPromptHandler(name, currentArgsSchema, currentCallback);
+                    registeredPrompt.handler = createPromptHandler(currentName, currentArgsSchema, currentCallback);
                 }
 
                 if (updates.enabled !== undefined) registeredPrompt.enabled = updates.enabled;
@@ -705,6 +718,7 @@ export class McpServer {
         validateAndWarnToolName(name);
 
         // Track current handler for executor regeneration
+        let currentName = name;
         let currentHandler = handler;
 
         const registeredTool: RegisteredTool = {
@@ -722,12 +736,15 @@ export class McpServer {
             enable: () => registeredTool.update({ enabled: true }),
             remove: () => registeredTool.update({ name: null }),
             update: updates => {
-                if (updates.name !== undefined && updates.name !== name) {
+                if (updates.name !== undefined && updates.name !== currentName) {
                     if (typeof updates.name === 'string') {
                         validateAndWarnToolName(updates.name);
                     }
-                    delete this._registeredTools[name];
-                    if (updates.name) this._registeredTools[updates.name] = registeredTool;
+                    delete this._registeredTools[currentName];
+                    if (updates.name) {
+                        this._registeredTools[updates.name] = registeredTool;
+                        currentName = updates.name;
+                    }
                 }
                 if (updates.title !== undefined) registeredTool.title = updates.title;
                 if (updates.description !== undefined) registeredTool.description = updates.description;
