@@ -39,6 +39,16 @@ import type {
 } from '../src/wire/rev2025-11-25/wireTypes.js';
 import type * as z4 from 'zod/v4';
 
+// SEP-2106 adjudication: the public/neutral SDK types widen `structuredContent` (`unknown`)
+// and `outputSchema` (open JSON Schema document); the 2025 wire-exact pins target the FROZEN
+// copies in `wire/rev2025-11-25/schemas.ts`. The public widening is pinned in
+// `types/publicTypeShapes.test.ts`.
+type Wire2025CallToolResult = z4.infer<typeof Wire2025.CallToolResultSchema>;
+type Wire2025SamplingMessage = z4.infer<typeof Wire2025.SamplingMessageSchema>;
+type Wire2025CreateMessageResultWithTools = z4.infer<typeof Wire2025.CreateMessageResultWithToolsSchema>;
+type Wire2025ToolResultContent = z4.infer<typeof Wire2025.ToolResultContentSchema>;
+type Wire2025SamplingMessageContentBlock = z4.infer<typeof Wire2025.SamplingMessageContentBlockSchema>;
+
 type Wire2025ClientRequest = z4.infer<typeof Wire2025.ClientRequestSchema>;
 type Wire2025ClientNotification = z4.infer<typeof Wire2025.ClientNotificationSchema>;
 type Wire2025ClientResult = z4.infer<typeof Wire2025.ClientResultSchema>;
@@ -284,7 +294,7 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    CallToolResult: (sdk: SDKTypes.CallToolResult, spec: SpecTypes.CallToolResult) => {
+    CallToolResult: (sdk: Wire2025CallToolResult, spec: SpecTypes.CallToolResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -321,11 +331,11 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    SamplingMessage: (sdk: SDKTypes.SamplingMessage, spec: SpecTypes.SamplingMessage) => {
+    SamplingMessage: (sdk: Wire2025SamplingMessage, spec: SpecTypes.SamplingMessage) => {
         sdk = spec;
         spec = sdk;
     },
-    CreateMessageResult: (sdk: SDKTypes.CreateMessageResultWithTools, spec: SpecTypes.CreateMessageResult) => {
+    CreateMessageResult: (sdk: Wire2025CreateMessageResultWithTools, spec: SpecTypes.CreateMessageResult) => {
         sdk = spec;
         spec = sdk;
     },
@@ -564,11 +574,11 @@ const sdkTypeChecks = {
         sdk = spec;
         spec = sdk;
     },
-    ToolResultContent: (sdk: SDKTypes.ToolResultContent, spec: SpecTypes.ToolResultContent) => {
+    ToolResultContent: (sdk: Wire2025ToolResultContent, spec: SpecTypes.ToolResultContent) => {
         sdk = spec;
         spec = sdk;
     },
-    SamplingMessageContentBlock: (sdk: SDKTypes.SamplingMessageContentBlock, spec: SpecTypes.SamplingMessageContentBlock) => {
+    SamplingMessageContentBlock: (sdk: Wire2025SamplingMessageContentBlock, spec: SpecTypes.SamplingMessageContentBlock) => {
         sdk = spec;
         spec = sdk;
     },
