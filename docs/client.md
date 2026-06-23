@@ -305,7 +305,7 @@ console.log(result.content);
 
 On a 2026-07-28 connection over Streamable HTTP, `callTool()` mirrors any argument whose `inputSchema` property carries an `x-mcp-header` annotation into an `Mcp-Param-{Name}` HTTP request header so intermediaries can route on it without parsing the body. The mirrored headers
 are built from the client's internal `tools/list` cache; if you already hold the tool definition (e.g. from configuration), pass it via `CallToolRequestOptions.toolDefinition` so mirroring runs without a prior list. On a cache miss the call is sent without `Mcp-Param-*` headers
-and, when a conforming server rejects it with `-32001` (`HeaderMismatch`), `callTool()` refreshes the definition cache once and retries.
+and, when a conforming server rejects it with `-32020` (`HeaderMismatch`), `callTool()` refreshes the definition cache once and retries.
 
 On a non-stdio modern connection `listTools()` (and the internal `tools/list` cache) exclude tool definitions whose `x-mcp-header` declarations violate the spec's constraints, logging a warning that names the tool and the reason. Browser clients skip mirroring (dynamically named
 headers cannot be statically allow-listed for credentialed CORS), so calling an `x-mcp-header` tool with a non-null designated argument from a browser against a server that enforces SEP-2243 validation will be rejected — a known limitation. The legacy-era `callTool`/`listTools`

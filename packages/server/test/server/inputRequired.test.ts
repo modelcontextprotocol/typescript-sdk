@@ -7,7 +7,7 @@
  *   tools/call result schema are skipped for it; cache fields are never
  *   stamped on it);
  * - the guards: at-least-one re-check for hand-built results, the per-embedded
- *   -request `-32003` capability check against the request's OWN envelope
+ *   -request `-32021` capability check against the request's OWN envelope
  *   capabilities, the server-bug guard (non-multi-round-trip methods, and any
  *   method on a 2025-era request, never put a mis-typed result on the wire);
  * - a UrlElicitationRequiredError escaping a handler on the modern era fails
@@ -222,7 +222,7 @@ describe('guards', () => {
         await close();
     });
 
-    it('checks every embedded request against the capabilities the request itself declared (-32003 on violation)', async () => {
+    it('checks every embedded request against the capabilities the request itself declared (-32021 on violation)', async () => {
         const server = new McpServer({ name: 's', version: '1.0.0' }, { capabilities: { tools: {} } });
         server.registerTool('ask', { inputSchema: z.object({}) }, async () =>
             inputRequired({
@@ -240,10 +240,10 @@ describe('guards', () => {
         );
         const { request, close } = await wire(server, { era: 'modern' });
 
-        // No elicitation capability declared on the request → -32003 naming
+        // No elicitation capability declared on the request → -32021 naming
         // the form sub-capability the embedded form-mode elicitation needs.
         const noCapability = await request(modernToolCall(1, 'ask', {}, { clientCapabilities: {} }));
-        expect(errorOf(noCapability).code).toBe(-32_003);
+        expect(errorOf(noCapability).code).toBe(-32_021);
         expect(errorOf(noCapability).data).toMatchObject({ requiredCapabilities: { elicitation: { form: {} } } });
 
         // Form-mode capability declared → the same tool is served.
@@ -254,13 +254,13 @@ describe('guards', () => {
         const urlWithoutUrlCapability = await request(
             modernToolCall(3, 'open-url', {}, { clientCapabilities: { elicitation: { form: {} } } })
         );
-        expect(errorOf(urlWithoutUrlCapability).code).toBe(-32_003);
+        expect(errorOf(urlWithoutUrlCapability).code).toBe(-32_021);
         expect(errorOf(urlWithoutUrlCapability).data).toMatchObject({ requiredCapabilities: { elicitation: { url: {} } } });
 
-        // Form-mode embedded request toward a URL-only client → -32003: modes
+        // Form-mode embedded request toward a URL-only client → -32021: modes
         // are sub-capabilities and the server must not send an undeclared one.
         const formTowardUrlOnly = await request(modernToolCall(4, 'ask', {}, { clientCapabilities: { elicitation: { url: {} } } }));
-        expect(errorOf(formTowardUrlOnly).code).toBe(-32_003);
+        expect(errorOf(formTowardUrlOnly).code).toBe(-32_021);
         expect(errorOf(formTowardUrlOnly).data).toMatchObject({ requiredCapabilities: { elicitation: { form: {} } } });
 
         // A bare `elicitation: {}` declaration is read as form support (the

@@ -13,7 +13,7 @@
  *    carries its own HTTP 400 and is the only invalid-params rejection that
  *    maps to 400.
  *
- * The header/body mismatch family is pinned to `-32001` (HeaderMismatch) and
+ * The header/body mismatch family is pinned to `-32020` (HeaderMismatch) and
  * the missing-envelope cells to `-32602`, the assignments asserted by the
  * published conformance suite.
  *
@@ -35,7 +35,7 @@ describe('the status matrix — pinned cells', () => {
         },
         { code: ProtocolErrorCode.UnsupportedProtocolVersion, status: 400, cell: 'unsupported protocol version' },
         { code: ProtocolErrorCode.MissingRequiredClientCapability, status: 400, cell: 'missing required client capability' },
-        { code: -32_001, status: 400, cell: 'header mismatch family (when emitted by the ladder)' },
+        { code: -32_020, status: 400, cell: 'header mismatch family (when emitted by the ladder)' },
         { code: ProtocolErrorCode.ParseError, status: 400, cell: 'unparseable request body' },
         { code: ProtocolErrorCode.InvalidRequest, status: 400, cell: 'malformed JSON-RPC body / rejected batch' }
     ];
@@ -76,13 +76,13 @@ describe('the status matrix — pinned cells', () => {
             Object.keys(LADDER_ERROR_HTTP_STATUS)
                 .map(Number)
                 .sort((a, b) => a - b)
-        ).toEqual([-32_700, -32_601, -32_600, -32_004, -32_003, -32_001].sort((a, b) => a - b));
+        ).toEqual([-32_700, -32_601, -32_600, -32_022, -32_021, -32_020].sort((a, b) => a - b));
     });
 });
 
 describe('the status matrix — header/body mismatch family', () => {
-    test('the header/body mismatch family is pinned to -32001 (HeaderMismatch) and maps to HTTP 400', () => {
-        expect(HEADER_MISMATCH_ERROR_CODE).toBe(-32_001);
+    test('the header/body mismatch family is pinned to -32020 (HeaderMismatch) and maps to HTTP 400', () => {
+        expect(HEADER_MISMATCH_ERROR_CODE).toBe(-32_020);
         expect(LADDER_ERROR_HTTP_STATUS[HEADER_MISMATCH_ERROR_CODE]).toBe(400);
         expect(httpStatusForErrorCode(HEADER_MISMATCH_ERROR_CODE, 'ladder')).toBe(400);
     });

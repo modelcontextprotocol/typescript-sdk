@@ -54,7 +54,7 @@ verifies('sep-2243:param-header:roundtrip', async ({ transport }: TestArgs) => {
     expect(headerValue).toBe('us-west1');
 
     // The call succeeded against the validating server (header agreed with
-    // the body argument, so no -32001 HeaderMismatch on the wire).
+    // the body argument, so no -32020 HeaderMismatch on the wire).
     expect(result.isError).toBeFalsy();
     expect(result.content).toEqual([{ type: 'text', text: 'region=us-west1' }]);
 });
@@ -85,7 +85,7 @@ verifies('sep-2243:std-header:mismatch-rejected', async ({ transport }: TestArgs
 
     expect(response.status).toBe(400);
     const body = (await response.json()) as { error: { code: number; message: string } };
-    // -32001 is the SEP-2243 HeaderMismatch code at this branch's spec pin.
-    expect(body.error.code).toBe(-32_001);
+    // -32020 is the SEP-2243 HeaderMismatch code (post-spec#2907 renumber).
+    expect(body.error.code).toBe(-32_020);
     expect(body.error.message).toMatch(/Mcp-Method/);
 });

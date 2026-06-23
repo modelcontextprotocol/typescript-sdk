@@ -4,7 +4,7 @@
  *
  * Evaluated by the HTTP entry on a modern-classified request immediately
  * after `classifyInboundRequest` returns a modern route: rejects `400` /
- * `-32001` (`HeaderMismatch`) when the required `Mcp-Method` header is
+ * `-32020` (`HeaderMismatch`) when the required `Mcp-Method` header is
  * absent, when the required `Mcp-Name` header is absent on a `tools/call` /
  * `prompts/get` / `resources/read` request, when the `Mcp-Name` header
  * carries an invalid Base64 sentinel, and when its (decoded) value disagrees
@@ -56,7 +56,7 @@ function expectRejection(result: InboundLadderRejection | undefined, cell: strin
     expect(result?.cell).toBe(cell);
     expect(result?.rung).toBe('standard-header-validation');
     expect(result?.httpStatus).toBe(400);
-    expect(result?.code).toBe(-32_001);
+    expect(result?.code).toBe(-32_020);
     expect(result?.settled).toBe(true);
 }
 

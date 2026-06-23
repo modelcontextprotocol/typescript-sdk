@@ -170,7 +170,7 @@ describe('serveStdio over a real child-process pipe (one connection per spawned 
                 params: { protocolVersion: LATEST_PROTOCOL_VERSION, capabilities: {}, clientInfo: { name: 'late', version: '0' } }
             });
             const lateError = (lateInitialize as { error: { code: number; data?: { supported?: string[] } } }).error;
-            expect(lateError.code).toBe(-32_004);
+            expect(lateError.code).toBe(-32_022);
             expect(lateError.data?.supported).toContain(MODERN);
         } finally {
             await client.close();

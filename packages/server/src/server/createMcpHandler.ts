@@ -502,7 +502,7 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
  *   answers it with the unsupported-protocol-version error), a malformed
  *   envelope behind a present claim (answered `-32602`), a request whose
  *   `MCP-Protocol-Version` header names a modern revision but that lacks the
- *   envelope (`-32602`), and header/body mismatches (`-32001`). Consumers
+ *   envelope (`-32602`), and header/body mismatches (`-32020`). Consumers
  *   routing on the predicate must send `false` traffic to the modern handler,
  *   never to a legacy handler — the modern path owns those error answers.
  * - `server/discover` probes sent by negotiating clients always carry the
@@ -637,7 +637,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // `classifyInboundRequest` on the edge `era-classification` rung).
         // Evaluated after the supported-revision
         // gate so an envelope naming a revision this endpoint does not serve
-        // is still answered with `-32004` (the supported list is the more
+        // is still answered with `-32022` (the supported list is the more
         // useful answer to a client speaking the wrong revision); evaluated
         // before the capability gate, the factory call, and the
         // `Mcp-Param-*` rung so a request that fails several rungs is
@@ -712,7 +712,7 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         // declaration against the request's `Mcp-Param-{Name}` headers and the
         // body `arguments`. A mismatch (or a missing header for a present body
         // value, or an invalid Base64 sentinel) emits the same `400` /
-        // `-32001` (`HeaderMismatch`) shape the edge cross-checks use. Only
+        // `-32020` (`HeaderMismatch`) shape the edge cross-checks use. Only
         // applied when the factory returns an `McpServer` (the registry is the
         // schema source); a low-level `Server` factory has no registry, so
         // there is nothing to validate against.

@@ -118,25 +118,25 @@ const CORPUS: CorpusRow[] = [
         expected: 'legacy'
     },
     {
-        name: 'recognizer: -32004 with a structured supported list naming a mutual modern version → corrective continuation',
+        name: 'recognizer: -32022 with a structured supported list naming a mutual modern version → corrective continuation',
         outcome: {
             kind: 'rpc-error',
-            code: -32_004,
+            code: -32_022,
             message: 'Unsupported protocol version',
             data: { supported: [MODERN, LATEST_PROTOCOL_VERSION], requested: '2027-01-01' }
         },
         expected: 'corrective'
     },
     {
-        name: 'recognizer: -32004 without a parsable data.supported list is not actionable modern evidence → legacy',
-        outcome: { kind: 'rpc-error', code: -32_004, message: 'Unsupported protocol version' },
+        name: 'recognizer: -32022 without a parsable data.supported list is not actionable modern evidence → legacy',
+        outcome: { kind: 'rpc-error', code: -32_022, message: 'Unsupported protocol version' },
         expected: 'legacy'
     },
     {
-        name: 'recognizer: -32004 with a legacy-only supported list is a definitive legacy signal → legacy',
+        name: 'recognizer: -32022 with a legacy-only supported list is a definitive legacy signal → legacy',
         outcome: {
             kind: 'rpc-error',
-            code: -32_004,
+            code: -32_022,
             message: 'Unsupported protocol version',
             data: { supported: [LATEST_PROTOCOL_VERSION], requested: MODERN }
         },

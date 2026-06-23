@@ -106,7 +106,7 @@ describe('invoke', () => {
         const response = await invoke(mcpServer, toolsCall('greet', { who: 'world' }), { classification: MODERN });
         expect(response.status).toBe(400);
         const body = (await response.json()) as { error: { code: number; data: { supported: string[] } } };
-        expect(body.error.code).toBe(-32_004);
+        expect(body.error.code).toBe(-32_022);
         expect(Array.isArray(body.error.data.supported)).toBe(true);
     });
 

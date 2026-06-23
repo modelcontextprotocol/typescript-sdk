@@ -1127,7 +1127,7 @@ describe('inbound validation precedence: −32601 outranks envelope −32602', (
     });
 });
 
-describe('inbound protocol-version mismatch (−32004): the error data lists every supported version', () => {
+describe('inbound protocol-version mismatch (−32022): the error data lists every supported version', () => {
     const flush = () => new Promise(resolve => setTimeout(resolve, 10));
 
     test('a request classified for a protocol version this connection does not serve is rejected with the full supported list', async () => {
@@ -1162,7 +1162,7 @@ describe('inbound protocol-version mismatch (−32004): the error data lists eve
             message: string;
             data?: { supported?: string[]; requested?: string };
         };
-        expect(error.code).toBe(-32004);
+        expect(error.code).toBe(-32022);
         expect(error.message).toContain('Unsupported protocol version');
         expect(error.data?.supported).toEqual(supportedProtocolVersions);
         expect(error.data?.requested).toBe('2026-07-28');

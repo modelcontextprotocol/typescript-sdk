@@ -80,22 +80,22 @@ describe('row: DiscoverResult with NO overlap → initialize on the same connect
     });
 });
 
-describe('row: -32004 + valid data.supported with a mutual modern version → select-and-continue, MUST NOT fall back', () => {
-    test('in-band -32004 yields a corrective verdict (never legacy)', () => {
+describe('row: -32022 + valid data.supported with a mutual modern version → select-and-continue, MUST NOT fall back', () => {
+    test('in-band -32022 yields a corrective verdict (never legacy)', () => {
         const verdict = classify({
             kind: 'rpc-error',
-            code: -32_004,
+            code: -32_022,
             message: 'Unsupported protocol version',
             data: { supported: [MODERN], requested: '2027-01-01' }
         });
         expect(verdict).toMatchObject({ kind: 'corrective', version: MODERN });
     });
 
-    test('HTTP 400-bodied -32004 yields the same corrective verdict', () => {
+    test('HTTP 400-bodied -32022 yields the same corrective verdict', () => {
         const verdict = classify({
             kind: 'http-error',
             status: 400,
-            body: httpErrorBody(-32_004, 'Unsupported protocol version', { supported: [MODERN], requested: MODERN })
+            body: httpErrorBody(-32_022, 'Unsupported protocol version', { supported: [MODERN], requested: MODERN })
         });
         expect(verdict).toMatchObject({ kind: 'corrective', version: MODERN });
     });
@@ -103,7 +103,7 @@ describe('row: -32004 + valid data.supported with a mutual modern version → se
     test('corrective even when the mutual version equals the just-rejected one (T2/A6 — caller runs it exactly once)', () => {
         const verdict = classify({
             kind: 'rpc-error',
-            code: -32_004,
+            code: -32_022,
             message: 'Unsupported protocol version',
             data: { supported: [MODERN], requested: MODERN }
         });
@@ -114,11 +114,11 @@ describe('row: -32004 + valid data.supported with a mutual modern version → se
     });
 });
 
-describe('row: -32004 with a disjoint-but-modern list → typed error, never initialize', () => {
+describe('row: -32022 with a disjoint-but-modern list → typed error, never initialize', () => {
     test('no mutual modern version but the list is modern', () => {
         const verdict = classify({
             kind: 'rpc-error',
-            code: -32_004,
+            code: -32_022,
             message: 'Unsupported protocol version',
             data: { supported: ['2027-12-31'], requested: MODERN }
         });
@@ -130,11 +130,11 @@ describe('row: -32004 with a disjoint-but-modern list → typed error, never ini
     });
 });
 
-describe('row: -32004 with a legacy-only list → initialize; modern-only client → typed error carrying data.supported', () => {
+describe('row: -32022 with a legacy-only list → initialize; modern-only client → typed error carrying data.supported', () => {
     test('legacy-only list with fallback available → legacy', () => {
         const verdict = classify({
             kind: 'rpc-error',
-            code: -32_004,
+            code: -32_022,
             message: 'Unsupported protocol version',
             data: { supported: [LEGACY, '2025-06-18'] }
         });
@@ -143,7 +143,7 @@ describe('row: -32004 with a legacy-only list → initialize; modern-only client
 
     test('legacy-only list, modern-only client → typed error carrying data.supported', () => {
         const verdict = classify(
-            { kind: 'rpc-error', code: -32_004, message: 'Unsupported protocol version', data: { supported: [LEGACY] } },
+            { kind: 'rpc-error', code: -32_022, message: 'Unsupported protocol version', data: { supported: [LEGACY] } },
             { fallbackAvailable: false }
         );
         expect(verdict.kind).toBe('error');
@@ -153,11 +153,11 @@ describe('row: -32004 with a legacy-only list → initialize; modern-only client
         }
     });
 
-    test('-32004 with malformed data (no valid supported list) → conservative legacy', () => {
-        expect(classify({ kind: 'rpc-error', code: -32_004, message: 'nope', data: { supported: 'not-a-list' } })).toEqual({
+    test('-32022 with malformed data (no valid supported list) → conservative legacy', () => {
+        expect(classify({ kind: 'rpc-error', code: -32_022, message: 'nope', data: { supported: 'not-a-list' } })).toEqual({
             kind: 'legacy'
         });
-        expect(classify({ kind: 'rpc-error', code: -32_004, message: 'nope' })).toEqual({ kind: 'legacy' });
+        expect(classify({ kind: 'rpc-error', code: -32_022, message: 'nope' })).toEqual({ kind: 'legacy' });
     });
 });
 
@@ -233,16 +233,23 @@ describe('row: plain-text/unparseable 400, code 0, empty body, 406, any unrecogn
     });
 });
 
-describe('row: -32001 / -32003 are NEVER probe-recognized → fall into unrecognized → legacy', () => {
-    test('-32001 (session-404 overload on deployed servers; the spec-assigned HeaderMismatch code is still never probe evidence)', () => {
+describe('row: -32001 / -32020 / -32021 are NEVER probe-recognized → fall into unrecognized → legacy', () => {
+    test('-32001 (session-404 overload on deployed servers — the SDK-conventional code, never probe evidence)', () => {
         expect(classify({ kind: 'rpc-error', code: -32_001, message: 'Session not found' })).toEqual({ kind: 'legacy' });
         expect(classify({ kind: 'http-error', status: 404, body: httpErrorBody(-32_001, 'Session not found') })).toEqual({
             kind: 'legacy'
         });
     });
 
-    test('-32003 with data is NOT modern evidence', () => {
-        expect(classify({ kind: 'rpc-error', code: -32_003, message: 'Capability required', data: { capability: 'sampling' } })).toEqual({
+    test('-32020 (the spec-assigned HeaderMismatch code is still never probe evidence)', () => {
+        expect(classify({ kind: 'rpc-error', code: -32_020, message: 'Header mismatch' })).toEqual({ kind: 'legacy' });
+        expect(classify({ kind: 'http-error', status: 400, body: httpErrorBody(-32_020, 'Header mismatch') })).toEqual({
+            kind: 'legacy'
+        });
+    });
+
+    test('-32021 with data is NOT modern evidence', () => {
+        expect(classify({ kind: 'rpc-error', code: -32_021, message: 'Capability required', data: { capability: 'sampling' } })).toEqual({
             kind: 'legacy'
         });
     });

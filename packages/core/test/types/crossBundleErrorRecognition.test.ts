@@ -38,7 +38,7 @@ class TestProtocol extends Protocol<BaseContext> {
  * looks like to this copy: same name, same fields, different identity.
  */
 class ForeignUnsupportedProtocolVersionError extends Error {
-    readonly code = -32_004;
+    readonly code = -32_022;
     readonly data = { supported: ['2025-11-25'], requested: '2099-01-01' };
     constructor() {
         super('Unsupported protocol version: 2099-01-01');
@@ -47,7 +47,7 @@ class ForeignUnsupportedProtocolVersionError extends Error {
 }
 
 describe('cross-bundle typed-error recognition (data parse, never instanceof)', () => {
-    test('a -32004 error received over the wire materializes the typed class from code + data', async () => {
+    test('a -32022 error received over the wire materializes the typed class from code + data', async () => {
         // Full dispatch round trip: the peer answers with a plain JSON error
         // body — exactly what crosses a transport (and a bundle) boundary.
         const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
@@ -57,7 +57,7 @@ describe('cross-bundle typed-error recognition (data parse, never instanceof)', 
                 jsonrpc: '2.0',
                 id: request.id,
                 error: {
-                    code: -32_004,
+                    code: -32_022,
                     message: 'Unsupported protocol version',
                     data: { supported: ['2025-11-25', '2025-06-18'], requested: '2099-01-01' }
                 }
@@ -115,12 +115,12 @@ describe('cross-bundle typed-error recognition (data parse, never instanceof)', 
     });
 
     test('structurally invalid data falls back to the generic class — no guess, no throw', () => {
-        // -32004 with data that does not parse as UnsupportedProtocolVersionErrorData.
+        // -32022 with data that does not parse as UnsupportedProtocolVersionErrorData.
         for (const data of [undefined, null, 'nope', { supported: 'not-an-array', requested: '2099-01-01' }, { wrong: 'shape' }]) {
-            const recognized = ProtocolError.fromError(-32_004, 'unsupported', data);
+            const recognized = ProtocolError.fromError(-32_022, 'unsupported', data);
             expect(recognized).toBeInstanceOf(ProtocolError);
             expect(recognized).not.toBeInstanceOf(UnsupportedProtocolVersionError);
-            expect(recognized.code).toBe(-32_004);
+            expect(recognized.code).toBe(-32_022);
         }
 
         // -32042 with data missing the elicitations array.

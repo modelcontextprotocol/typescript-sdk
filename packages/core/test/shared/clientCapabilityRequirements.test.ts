@@ -1,5 +1,5 @@
 /**
- * The shared client-capability requirement helpers behind the `-32003`
+ * The shared client-capability requirement helpers behind the `-32021`
  * MissingRequiredClientCapability rule (protocol revision 2026-07-28).
  *
  * `missingClientCapabilities` is the single helper shared by the pre-dispatch

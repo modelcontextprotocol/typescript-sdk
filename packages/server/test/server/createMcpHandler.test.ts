@@ -211,14 +211,14 @@ describe('createMcpHandler — modern path', () => {
         );
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
-        expect(body.error.code).toBe(-32_004);
+        expect(body.error.code).toBe(-32_022);
         expect(body.error.data?.['supported']).toEqual([MODERN_REVISION]);
         expect(body.error.data?.['requested']).toBe('2030-01-01');
         expect(body.id).toBe(1);
         expect(state.contexts).toHaveLength(0);
     });
 
-    it('rejects a header/body protocol-version mismatch with -32001 (HeaderMismatch) over HTTP 400', async () => {
+    it('rejects a header/body protocol-version mismatch with -32020 (HeaderMismatch) over HTTP 400', async () => {
         const { factory } = testFactory();
         const onerror = vi.fn();
         const handler = createMcpHandler(factory, { onerror });
@@ -226,7 +226,7 @@ describe('createMcpHandler — modern path', () => {
         const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'x' }), { 'mcp-protocol-version': '2025-11-25' }));
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
-        expect(body.error.code).toBe(-32_001);
+        expect(body.error.code).toBe(-32_020);
         // The rejection echoes the request id.
         expect(body.id).toBe(1);
         expect(onerror).toHaveBeenCalled();
@@ -326,7 +326,7 @@ describe("createMcpHandler — modern-only strict (legacy: 'reject')", () => {
         );
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
-        expect(body.error.code).toBe(-32_004);
+        expect(body.error.code).toBe(-32_022);
         expect(body.error.data?.['supported']).toEqual([MODERN_REVISION]);
         expect(body.id).toBe(1);
         expect(state.contexts).toHaveLength(0);
@@ -347,7 +347,7 @@ describe("createMcpHandler — modern-only strict (legacy: 'reject')", () => {
         );
         expect(response.status).toBe(400);
         const body = (await response.json()) as JSONRPCErrorBody;
-        expect(body.error.code).toBe(-32_004);
+        expect(body.error.code).toBe(-32_022);
         expect(body.error.data?.['supported']).toEqual([MODERN_REVISION]);
         expect(body.error.data?.['requested']).toBe('2025-11-25');
         expect(body.id).toBe('init-1');
@@ -679,7 +679,7 @@ describe('createMcpHandler — user-land routing with isLegacyRequest (replaces 
                 request: () => postRequest({ jsonrpc: '2.0', id: 5, method: 'server/discover', params: { _meta: ENVELOPE } })
             },
             {
-                name: 'envelope claiming an unsupported revision (modern path answers -32004)',
+                name: 'envelope claiming an unsupported revision (modern path answers -32022)',
                 request: () =>
                     postRequest(modernToolsCall('echo', { text: 'x' }, { ...ENVELOPE, [PROTOCOL_VERSION_META_KEY]: '2030-01-01' }))
             },
@@ -696,7 +696,7 @@ describe('createMcpHandler — user-land routing with isLegacyRequest (replaces 
                     )
             },
             {
-                name: 'header/body mismatch (modern path answers -32001)',
+                name: 'header/body mismatch (modern path answers -32020)',
                 request: () => postRequest(modernToolsCall('echo', { text: 'x' }), { 'mcp-protocol-version': '2025-11-25' })
             }
         ];

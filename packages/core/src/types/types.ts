@@ -753,7 +753,7 @@ export interface InternalError extends JSONRPCErrorObject {
 }
 
 /**
- * Data carried by a `-32003` MissingRequiredClientCapability protocol error
+ * Data carried by a `-32021` MissingRequiredClientCapability protocol error
  * (protocol revision 2026-07-28).
  */
 export interface MissingRequiredClientCapabilityErrorData {
@@ -766,7 +766,7 @@ export interface MissingRequiredClientCapabilityErrorData {
 }
 
 /**
- * Data carried by a `-32004` UnsupportedProtocolVersion protocol error
+ * Data carried by a `-32022` UnsupportedProtocolVersion protocol error
  * (protocol revision 2026-07-28).
  */
 export interface UnsupportedProtocolVersionErrorData {

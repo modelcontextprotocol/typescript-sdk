@@ -2773,7 +2773,7 @@ export const REQUIREMENTS: Record<string, Requirement> = {
     'typescript:mrtr:url-elicitation:no-32042-on-2026': {
         source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/mrtr',
         behavior:
-            'URL-mode elicitation rides the multi-round-trip flow on the 2026-07-28 era: a tool handler that returns inputRequired.elicitUrl(...) embeds a URL-mode elicitation/create in an input_required result (capability-gated by -32003 on elicitation.url), the registered elicitation handler fulfils it, the retried call completes, and the urlElicitationRequired error code (-32042) never appears on the wire.',
+            'URL-mode elicitation rides the multi-round-trip flow on the 2026-07-28 era: a tool handler that returns inputRequired.elicitUrl(...) embeds a URL-mode elicitation/create in an input_required result (capability-gated by -32021 on elicitation.url), the registered elicitation handler fulfils it, the retried call completes, and the urlElicitationRequired error code (-32042) never appears on the wire.',
         addedInSpecVersion: '2026-07-28',
         transports: ['entryModern'],
         supersedes: ['mcpserver:tool:url-elicitation-error', 'elicitation:url:required-error'],

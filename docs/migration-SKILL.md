@@ -124,7 +124,7 @@ Three error classes now exist:
 | Session termination failed        | `StreamableHTTPError`                        | `SdkHttpError` with `SdkErrorCode.ClientHttpFailedToTerminateSession` |
 | Response result fails schema      | `ZodError` (raw)                             | `SdkError` with `SdkErrorCode.InvalidResult`                          |
 
-**Modern-era exception** to the `SdkHttpError` rows above: on a modern-enveloped (2026-07-28) Streamable HTTP request, an HTTP `400` whose body is a well-formed JSON-RPC error response addressed to the pending request id is delivered in-band as a `ProtocolError` (e.g. `-32001`
+**Modern-era exception** to the `SdkHttpError` rows above: on a modern-enveloped (2026-07-28) Streamable HTTP request, an HTTP `400` whose body is a well-formed JSON-RPC error response addressed to the pending request id is delivered in-band as a `ProtocolError` (e.g. `-32020`
 HeaderMismatch from a SEP-2243 `Mcp-Param-*` rejection), not as `SdkHttpError`. Legacy-era exchanges and generic HTTP failures are unchanged.
 
 New `SdkErrorCode` enum values:
@@ -179,7 +179,7 @@ if (error instanceof SdkHttpError) {
 }
 // Modern-era (2026-07-28) only: a 400 carrying a JSON-RPC error body addressed
 // to the pending request id surfaces as ProtocolError, NOT SdkHttpError — e.g.
-// a SEP-2243 -32001 HeaderMismatch from createMcpHandler. Legacy-era 400s and
+// a SEP-2243 -32020 HeaderMismatch from createMcpHandler. Legacy-era 400s and
 // generic HTTP failures still map to SdkHttpError above.
 if (error instanceof ProtocolError) {
     console.log('In-band JSON-RPC error:', error.code);
@@ -590,6 +590,8 @@ No code changes required; these are wire-behavior notes:
   longer enable it. Behavior for all currently supported protocol versions is unchanged.
 - Session-ID mismatch still responds `404 Not Found` with JSON-RPC error code `-32001` (`Session not found`), unchanged from v1. This `-32001` usage is an SDK convention, not a spec-assigned code, and may be re-derived as 2026 protocol revision error handling is adopted —
   migrated client code should key off the HTTP `404` status, not the `-32001` code.
+- The 2026-07-28 draft error codes were renumbered between v2 alphas: `HeaderMismatch` `-32001`→`-32020`, `MissingRequiredClientCapability` `-32003`→`-32021`, `UnsupportedProtocolVersion` `-32004`→`-32022`. No v1.x→v2 impact (these codes never existed in v1); v2-alpha code that
+  hard-coded the old literals must update — prefer `ProtocolErrorCode.*` / `HEADER_MISMATCH_ERROR_CODE`.
 
 ### Server (deprecated accessors and app-factory Origin validation)
 
@@ -611,7 +613,7 @@ New in 2.0 — v1 has no equivalent API. How v1 Streamable HTTP hosting maps ont
 - An existing sessionful v1 Streamable HTTP setup (a `StreamableHTTPServerTransport` wiring with session IDs) keeps serving 2025 clients by routing in user land in front of a strict entry:
   `if (await isLegacyRequest(request)) return myExistingLegacyHandler(request); return strictHandler.fetch(request)` where `strictHandler = createMcpHandler(factory, { legacy: 'reject' })`.
 - `isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean>` from `@modelcontextprotocol/server` is the entry's own classification step. Returns `true` only for requests with no per-request `_meta` envelope claim (claim-less POSTs including `initialize`,
-  GET/DELETE session operations, all-legacy batches, posted responses, non-JSON bodies). Returns `false` for envelope-claiming requests AND for malformed/incomplete modern claims (the modern path answers those with `-32602`/`-32001`) — route `false` traffic to the modern handler,
+  GET/DELETE session operations, all-legacy batches, posted responses, non-JSON bodies). Returns `false` for envelope-claiming requests AND for malformed/incomplete modern claims (the modern path answers those with `-32602`/`-32020`) — route `false` traffic to the modern handler,
   never to a legacy handler. The predicate classifies a clone (the body stays readable); pass the parsed body as the second argument when the stream was already consumed.
 - `legacyStatelessFallback(factory)` is exported as a standalone fetch-shaped handler producing the same stateless legacy serving as the default.
 - The handler is web-standards-only (`{ fetch, close, notify, bus }`). On Workers / Bun / Deno, `export default handler` works directly. On Node frameworks (Express, Fastify, plain `node:http`), wrap once with `toNodeHandler(handler, { onerror? })` from
