@@ -182,10 +182,32 @@ verifies('resources:read:unknown-uri', async ({ transport }: TestArgs) => {
     const client = newClient();
     await using _ = await wire(transport, makeServer, client);
 
-    await expect(client.readResource({ uri: 'file:///no-such-resource' })).rejects.toMatchObject({
-        code: -32_002,
-        message: expect.stringMatching(/not found|unknown/i)
-    });
+    let received: ProtocolError | undefined;
+    try {
+        const result = await client.readResource({ uri: 'file:///no-such-resource' });
+        // MUST-NOT rider: never an empty contents array for a non-existent resource.
+        expect(result.contents).not.toEqual([]);
+    } catch (error) {
+        received = error as ProtocolError;
+    }
+    expect(received).toBeDefined();
+
+    // The wire code is −32602 on every protocol revision (the encode seam owns
+    // the −32002 → −32602 mapping), with `data.uri` echoing the requested URI.
+    expect(received!.code).toBe(-32_602);
+    expect(received!.message).toMatch(/not found/i);
+    expect(received!.data).toEqual({ uri: 'file:///no-such-resource' });
+
+    // The cross-bundle data-parse recognizer reconstructs the typed error
+    // from code + structurally valid data (no `instanceof` across bundles).
+    // It accepts BOTH −32602 and the legacy −32002; the duck shape is `data.uri`.
+    const recognised = ProtocolError.fromError(received!.code, received!.message, received!.data);
+    expect((recognised as { uri?: string }).uri).toBe('file:///no-such-resource');
+    const legacy = ProtocolError.fromError(-32_002, 'Resource not found', { uri: 'file:///x' });
+    expect((legacy as { uri?: string }).uri).toBe('file:///x');
+    // ProtocolErrorCode.ResourceNotFound (−32002) stays importable as legacy
+    // receive-tolerated vocabulary.
+    expect(ProtocolErrorCode.ResourceNotFound).toBe(-32_002);
 });
 
 verifies('resources:read:template-vars', async ({ transport }: TestArgs) => {

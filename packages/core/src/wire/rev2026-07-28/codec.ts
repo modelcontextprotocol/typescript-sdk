@@ -203,6 +203,10 @@ export const rev2026Codec: WireCodec = {
         return fillCacheFields(method, stampResultType(method, enforceDeletedFields(method, result)));
     },
 
+    // The −32002 resource-not-found domain code maps to −32602 Invalid Params
+    // on the wire (the 2026-07-28 spec MUST for resources/read misses).
+    encodeErrorCode: (code: number): number => (code === -32_002 ? -32_602 : code),
+
     checkInboundEnvelope(material: LiftedWireMaterial): string | undefined {
         if (material.envelope === undefined) {
             return (

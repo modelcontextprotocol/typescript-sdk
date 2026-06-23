@@ -68,6 +68,12 @@ export const rev2025Codec: WireCodec = {
     // The never-stamp guarantee: identity. No stamp code path exists.
     encodeResult: (_method: string, result: Result): Result => result,
 
+    // The −32002 resource-not-found domain code maps to −32602 on the wire on
+    // this era too (matching what the deployed v1.x SDK already emits — this
+    // is not a behavior change for v1.x peers). There is deliberately no era
+    // branch that preserves −32002.
+    encodeErrorCode: (code: number): number => (code === -32_002 ? -32_602 : code),
+
     // The 2025 era never requires a per-request envelope.
     checkInboundEnvelope: (_material: LiftedWireMaterial): string | undefined => undefined
 };

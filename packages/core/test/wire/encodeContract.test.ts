@@ -26,6 +26,7 @@ import {
 } from '../../src/shared/resultCacheHints.js';
 import { ProtocolError } from '../../src/types/errors.js';
 import type { Result } from '../../src/types/types.js';
+import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec.js';
 import { rev2026Codec } from '../../src/wire/rev2026-07-28/codec.js';
 import {
     DEFAULT_CACHE_SCOPE,
@@ -197,5 +198,20 @@ describe('the codec integration (encodeResult applies the contract in pinned ord
 
     test('a stray input_required from a non-multi-round-trip handler throws out of encodeResult (answered as an internal error upstream)', () => {
         expect(() => rev2026Codec.encodeResult('tools/list', asResult({ resultType: 'input_required' }))).toThrowError(ProtocolError);
+    });
+});
+
+describe('the error half of the encode seam — encodeErrorCode', () => {
+    test('the -32002 resource-not-found domain code maps to -32602 on BOTH eras (flat; no era branch preserves -32002)', () => {
+        // The seam owns wire-code selection; both era codecs select -32602.
+        expect(rev2026Codec.encodeErrorCode(-32_002)).toBe(-32_602);
+        expect(rev2025Codec.encodeErrorCode(-32_002)).toBe(-32_602);
+    });
+
+    test('every other code passes through identically on both eras', () => {
+        for (const code of [-32_700, -32_600, -32_601, -32_602, -32_603, -32_000, -32_001, -32_003, -32_004, -32_042, -1, 0]) {
+            expect(rev2026Codec.encodeErrorCode(code)).toBe(code);
+            expect(rev2025Codec.encodeErrorCode(code)).toBe(code);
+        }
     });
 });

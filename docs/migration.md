@@ -1305,6 +1305,31 @@ identifiers from rejections. See `examples/mrtr/server.ts` for a worked end-to-e
 keep returning their plain result types — the interactive rounds happen inside the call, and a registered handler written for the 2025 flow keeps working unchanged. Configure or opt out via `ClientOptions.inputRequired` (`{ autoFulfill: false }`), drive the flow manually per call
 with the `allowInputRequired: true` request option plus the `withInputRequired()` schema wrapper, and expect the typed `InputRequiredRoundsExceeded` error when the round cap is exhausted. 2025-era connections are unaffected (the legacy wire has no `input_required` vocabulary).
 
+### Resource not found is `-32602` on every revision; typed `ResourceNotFoundError`
+
+`resources/read` for an unknown URI now answers with JSON-RPC error code **`-32602` (Invalid Params)** on every protocol revision, with `error.data.uri` echoing the requested URI. The 2026-07-28 specification requires `-32602`; the v1.x SDK already emitted `-32602` on earlier
+revisions, so v1.x peers see no change. An interim `-32002` emission that shipped in earlier v2 alphas is reverted: the era encode seam maps any handler-thrown `-32002` to `-32602` on the wire; note that a `-32002` thrown without `data.uri` is emitted as a bare `-32602` and is no longer recognizable as resource-not-found — throw `ResourceNotFoundError` (or include `data: { uri }`) to preserve the classification.
+
+`ProtocolErrorCode.ResourceNotFound` (`-32002`) **remains importable** as receive-tolerated vocabulary: clients should accept both `-32602` and `-32002` from peers (the specification's backwards-compatibility clause). The new typed `ResourceNotFoundError` class carries the URI on
+`.uri`, and `ProtocolError.fromError` reconstructs it from a `-32602` only when `error.data` is exactly `{ uri: string }` (and nothing else), and from a legacy `-32002` whenever `data.uri` is a string (a bare `-32002` without `data.uri` stays a generic `ProtocolError`) — recognize peers' errors by their code and `error.data`, not by `instanceof`, which does not survive
+bundling. Servers must not return an empty `contents` array for a non-existent resource (an empty array is ambiguous between "exists but empty" and "does not exist").
+
+```typescript
+import { ProtocolError, ResourceNotFoundError } from '@modelcontextprotocol/client';
+
+try {
+    await client.readResource({ uri: 'file:///nope' });
+} catch (error) {
+    // fromError reconstructs the typed class from code + data alone, so this
+    // works even when `error` crossed a bundle boundary and `instanceof` on
+    // the thrown object would not match.
+    const e = error as ProtocolError;
+    if (ProtocolError.fromError(e.code, e.message, e.data) instanceof ResourceNotFoundError) {
+        console.log('not found:', (e.data as { uri: string }).uri);
+    }
+}
+```
+
 ### Typed `-32003` missing-client-capability error
 
 `MissingRequiredClientCapabilityError` is the typed error class for the 2026-07-28 `-32003` protocol error: processing a request requires a capability the client did not declare in the request's `clientCapabilities`. Its `data.requiredCapabilities` lists the missing capabilities,
@@ -1412,6 +1437,22 @@ If you import from one of these subpaths in your own code, the corresponding pee
 subpath in some files and rely on the default in others.
 
 To replace validation wholesale rather than customizing the built-in classes, implement the `jsonSchemaValidator` interface and pass your own implementation through the option above.
+
+## Specification clarifications adopted (no SDK behavior change)
+
+The 2026-07-28 specification revision includes a number of documentation-only clarifications that do not change SDK wire behavior or public surface. They are recorded here so an audit of the revision's changelog against this guide is complete; nothing in this section requires
+code changes.
+
+- **Timeouts** — the specification's per-operation timeout guidance section was removed; the SDK's `RequestOptions.timeout` and `DEFAULT_REQUEST_TIMEOUT_MSEC` are unchanged.
+- **stdio shutdown** — the specification clarifies stdio shutdown/termination wording; `StdioServerTransport`/`StdioClientTransport` close semantics are unchanged.
+- **Transports as bindings** — the specification reframes transports as bindings of one protocol; the SDK's `Transport` interface is unchanged.
+- **`resources/read` clarifications** — wording-only; behavior unchanged. The `file://` path-sanitization MUST is server-author guidance: a resource handler that resolves `file://` URIs to real paths is responsible for rejecting traversal (`..`) and symlink escapes itself — the SDK does not interpose on the path.
+- **`PromptMessage` resource links** — `ContentBlock` already includes `ResourceLink` on every revision; no change.
+- **Completion `ref/resource` URI templates** — documentation alignment; the SDK's `completion/complete` handling is unchanged.
+- **Pagination cursors** — the specification clarifies that an empty-string cursor is a valid opaque cursor; the SDK already passes `cursor` through verbatim (it is `z.string().optional()`).
+- **Sampling** — documentation of host requirements; no SDK surface change.
+- **Elicitation** — the specification relaxes elicitation statefulness wording and removes a rate-limiting SHOULD; no SDK surface change.
+- **Cosmetic schema/JSDoc sweeps** — phrasing alignment with the draft specification; the per-revision generated reference types remain pinned to the specification anchor.
 
 ## Unchanged APIs
 

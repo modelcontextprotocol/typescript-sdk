@@ -1699,6 +1699,12 @@ export async function fetchToken(
  * If `scope` is provided, it overrides `clientMetadata.scope` in the registration
  * request body. This allows callers to apply the Scope Selection Strategy (SEP-835)
  * consistently across both DCR and the subsequent authorization request.
+ *
+ * @deprecated Dynamic Client Registration is deprecated as of protocol version
+ * 2026-07-28 (SEP-2577) in favor of Client ID Metadata Documents (SEP-991).
+ * Remains functional during the deprecation window (at least twelve months).
+ * Prefer a CIMD URL `client_id` when the authorization server advertises
+ * `client_id_metadata_document_supported`; the SDK already gates on this for you.
  */
 export async function registerClient(
     authorizationServerUrl: string | URL,

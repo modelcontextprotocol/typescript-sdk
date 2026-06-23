@@ -1129,6 +1129,10 @@ export const AudioContentSchema = z.object({
 /**
  * A tool call request from an assistant (LLM).
  * Represents the assistant's request to use a tool.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const ToolUseContentSchema = z.object({
     type: z.literal('tool_use'),
@@ -1455,11 +1459,19 @@ export const ListChangedOptionsBaseSchema = z.object({
 /* Logging */
 /**
  * The severity of a log message.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
  */
 export const LoggingLevelSchema = z.enum(['debug', 'info', 'notice', 'warning', 'error', 'critical', 'alert', 'emergency']);
 
 /**
  * Parameters for a `logging/setLevel` request.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
  */
 export const SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
     /**
@@ -1469,6 +1481,10 @@ export const SetLevelRequestParamsSchema = BaseRequestParamsSchema.extend({
 });
 /**
  * A request from the client to the server, to enable or adjust logging.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
  */
 export const SetLevelRequestSchema = RequestSchema.extend({
     method: z.literal('logging/setLevel'),
@@ -1477,6 +1493,10 @@ export const SetLevelRequestSchema = RequestSchema.extend({
 
 /**
  * Parameters for a `notifications/message` notification.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
  */
 export const LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.extend({
     /**
@@ -1494,6 +1514,10 @@ export const LoggingMessageNotificationParamsSchema = NotificationsParamsSchema.
 });
 /**
  * Notification of a log message passed from server to client. If no `logging/setLevel` request has been sent from the client, the server MAY decide which messages to send automatically.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
  */
 export const LoggingMessageNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/message'),
@@ -1503,6 +1527,10 @@ export const LoggingMessageNotificationSchema = NotificationSchema.extend({
 /* Sampling */
 /**
  * Hints to use for model selection.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const ModelHintSchema = z.object({
     /**
@@ -1513,6 +1541,10 @@ export const ModelHintSchema = z.object({
 
 /**
  * The server's preferences for model selection, requested of the client during sampling.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const ModelPreferencesSchema = z.object({
     /**
@@ -1535,6 +1567,10 @@ export const ModelPreferencesSchema = z.object({
 
 /**
  * Controls tool usage behavior in sampling requests.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const ToolChoiceSchema = z.object({
     /**
@@ -1549,6 +1585,10 @@ export const ToolChoiceSchema = z.object({
 /**
  * The result of a tool execution, provided by the user (server).
  * Represents the outcome of invoking a tool requested via `ToolUseContent`.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const ToolResultContentSchema = z.object({
     type: z.literal('tool_result'),
@@ -1567,12 +1607,20 @@ export const ToolResultContentSchema = z.object({
 /**
  * Basic content types for sampling responses (without tool use).
  * Used for backwards-compatible {@linkcode CreateMessageResult} when tools are not used.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const SamplingContentSchema = z.discriminatedUnion('type', [TextContentSchema, ImageContentSchema, AudioContentSchema]);
 
 /**
  * Content block types allowed in sampling messages.
  * This includes text, image, audio, tool use requests, and tool results.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
     TextContentSchema,
@@ -1584,6 +1632,10 @@ export const SamplingMessageContentBlockSchema = z.discriminatedUnion('type', [
 
 /**
  * Describes a message issued to or received from an LLM API.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const SamplingMessageSchema = z.object({
     role: RoleSchema,
@@ -1597,6 +1649,10 @@ export const SamplingMessageSchema = z.object({
 
 /**
  * Parameters for a `sampling/createMessage` request.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema.extend({
     messages: z.array(SamplingMessageSchema),
@@ -1612,8 +1668,12 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
      * A request to include context from one or more MCP servers (including the caller), to be attached to the prompt.
      * The client MAY ignore this request.
      *
-     * Default is `"none"`. Values `"thisServer"` and `"allServers"` are soft-deprecated. Servers SHOULD only use these values if the client
-     * declares `ClientCapabilities`.`sampling.context`. These values may be removed in future spec releases.
+     * Default is `"none"`. The values `"thisServer"` and `"allServers"` are deprecated (SEP-2596): servers SHOULD
+     * omit this field or use `"none"`, and SHOULD only use the deprecated values if the client declares
+     * `ClientCapabilities`.`sampling.context`.
+     *
+     * @deprecated The `"thisServer"` and `"allServers"` values are deprecated as of protocol version 2025-11-25
+     * (SEP-2596) and will be removed no later than the Sampling feature itself (SEP-2577). Omit this field or use `"none"`.
      */
     includeContext: z.enum(['none', 'thisServer', 'allServers']).optional(),
     temperature: z.number().optional(),
@@ -1642,6 +1702,10 @@ export const CreateMessageRequestParamsSchema = TaskAugmentedRequestParamsSchema
 });
 /**
  * A request from the server to sample an LLM via the client. The client has full discretion over which model to select. The client should also inform the user before beginning sampling, to allow them to inspect the request (human in the loop) and decide whether to approve it.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const CreateMessageRequestSchema = RequestSchema.extend({
     method: z.literal('sampling/createMessage'),
@@ -1652,6 +1716,10 @@ export const CreateMessageRequestSchema = RequestSchema.extend({
  * The client's response to a `sampling/create_message` request from the server.
  * This is the backwards-compatible version that returns single content (no arrays).
  * Used when the request does not include tools.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const CreateMessageResultSchema = ResultSchema.extend({
     /**
@@ -1679,6 +1747,10 @@ export const CreateMessageResultSchema = ResultSchema.extend({
 /**
  * The client's response to a `sampling/create_message` request when tools were provided.
  * This version supports array content for tool use flows.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export const CreateMessageResultWithToolsSchema = ResultSchema.extend({
     /**
@@ -2025,6 +2097,10 @@ export const CompleteResultSchema = ResultSchema.extend({
 /* Roots */
 /**
  * Represents a root directory or file that the server can operate on.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
  */
 export const RootSchema = z.object({
     /**
@@ -2045,6 +2121,10 @@ export const RootSchema = z.object({
 
 /**
  * Sent from the server to request a list of root URIs from the client.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
  */
 export const ListRootsRequestSchema = RequestSchema.extend({
     method: z.literal('roots/list'),
@@ -2053,6 +2133,10 @@ export const ListRootsRequestSchema = RequestSchema.extend({
 
 /**
  * The client's response to a `roots/list` request from the server.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
  */
 export const ListRootsResultSchema = ResultSchema.extend({
     roots: z.array(RootSchema)
@@ -2060,6 +2144,10 @@ export const ListRootsResultSchema = ResultSchema.extend({
 
 /**
  * A notification from the client to the server, informing it that the list of roots has changed.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
  */
 export const RootsListChangedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/roots/list_changed'),

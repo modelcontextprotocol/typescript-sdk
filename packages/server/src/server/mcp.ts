@@ -37,6 +37,7 @@ import {
     promptArgumentsFromStandardSchema,
     ProtocolError,
     ProtocolErrorCode,
+    ResourceNotFoundError,
     scanXMcpHeaderDeclarations,
     standardSchemaToJsonSchema,
     UriTemplate,
@@ -483,7 +484,10 @@ export class McpServer {
                 }
             }
 
-            throw new ProtocolError(ProtocolErrorCode.ResourceNotFound, `Resource ${uri} not found`);
+            // Domain layer throws one neutral resource-not-found error; the
+            // era-aware encode seam (WireCodec.encodeErrorCode) selects the
+            // wire code (−32602 on every era).
+            throw new ResourceNotFoundError(request.params.uri);
         });
 
         this._resourceHandlersInitialized = true;

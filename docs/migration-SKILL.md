@@ -584,6 +584,8 @@ into the same routing.
 
 No code changes required; these are wire-behavior notes:
 
+- `resources/read` for an unknown URI answers JSON-RPC error code `-32602` (Invalid Params) on every protocol revision, with `error.data.uri` echoing the requested URI. Earlier v2 alphas emitted `-32002`; v1.x already emitted `-32602`, so v1.x peers see no change. Throw the typed
+  `ResourceNotFoundError` from a custom resource handler; a handler-thrown `-32002` is still mapped to `-32602` on the wire by the encode seam. Clients accept both codes; `ProtocolErrorCode.ResourceNotFound` (`-32002`) stays importable as receive-tolerated vocabulary.
 - Resumability behavior (SSE priming events, `closeSSEStream` / `closeStandaloneSSEStream` callbacks) is only enabled for protocol versions in the transport's supported-versions list that are `>= 2025-11-25`. Unknown future version strings in an `initialize` request body no
   longer enable it. Behavior for all currently supported protocol versions is unchanged.
 - Session-ID mismatch still responds `404 Not Found` with JSON-RPC error code `-32001` (`Session not found`), unchanged from v1. This `-32001` usage is an SDK convention, not a spec-assigned code, and may be re-derived as 2026 protocol revision error handling is adopted —
