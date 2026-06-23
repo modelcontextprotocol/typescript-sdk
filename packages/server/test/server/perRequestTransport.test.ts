@@ -171,7 +171,9 @@ describe('HTTP status mapping', () => {
         const transport = await connectedTransport(server);
         const response = await transport.handleMessage(toolsCall());
         expect(response.status).toBe(200);
-        expect(errorOf(await response.json())).toMatchObject({ code: -32_002, message: 'resource missing' });
+        // The encode seam maps −32002 → −32602 on the wire; what this test
+        // pins is that the error stays IN-BAND on HTTP 200.
+        expect(errorOf(await response.json())).toMatchObject({ code: -32_602, message: 'resource missing' });
     });
 
     it('keeps a handler-thrown method-not-found error in-band on HTTP 200 (the status table is origin-keyed)', async () => {

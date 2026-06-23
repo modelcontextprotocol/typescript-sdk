@@ -2728,8 +2728,12 @@ describe('Zod v4', () => {
                     }
                 })
             ).rejects.toMatchObject({
-                code: ProtocolErrorCode.ResourceNotFound,
-                message: expect.stringContaining('not found')
+                // SEP-2164: resources/read miss is −32602 Invalid Params on the wire
+                // (every protocol revision); the encode seam maps a handler-thrown
+                // −32002 to −32602, and `data.uri` echoes the requested URI.
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringMatching(/not found/i),
+                data: { uri: 'test://nonexistent' }
             });
         });
 

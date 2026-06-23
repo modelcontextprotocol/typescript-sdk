@@ -374,7 +374,17 @@ export type GetPromptRequest = Infer<typeof GetPromptRequestSchema>;
 export type TextContent = Infer<typeof TextContentSchema>;
 export type ImageContent = Infer<typeof ImageContentSchema>;
 export type AudioContent = Infer<typeof AudioContentSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type ToolUseContent = Infer<typeof ToolUseContentSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type ToolResultContent = Infer<typeof ToolResultContentSchema>;
 export type EmbeddedResource = Infer<typeof EmbeddedResourceSchema>;
 export type ResourceLink = Infer<typeof ResourceLinkSchema>;
@@ -396,22 +406,97 @@ export type CallToolRequest = Infer<typeof CallToolRequestSchema>;
 export type ToolListChangedNotification = Infer<typeof ToolListChangedNotificationSchema>;
 
 /* Logging */
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export type LoggingLevel = Infer<typeof LoggingLevelSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export type SetLevelRequestParams = Infer<typeof SetLevelRequestParamsSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export type SetLevelRequest = Infer<typeof SetLevelRequestSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export type LoggingMessageNotificationParams = Infer<typeof LoggingMessageNotificationParamsSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to stderr logging
+ * (STDIO servers) or OpenTelemetry.
+ */
 export type LoggingMessageNotification = Infer<typeof LoggingMessageNotificationSchema>;
 
 /* Sampling */
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type ToolChoice = Infer<typeof ToolChoiceSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type ModelHint = Infer<typeof ModelHintSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type ModelPreferences = Infer<typeof ModelPreferencesSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type SamplingContent = Infer<typeof SamplingContentSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type SamplingMessageContentBlock = Infer<typeof SamplingMessageContentBlockSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type SamplingMessage = Infer<typeof SamplingMessageSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type CreateMessageRequestParams = Infer<typeof CreateMessageRequestParamsSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type CreateMessageRequest = Infer<typeof CreateMessageRequestSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type CreateMessageResult = StripWireOnly<Infer<typeof CreateMessageResultSchema>>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
+ */
 export type CreateMessageResultWithTools = StripWireOnly<Infer<typeof CreateMessageResultWithToolsSchema>>;
 
 /* Elicitation */
@@ -443,9 +528,29 @@ export type CompleteRequest = Infer<typeof CompleteRequestSchema>;
 export type CompleteResult = StripWireOnly<Infer<typeof CompleteResultSchema>>;
 
 /* Roots */
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export type Root = Infer<typeof RootSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export type ListRootsRequest = Infer<typeof ListRootsRequestSchema>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export type ListRootsResult = StripWireOnly<Infer<typeof ListRootsResultSchema>>;
+/**
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to passing paths via
+ * tool parameters, resource URIs, or configuration.
+ */
 export type RootsListChangedNotification = Infer<typeof RootsListChangedNotificationSchema>;
 
 /* Multi round-trip requests (protocol revision 2026-07-28)
@@ -796,11 +901,19 @@ export type RequestMetaObject = RequestMeta;
 /**
  * {@linkcode CreateMessageRequestParams} without tools - for backwards-compatible overload.
  * Excludes tools/toolChoice to indicate they should not be provided.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export type CreateMessageRequestParamsBase = Omit<CreateMessageRequestParams, 'tools' | 'toolChoice'>;
 
 /**
  * {@linkcode CreateMessageRequestParams} with required tools - for tool-enabled overload.
+ *
+ * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+ * in the specification for at least twelve months. Migrate to calling LLM
+ * provider APIs directly.
  */
 export interface CreateMessageRequestParamsWithTools extends CreateMessageRequestParams {
     tools: Tool[];

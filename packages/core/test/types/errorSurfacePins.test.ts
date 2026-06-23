@@ -25,6 +25,7 @@ import {
     ProtocolError,
     ProtocolErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS,
+    ResourceNotFoundError,
     UnsupportedProtocolVersionError,
     UrlElicitationRequiredError
 } from '../../src/types/index.js';
@@ -121,6 +122,44 @@ describe('ProtocolError', () => {
         const generic = ProtocolError.fromError(-32004, 'unsupported', { wrong: 'shape' });
         expect(generic).toBeInstanceOf(ProtocolError);
         expect(generic).not.toBeInstanceOf(UnsupportedProtocolVersionError);
+    });
+
+    test('fromError accepts BOTH -32602 and -32002 as resource-not-found by data.uri shape', () => {
+        // Cross-bundle data-parse contract: the typed ResourceNotFoundError is
+        // recognised by `data.uri` being a string on either the spec-mandated
+        // -32602 or the legacy -32002 (the spec's "clients SHOULD also accept
+        // -32002" backwards-compatibility clause). The recognition input is the
+        // bare wire shape — no instanceof on the inbound value.
+        const onSpecCode = ProtocolError.fromError(-32602, 'Resource not found: file:///x', { uri: 'file:///x' });
+        expect(onSpecCode).toBeInstanceOf(ResourceNotFoundError);
+        expect((onSpecCode as ResourceNotFoundError).uri).toBe('file:///x');
+        expect(onSpecCode.code).toBe(-32602);
+
+        const onLegacyCode = ProtocolError.fromError(-32002, 'Resource not found', { uri: 'mem://y' });
+        expect(onLegacyCode).toBeInstanceOf(ResourceNotFoundError);
+        expect((onLegacyCode as ResourceNotFoundError).uri).toBe('mem://y');
+
+        // -32602 without `data.uri` is an ordinary Invalid Params, not resource-not-found.
+        const plainInvalid = ProtocolError.fromError(-32602, 'Invalid params', { something: 'else' });
+        expect(plainInvalid).not.toBeInstanceOf(ResourceNotFoundError);
+        expect(plainInvalid.code).toBe(-32602);
+    });
+
+    test('fromError does NOT reclassify -32602 as ResourceNotFoundError when data carries uri alongside other keys', () => {
+        // A server's own Invalid Params with `data.uri` (e.g. a "uri must be
+        // https" validation error) is NOT a resource-not-found. The discriminator
+        // on -32602 is "exactly { uri } and nothing else".
+        const validationError = ProtocolError.fromError(-32602, 'uri must be https', {
+            uri: 'http://example/x',
+            reason: 'uri must be https'
+        });
+        expect(validationError).not.toBeInstanceOf(ResourceNotFoundError);
+        expect(validationError).toBeInstanceOf(ProtocolError);
+        expect(validationError.code).toBe(-32602);
+        // -32002 is still recognised on `data.uri` regardless of extra keys —
+        // the legacy code is itself the discriminator.
+        const legacyWithExtra = ProtocolError.fromError(-32002, 'Resource not found', { uri: 'mem://y', extra: 1 });
+        expect(legacyWithExtra).toBeInstanceOf(ResourceNotFoundError);
     });
 });
 

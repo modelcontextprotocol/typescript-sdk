@@ -69,7 +69,3 @@ server:
     # checks; it fails identically at 2025 in `--suite all` (not a 2026-path
     # regression).
     - json-schema-2020-12
-    # SEP-2164: server returns -32002 without the requested URI in error.data
-    # (WARNING-only; the expected-failures evaluator counts WARNINGs as
-    # failures). Same failure as in the 2025 baseline.
-    - sep-2164-resource-not-found

@@ -101,6 +101,7 @@ export { ProtocolErrorCode } from '../../types/enums.js';
 export {
     MissingRequiredClientCapabilityError,
     ProtocolError,
+    ResourceNotFoundError,
     UnsupportedProtocolVersionError,
     UrlElicitationRequiredError
 } from '../../types/errors.js';

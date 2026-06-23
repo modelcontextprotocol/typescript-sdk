@@ -362,6 +362,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#user-interaction-model',
         behavior: "A tool handler that issues an elicitation receives the client's result and can embed it in the tool call result.",
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'elicitation:mrtr:form:basic',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'tools:call:is-error': {
@@ -389,6 +391,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/sampling',
         behavior:
             "A tool handler that issues a sampling request receives the client's completion and can embed it in the tool call result.",
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'sampling:mrtr:create:basic',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'tools:call:structured-content': {
@@ -435,6 +439,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/tools#list-changed-notification',
         behavior: "When the tool set changes, the server sends notifications/tools/list_changed and it reaches the client's handler.",
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'tools:listen:list-changed',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'tools:list:basic': {
@@ -571,6 +577,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#list-changed-notification',
         behavior:
             "When the resource set changes, the server sends notifications/resources/list_changed and it reaches the client's handler.",
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'resources:listen:list-changed',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'resources:list:basic': {
@@ -595,8 +603,9 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior: 'resources/read returns text contents carrying uri, mimeType, and the text.'
     },
     'resources:read:unknown-uri': {
-        source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/resources#error-handling',
-        behavior: 'resources/read for an unknown URI returns JSON-RPC error -32002 (resource not found).'
+        source: 'https://modelcontextprotocol.io/specification/draft/server/resources#error-handling',
+        behavior:
+            'resources/read for an unknown URI returns JSON-RPC error -32602 (Invalid Params) with data.uri echoing the requested URI; clients also recognise -32002 from older peers. Servers do not return an empty contents array for a non-existent resource.'
     },
     'resources:subscribe:capability-required': {
         entryExclusions: [{ arm: 'entryModern', reason: 'method-not-in-modern-registry' }],
@@ -700,6 +709,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/server/prompts#list-changed-notification',
         behavior: "When the prompt set changes, the server sends notifications/prompts/list_changed and it reaches the client's handler.",
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'prompts:listen:list-changed',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'prompts:list:basic': {
@@ -849,12 +860,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/sampling#creating-messages',
         behavior:
             "A sampling/createMessage request from a server handler is answered by the client's sampling callback, and the callback's result (role, content, model, stopReason) is returned to the handler.",
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'sampling:mrtr:create:basic',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'sampling:create:include-context': {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/sampling#capabilities',
         behavior: 'The includeContext value supplied by the server reaches the client callback intact.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'sampling:mrtr:create:include-context',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'sampling:create:model-preferences': {
@@ -862,12 +877,16 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/sampling#model-preferences',
         behavior:
             'The model preferences supplied by the server (hints and the cost, speed, and intelligence priorities) reach the client callback intact.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'sampling:mrtr:create:model-preferences',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'sampling:create:system-prompt': {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/sampling#creating-messages',
         behavior: 'The system prompt supplied by the server reaches the client callback intact.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'sampling:mrtr:create:system-prompt',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'sampling:create:tools': {
@@ -986,18 +1005,24 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#response-actions',
         behavior: "A form-mode elicitation answered with action 'accept' returns the user's content to the requesting handler.",
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'elicitation:mrtr:form:basic',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'elicitation:form:action:cancel': {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#response-actions',
         behavior: "A form-mode elicitation answered with action 'cancel' returns no content to the handler.",
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'elicitation:mrtr:form:action:cancel',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'elicitation:form:action:decline': {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#response-actions',
         behavior: "A form-mode elicitation answered with action 'decline' returns no content to the handler.",
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'elicitation:mrtr:form:action:decline',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'elicitation:form:basic': {
@@ -1005,6 +1030,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#form-mode-elicitation-requests',
         behavior:
             'A form-mode elicitation delivers the message and requested schema to the client callback exactly as the server sent them.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'elicitation:mrtr:form:basic',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'elicitation:form:defaults': {
@@ -1029,6 +1056,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: STATEFUL_TRANSPORTS,
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/elicitation#requested-schema',
         behavior: 'Requested-schema fields may be string (with format), number or integer, or boolean.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'elicitation:mrtr:form:schema:primitives',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'elicitation:url:action:accept-no-content': {
@@ -1113,6 +1142,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/roots#listing-roots',
         behavior:
             "A roots/list request from a server handler is answered by the client's roots callback, and the returned roots (uri, name) reach the handler.",
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'roots:mrtr:list:basic',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'roots:list:client-error': {
@@ -1131,6 +1162,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'https://modelcontextprotocol.io/specification/2025-11-25/client/roots#listing-roots',
         behavior: 'An empty roots list is a valid response and reaches the handler as such.',
         transports: ['inMemory', 'stdio', 'streamableHttp'],
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'roots:mrtr:list:empty',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
 
@@ -1141,6 +1174,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior:
             'A client configured to react to list_changed notifications automatically re-fetches the corresponding list and delivers the fresh result to its callback.',
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'client:listen:auto-refresh',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'client:list-changed:capability-gated': {
@@ -2338,6 +2373,93 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         addedInSpecVersion: '2026-07-28',
         note: "Runs on the entryModern arm; the body wires one harness-hosted endpoint per responseMode value via wire()'s entry.responseMode option and asserts the response shape on the arm-recorded HTTP exchanges."
     },
+
+    // v2 features: dual-era HTTP entry — HTTP request mechanics on the harness-hosted entry
+    // (entry-side siblings of the hosting:http / hosting:stateless families, which hand-host the
+    // server transport themselves and so never reach createMcpHandler when given an entry arm).
+
+    'typescript:hosting:entry:method-405': {
+        source: 'sdk',
+        behavior:
+            'An unsupported HTTP method (PUT, PATCH) on a createMcpHandler endpoint is answered 405 with a JSON-RPC Method-not-allowed body on both legs: the stateless legacy fallback rejects every non-POST method, and the modern-only strict path rejects body-less non-POST traffic via the modern-only-method-not-allowed cell.',
+        transports: ['entryStateless', 'entryModern'],
+        note: 'Runs on the createMcpHandler entry arms; the unsupported methods are POSTed through wired.fetch so the HTTP status and body are observed directly. The entry does not emit an Allow header (the per-session server transport does), so only the status and JSON-RPC error shape are pinned.'
+    },
+    'typescript:hosting:entry:parse-error-400': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server',
+        behavior:
+            'A POST whose body is not valid JSON is answered 400 by a createMcpHandler endpoint on both legs, with a JSON-RPC Parse-error (-32700) body: the entry classifier reads no envelope claim from a non-JSON body, so the stateless legacy fallback delegates the parse error and the modern-only strict path emits it itself.',
+        transports: ['entryStateless', 'entryModern'],
+        note: 'Runs on the createMcpHandler entry arms; the malformed body is POSTed through wired.fetch so the HTTP status and JSON-RPC error code are observed directly.'
+    },
+    'typescript:hosting:entry:legacy-accept-406': {
+        source: 'sdk',
+        behavior:
+            "A 2025-era POST whose Accept header does not allow both application/json and text/event-stream is answered 406 by a createMcpHandler endpoint's stateless legacy slot (the legacy fallback delegates to the streamable HTTP server transport, whose Accept negotiation is unchanged).",
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryStateless arm and is bounded to the 2025-11-25 axis: Accept negotiation is enforced by the legacy server transport the fallback delegates to, not by the modern per-request path. The probes are POSTed through wired.fetch so the 406 is observed directly.'
+    },
+    'typescript:hosting:entry:legacy-content-type-415': {
+        source: 'sdk',
+        behavior:
+            "A 2025-era POST whose Content-Type is not application/json is answered 415 by a createMcpHandler endpoint's stateless legacy slot (the legacy fallback delegates to the streamable HTTP server transport, whose Content-Type validation is unchanged).",
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryStateless arm and is bounded to the 2025-11-25 axis: Content-Type validation is enforced by the legacy server transport the fallback delegates to. The entry classifier reads the body before that delegate runs, so a body that happens to be valid JSON is still rejected on Content-Type alone.'
+    },
+    'typescript:hosting:entry:legacy-protocol-version-header-400': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header',
+        behavior:
+            "A 2025-era POST carrying an MCP-Protocol-Version header naming an unknown revision is answered 400 by a createMcpHandler endpoint's stateless legacy slot, with the response body naming the supported version(s).",
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryStateless arm and is bounded to the 2025-11-25 axis: the protocol-version header check is enforced by the legacy server transport the fallback delegates to. Header/body cross-checks on the modern path are pinned by the entry std-header rows; this row pins only that a non-modern unsupported header still surfaces as 400 through the fallback.'
+    },
+    'typescript:hosting:entry:legacy-protocol-version-default': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#protocol-version-header',
+        behavior:
+            "A 2025-era POST without an MCP-Protocol-Version header is served by a createMcpHandler endpoint's stateless legacy slot under the assumed default protocol version (2025-03-26): a tools/list round-trips without the header.",
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryStateless arm and is bounded to the 2025-11-25 axis. The probe is POSTed through wired.fetch with only Accept and Content-Type headers so the default-version path is the one exercised.'
+    },
+    'typescript:hosting:entry:no-session-id': {
+        source: 'sdk',
+        behavior:
+            'A createMcpHandler endpoint emits no Mcp-Session-Id response header on either leg: the stateless legacy fallback hosts a sessionless server transport per request, and the modern per-request path has no session at all — every recorded exchange of a connect-then-tools/call round trip carries no session header.',
+        transports: ['entryStateless', 'entryModern'],
+        note: "Runs on the createMcpHandler entry arms; asserted on the arm-recorded httpLog response clones. The entry's BYO sessionful composition is the only way to issue a session id and is pinned by typescript:hosting:entry:byo-sessionful-legacy."
+    },
+    'typescript:hosting:entry:ctx-http-req-headers': {
+        source: 'sdk',
+        behavior:
+            "A custom HTTP header set on the StreamableHTTP client transport reaches a tool handler's ctx.http.req as Fetch Headers when the server is hosted by createMcpHandler, on both legs: the stateless legacy fallback and the modern per-request path each thread the original Request through to handler context.",
+        transports: ['entryStateless', 'entryModern'],
+        note: "The body hosts createMcpHandler itself (the wire() entry arm builds the client transport without a custom-header hook) and the matrix arm selects the legacy posture and client pin: entryStateless drives a plain client through legacy: 'stateless', entryModern drives a 2026-07-28-pinned client through legacy: 'reject'."
+    },
+
+    // v2 features: dual-era HTTP entry — bearer auth composed in front of createMcpHandler
+    // (entry-side siblings of the hosting:auth family, which hand-hosts an Express stack and so
+    // never reaches createMcpHandler when given an entry arm). The SDK does not enforce endpoint
+    // authentication on either era — bearer/OAuth auth is deployer-composed middleware in front of
+    // whichever handler is mounted, and the entry passes a verified AuthInfo through unchanged.
+
+    'typescript:hosting:entry:auth:missing-401': {
+        source: 'https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization#error-handling',
+        behavior:
+            'A bearer-protected createMcpHandler deployment — a user-composed verification gate in front of handler.fetch — answers a request without an Authorization header with 401 and a WWW-Authenticate challenge on both legs, and the entry is never reached for that request (no factory call).',
+        transports: ['entryStateless', 'entryModern'],
+        note: "The body hosts createMcpHandler itself behind the documented bearer-gate composition (verify the Authorization header, then call handler.fetch(request, { authInfo })); the matrix arm selects the legacy posture and client pin. The 401/WWW-Authenticate is the gate's own response — the entry performs no token verification — and the body asserts the gate composes correctly with both serving paths."
+    },
+    'typescript:hosting:entry:auth:authinfo-propagates': {
+        source: 'sdk',
+        behavior:
+            "A verified AuthInfo handed to createMcpHandler.fetch(request, { authInfo }) reaches per-request handlers as ctx.http.authInfo unchanged on both legs, and the same AuthInfo is exposed on the factory's per-request context (McpRequestContext.authInfo) before the instance is built.",
+        transports: ['entryStateless', 'entryModern'],
+        note: 'The body hosts createMcpHandler itself behind the documented bearer-gate composition; the matrix arm selects the legacy posture and client pin. authInfo is strictly pass-through — the entry never derives it from request headers — so the cell pins delivery, not verification. The OAuth client flow that obtains the token is hosting-agnostic and is covered by the client-auth family; the dedicated client-completes-OAuth-then-negotiates-2026 journey rides the auth-package redo (M13.1) so it is targeted at the surviving auth surface.'
+    },
+
     'typescript:transport:stdio:dual-era-serving': {
         source: 'sdk',
         behavior:
@@ -2392,6 +2514,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             "ctx.mcpReq.elicitInput() inside a tool handler sends elicitation/create to the client and resolves with the client's ElicitResult, which the handler can fold into its tool result.",
         transports: STATEFUL_TRANSPORTS,
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'elicitation:mrtr:form:basic',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'mcpserver:context:sampling-from-handler': {
@@ -2399,6 +2523,8 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             "ctx.mcpReq.requestSampling() inside a tool handler sends sampling/createMessage to the client and resolves with the client's CreateMessageResult.",
         transports: STATEFUL_TRANSPORTS,
+        removedInSpecVersion: '2026-07-28',
+        supersededBy: 'sampling:mrtr:create:basic',
         note: 'Stateless hosting creates a fresh server per request and has no standalone GET stream, so there is no server→client channel to deliver/observe these.'
     },
     'hosting:context:web-request-headers': {
@@ -2722,6 +2848,149 @@ export const REQUIREMENTS: Record<string, Requirement> = {
             'On a 2025-era connection, Client.listen() throws a typed MethodNotSupportedByProtocolVersion error steering to resources/subscribe and ClientOptions.listChanged before any wire write (no transparent shim).',
         removedInSpecVersion: '2026-07-28',
         note: 'Runs on the 2025-era arms; the entryModern arm is bound out by the removedInSpecVersion.'
+    },
+
+    // 2026-era siblings of the push-style sampling/elicitation/roots round-trips: the 2025-shape
+    // bodies push a server→client request; on the 2026-07-28 era the same spec behavior rides the
+    // multi-round-trip flow (a handler returns inputRequired() and the client auto-fulfilment driver
+    // dispatches the embedded request to the locally registered handler). Each row supersedes the
+    // 2025-shape sibling(s) it covers.
+
+    'sampling:mrtr:create:basic': {
+        source: 'https://modelcontextprotocol.io/specification/draft/client/sampling#creating-messages',
+        behavior:
+            "An embedded sampling/createMessage request returned via inputRequired() from a tool handler is fulfilled by the client's sampling handler, and the handler's result (role, content, model, stopReason) reaches the retried tool handler in inputResponses.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['sampling:create:basic', 'tools:call:sampling-roundtrip', 'mcpserver:context:sampling-from-handler'],
+        note: 'Runs on the entryModern arm; the 2026 path for a server handler to obtain a sampling completion is inputRequired.createMessage(...) — the push-style server.createMessage / ctx.mcpReq.requestSampling APIs are era-gated to fail on this revision.'
+    },
+    'sampling:mrtr:create:model-preferences': {
+        source: 'https://modelcontextprotocol.io/specification/draft/client/sampling#model-preferences',
+        behavior:
+            'The model preferences supplied in an embedded sampling/createMessage request (hints and the cost, speed, and intelligence priorities) reach the client sampling handler intact.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['sampling:create:model-preferences'],
+        note: 'Runs on the entryModern arm; the embedded request travels in an input_required result and the client driver dispatches it to the registered handler.'
+    },
+    'sampling:mrtr:create:system-prompt': {
+        source: 'https://modelcontextprotocol.io/specification/draft/client/sampling#creating-messages',
+        behavior: 'The system prompt supplied in an embedded sampling/createMessage request reaches the client sampling handler intact.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['sampling:create:system-prompt'],
+        note: 'Runs on the entryModern arm; the embedded request travels in an input_required result and the client driver dispatches it to the registered handler.'
+    },
+    'sampling:mrtr:create:include-context': {
+        source: 'https://modelcontextprotocol.io/specification/draft/client/sampling#capabilities',
+        behavior:
+            'The includeContext value supplied in an embedded sampling/createMessage request reaches the client sampling handler intact.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['sampling:create:include-context'],
+        note: 'Runs on the entryModern arm; the embedded request travels in an input_required result and the client driver dispatches it to the registered handler.'
+    },
+    'elicitation:mrtr:form:basic': {
+        source: 'https://modelcontextprotocol.io/specification/draft/client/elicitation#form-mode-elicitation-requests',
+        behavior:
+            "An embedded form-mode elicitation/create request returned via inputRequired() from a tool handler delivers the message and requested schema to the client's elicitation handler exactly as sent, and an accept response carrying the user's content reaches the retried tool handler in inputResponses.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: [
+            'elicitation:form:basic',
+            'tools:call:elicitation-roundtrip',
+            'mcpserver:context:elicit-from-handler',
+            'elicitation:form:action:accept'
+        ],
+        note: 'Runs on the entryModern arm; the 2026 path for a server handler to obtain elicited input is inputRequired.elicit(...) — the push-style server.elicitInput / ctx.mcpReq.elicitInput APIs are era-gated to fail on this revision.'
+    },
+    'elicitation:mrtr:form:action:decline': {
+        source: 'https://modelcontextprotocol.io/specification/draft/client/elicitation#response-actions',
+        behavior:
+            "An embedded form-mode elicitation answered with action 'decline' reaches the retried handler in inputResponses with no content; acceptedContent() returns undefined for it.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['elicitation:form:action:decline'],
+        note: 'Runs on the entryModern arm; the embedded request travels in an input_required result and the client driver dispatches it to the registered handler.'
+    },
+    'elicitation:mrtr:form:action:cancel': {
+        source: 'https://modelcontextprotocol.io/specification/draft/client/elicitation#response-actions',
+        behavior:
+            "An embedded form-mode elicitation answered with action 'cancel' reaches the retried handler in inputResponses with no content; acceptedContent() returns undefined for it.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['elicitation:form:action:cancel'],
+        note: 'Runs on the entryModern arm; the embedded request travels in an input_required result and the client driver dispatches it to the registered handler.'
+    },
+    'elicitation:mrtr:form:schema:primitives': {
+        source: 'https://modelcontextprotocol.io/specification/draft/client/elicitation#requested-schema',
+        behavior:
+            'Requested-schema fields on an embedded form-mode elicitation may be string (with format), number or integer, or boolean; they reach the client handler intact.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['elicitation:form:schema:primitives'],
+        note: 'Runs on the entryModern arm; the embedded request travels in an input_required result and the client driver dispatches it to the registered handler.'
+    },
+    'roots:mrtr:list:basic': {
+        source: 'https://modelcontextprotocol.io/specification/draft/client/roots#listing-roots',
+        behavior:
+            "An embedded roots/list request returned via inputRequired() from a tool handler is fulfilled by the client's roots handler, and the returned roots (uri, name) reach the retried tool handler in inputResponses.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['roots:list:basic'],
+        note: 'Runs on the entryModern arm; the 2026 path for a server handler to obtain the client roots is inputRequired.listRoots() — the push-style server.listRoots() API is era-gated to fail on this revision.'
+    },
+    'roots:mrtr:list:empty': {
+        source: 'https://modelcontextprotocol.io/specification/draft/client/roots#listing-roots',
+        behavior:
+            'An empty roots list returned by the client roots handler for an embedded roots/list request reaches the retried tool handler as such.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['roots:list:empty'],
+        note: 'Runs on the entryModern arm; the embedded request travels in an input_required result and the client driver dispatches it to the registered handler.'
+    },
+
+    // 2026-era siblings of the captured-instance list_changed publish rows: the 2025-shape bodies
+    // publish by mutating the connected server instance; on the 2026-07-28 era the publication path
+    // is handler.notify.* and delivery rides a subscriptions/listen stream. Each row supersedes the
+    // 2025-shape sibling it covers.
+
+    'tools:listen:list-changed': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools#list-changed-notification',
+        behavior:
+            "A notifications/tools/list_changed published via handler.notify.toolsChanged() reaches a client whose subscriptions/listen stream requested toolsListChanged, and is dispatched to the client's registered notification handler.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['tools:list-changed'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify; the 2026 publication path is the entry-level notifier, not mutation of a captured server instance.'
+    },
+    'resources:listen:list-changed': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/resources#list-changed-notification',
+        behavior:
+            "A notifications/resources/list_changed published via handler.notify.resourcesChanged() reaches a client whose subscriptions/listen stream requested resourcesListChanged, and is dispatched to the client's registered notification handler.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['resources:list-changed'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify; the 2026 publication path is the entry-level notifier, not mutation of a captured server instance.'
+    },
+    'prompts:listen:list-changed': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/prompts#list-changed-notification',
+        behavior:
+            "A notifications/prompts/list_changed published via handler.notify.promptsChanged() reaches a client whose subscriptions/listen stream requested promptsListChanged, and is dispatched to the client's registered notification handler.",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['prompts:list-changed'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify; the 2026 publication path is the entry-level notifier, not mutation of a captured server instance.'
+    },
+    'client:listen:auto-refresh': {
+        source: 'sdk',
+        behavior:
+            'A client configured with listChanged auto-refresh, on a modern connection, opens a subscriptions/listen stream and on each published change re-fetches the corresponding list and delivers the fresh result to its callback.',
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        supersedes: ['client:list-changed:auto-refresh'],
+        note: 'Hosted by the test body via createMcpHandler so it can publish via handler.notify; the auto-opened subscription is the modern delivery path for ClientOptions.listChanged.'
     }
 } satisfies Record<string, Requirement>;
 

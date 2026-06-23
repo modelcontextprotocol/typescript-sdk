@@ -166,6 +166,19 @@ export interface WireCodec {
     encodeResult(method: string, result: Result): Result;
 
     /**
+     * Outbound error-code mapping (the error half of the stamp seam). A
+     * handler-thrown `ProtocolError`'s numeric code passes through here on
+     * its way to the JSON-RPC error response, so per-era wire-code selection
+     * lives in the codec rather than in handler/funnel code. The current
+     * mapping is identical on both eras (the `-32002` resource-not-found
+     * domain code maps to `-32602` Invalid Params on the wire — the
+     * 2026-07-28 spec MUST, and what the deployed v1.x SDK already emits on
+     * earlier revisions); the seam is the structural home for any future
+     * per-era divergence. Unknown codes pass through unchanged.
+     */
+    encodeErrorCode(code: number): number;
+
+    /**
      * Inbound envelope enforcement for era-classified traffic: validates the
      * lifted envelope material of a request. Returns an error message when
      * the era requires an envelope and it is missing/invalid (→ −32602 at the
