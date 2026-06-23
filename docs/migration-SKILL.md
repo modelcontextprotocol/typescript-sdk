@@ -549,4 +549,5 @@ Validator behavior:
 8. If using server SSE transport, migrate to Streamable HTTP
 9. If using server auth from the SDK: RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers → `@modelcontextprotocol/server-legacy/auth` (deprecated); migrate AS to external IdP/OAuth library
 10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
-11. Verify: build with `tsc` / run tests
+11. Format the changed files with the project's formatter (`prettier --write`, `eslint --fix`, or `biome format --write`) — edits are not reformatted automatically, and the wrapped schemas (step 5) and rewritten `setRequestHandler` method strings (section 9) frequently need it to satisfy lint
+12. Verify: build with `tsc` / run tests

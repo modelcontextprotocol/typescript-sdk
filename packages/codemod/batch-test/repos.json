@@ -1,42 +1,16 @@
 [
     {
-        "repo": "modelcontextprotocol/servers",
-        "ref": "main",
+        "repo": "upstash/context7",
+        "ref": "master",
         "packages": [
             {
-                "dir": "src/everything",
-                "sourceDir": ".",
-                "checks": {
-                    "typecheck": "npx tsc --noEmit",
-                    "build": "npm run build",
-                    "test": "npm run test",
-                    "lint": "npm run prettier:check"
-                }
-            }
-        ]
-    },
-    {
-        "repo": "modelcontextprotocol/inspector",
-        "ref": "main",
-        "packages": [
-            {
-                "dir": "client",
+                "dir": "packages/mcp",
                 "sourceDir": "src",
                 "checks": {
-                    "typecheck": "npx tsc --noEmit",
-                    "build": "npm run build",
-                    "test": "npm run test",
-                    "lint": "npm run lint"
-                }
-            },
-            {
-                "dir": "server",
-                "sourceDir": "src",
-                "checks": {
-                    "typecheck": "npx tsc --noEmit",
-                    "build": "npm run build",
-                    "test": null,
-                    "lint": null
+                    "typecheck": "pnpm run typecheck",
+                    "build": "pnpm run build",
+                    "test": "pnpm run test",
+                    "lint": "pnpm run lint"
                 }
             }
         ]

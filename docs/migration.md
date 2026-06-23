@@ -7,6 +7,8 @@ This guide covers the breaking changes introduced in v2 of the MCP TypeScript SD
 Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`,
 `@modelcontextprotocol/client`, and `@modelcontextprotocol/server` packages.
 
+> **Formatting:** The `@modelcontextprotocol/codemod` package automates most of the mechanical changes below, but it rewrites your code's AST without reformatting it — wrapped schemas and generated handler method strings may not match your project's style. After migrating (with the codemod or by hand), run your formatter on the changed files — for example `prettier --write`, `eslint --fix`, or `biome format --write` — and review the diff.
+
 ## Breaking Changes
 
 ### Package split (monorepo)
