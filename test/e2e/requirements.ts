@@ -172,6 +172,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         behavior:
             'The receiver silently ignores a cancellation notification referencing an unknown or already-completed request id; no error response is sent and no exception is raised.'
     },
+    'typescript:client:connect:prior-zero-roundtrip': {
+        source: 'sdk',
+        behavior:
+            'connect(transport, { prior: DiscoverResult }) against a 2026-07-28 server is zero-round-trip: a fresh client supplied with a previously-obtained DiscoverResult connects without putting any HTTP exchange on the wire, adopts the modern era directly, and callTool round-trips immediately. prior is modern-only — no modern overlap throws SdkError(EraNegotiationFailed) (no legacy fallback).',
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'Runs on the entryModern arm; the wired (negotiating) client is the bootstrap that obtains the DiscoverResult, then a fresh worker client connects to the same harness-hosted endpoint via wired.url + a fresh StreamableHTTPClientTransport over wired.fetch with { prior }. The zero-round-trip clause is asserted on the arm-recorded httpLog length.'
+    },
     'typescript:client:raw-result-type-first': {
         source: 'sdk',
         behavior:
