@@ -137,12 +137,21 @@ export type ServerOptions = ProtocolOptions & {
          * `requestState`. The spec MUST for integrity-protecting state that
          * influences authorization, resource access, or business logic is on
          * the server author (basic/patterns/mrtr, server requirements 4–5);
-         * the SDK provides NO default verification. Leaving this option
+         * the SDK provides NO default verification —
+         * {@linkcode server/requestStateCodec.createRequestStateCodec | createRequestStateCodec}
+         * is the SDK-provided HMAC helper whose `verify` drops in here
+         * directly. Leaving this option
          * unconfigured keeps today's behavior — `ctx.mcpReq.requestState` is
          * passed through raw and MUST be treated as attacker-controlled
          * input.
+         *
+         * The return value is ignored (the seam awaits-and-discards); the
+         * hook signature accepts any return so a verifier that also yields
+         * the decoded payload — as
+         * {@linkcode server/requestStateCodec.RequestStateCodec | RequestStateCodec}`.verify`
+         * does — is directly assignable.
          */
-        verify?: (state: string, ctx: ServerContext) => void | Promise<void>;
+        verify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
     };
 };
 
@@ -227,7 +236,7 @@ export class Server extends Protocol<ServerContext> {
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cacheHints?: ServerOptions['cacheHints'];
-    private _requestStateVerify?: (state: string, ctx: ServerContext) => void | Promise<void>;
+    private _requestStateVerify?: (state: string, ctx: ServerContext) => unknown | Promise<unknown>;
 
     /**
      * Callback for when initialization has fully completed (i.e., the client has sent an `notifications/initialized` notification).
