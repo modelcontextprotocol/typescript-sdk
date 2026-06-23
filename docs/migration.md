@@ -1078,6 +1078,9 @@ versionNegotiation: {
 `maxRetries` governs timeout re-sends only (the spec-mandated `-32022` corrective continuation — select-and-continue with a mutual version — is a separate negotiation step and is never counted against it). Negotiation can also be configured pre-connect on an already-constructed
 instance via `client.setVersionNegotiation(options)` (equivalent to the constructor option; throws after connecting).
 
+A gateway or worker fleet can skip the probe entirely: probe once, persist `client.getDiscoverResult()` (round-trips through `JSON.stringify`), and pass it to every worker as `client.connect(transport, { prior })` for a **zero-round-trip** connect. `prior` is 2026-07-28+ only —
+no modern overlap throws `SdkError(EraNegotiationFailed)`. Only reuse across clients presenting the same authorization context. See `examples/gateway/`.
+
 Once a modern era is negotiated, the client **automatically attaches the per-request `_meta` envelope** (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification — you never set it by hand. Any `_meta` keys you pass in a
 request are preserved over the auto-attached ones. After connect, `client.getProtocolEra()` returns `'legacy'` or `'modern'` and `client.getNegotiatedProtocolVersion()` the exact revision.
 

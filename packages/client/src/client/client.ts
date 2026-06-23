@@ -68,6 +68,7 @@ import {
     legacyProtocolVersions,
     ListChangedOptionsBaseSchema,
     mergeCapabilities,
+    modernProtocolVersions,
     parseSchema,
     Protocol,
     PROTOCOL_VERSION_META_KEY,
@@ -79,7 +80,8 @@ import {
     SdkError,
     SdkErrorCode,
     SUBSCRIPTION_ID_META_KEY,
-    SubscriptionFilterSchema
+    SubscriptionFilterSchema,
+    SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
 import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache.js';
@@ -324,6 +326,22 @@ export type ClientOptions = ProtocolOptions & {
 };
 
 /**
+ * Options for {@linkcode Client.connect}. Extends {@linkcode RequestOptions}
+ * (the timeout/signal apply to the connect-time handshake or probe) with the
+ * zero-round-trip reconnect knob.
+ */
+export type ConnectOptions = RequestOptions & {
+    /**
+     * A previously-obtained {@linkcode DiscoverResult} (see
+     * {@linkcode Client.getDiscoverResult}). When supplied, `connect()` adopts
+     * it directly — zero round trips. 2026-07-28+ only: throws
+     * `SdkError(EraNegotiationFailed)` when there is no modern overlap. Only
+     * reuse across clients presenting the same authorization context.
+     */
+    prior?: DiscoverResult;
+};
+
+/**
  * {@linkcode RequestOptions} extended with the per-call cache disposition for
  * the cacheable verbs (`listTools()` / `listPrompts()` / `listResources()` /
  * `listResourceTemplates()` / `readResource()`). See {@linkcode CacheMode}.
@@ -488,6 +506,8 @@ export class Client extends Protocol<ClientContext> {
     private _nextListenId = 0;
     /** The auto-opened subscription backing ClientOptions.listChanged on a modern connection. */
     private _autoOpenedSubscription?: McpSubscription;
+    /** Backing store for {@linkcode getDiscoverResult}. Per-connection. */
+    private _discoverResult?: DiscoverResult;
 
     /**
      * Clears every per-connection field in one place. Called at the start of
@@ -500,6 +520,7 @@ export class Client extends Protocol<ClientContext> {
         this._serverCapabilities = undefined;
         this._serverVersion = undefined;
         this._instructions = undefined;
+        this._discoverResult = undefined;
         this._autoOpenedSubscription = undefined;
         // Settle every live per-listen state machine before clearing the map:
         // a fresh connect (or close) on a connection whose prior transport
@@ -896,7 +917,12 @@ export class Client extends Protocol<ClientContext> {
      * }
      * ```
      */
-    override async connect(transport: Transport, options?: RequestOptions): Promise<void> {
+    override async connect(transport: Transport, options?: ConnectOptions): Promise<void> {
+        if (options?.prior !== undefined) {
+            // Zero-round-trip reconnect from a previously-obtained
+            // DiscoverResult: bypasses versionNegotiation resolution entirely.
+            return this._connectFromPrior(transport, options.prior);
+        }
         const negotiation = resolveVersionNegotiation(this._versionNegotiation, this._supportedProtocolVersionsOption);
         if (negotiation.kind !== 'legacy') {
             return this._connectNegotiated(transport, negotiation, options);
@@ -1055,6 +1081,7 @@ export class Client extends Protocol<ClientContext> {
         this._serverVersion = result.discover.serverInfo;
         this._cache.setServerIdentity(this._deriveServerIdentity(transport));
         this._instructions = result.discover.instructions;
+        this._discoverResult = result.discover;
         // Modern selection: the same connection state the legacy handshake completion sets.
         this._negotiatedProtocolVersion = result.version;
         // The single setProtocolVersion call site on this path, mirroring the legacy path after initialize.
@@ -1150,6 +1177,46 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
+     * Connect from a previously-obtained {@linkcode DiscoverResult}. Always
+     * zero-round-trip; throws `EraNegotiationFailed` when there is no
+     * 2026-07-28+ overlap (no legacy fallback). See {@linkcode ConnectOptions}.
+     */
+    private async _connectFromPrior(transport: Transport, prior: DiscoverResult): Promise<void> {
+        this._resetConnectionState();
+
+        const explicit = this._supportedProtocolVersionsOption;
+        const clientModern =
+            explicit && modernProtocolVersions(explicit).length > 0 ? modernProtocolVersions(explicit) : SUPPORTED_MODERN_PROTOCOL_VERSIONS;
+        const version = clientModern.find(v => prior.supportedVersions.includes(v));
+        if (version === undefined) {
+            throw new SdkError(
+                SdkErrorCode.EraNegotiationFailed,
+                "connect({ prior }) requires a 2026-07-28+ mutual protocol version; the supplied DiscoverResult and this client's " +
+                    "supportedProtocolVersions have no modern overlap. Use versionNegotiation: { mode: 'auto' } for legacy-era fallback."
+            );
+        }
+
+        await super.connect(transport);
+
+        this._discoverResult = prior;
+        this._serverCapabilities = prior.capabilities;
+        this._serverVersion = prior.serverInfo;
+        this._cache.setServerIdentity(this._deriveServerIdentity(transport));
+        this._instructions = prior.instructions;
+        this._negotiatedProtocolVersion = version;
+        transport.setProtocolVersion?.(version);
+
+        // No auto-opened listen stream on this path (request-only workers).
+        if (this._listChangedConfig) {
+            try {
+                this._setupListChangedHandlers(this._listChangedConfig);
+            } catch (error) {
+                this.onerror?.(error instanceof Error ? error : new Error(String(error)));
+            }
+        }
+    }
+
+    /**
      * After initialization has completed, this will be populated with the server's reported capabilities.
      */
     getServerCapabilities(): ServerCapabilities | undefined {
@@ -1204,6 +1271,15 @@ export class Client extends Protocol<ClientContext> {
      */
     getInstructions(): string | undefined {
         return this._instructions;
+    }
+
+    /**
+     * The {@linkcode DiscoverResult} from the last `'auto'`/pinned probe,
+     * {@linkcode discover} call, or `connect({ prior })`. Persistable via
+     * `JSON.stringify`; feed to {@linkcode ConnectOptions} `prior`.
+     */
+    getDiscoverResult(): DiscoverResult | undefined {
+        return this._discoverResult;
     }
 
     protected assertCapabilityForMethod(method: RequestMethod | string): void {
@@ -1356,18 +1432,13 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Asks the server to advertise its supported protocol versions, capabilities,
-     * and implementation info (`server/discover`, protocol revision 2026-07-28).
-     *
-     * Servers on the 2026-07-28 revision MUST implement this; the connect-time
-     * version negotiation issues it automatically. The method exists only on
-     * the 2026-07-28 era: on a connection negotiated to a 2025-era version it
-     * is rejected locally with a typed `SdkError`
-     * (`MethodNotSupportedByProtocolVersion`) before anything reaches the
-     * transport.
+     * Send `server/discover` (2026-07-28+) and record the result for
+     * {@linkcode getDiscoverResult}.
      */
     async discover(options?: RequestOptions): Promise<DiscoverResult> {
-        return this._requestWithSchema({ method: 'server/discover' }, DiscoverResultSchema, options);
+        const result = await this._requestWithSchema({ method: 'server/discover' }, DiscoverResultSchema, options);
+        this._discoverResult = result;
+        return result;
     }
 
     /** Requests argument autocompletion suggestions from the server for a prompt or resource. */
