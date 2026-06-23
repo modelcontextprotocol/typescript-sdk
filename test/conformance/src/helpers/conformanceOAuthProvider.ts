@@ -3,16 +3,21 @@ import type {
     OAuthClientInformationFull,
     OAuthClientMetadata,
     OAuthClientProvider,
+    OAuthDiscoveryState,
     OAuthTokens
 } from '@modelcontextprotocol/client';
 
 export class ConformanceOAuthProvider implements OAuthClientProvider {
+    // Single-slot blob storage. The SDK stamps `issuer` onto saved values; round-tripping
+    // them unchanged means a credential issued by AS-A reads back as undefined at AS-B
+    // (SEP-2352) and the flow re-registers.
     private _clientInformation?: OAuthClientInformationFull;
     private _tokens?: OAuthTokens;
     private _codeVerifier?: string;
     private _authCode?: string;
     private _iss?: string;
     private _authCodePromise?: Promise<string>;
+    private _discoveryState?: OAuthDiscoveryState;
 
     constructor(
         private readonly _redirectUrl: string | URL,
@@ -46,6 +51,21 @@ export class ConformanceOAuthProvider implements OAuthClientProvider {
 
     saveTokens(tokens: OAuthTokens): void {
         this._tokens = tokens;
+    }
+
+    saveDiscoveryState(state: OAuthDiscoveryState): void {
+        this._discoveryState = state;
+    }
+
+    discoveryState(): OAuthDiscoveryState | undefined {
+        return this._discoveryState;
+    }
+
+    invalidateCredentials(scope: 'all' | 'client' | 'tokens' | 'verifier' | 'discovery'): void {
+        if (scope === 'all' || scope === 'client') this._clientInformation = undefined;
+        if (scope === 'all' || scope === 'tokens') this._tokens = undefined;
+        if (scope === 'all' || scope === 'verifier') this._codeVerifier = undefined;
+        if (scope === 'all' || scope === 'discovery') this._discoveryState = undefined;
     }
 
     async redirectToAuthorization(authorizationUrl: URL): Promise<void> {
