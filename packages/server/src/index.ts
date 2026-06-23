@@ -14,9 +14,7 @@ export type {
     McpHandlerRequestOptions,
     McpHttpHandler,
     McpRequestContext,
-    McpServerFactory,
-    NodeIncomingMessageLike,
-    NodeServerResponseLike
+    McpServerFactory
 } from './server/createMcpHandler.js';
 export { createMcpHandler, isLegacyRequest, legacyStatelessFallback } from './server/createMcpHandler.js';
 export type {

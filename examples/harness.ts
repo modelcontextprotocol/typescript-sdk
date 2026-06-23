@@ -23,7 +23,7 @@ import path from 'node:path';
 import type { ClientOptions } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node';
 import type { McpServerFactory } from '@modelcontextprotocol/server';
 import { createMcpHandler, isInitializeRequest, isLegacyRequest } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
@@ -55,6 +55,7 @@ export function runServerFromArgs(factory: McpServerFactory, defaultPort = 3000)
             legacy: 'reject',
             onerror: e => console.error('[server] handler error:', e.message)
         });
+        const modernNode = toNodeHandler(modern);
 
         // --- legacy (2025): sessionful streamable HTTP — the deployable shape ---
         const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
@@ -104,7 +105,7 @@ export function runServerFromArgs(factory: McpServerFactory, defaultPort = 3000)
                     method: req.method,
                     headers: req.headers as Record<string, string>
                 });
-                await ((await isLegacyRequest(probe, body)) ? handleLegacy(req, res, body) : modern.node(req, res, body));
+                await ((await isLegacyRequest(probe, body)) ? handleLegacy(req, res, body) : modernNode(req, res, body));
             })().catch(error => {
                 console.error('[server] request error:', error instanceof Error ? error.message : error);
                 if (!res.headersSent) res.writeHead(500).end();

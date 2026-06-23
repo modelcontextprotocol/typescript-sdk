@@ -23,6 +23,7 @@
  */
 import { createProtectedResourceMetadataRouter, demoTokenVerifier, setupAuthServer } from '@mcp-examples/shared';
 import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/express';
+import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import * as z from 'zod/v4';
@@ -72,9 +73,10 @@ const auth = requireBearerAuth({
     requiredScopes: [],
     resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
 });
-// `requireBearerAuth` sets `req.auth`; `handler.node` reads it and passes it
+// `requireBearerAuth` sets `req.auth`; `toNodeHandler` reads it and passes it
 // to the factory as `ctx.authInfo`.
-app.all('/mcp', auth, (req, res) => void handler.node(req, res, req.body));
+const node = toNodeHandler(handler);
+app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 
 app.listen(MCP_PORT, () => {
     console.error(`OAuth-protected MCP server listening on ${mcpServerUrl.href}`);

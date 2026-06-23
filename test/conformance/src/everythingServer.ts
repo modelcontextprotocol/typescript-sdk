@@ -10,7 +10,7 @@
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 
 import { localhostHostValidation } from '@modelcontextprotocol/express';
-import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
+import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
     EventId,
@@ -1326,6 +1326,7 @@ function createMcpServer() {
 const modernHandler = createMcpHandler(() => createMcpServer(), {
     onerror: error => console.error('Modern-era MCP handler error:', error)
 });
+const modernNodeHandler = toNodeHandler(modernHandler);
 
 /** Normalize a possibly-repeated HTTP header to its first value. */
 function headerValue(value: string | string[] | undefined): string | undefined {
@@ -1367,7 +1368,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
             body: req.body
         });
         if (inbound.kind !== 'legacy') {
-            await modernHandler.node(req, res, req.body);
+            await modernNodeHandler(req, res, req.body);
             return;
         }
 

@@ -19,6 +19,7 @@
  */
 import { createServer } from 'node:http';
 
+import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { RegisteredTool, ServerEventBus, ServerNotifier } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
@@ -78,7 +79,7 @@ if (argv.includes('--http')) {
     const notify: ServerNotifier = handler.notify;
     void bus; // (the typed publish facade `notify` wraps `bus.publish`)
     publish = () => notify.toolsChanged();
-    createServer((req, res) => void handler.node(req, res)).listen(port, () => {
+    createServer(toNodeHandler(handler)).listen(port, () => {
         console.error(`[server] listening on http://127.0.0.1:${port}/ (HTTP)`);
     });
 } else {

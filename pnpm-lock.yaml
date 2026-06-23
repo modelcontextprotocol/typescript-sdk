@@ -368,6 +368,9 @@ importers:
       '@modelcontextprotocol/express':
         specifier: workspace:*
         version: link:../../packages/middleware/express
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -484,6 +487,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -553,6 +559,9 @@ importers:
       '@modelcontextprotocol/express':
         specifier: workspace:*
         version: link:../../packages/middleware/express
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -584,6 +593,9 @@ importers:
       '@modelcontextprotocol/express':
         specifier: workspace:*
         version: link:../../packages/middleware/express
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -853,6 +865,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -895,6 +910,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
