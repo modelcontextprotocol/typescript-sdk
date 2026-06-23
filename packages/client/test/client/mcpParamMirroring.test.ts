@@ -16,6 +16,8 @@ import { InMemoryResponseCacheStore, type ResponseCacheStore } from '../../src/c
 import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
 
 const MODERN = '2026-07-28';
+/** Partition the `Client` derives for the scripted server (`serverInfo.name@version`, default `cachePartition`). */
+const PART = JSON.stringify(['scripted@1.0.0', '']);
 
 const REGION_TOOL: Tool = {
     name: 'route',
@@ -125,7 +127,9 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         const { tools } = await client.listTools();
         expect(tools.map(t => t.name)).toEqual(['route']);
         expect(warn).toHaveBeenCalledWith(expect.stringContaining("excluding tool 'broken'"));
-        expect((store.get({ method: 'tools/list' })?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['route']);
+        expect((store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual([
+            'route'
+        ]);
         // The explicit-cursor per-page path is filtered too (the spec's MUST
         // has no carve-out for paginated reads).
         const page = await client.listTools({ cursor: '0' });
@@ -161,18 +165,78 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         const { clientTx, callHeaders, listCount } = await scriptedModernServer([[REGION_TOOL]], /* rejectFirstCall */ true);
         const client = modernClient(store);
         await client.connect(clientTx);
-        // Seed a STALE entry (no declarations) so callTool reads it and the
-        // first send carries no param headers — server rejects
+        // Seed a STALE entry at the connected-server partition (a STALE
+        // declaration on `region`) so callTool reads IT and the first send
+        // carries the stale `Mcp-Param-Stale-Region` header — server rejects
         // HEADER_MISMATCH, client evicts, refetches via listTools()
-        // (the live REGION_TOOL), and retries with the headers.
-        store.set({ method: 'tools/list' }, { value: { tools: [{ name: 'route', inputSchema: { type: 'object', properties: {} } }] } });
+        // (the live REGION_TOOL), and retries with the correct header.
+        store.set(
+            { method: 'tools/list', partition: PART },
+            {
+                value: {
+                    tools: [
+                        {
+                            name: 'route',
+                            inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Stale-Region' } } }
+                        }
+                    ]
+                }
+            }
+        );
 
         const result = await client.callTool({ name: 'route', arguments: { region: 'ap' } });
         expect(result.content?.[0]).toEqual({ type: 'text', text: 'ok' });
         expect(listCount()).toBe(1);
-        expect(callHeaders).toEqual([undefined, { 'Mcp-Param-Region': 'ap' }]);
+        // First send mirrored the SEEDED stale declaration (proves the
+        // stale-cache read path, not cold-cache); retry mirrored the live one.
+        expect(callHeaders).toEqual([{ 'Mcp-Param-Stale-Region': 'ap' }, { 'Mcp-Param-Region': 'ap' }]);
         // The recovery refetch wrote a fresh cache entry (REGION_TOOL, with the declaration).
-        expect((store.get({ method: 'tools/list' })?.value as { tools: Tool[] }).tools[0]?.inputSchema.properties).toHaveProperty('region');
+        expect(
+            (store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools[0]?.inputSchema.properties
+        ).toHaveProperty('region');
+    });
+
+    it("HEADER_MISMATCH recovery refetch reaches the wire even when the store's delete() no-ops (cacheMode:'refresh' bypasses the stale entry)", async () => {
+        // A custom store whose `delete()` is a no-op (or rejects) leaves the
+        // stale `tools/list` entry in place after `evict()`. The recovery
+        // refetch must NOT be cache-served that stale entry — it carries
+        // `cacheMode: 'refresh'` so it always reaches the wire and overwrites.
+        const store = new InMemoryResponseCacheStore();
+        (store as ResponseCacheStore).delete = () => undefined;
+        const { clientTx, callHeaders, listCount } = await scriptedModernServer([[REGION_TOOL]], /* rejectFirstCall */ true);
+        const client = modernClient(store);
+        await client.connect(clientTx);
+        // Seed a STALE-and-fresh entry (the declaration mirrors as
+        // `Stale-Region`; expiresAt in the future so a default-mode
+        // `listTools()` WOULD serve it if not for `'refresh'`).
+        store.set(
+            { method: 'tools/list', partition: PART },
+            {
+                value: {
+                    tools: [
+                        {
+                            name: 'route',
+                            inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Stale-Region' } } }
+                        }
+                    ]
+                },
+                expiresAt: Date.now() + 60_000,
+                scope: 'public'
+            }
+        );
+
+        const result = await client.callTool({ name: 'route', arguments: { region: 'ap' } });
+        expect(result.content?.[0]).toEqual({ type: 'text', text: 'ok' });
+        // The refetch hit the wire (delete() no-op did NOT short-circuit it
+        // into a cache serve of the stale seed).
+        expect(listCount()).toBe(1);
+        // Retry mirrored the LIVE declaration, not the stale seed.
+        expect(callHeaders).toEqual([{ 'Mcp-Param-Stale-Region': 'ap' }, { 'Mcp-Param-Region': 'ap' }]);
+        // The refetch's write overwrote the stale entry (the no-op delete
+        // never dropped it; the `'refresh'` write replaced it).
+        expect(
+            (store.get({ method: 'tools/list', partition: PART })?.value as { tools: Tool[] }).tools[0]?.inputSchema.properties
+        ).toHaveProperty(['region', 'x-mcp-header'], 'Region');
     });
 
     it('callTool() with a cold cache issues NO tools/list and sends without Mcp-Param-* headers (cache reads only)', async () => {
@@ -233,15 +297,32 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         const { clientTx, callHeaders, listCount } = await scriptedModernServer([[PAGE1], [REGION_TOOL]], /* rejectFirstCall */ true);
         const client = modernClient(store);
         await client.connect(clientTx);
-        // Seed a STALE entry so the first send goes without headers; the
-        // recovery refetch (via listTools()) then walks BOTH pages.
-        store.set({ method: 'tools/list' }, { value: { tools: [PAGE1] } });
+        // Seed a STALE entry at the connected-server partition (one stale
+        // page; `route` carries a STALE declaration) so callTool reads it,
+        // mirrors the stale header on the first send, and the recovery
+        // refetch (via listTools()) then walks BOTH live pages.
+        store.set(
+            { method: 'tools/list', partition: PART },
+            {
+                value: {
+                    tools: [
+                        PAGE1,
+                        {
+                            name: 'route',
+                            inputSchema: { type: 'object', properties: { region: { type: 'string', 'x-mcp-header': 'Stale-Region' } } }
+                        }
+                    ]
+                }
+            }
+        );
 
         const result = await client.callTool({ name: 'route', arguments: { region: 'us-west1' } });
         expect(result.content?.[0]).toEqual({ type: 'text', text: 'ok' });
         // The recovery refetch walked both pages.
         expect(listCount()).toBe(2);
-        expect(callHeaders).toEqual([undefined, { 'Mcp-Param-Region': 'us-west1' }]);
+        // First send mirrored the SEEDED stale declaration (proves the
+        // stale-cache read path); retry mirrored the live page-2 declaration.
+        expect(callHeaders).toEqual([{ 'Mcp-Param-Stale-Region': 'us-west1' }, { 'Mcp-Param-Region': 'us-west1' }]);
         // A follow-up call still mirrors from the cached entry (no extra list).
         await client.callTool({ name: 'route', arguments: { region: 'eu' } });
         expect(callHeaders[2]).toEqual({ 'Mcp-Param-Region': 'eu' });
@@ -253,12 +334,16 @@ describe('SEP-2243 Mcp-Param-* mirroring (modern era)', () => {
         const { clientTx, serverTx, callHeaders, listCount } = await scriptedModernServer([[REGION_TOOL]]);
         const client = modernClient(store);
         await client.connect(clientTx);
-        // Seed a STALE entry (no declarations); list_changed evicts it; the
-        // next callTool reads cold and sends without headers — callTool
-        // never refetches on its own.
-        store.set({ method: 'tools/list' }, { value: { tools: [{ name: 'route', inputSchema: { type: 'object', properties: {} } }] } });
+        // Seed a STALE entry at the connected-server partition; list_changed
+        // evicts it (partition-scoped delete); the next callTool reads cold
+        // and sends without headers — callTool never refetches on its own.
+        store.set(
+            { method: 'tools/list', partition: PART },
+            { value: { tools: [{ name: 'route', inputSchema: { type: 'object', properties: {} } }] } }
+        );
+        expect(store.get({ method: 'tools/list', partition: PART })).toBeDefined();
         await serverTx.send({ jsonrpc: '2.0', method: 'notifications/tools/list_changed' } as JSONRPCMessage);
-        expect(store.get({ method: 'tools/list' })).toBeUndefined();
+        expect(store.get({ method: 'tools/list', partition: PART })).toBeUndefined();
 
         const result = await client.callTool({ name: 'route', arguments: { region: 'us' } });
         expect(result.content?.[0]).toEqual({ type: 'text', text: 'ok' });
