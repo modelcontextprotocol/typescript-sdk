@@ -48,6 +48,26 @@ function buildServer(): McpServer {
         }
     );
 
+    // SEP-2106: outputSchema may have any JSON Schema root (here an array), and
+    // structuredContent may be any JSON value. When structuredContent is not an
+    // object and the handler returns no text block, the SDK injects a serialized
+    // JSON text block so legacy clients have something to read.
+    server.registerTool(
+        'list-forecasts',
+        {
+            description: 'Hourly forecast (array structuredContent)',
+            inputSchema: z.object({ city: z.string() }),
+            outputSchema: z.array(z.object({ hour: z.string(), celsius: z.number() }))
+        },
+        async () => ({
+            content: [],
+            structuredContent: [
+                { hour: '09:00', celsius: 18 },
+                { hour: '10:00', celsius: 21 }
+            ]
+        })
+    );
+
     return server;
 }
 

@@ -1,0 +1,7 @@
+---
+'@modelcontextprotocol/core': minor
+'@modelcontextprotocol/client': minor
+'@modelcontextprotocol/server': minor
+---
+
+SEP-1613 / SEP-2106 (JSON Schema 2020-12 posture): the Node default JSON Schema validator is now `Ajv2020` (true draft 2020-12) instead of the draft-07 `Ajv` class — `$defs`/`prefixItems`/`unevaluatedProperties`/`dependentRequired` are now enforced where they were previously silently ignored; to opt back, construct the draft-07 instance with the v1 defaults — `const ajv = new Ajv({ strict: false, validateFormats: true, validateSchema: false, allErrors: true }); addFormats(ajv);` — and pass `new AjvJsonSchemaValidator(ajv)`. Schemas declaring a `$schema` other than 2020-12 are rejected with a clear error rather than mis-validating. `outputSchema` may now have a non-object root and `CallToolResult.structuredContent` is widened to `unknown` (a deliberate source-level break for typed consumers — see the migration guide for the narrowing pattern). Toward 2025-era clients McpServer wraps a non-object `outputSchema` (and the matching `structuredContent`) in a `{result: …}` envelope so the tool stays callable, with same-document `$ref`/`$dynamicRef` pointers rewritten to keep resolving. Independently, on every era (the SEP's MUST applies regardless of client version), McpServer auto-appends a `TextContent` JSON serialisation when a handler returns non-object `structuredContent` without its own text block. The `structuredContent` presence check is `!== undefined` (not falsy) on both sides. Thanks @mattzcarey (#2249).
