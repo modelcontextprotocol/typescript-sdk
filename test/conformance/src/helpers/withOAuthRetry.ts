@@ -22,6 +22,12 @@ export const handle401 = async (
     // union degenerates to the challenged scope.
     const previousTokens = await provider.tokens();
     const scope = response.status === 403 ? computeScopeUnion(previousTokens?.scope, challengedScope) : challengedScope;
+    // A 401 after we already held a token means it no longer authenticates the resource;
+    // drop cached discovery so auth() re-probes PRM and can detect an authorization-server
+    // migration (SEP-2352). 403 is a step-up at the same AS — keep the cache.
+    if (response.status === 401) {
+        provider.invalidateCredentials('discovery');
+    }
     let result = await auth(provider, {
         serverUrl,
         resourceMetadataUrl,

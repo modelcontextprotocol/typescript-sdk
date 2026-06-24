@@ -780,11 +780,14 @@ describe('SSEClientTransport', () => {
 
             await transport.start();
 
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-token',
-                token_type: 'Bearer',
-                refresh_token: 'new-refresh-token'
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-token',
+                    token_type: 'Bearer',
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
             expect(connectionAttempts).toBe(1);
             expect(lastServerRequest.headers.authorization).toBe('Bearer new-token');
         });
@@ -933,11 +936,14 @@ describe('SSEClientTransport', () => {
 
             await transport.send(message);
 
-            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-token',
-                token_type: 'Bearer',
-                refresh_token: 'new-refresh-token'
-            });
+            expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-token',
+                    token_type: 'Bearer',
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
             expect(postAttempts).toBe(1);
             expect(lastServerRequest.headers.authorization).toBe('Bearer new-token');
         });
@@ -1020,7 +1026,7 @@ describe('SSEClientTransport', () => {
             expect(mockAuthProvider.redirectToAuthorization).toHaveBeenCalled();
         });
 
-        it('invalidates all credentials on OAuthErrorCode.InvalidClient during token refresh', async () => {
+        it('invalidates client+tokens (not discovery) on OAuthErrorCode.InvalidClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1069,10 +1075,14 @@ describe('SSEClientTransport', () => {
             });
 
             await expect(() => transport.start()).rejects.toMatchObject(expectedError);
-            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
+            // SEP-2352: 'client'+'tokens' (not 'all') so discoveryState survives for the
+            // callback-leg gate on retry.
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('client');
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(mockAuthProvider.invalidateCredentials).not.toHaveBeenCalledWith('all');
         });
 
-        it('invalidates all credentials on OAuthErrorCode.UnauthorizedClient during token refresh', async () => {
+        it('invalidates client+tokens (not discovery) on OAuthErrorCode.UnauthorizedClient during token refresh', async () => {
             // Mock tokens() to return token with refresh token
             mockAuthProvider.tokens.mockResolvedValue({
                 access_token: 'expired-token',
@@ -1120,7 +1130,11 @@ describe('SSEClientTransport', () => {
             });
 
             await expect(() => transport.start()).rejects.toMatchObject(expectedError);
-            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('all');
+            // SEP-2352: 'client'+'tokens' (not 'all') so discoveryState survives for the
+            // callback-leg gate on retry.
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('client');
+            expect(mockAuthProvider.invalidateCredentials).toHaveBeenCalledWith('tokens');
+            expect(mockAuthProvider.invalidateCredentials).not.toHaveBeenCalledWith('all');
         });
 
         it('invalidates tokens on OAuthErrorCode.InvalidGrant during token refresh', async () => {
@@ -1519,12 +1533,15 @@ describe('SSEClientTransport', () => {
             expect(tokenCalls.length).toBeGreaterThan(0);
 
             // Verify tokens were saved
-            expect(authProviderWithCode.saveTokens).toHaveBeenCalledWith({
-                access_token: 'new-access-token',
-                token_type: 'Bearer',
-                expires_in: 3600,
-                refresh_token: 'new-refresh-token'
-            });
+            expect(authProviderWithCode.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer',
+                    expires_in: 3600,
+                    refresh_token: 'new-refresh-token'
+                }),
+                expect.anything()
+            );
 
             // Global fetch should never have been called
             expect(globalFetchSpy).not.toHaveBeenCalled();

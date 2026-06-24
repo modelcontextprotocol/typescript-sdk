@@ -45,6 +45,7 @@ export {
     validateClientMetadataUrl
 } from './client/auth.js';
 export {
+    AuthorizationServerMismatchError,
     InsecureTokenEndpointError,
     InsufficientScopeError,
     IssuerMismatchError,
