@@ -19,9 +19,21 @@ import {
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 import type { AuthProvider, OAuthClientProvider } from './auth.js';
-import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
+import {
+    adaptOAuthProvider,
+    auth,
+    computeScopeUnion,
+    extractWWWAuthenticateParams,
+    isOAuthClientProvider,
+    isStrictScopeSuperset,
+    UnauthorizedError
+} from './auth.js';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced via {@linkcode} in finishAuth JSDoc
 import type { IssuerMismatchError } from './authErrors.js';
+import { InsufficientScopeError } from './authErrors.js';
+
+/** Default cap on step-up re-authorization retries within a single send/stream-open. */
+const DEFAULT_MAX_STEP_UP_RETRIES = 1;
 
 // Default reconnection options for StreamableHTTP connections
 const DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS: StreamableHTTPReconnectionOptions = {
@@ -193,6 +205,41 @@ export type StreamableHTTPClientTransportOptions = {
      * handshake so the reconnected transport continues sending the required header.
      */
     protocolVersion?: string;
+
+    /**
+     * How the transport reacts to a `403 Forbidden` response carrying
+     * `WWW-Authenticate: Bearer error="insufficient_scope"`.
+     *
+     * - `'reauthorize'` (default): the transport runs the step-up authorization
+     *   flow — computes the union of the previously-requested scope and the
+     *   challenged scope, calls {@linkcode index.auth | auth()} (forcing a
+     *   fresh authorization request when the union strictly exceeds the current
+     *   token's granted scope, since refresh cannot widen scope per RFC 6749
+     *   §6), and retries the request once. Retries are bounded by
+     *   {@linkcode StreamableHTTPClientTransportOptions.maxStepUpRetries | maxStepUpRetries}.
+     *   If no {@linkcode index.OAuthClientProvider | OAuthClientProvider} is
+     *   configured, step-up cannot run and the transport throws
+     *   {@linkcode index.InsufficientScopeError | InsufficientScopeError} instead.
+     * - `'throw'`: the transport throws {@linkcode index.InsufficientScopeError | InsufficientScopeError}
+     *   carrying the challenge parameters and does not re-authorize. Use this
+     *   for `client_credentials` / m2m clients where re-authorization cannot
+     *   widen scope, or for interactive clients that want to gate the consent
+     *   prompt behind UX.
+     *
+     * @default 'reauthorize'
+     */
+    onInsufficientScope?: 'reauthorize' | 'throw';
+
+    /**
+     * Maximum number of step-up re-authorization attempts the transport makes
+     * per send (and per GET stream open) before giving up. Only consulted when
+     * {@linkcode StreamableHTTPClientTransportOptions.onInsufficientScope | onInsufficientScope}
+     * is `'reauthorize'`. Cross-request tracking ("this resource+operation
+     * already failed N times across the session") is host responsibility.
+     *
+     * @default 1
+     */
+    maxStepUpRetries?: number;
 };
 
 /**
@@ -268,7 +315,8 @@ export class StreamableHTTPClientTransport implements Transport {
     private _sessionId?: string;
     private _reconnectionOptions: StreamableHTTPReconnectionOptions;
     private _protocolVersion?: string;
-    private _lastUpscopingHeader?: string; // Track last upscoping header to prevent infinite upscoping.
+    private _onInsufficientScope: 'reauthorize' | 'throw';
+    private _maxStepUpRetries: number;
     private _serverRetryMs?: number; // Server-provided retry delay from SSE retry field
     private readonly _reconnectionScheduler?: ReconnectionScheduler;
     private _cancelReconnection?: () => void;
@@ -305,6 +353,68 @@ export class StreamableHTTPClientTransport implements Transport {
         this._protocolVersion = opts?.protocolVersion;
         this._reconnectionOptions = opts?.reconnectionOptions ?? DEFAULT_STREAMABLE_HTTP_RECONNECTION_OPTIONS;
         this._reconnectionScheduler = opts?.reconnectionScheduler;
+        this._onInsufficientScope = opts?.onInsufficientScope ?? 'reauthorize';
+        this._maxStepUpRetries = Math.max(0, opts?.maxStepUpRetries ?? DEFAULT_MAX_STEP_UP_RETRIES);
+    }
+
+    /**
+     * SEP-2350 step-up: compute the union scope, decide whether refresh must be
+     * bypassed, and run {@linkcode auth}. Returns the auth result so the caller
+     * can decide whether to retry. Shared by the POST `_send` path and the GET
+     * `_startOrAuthSse` path so both apply the same `'throw'` short-circuit,
+     * the same superset-gated refresh bypass, and the same retry cap.
+     */
+    private async _stepUpAuthorize(
+        challenge: { scope?: string; resourceMetadataUrl?: URL; errorDescription?: string; statusText?: string; text?: string | null },
+        stepUpRetries: number
+    ): Promise<'AUTHORIZED' | 'REDIRECT'> {
+        if (this._onInsufficientScope === 'throw') {
+            throw new InsufficientScopeError({
+                requiredScope: challenge.scope,
+                resourceMetadataUrl: challenge.resourceMetadataUrl,
+                errorDescription: challenge.errorDescription
+            });
+        }
+        if (!this._oauthProvider) {
+            // No OAuth provider to drive step-up; surface the typed error so the
+            // host can act on it.
+            throw new InsufficientScopeError({
+                requiredScope: challenge.scope,
+                resourceMetadataUrl: challenge.resourceMetadataUrl,
+                errorDescription: challenge.errorDescription
+            });
+        }
+        if (stepUpRetries >= this._maxStepUpRetries) {
+            throw new SdkHttpError(
+                SdkErrorCode.ClientHttpForbidden,
+                `Server returned 403 insufficient_scope after step-up re-authorization (retry limit ${this._maxStepUpRetries} reached)`,
+                { status: 403, statusText: challenge.statusText ?? 'Forbidden', text: challenge.text }
+            );
+        }
+
+        if (challenge.resourceMetadataUrl) {
+            this._resourceMetadataUrl = challenge.resourceMetadataUrl;
+        }
+
+        // Spec step-up: union of previously-requested scope and challenged scope,
+        // so previously-granted permissions are not lost on re-authorization.
+        const tokens = await this._oauthProvider.tokens();
+        const unionScope = computeScopeUnion(this._scope, tokens?.scope, challenge.scope);
+        this._scope = unionScope;
+
+        // Superset-gated refresh bypass: refresh cannot widen scope (RFC 6749 §6),
+        // so when the union strictly exceeds what the current token was granted
+        // we must force a fresh authorization request.
+        const forceReauthorization = isStrictScopeSuperset(unionScope, tokens?.scope);
+
+        return auth(this._oauthProvider, {
+            serverUrl: this._url,
+            resourceMetadataUrl: this._resourceMetadataUrl,
+            scope: unionScope,
+            forceReauthorization,
+            fetchFn: this._fetchWithInit,
+            skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
+        });
     }
 
     private async _commonHeaders(): Promise<Headers> {
@@ -385,7 +495,7 @@ export class StreamableHTTPClientTransport implements Transport {
         return typeof v === 'string' && isModernProtocolVersion(v);
     }
 
-    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false): Promise<void> {
+    private async _startOrAuthSse(options: StartSSEOptions, isAuthRetry = false, stepUpRetries = 0): Promise<void> {
         const { resumptionToken, requestSignal } = options;
         // Same guard as `_handleSseStream`: a resurrected listen stream (the
         // POST-SSE → GET reconnect path threads `requestSignal` through
@@ -424,7 +534,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl;
-                        this._scope = scope;
+                        // Preserve any union accumulated by `_stepUpAuthorize` so a 401
+                        // mid-chain does not narrow `_scope` back to the challenge value.
+                        this._scope = computeScopeUnion(this._scope, scope);
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
@@ -435,7 +547,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._startOrAuthSse(options, true);
+                        return this._startOrAuthSse(options, true, stepUpRetries);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
@@ -445,6 +557,21 @@ export class StreamableHTTPClientTransport implements Transport {
                         });
                     }
                     throw new UnauthorizedError();
+                }
+
+                if (response.status === 403) {
+                    const { resourceMetadataUrl, scope, error, errorDescription } = extractWWWAuthenticateParams(response);
+                    if (error === 'insufficient_scope') {
+                        const text = await response.text?.().catch(() => null);
+                        const result = await this._stepUpAuthorize(
+                            { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
+                            stepUpRetries
+                        );
+                        if (result !== 'AUTHORIZED') {
+                            throw new UnauthorizedError();
+                        }
+                        return this._startOrAuthSse(options, isAuthRetry, stepUpRetries + 1);
+                    }
                 }
 
                 await response.text?.().catch(() => {});
@@ -783,7 +910,8 @@ export class StreamableHTTPClientTransport implements Transport {
                   headers?: Readonly<Record<string, string>>;
               }
             | undefined,
-        isAuthRetry: boolean
+        isAuthRetry: boolean,
+        stepUpRetries = 0
     ): Promise<void> {
         try {
             const { resumptionToken, onresumptiontoken } = options || {};
@@ -853,7 +981,9 @@ export class StreamableHTTPClientTransport implements Transport {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
                         this._resourceMetadataUrl = resourceMetadataUrl;
-                        this._scope = scope;
+                        // Preserve any union accumulated by `_stepUpAuthorize` so a 401
+                        // mid-chain does not narrow `_scope` back to the challenge value.
+                        this._scope = computeScopeUnion(this._scope, scope);
                     }
 
                     if (this._authProvider.onUnauthorized && !isAuthRetry) {
@@ -864,7 +994,7 @@ export class StreamableHTTPClientTransport implements Transport {
                         });
                         await response.text?.().catch(() => {});
                         // Purposely _not_ awaited, so we don't call onerror twice
-                        return this._send(message, options, true);
+                        return this._send(message, options, true, stepUpRetries);
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
@@ -878,44 +1008,18 @@ export class StreamableHTTPClientTransport implements Transport {
 
                 const text = await response.text?.().catch(() => null);
 
-                if (response.status === 403 && this._oauthProvider) {
-                    const { resourceMetadataUrl, scope, error } = extractWWWAuthenticateParams(response);
+                if (response.status === 403) {
+                    const { resourceMetadataUrl, scope, error, errorDescription } = extractWWWAuthenticateParams(response);
 
                     if (error === 'insufficient_scope') {
-                        const wwwAuthHeader = response.headers.get('WWW-Authenticate');
-
-                        // Check if we've already tried upscoping with this header to prevent infinite loops.
-                        if (this._lastUpscopingHeader === wwwAuthHeader) {
-                            throw new SdkHttpError(SdkErrorCode.ClientHttpForbidden, 'Server returned 403 after trying upscoping', {
-                                status: 403,
-                                statusText: response.statusText,
-                                text
-                            });
-                        }
-
-                        if (scope) {
-                            this._scope = scope;
-                        }
-
-                        if (resourceMetadataUrl) {
-                            this._resourceMetadataUrl = resourceMetadataUrl;
-                        }
-
-                        // Mark that upscoping was tried.
-                        this._lastUpscopingHeader = wwwAuthHeader ?? undefined;
-                        const result = await auth(this._oauthProvider, {
-                            serverUrl: this._url,
-                            resourceMetadataUrl: this._resourceMetadataUrl,
-                            scope: this._scope,
-                            fetchFn: this._fetchWithInit,
-                            skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
-                        });
-
+                        const result = await this._stepUpAuthorize(
+                            { scope, resourceMetadataUrl, errorDescription, statusText: response.statusText, text },
+                            stepUpRetries
+                        );
                         if (result !== 'AUTHORIZED') {
                             throw new UnauthorizedError();
                         }
-
-                        return this._send(message, options, isAuthRetry);
+                        return this._send(message, options, isAuthRetry, stepUpRetries + 1);
                     }
                 }
 
@@ -955,8 +1059,6 @@ export class StreamableHTTPClientTransport implements Transport {
                     text
                 });
             }
-
-            this._lastUpscopingHeader = undefined;
 
             // If the response is 202 Accepted, there's no body to process
             if (response.status === 202) {

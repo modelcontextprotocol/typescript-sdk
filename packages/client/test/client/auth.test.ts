@@ -8,6 +8,7 @@ import {
     assertSecureTokenEndpoint,
     auth,
     buildDiscoveryUrls,
+    computeScopeUnion,
     determineScope,
     discoverAuthorizationServerMetadata,
     discoverOAuthMetadata,
@@ -17,6 +18,7 @@ import {
     extractWWWAuthenticateParams,
     InsecureTokenEndpointError,
     isHttpsUrl,
+    isStrictScopeSuperset,
     IssuerMismatchError,
     refreshAuthorization,
     registerClient,
@@ -139,6 +141,62 @@ describe('OAuth Authorization', () => {
             } as unknown as Response;
 
             expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ error: 'insufficient_scope', scope: 'admin' });
+        });
+
+        it('returns error_description when present', async () => {
+            const mockResponse = {
+                headers: {
+                    get: vi.fn(name =>
+                        name === 'WWW-Authenticate'
+                            ? `Bearer error="insufficient_scope", scope="admin", error_description="needs admin"`
+                            : null
+                    )
+                }
+            } as unknown as Response;
+
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({
+                error: 'insufficient_scope',
+                scope: 'admin',
+                errorDescription: 'needs admin'
+            });
+        });
+    });
+
+    describe('computeScopeUnion', () => {
+        it.each([
+            { inputs: [undefined], expected: undefined },
+            { inputs: [undefined, undefined], expected: undefined },
+            { inputs: ['', '  '], expected: undefined },
+            { inputs: ['read'], expected: 'read' },
+            { inputs: ['read', undefined], expected: 'read' },
+            { inputs: ['read write', 'write admin'], expected: 'read write admin' },
+            { inputs: ['read', 'read'], expected: 'read' },
+            { inputs: ['  read   write  ', 'admin'], expected: 'read write admin' },
+            { inputs: ['a b', 'c', 'b d'], expected: 'a b c d' }
+        ])('union of $inputs is $expected', ({ inputs, expected }) => {
+            expect(computeScopeUnion(...inputs)).toBe(expected);
+        });
+
+        it('does not collapse hierarchical scopes', () => {
+            // The spec explicitly does not require clients to deduplicate
+            // hierarchically; the AS normalizes redundancy.
+            expect(computeScopeUnion('admin', 'read')).toBe('admin read');
+        });
+    });
+
+    describe('isStrictScopeSuperset', () => {
+        it.each([
+            { union: undefined, current: undefined, expected: false },
+            { union: undefined, current: 'read', expected: false },
+            { union: 'read', current: undefined, expected: true },
+            { union: 'read', current: '', expected: true },
+            { union: 'read', current: 'read', expected: false },
+            { union: 'read write', current: 'read', expected: true },
+            { union: 'read write', current: 'read write', expected: false },
+            { union: 'read write', current: 'write read admin', expected: false },
+            { union: 'read', current: 'read write', expected: false }
+        ])('isStrictScopeSuperset($union, $current) is $expected', ({ union, current, expected }) => {
+            expect(isStrictScopeSuperset(union, current)).toBe(expected);
         });
     });
 

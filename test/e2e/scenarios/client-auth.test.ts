@@ -14,11 +14,14 @@ import {
     auth,
     Client,
     ClientCredentialsProvider,
+    computeScopeUnion,
     createMiddleware,
     discoverAuthorizationServerMetadata,
     discoverOAuthProtectedResourceMetadata,
     exchangeAuthorization,
     InsecureTokenEndpointError,
+    InsufficientScopeError,
+    isStrictScopeSuperset,
     IssuerMismatchError,
     OAuthError,
     OAuthErrorCode,
@@ -431,12 +434,13 @@ verifies('client-auth:403-scope-upgrade', async (_args: TestArgs) => {
         await interactiveClient.close();
     }
 
-    // Phase 2: when the upscoped token is still rejected with the same header, the transport stops instead of looping.
+    // Phase 2: when the upscoped token is still rejected, the transport stops at the per-send retry cap instead of looping.
+    // The token here already covers the challenged scope, so refresh (not a fresh authorization) is used.
     const refreshAs = createMockAuthorizationServer({
-        tokenResponses: [{ access_token: 'upscoped-access-token', token_type: 'Bearer' }]
+        tokenResponses: [{ access_token: 'upscoped-access-token', token_type: 'Bearer', scope: UPGRADED_SCOPE }]
     });
     const refreshProvider = new RecordingOAuthClientProvider({
-        tokens: { access_token: 'narrow-scope-token', token_type: 'Bearer', refresh_token: 'narrow-refresh-token' },
+        tokens: { access_token: 'narrow-scope-token', token_type: 'Bearer', refresh_token: 'narrow-refresh-token', scope: UPGRADED_SCOPE },
         clientInformation: { client_id: 'pre-registered-client' }
     });
 
@@ -459,13 +463,201 @@ verifies('client-auth:403-scope-upgrade', async (_args: TestArgs) => {
     try {
         const connectPromise = refreshClient.connect(refreshTransport);
         await expect(connectPromise).rejects.toBeInstanceOf(SdkError);
-        await expect(connectPromise).rejects.toThrow(/403 after trying upscoping/);
+        await expect(connectPromise).rejects.toThrow(/403 insufficient_scope after step-up re-authorization/);
 
         expect(refreshAs.tokenCalls).toHaveLength(1);
         expect(defined(refreshAs.tokenCalls[0], 'token call').body.get('grant_type')).toBe('refresh_token');
         expect(refreshMcpRequests).toHaveLength(2);
     } finally {
         await refreshClient.close();
+    }
+});
+
+verifies('client-auth:stepup:scope-union', async (_args: TestArgs) => {
+    // computeScopeUnion is a deliberate public export.
+    expect(computeScopeUnion('files:read openid', 'files:write')).toBe('files:read openid files:write');
+    expect(computeScopeUnion('admin', 'read')).toBe('admin read'); // no hierarchical collapse
+
+    // The transport requests the union of its previously-requested scope and the
+    // newly-challenged scope on step-up.
+    const PREVIOUS_SCOPE = 'files:read openid';
+    const CHALLENGED_SCOPE = 'files:write';
+    const as = createMockAuthorizationServer();
+    const provider = new RecordingOAuthClientProvider({
+        tokens: { access_token: 'read-token', token_type: 'Bearer', scope: PREVIOUS_SCOPE },
+        clientInformation: { client_id: 'pre-registered-client' }
+    });
+    const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        const urlObj = typeof url === 'string' ? new URL(url) : url;
+        if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+            return as.handleRequest(new Request(url, init));
+        }
+        return new Response(null, {
+            status: 403,
+            headers: { 'WWW-Authenticate': `Bearer error="insufficient_scope", scope="${CHALLENGED_SCOPE}"` }
+        });
+    };
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+    try {
+        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        expect(provider.redirectedTo).toHaveLength(1);
+        const redirect = defined(provider.redirectedTo[0], 'authorize URL');
+        expect(redirect.searchParams.get('scope')).toBe('files:read openid files:write');
+    } finally {
+        await client.close();
+    }
+});
+
+verifies(['client-auth:stepup:retry-cap', 'client-auth:stepup:refresh-bypass-on-superset'], async (_args: TestArgs) => {
+    // Part A — superset bypass: token granted "files:read"; challenged scope adds
+    // "files:write". Union strictly exceeds the token's grant → auth() forces a
+    // fresh authorization request (no refresh-token POST observed).
+    {
+        const as = createMockAuthorizationServer();
+        const provider = new RecordingOAuthClientProvider({
+            tokens: { access_token: 't', token_type: 'Bearer', refresh_token: 'rt', scope: 'files:read' },
+            clientInformation: { client_id: 'pre-registered-client' }
+        });
+        const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+            const urlObj = typeof url === 'string' ? new URL(url) : url;
+            if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+                return as.handleRequest(new Request(url, init));
+            }
+            return new Response(null, {
+                status: 403,
+                headers: { 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="files:write"' }
+            });
+        };
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+        try {
+            await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+            // Refresh was bypassed: no token-endpoint POST; the fresh authorize
+            // request carries the union scope.
+            expect(as.tokenCalls).toHaveLength(0);
+            expect(provider.redirectedTo).toHaveLength(1);
+            expect(defined(provider.redirectedTo[0], 'authorize URL').searchParams.get('scope')).toBe('files:read files:write');
+            expect(isStrictScopeSuperset('files:read files:write', 'files:read')).toBe(true);
+        } finally {
+            await client.close();
+        }
+    }
+
+    // Part B — refresh used + retry cap: token already covers the challenged
+    // scope (server is misconfigured / hierarchical). Union is NOT a strict
+    // superset → refresh is used. Server keeps 403'ing → per-send retry cap
+    // (default 1) stops the loop after exactly one step-up.
+    {
+        const as = createMockAuthorizationServer({
+            tokenResponses: [{ access_token: 't2', token_type: 'Bearer', scope: 'files:read files:write' }]
+        });
+        const provider = new RecordingOAuthClientProvider({
+            tokens: { access_token: 't', token_type: 'Bearer', refresh_token: 'rt', scope: 'files:read files:write' },
+            clientInformation: { client_id: 'pre-registered-client' }
+        });
+        const mcpPosts: string[] = [];
+        const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+            const urlObj = typeof url === 'string' ? new URL(url) : url;
+            if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+                return as.handleRequest(new Request(url, init));
+            }
+            mcpPosts.push(urlObj.pathname);
+            return new Response(null, {
+                status: 403,
+                headers: { 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="files:write"' }
+            });
+        };
+        const client = new Client({ name: 'c', version: '0' });
+        const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+        try {
+            const connectPromise = client.connect(transport);
+            await expect(connectPromise).rejects.toBeInstanceOf(SdkError);
+            await expect(connectPromise).rejects.toThrow(/retry limit 1 reached/);
+            expect(as.tokenCalls).toHaveLength(1);
+            expect(defined(as.tokenCalls[0], 'token call').body.get('grant_type')).toBe('refresh_token');
+            expect(provider.redirectedTo).toHaveLength(0);
+            expect(mcpPosts).toHaveLength(2);
+            expect(isStrictScopeSuperset('files:read files:write', 'files:read files:write')).toBe(false);
+        } finally {
+            await client.close();
+        }
+    }
+});
+
+verifies('client-auth:stepup:throw-mode', async (_args: TestArgs) => {
+    const as = createMockAuthorizationServer();
+    const provider = new RecordingOAuthClientProvider({
+        tokens: { access_token: 't', token_type: 'Bearer' },
+        clientInformation: { client_id: 'pre-registered-client' }
+    });
+    const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        const urlObj = typeof url === 'string' ? new URL(url) : url;
+        if (urlObj.origin === ISSUER || urlObj.pathname.includes('/.well-known/')) {
+            return as.handleRequest(new Request(url, init));
+        }
+        return new Response(null, {
+            status: 403,
+            headers: {
+                'WWW-Authenticate': `Bearer error="insufficient_scope", scope="files:write", resource_metadata="${MCP_URL}/.well-known/oauth-protected-resource", error_description="write permission required"`
+            }
+        });
+    };
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+        authProvider: provider,
+        fetch: combinedFetch,
+        onInsufficientScope: 'throw'
+    });
+    try {
+        const connectPromise = client.connect(transport);
+        await expect(connectPromise).rejects.toBeInstanceOf(InsufficientScopeError);
+        await expect(connectPromise).rejects.toMatchObject({
+            requiredScope: 'files:write',
+            errorDescription: 'write permission required',
+            resourceMetadataUrl: new URL(`${MCP_URL}/.well-known/oauth-protected-resource`)
+        });
+        // No re-authorization was attempted.
+        expect(as.tokenCalls).toHaveLength(0);
+        expect(as.discoveryCalls).toHaveLength(0);
+        expect(provider.redirectedTo).toHaveLength(0);
+    } finally {
+        await client.close();
+    }
+});
+
+verifies('client-auth:stepup:get-stream-403', async (_args: TestArgs) => {
+    // The GET listen-stream open path applies the same step-up handling.
+    // We assert via 'throw' mode (parity with the POST path is the same private
+    // helper) so the test observes the GET branch reaching the step-up gate.
+    const provider = new RecordingOAuthClientProvider({
+        tokens: { access_token: 't', token_type: 'Bearer' },
+        clientInformation: { client_id: 'pre-registered-client' }
+    });
+    const seenMethods: string[] = [];
+    const combinedFetch = async (url: URL | string, init?: RequestInit): Promise<Response> => {
+        seenMethods.push(init?.method ?? 'GET');
+        return new Response(null, {
+            status: 403,
+            headers: { 'WWW-Authenticate': 'Bearer error="insufficient_scope", scope="listen"' }
+        });
+    };
+
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), {
+        authProvider: provider,
+        fetch: combinedFetch,
+        onInsufficientScope: 'throw'
+    });
+    await transport.start();
+    try {
+        const resumePromise = transport.resumeStream('last-event-42');
+        await expect(resumePromise).rejects.toBeInstanceOf(InsufficientScopeError);
+        await expect(resumePromise).rejects.toMatchObject({ requiredScope: 'listen' });
+        expect(seenMethods).toEqual(['GET']);
+    } finally {
+        await transport.close();
     }
 });
 

@@ -21,6 +21,7 @@ export {
     assertSecureTokenEndpoint,
     auth,
     buildDiscoveryUrls,
+    computeScopeUnion,
     discoverAuthorizationServerMetadata,
     discoverOAuthMetadata,
     discoverOAuthProtectedResourceMetadata,
@@ -30,6 +31,7 @@ export {
     extractWWWAuthenticateParams,
     fetchToken,
     isHttpsUrl,
+    isStrictScopeSuperset,
     parseErrorResponse,
     prepareAuthorizationCodeRequest,
     refreshAuthorization,
@@ -42,7 +44,13 @@ export {
     validateAuthorizationResponseIssuer,
     validateClientMetadataUrl
 } from './client/auth.js';
-export { InsecureTokenEndpointError, IssuerMismatchError, OAuthClientFlowError, RegistrationRejectedError } from './client/authErrors.js';
+export {
+    InsecureTokenEndpointError,
+    InsufficientScopeError,
+    IssuerMismatchError,
+    OAuthClientFlowError,
+    RegistrationRejectedError
+} from './client/authErrors.js';
 export type {
     AssertionCallback,
     ClientCredentialsProviderOptions,
