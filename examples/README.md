@@ -1,7 +1,7 @@
 # MCP TypeScript SDK examples
 
 One **story** per directory. Every story is a runnable, self-verifying client/server pair: `server.ts` is what you would deploy, `client.ts` is what a host would write — it connects, exercises the feature with the public client API, asserts results, and exits 0. CI runs every
-pair over every transport it supports (`scripts/run-examples.ts`); a non-zero exit fails the build.
+pair over every transport it supports (`scripts/examples/run-examples.ts`); a non-zero exit fails the build.
 
 Each story is its own private workspace package (`@mcp-examples/<story>`). Run any pair from the repo root:
 
@@ -57,16 +57,16 @@ Add `-- --legacy` to the client command for the 2025-era handshake.
 | [`sse-polling/`](./sse-polling/README.md)           | SEP-1699 SSE polling/resumption (sessionful 2025)             | http       | legacy         |
 | [`standalone-get/`](./standalone-get/README.md)     | Standalone GET stream + `listChanged` push (sessionful 2025)  | http       | legacy         |
 
-`dual (in-body)` = the client connects to both eras inside one harness run; the story demonstrates one server serving both side by side.
+`dual (in-body)` = the client connects to both eras inside one runner invocation; the story demonstrates one server serving both side by side.
 
 ## Excluded
 
-| Directory                                  | What it is                                                            | Why not in CI                                                              |
-| ------------------------------------------ | --------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| [`repl/`](./repl/README.md)                | Fully-featured HTTP playground server + readline client               | Interactive — `client.ts` reads from stdin. Run manually in two terminals. |
-| [`guides/`](./guides/README.md)            | Snippet collections synced into `docs/server.md` and `docs/client.md` | Typecheck-only; not a runnable pair.                                       |
-| `server-quickstart/`, `client-quickstart/` | Website-tutorial sources                                              | External network / API key; typecheck-only.                                |
-| `shared/`                                  | Demo OAuth provider helper library                                    | Not a story — imported by the OAuth examples.                              |
+| Directory                                  | What it is                                                                                                                          | Why not in CI                                                              |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| [`repl/`](./repl/README.md)                | Fully-featured HTTP playground server + readline client                                                                             | Interactive — `client.ts` reads from stdin. Run manually in two terminals. |
+| [`guides/`](./guides/README.md)            | Snippet collections synced into `docs/server.md` and `docs/client.md`                                                               | Typecheck-only; not a runnable pair.                                       |
+| `server-quickstart/`, `client-quickstart/` | Website-tutorial sources                                                                                                            | External network / API key; typecheck-only.                                |
+| `shared/`                                  | Argv/assert scaffold (`parseExampleArgs`/`check`/`siblingPath`); demo OAuth provider + `InMemoryEventStore` at the `./auth` subpath | Not a story — imported by every story as scaffolding.                      |
 
 ## Multi-node deployment patterns
 

@@ -12,10 +12,18 @@
  * collected responses. The protocol carries the request differently; the user
  * experience is the same.
  *
- * One binary, either transport (selected by the shared scaffold from argv).
+ * One binary, either transport (selected from argv). On HTTP the 2025-era arm
+ * is **sessionful** (`NodeStreamableHTTPServerTransport`): push-style
+ * `elicitation/create` needs the `initialize`-declared client capabilities and
+ * the bidirectional SSE stream of a session, neither of which the per-request
+ * stateless legacy fallback can provide.
  */
 import { randomUUID } from 'node:crypto';
+import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createServer } from 'node:http';
 
+import { parseExampleArgs } from '@mcp-examples/shared';
+import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
     ElicitRequestFormParams,
@@ -23,10 +31,17 @@ import type {
     InputRequiredResult,
     McpRequestContext
 } from '@modelcontextprotocol/server';
-import { acceptedContent, inputRequired, McpServer, UrlElicitationRequiredError } from '@modelcontextprotocol/server';
+import {
+    acceptedContent,
+    createMcpHandler,
+    inputRequired,
+    isInitializeRequest,
+    isLegacyRequest,
+    McpServer,
+    UrlElicitationRequiredError
+} from '@modelcontextprotocol/server';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import * as z from 'zod/v4';
-
-import { runServerFromArgs } from '../harness.js';
 
 // The form schema (with `enumNames` display labels for the enum field).
 const REGISTRATION_SCHEMA: ElicitRequestFormParams['requestedSchema'] = {
@@ -219,5 +234,69 @@ function buildServer(reqCtx: McpRequestContext): McpServer {
     return server;
 }
 
-// runServerFromArgs is the example harness's transport selector (default stdio, --http for HTTP). In your own server you'd call serveStdio(buildServer) or createMcpHandler(buildServer) directly.
-runServerFromArgs(buildServer);
+const { transport, port } = parseExampleArgs();
+
+if (transport === 'stdio') {
+    void serveStdio(buildServer);
+    console.error('[server] serving over stdio');
+} else {
+    // --- modern (2026-07-28): per-request, strict so the sessionful arm owns ALL legacy traffic ---
+    const modern = toNodeHandler(createMcpHandler(buildServer, { legacy: 'reject' }));
+
+    // --- legacy (2025): sessionful Streamable HTTP — push-style elicitation
+    // requires the session (client capabilities + bidirectional SSE stream) ---
+    const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
+    const handleLegacy = async (req: IncomingMessage, res: ServerResponse, body: unknown): Promise<void> => {
+        const sid = req.headers['mcp-session-id'] as string | undefined;
+        if (sid && sessions.has(sid)) {
+            await sessions.get(sid)!.handleRequest(req, res, body);
+        } else if (!sid && isInitializeRequest(body)) {
+            const t = new NodeStreamableHTTPServerTransport({
+                sessionIdGenerator: () => randomUUID(),
+                onsessioninitialized: id => {
+                    sessions.set(id, t);
+                }
+            });
+            t.onclose = () => t.sessionId && sessions.delete(t.sessionId);
+            await buildServer({ era: 'legacy' } as McpRequestContext).connect(t);
+            await t.handleRequest(req, res, body);
+        } else {
+            res.writeHead(sid ? 404 : 400, { 'content-type': 'application/json' }).end(
+                JSON.stringify({
+                    jsonrpc: '2.0',
+                    error: sid
+                        ? { code: -32_001, message: 'Session not found' }
+                        : { code: -32_000, message: 'Bad Request: Session ID required' },
+                    id: null
+                })
+            );
+        }
+    };
+
+    createServer((req, res) => {
+        void (async () => {
+            // Read the body once for the predicate and pass it forward.
+            let body: unknown;
+            if (req.method === 'POST') {
+                const chunks: Buffer[] = [];
+                for await (const chunk of req) chunks.push(chunk as Buffer);
+                const raw = Buffer.concat(chunks).toString('utf8');
+                try {
+                    body = raw ? JSON.parse(raw) : undefined;
+                } catch {
+                    body = undefined;
+                }
+            }
+            const probe = new globalThis.Request(`http://localhost${req.url ?? '/'}`, {
+                method: req.method,
+                headers: req.headers as Record<string, string>
+            });
+            await ((await isLegacyRequest(probe, body)) ? handleLegacy(req, res, body) : modern(req, res, body));
+        })().catch(error => {
+            console.error('[server] request error:', error instanceof Error ? error.message : error);
+            if (!res.headersSent) res.writeHead(500).end();
+        });
+    }).listen(port, () => {
+        console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
+    });
+}

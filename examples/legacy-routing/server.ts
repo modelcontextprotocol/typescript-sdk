@@ -12,6 +12,7 @@
  */
 import { randomUUID } from 'node:crypto';
 
+import { parseExampleArgs } from '@mcp-examples/shared';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
@@ -86,9 +87,7 @@ app.post('/mcp', async (req: Request, res: Response) => {
 app.get('/mcp', (req, res) => void handleLegacy(req, res));
 app.delete('/mcp', (req, res) => void handleLegacy(req, res));
 
-const argv = process.argv.slice(2);
-const portIdx = argv.indexOf('--port');
-const port = portIdx === -1 ? 3000 : Number(argv[portIdx + 1]);
+const { port } = parseExampleArgs();
 app.listen(port, () => {
-    console.error(`legacy-routing example server listening on http://127.0.0.1:${port}/mcp`);
+    console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
 });

@@ -20,30 +20,20 @@
  * DEMO ONLY — NOT FOR PRODUCTION. The demo AS auto-approves a fixed user; CORS
  * allows every origin; tokens are validated in-process against the same demo
  * AS instance.
+ *
+ * HTTP-only (Bearer auth has no stdio equivalent), so the canonical
+ * `if (transport === 'stdio')` branch does not apply.
  */
-import { createProtectedResourceMetadataRouter, demoTokenVerifier, setupAuthServer } from '@mcp-examples/shared';
+import { parseExampleArgs } from '@mcp-examples/shared';
+import { createProtectedResourceMetadataRouter, demoTokenVerifier, setupAuthServer } from '@mcp-examples/shared/auth';
 import { createMcpExpressApp, getOAuthProtectedResourceMetadataUrl, requireBearerAuth } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
+import type { McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import * as z from 'zod/v4';
 
-const argv = process.argv.slice(2);
-const portIdx = argv.indexOf('--port');
-const MCP_PORT = portIdx === -1 ? Number(process.env.MCP_PORT ?? 3000) : Number(argv[portIdx + 1]);
-const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AUTH_PORT, 10) : MCP_PORT + 1;
-// 127.0.0.1 (not `localhost`) so the PRM `resource` value matches the URL the
-// harness passes the client byte-for-byte — the SDK auth driver enforces that.
-const mcpServerUrl = new URL(`http://127.0.0.1:${MCP_PORT}/mcp`);
-const authServerUrl = new URL(`http://127.0.0.1:${AUTH_PORT}`);
-
-// ---- Authorization Server (better-auth OIDC; authorization_code only) ----
-// `autoConsent` is the demo-only switch that turns the consent screen into an
-// immediate 302 — set by the harness so `./client.ts` can run without a browser.
-setupAuthServer({ authServerUrl, mcpServerUrl, demoMode: true, autoConsent: process.env.OAUTH_DEMO_AUTO_CONSENT === '1' });
-
-// ---- Resource Server (MCP) ----
-const handler = createMcpHandler(ctx => {
+function buildServer(ctx: McpRequestContext): McpServer {
     const server = new McpServer({ name: 'oauth-protected-example', version: '1.0.0' });
     server.registerTool(
         'whoami',
@@ -53,7 +43,22 @@ const handler = createMcpHandler(ctx => {
         })
     );
     return server;
-});
+}
+
+const { port } = parseExampleArgs();
+const AUTH_PORT = process.env.MCP_AUTH_PORT ? Number.parseInt(process.env.MCP_AUTH_PORT, 10) : port + 1;
+// 127.0.0.1 (not `localhost`) so the PRM `resource` value matches the URL the
+// runner passes the client byte-for-byte — the SDK auth driver enforces that.
+const mcpServerUrl = new URL(`http://127.0.0.1:${port}/mcp`);
+const authServerUrl = new URL(`http://127.0.0.1:${AUTH_PORT}`);
+
+// ---- Authorization Server (better-auth OIDC; authorization_code only) ----
+// `autoConsent` is the demo-only switch that turns the consent screen into an
+// immediate 302 — set by the runner so `./client.ts` can run without a browser.
+setupAuthServer({ authServerUrl, mcpServerUrl, demoMode: true, autoConsent: process.env.OAUTH_DEMO_AUTO_CONSENT === '1' });
+
+// ---- Resource Server (MCP) ----
+const handler = createMcpHandler(buildServer);
 
 const app = createMcpExpressApp();
 // DEMO ONLY — restrict `origin` in production. `exposedHeaders` lists the
@@ -78,7 +83,7 @@ const auth = requireBearerAuth({
 const node = toNodeHandler(handler);
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 
-app.listen(MCP_PORT, () => {
+app.listen(port, () => {
     console.error(`OAuth-protected MCP server listening on ${mcpServerUrl.href}`);
-    console.error(`  Protected Resource Metadata: http://127.0.0.1:${MCP_PORT}/.well-known/oauth-protected-resource/mcp`);
+    console.error(`  Protected Resource Metadata: http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp`);
 });

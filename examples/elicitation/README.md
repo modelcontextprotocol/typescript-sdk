@@ -11,8 +11,7 @@ Server requests user input. One factory, both protocol eras: elicitation works o
 `plan_trip` chains **two** form elicitations inside one tool call (destination → dates for that destination): two sequential `ctx.mcpReq.elicitInput` pushes on 2025, two `inputRequired` rounds with `requestState` carry-over on 2026. The `register_user` form schema includes an
 `enumNames` field (display labels for the `plan` enum). For the secure `requestState` round-trip pattern see [`../mrtr/`](../mrtr/README.md).
 
-Runs the full transport × era matrix: the harness's `--http` arm hosts 2025 traffic on a sessionful `NodeStreamableHTTPServerTransport` (the same `isLegacyRequest` composition `../legacy-routing/` shows by hand), so push server→client requests reach the client over either
-transport.
+Runs all four transport/era legs: `server.ts` inlines a sessionful `NodeStreamableHTTPServerTransport` arm for 2025 traffic (the same `isLegacyRequest` composition `../legacy-routing/` shows by hand), so push server→client requests reach the client over either transport.
 
 ```bash
 pnpm --filter @mcp-examples/elicitation client               # 2026-07-28 (inputRequired)

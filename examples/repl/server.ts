@@ -8,24 +8,26 @@
  * resources (direct + `ResourceTemplate`), `notifications/message` logging,
  * and `notifications/resources/list_changed`.
  *
- * Hosted on `NodeStreamableHTTPServerTransport` with an in-memory
- * `eventStore` so the REPL client's `reconnect` and
+ * HTTP-only and sessionful by design: hosted on
+ * `NodeStreamableHTTPServerTransport` with an in-memory `eventStore` so the
+ * REPL client's `reconnect`, `terminate-session`, and
  * `run-notifications-tool-with-resumability` commands actually replay missed
- * events on reconnect with `Last-Event-ID`.
+ * events on reconnect with `Last-Event-ID`. The canonical
+ * `serveStdio` / `createMcpHandler` arms cannot express that, and the REPL
+ * client uses stdin for the readline command loop.
  *
- * HTTP-only — pair with `pnpm run client` in a second terminal.
+ * Pair with `pnpm run client` in a second terminal.
  */
 import { randomUUID } from 'node:crypto';
 
-import { InMemoryEventStore } from '@mcp-examples/shared';
+import { parseExampleArgs } from '@mcp-examples/shared';
+import { InMemoryEventStore } from '@mcp-examples/shared/auth';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult, PrimitiveSchemaDefinition, ReadResourceResult, ResourceLink } from '@modelcontextprotocol/server';
 import { completable, isInitializeRequest, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
-
-const PORT = process.env.PORT ? Number.parseInt(process.env.PORT, 10) : 3000;
 
 /** Dynamic resources added via the `add-resource` tool (shared across sessions). */
 const dynamicResources = new Map<string, string>();
@@ -248,6 +250,8 @@ function buildServer(): McpServer {
     return server;
 }
 
+const { port } = parseExampleArgs();
+
 // Sessionful 2025-era hosting with an in-memory event store so the REPL
 // client's resumability commands work (reconnect with `Last-Event-ID` replays
 // missed `notifications/message` events).
@@ -277,7 +281,7 @@ app.all('/mcp', async (req: Request, res: Response) => {
     }
 });
 
-app.listen(PORT, () => console.error(`[server] REPL playground listening on http://localhost:${PORT}/mcp`));
+app.listen(port, () => console.error(`[server] REPL playground listening on http://127.0.0.1:${port}/mcp`));
 
 process.on('SIGINT', async () => {
     for (const t of sessions.values()) await t.close();

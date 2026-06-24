@@ -7,6 +7,7 @@
         "client": "tsx client.ts"
     },
     "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
         "@modelcontextprotocol/client": "workspace:*",
         "@modelcontextprotocol/node": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",
@@ -20,6 +21,6 @@
             "http"
         ],
         "era": "modern",
-        "//": "The story body manages its own era internally (or does not use connectFromArgs); pinned so the harness runs it once per transport."
+        "//": "The story body manages its own era internally; pinned so the runner runs it once per transport."
     }
 }

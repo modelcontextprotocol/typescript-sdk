@@ -16,7 +16,8 @@
  * the `whoami` tool — which echoes `ctx.authInfo` so the client can assert the
  * granted scopes round-tripped end to end. HTTP-only by definition.
  */
-import { createClientCredentialsAuthServer } from '@mcp-examples/shared';
+import { parseExampleArgs } from '@mcp-examples/shared';
+import { createClientCredentialsAuthServer } from '@mcp-examples/shared/auth';
 import {
     createMcpExpressApp,
     getOAuthProtectedResourceMetadataUrl,
@@ -27,13 +28,11 @@ import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
-const argv = process.argv.slice(2);
-const portIdx = argv.indexOf('--port');
-const PORT = portIdx === -1 ? 3000 : Number(argv[portIdx + 1]);
-const AUTH_PORT = PORT + 1;
+const { port } = parseExampleArgs();
+const AUTH_PORT = port + 1;
 // 127.0.0.1 (not `localhost`) so the PRM `resource` value matches the URL the
-// harness passes the client byte-for-byte — the SDK auth driver enforces that.
-const mcpServerUrl = new URL(`http://127.0.0.1:${PORT}/mcp`);
+// runner passes the client byte-for-byte — the SDK auth driver enforces that.
+const mcpServerUrl = new URL(`http://127.0.0.1:${port}/mcp`);
 const authServerUrl = new URL(`http://127.0.0.1:${AUTH_PORT}/`);
 
 // Demo confidential client. DEMO ONLY — never hard-code real credentials.
@@ -75,4 +74,4 @@ const auth = requireBearerAuth({
 const node = toNodeHandler(handler);
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 
-app.listen(PORT, () => console.error(`[resource-server] MCP on ${mcpServerUrl.href}`));
+app.listen(port, () => console.error(`[resource-server] MCP on ${mcpServerUrl.href}`));

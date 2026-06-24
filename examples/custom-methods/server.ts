@@ -2,12 +2,16 @@
  * Custom (non-spec) method example: a server that handles a vendor-prefixed
  * `acme/search` request and emits `acme/searchProgress` notifications.
  *
- * One binary, either transport (selected by the shared scaffold from argv).
+ * One binary, either transport — selected by `--http --port <N>` (defaults to
+ * stdio). See `examples/CONTRIBUTING.md` for the canonical shape.
  */
-import { McpServer } from '@modelcontextprotocol/server';
-import { z } from 'zod/v4';
+import { createServer } from 'node:http';
 
-import { runServerFromArgs } from '../harness.js';
+import { parseExampleArgs } from '@mcp-examples/shared';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import { z } from 'zod/v4';
 
 const SearchParams = z.object({ query: z.string(), limit: z.number().int().default(10) });
 const SearchResult = z.object({ items: z.array(z.string()) });
@@ -25,5 +29,14 @@ function buildServer(): McpServer {
     return mcp;
 }
 
-// runServerFromArgs is the example harness's transport selector (default stdio, --http for HTTP). In your own server you'd call serveStdio(buildServer) or createMcpHandler(buildServer) directly.
-runServerFromArgs(buildServer);
+const { transport, port } = parseExampleArgs();
+
+if (transport === 'stdio') {
+    void serveStdio(buildServer);
+    console.error('[server] serving over stdio');
+} else {
+    const handler = createMcpHandler(buildServer);
+    createServer(toNodeHandler(handler)).listen(port, () => {
+        console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
+    });
+}

@@ -1,14 +1,7 @@
-// Auth configuration
-export type { CreateDemoAuthOptions, DemoAuth } from './auth.js';
-export { createDemoAuth } from './auth.js';
-
-// Auth server setup + demo token verifier (pass to `requireBearerAuth` from @modelcontextprotocol/express)
-export type { SetupAuthServerOptions } from './authServer.js';
-export { createProtectedResourceMetadataRouter, demoTokenVerifier, getAuth, setupAuthServer } from './authServer.js';
-
-// In-memory EventStore for resumability examples (sse-polling, repl)
-export { InMemoryEventStore } from './inMemoryEventStore.js';
-
-// Minimal client_credentials-only AS (machine-to-machine; no browser)
-export type { ClientCredentialsAuthServer, ClientCredentialsAuthServerOptions, RegisteredClient } from './clientCredentialsAuthServer.js';
-export { clientCredentialsTokenVerifier, createClientCredentialsAuthServer } from './clientCredentialsAuthServer.js';
+// Argv-parse + assert scaffold (NO SDK calls — those go inline in each story).
+// This barrel is intentionally args-only so that the ~25 non-auth stories do
+// not eagerly evaluate better-auth/express/cors/better-sqlite3 just by
+// importing `parseExampleArgs`. The OAuth scaffolding lives at the `./auth`
+// subpath — see `./indexAuth.ts`.
+export type { ExampleArgs, ExampleEra, ExampleTransport } from './args.js';
+export { check, parseExampleArgs, siblingPath } from './args.js';

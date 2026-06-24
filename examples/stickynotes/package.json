@@ -7,6 +7,9 @@
         "client": "tsx client.ts"
     },
     "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",
         "zod": "catalog:runtimeShared"
     },
@@ -15,6 +18,6 @@
     },
     "example": {
         "era": "dual",
-        "//": "Full transport × era matrix. The elicitation-confirmed remove_all path is 2025-era only (push-style server→client request); the modern legs exercise add/list/read/remove and skip remove_all."
+        "//": "All four transport/era legs. The elicitation-confirmed remove_all path is exercised on stdio/legacy only (push-style server→client requests need a bidirectional connection that saw initialize; createMcpHandler's stateless legacy fallback has none); the modern and http legs exercise add/list/read/remove and skip remove_all."
     }
 }

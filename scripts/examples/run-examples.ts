@@ -1,8 +1,11 @@
 #!/usr/bin/env tsx
 /**
  * Build-and-e2e-run every story under `examples/` over every transport × era
- * leg it supports. Each story's `client.ts` is a self-verifying e2e test (it
- * asserts the server's behaviour and exits non-zero on any mismatch).
+ * leg it supports. Each story's `client.ts` is a self-verifying top-level-await
+ * script: a `check.*` failure throws, Node prints the error and exits 1; on
+ * success `client.close()` releases the last handle and Node exits 0. The
+ * harness reports PASS/FAIL from the child's exit code (a timeout is a FAIL
+ * with "hung — possible unclosed handle").
  *
  *   - **stdio** (default for dual-transport stories): run `client.ts` with no
  *     transport flag; it spawns the sibling server binary itself and speaks
@@ -45,7 +48,7 @@ interface ExampleConfig {
     excluded?: string;
 }
 
-const ROOT = resolve(import.meta.dirname, '..');
+const ROOT = resolve(import.meta.dirname, '../..');
 const EXAMPLES = join(ROOT, 'examples');
 const TSX = join(ROOT, 'node_modules', '.bin', 'tsx');
 
@@ -72,7 +75,7 @@ function run(
     cmd: string,
     args: string[],
     opts: { cwd: string; env?: Record<string, string>; timeoutMs: number }
-): Promise<{ code: number; stdout: string; stderr: string }> {
+): Promise<{ code: number; stdout: string; stderr: string; timedOut: boolean }> {
     return new Promise(resolvePromise => {
         const child = spawn(cmd, args, { cwd: opts.cwd, env: { ...process.env, ...opts.env } });
         let stdout = '';
@@ -81,17 +84,46 @@ function run(
         child.stderr.on('data', d => (stderr += String(d)));
         const timer = setTimeout(() => {
             child.kill('SIGKILL');
-            resolvePromise({ code: 124, stdout, stderr: stderr + '\n[harness] timed out' });
+            resolvePromise({ code: 124, stdout, stderr: stderr + '\n[harness] timed out', timedOut: true });
         }, opts.timeoutMs);
         child.on('close', code => {
             clearTimeout(timer);
-            resolvePromise({ code: code ?? 1, stdout, stderr });
+            resolvePromise({ code: code ?? 1, stdout, stderr, timedOut: false });
         });
         child.on('error', err => {
             clearTimeout(timer);
-            resolvePromise({ code: 1, stdout, stderr: stderr + `\n[harness] spawn error: ${err.message}` });
+            resolvePromise({ code: 1, stdout, stderr: stderr + `\n[harness] spawn error: ${err.message}`, timedOut: false });
         });
     });
+}
+
+/**
+ * Story `client.ts` files are top-level-await scripts: a thrown `check.*`
+ * propagates as an unhandled rejection (Node prints + exits 1); a clean run
+ * exits 0 once `client.close()` releases the last handle. The harness prints
+ * PASS/FAIL itself from the child's exit code — there is no in-band OK/FAIL
+ * line. A timeout means the process never exited on its own and is reported as
+ * a hang (possible unclosed handle).
+ */
+function toLegResult(
+    story: string,
+    leg: string,
+    result: { code: number; stdout: string; stderr: string; timedOut: boolean },
+    config: ExampleConfig,
+    serverLog?: string
+): LegResult {
+    if (result.timedOut) {
+        return { story, leg, ok: false, detail: `(hung — possible unclosed handle)\n${result.stderr || result.stdout}${serverLog ?? ''}` };
+    }
+    const ok = result.code === 0 && (!config.expects?.stdout || result.stdout.includes(config.expects.stdout));
+    return {
+        story,
+        leg,
+        ok,
+        detail: ok
+            ? (result.stdout.trim().split('\n').pop() ?? '')
+            : `exit ${result.code}\n${result.stderr || result.stdout}${serverLog ?? ''}`
+    };
 }
 
 async function waitForPort(port: number, timeoutMs: number): Promise<boolean> {
@@ -122,13 +154,7 @@ const eraArgs = (era: Era): string[] => (era === 'legacy' ? ['--legacy'] : []);
 async function runStdioLeg(story: string, dir: string, config: ExampleConfig, era: Era): Promise<LegResult> {
     const timeoutMs = config.timeoutMs ?? 30_000;
     const result = await run(TSX, [join(dir, 'client.ts'), ...eraArgs(era)], { cwd: ROOT, timeoutMs });
-    const ok = result.code === 0 && (!config.expects?.stdout || result.stdout.includes(config.expects.stdout));
-    return {
-        story,
-        leg: `stdio/${era}`,
-        ok,
-        detail: ok ? (result.stdout.trim().split('\n').pop() ?? '') : `exit ${result.code}\n${result.stderr || result.stdout}`
-    };
+    return toLegResult(story, `stdio/${era}`, result, config);
 }
 
 async function runHttpLeg(story: string, dir: string, config: ExampleConfig, era: Era): Promise<LegResult> {
@@ -149,15 +175,7 @@ async function runHttpLeg(story: string, dir: string, config: ExampleConfig, era
             return { story, leg: `http/${era}`, ok: false, detail: `server never bound :${port}\n--- server log ---\n${serverStderr}` };
         }
         const result = await run(TSX, [join(dir, 'client.ts'), '--http', url, ...eraArgs(era)], { cwd: ROOT, timeoutMs });
-        const ok = result.code === 0 && (!config.expects?.stdout || result.stdout.includes(config.expects.stdout));
-        return {
-            story,
-            leg: `http/${era}`,
-            ok,
-            detail: ok
-                ? (result.stdout.trim().split('\n').pop() ?? '')
-                : `exit ${result.code}\n${result.stderr || result.stdout}\n--- server log ---\n${serverStderr}`
-        };
+        return toLegResult(story, `http/${era}`, result, config, `\n--- server log ---\n${serverStderr}`);
     } finally {
         server.kill('SIGTERM');
         await new Promise(r => setTimeout(r, 100));

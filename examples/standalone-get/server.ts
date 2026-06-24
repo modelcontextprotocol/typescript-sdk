@@ -7,19 +7,22 @@
  * a new resource on the session's instance — `McpServer.registerResource` emits
  * `notifications/resources/list_changed`, which on a sessionful transport
  * travels over the **standalone GET** SSE stream the client opened. The client
- * decides when to mutate (no timer race in the harness).
+ * decides when to mutate (no timer race with the runner).
  *
- * **HTTP-only**, sessionful 2025 by definition.
+ * **HTTP-only**, sessionful 2025 by definition — so the canonical
+ * `serveStdio` / `createMcpHandler` shape does not apply (per-request stateless
+ * has no GET stream).
  */
 import { randomUUID } from 'node:crypto';
 
+import { parseExampleArgs } from '@mcp-examples/shared';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
-const buildServer = () => {
+function buildServer(): McpServer {
     const server = new McpServer(
         { name: 'standalone-get-example', version: '1.0.0' },
         { capabilities: { resources: { listChanged: true } } }
@@ -50,7 +53,7 @@ const buildServer = () => {
         }
     );
     return server;
-};
+}
 
 const sessions = new Map<string, NodeStreamableHTTPServerTransport>();
 const app = createMcpExpressApp();
@@ -90,7 +93,7 @@ const sessionVerb = async (req: Request, res: Response) => {
 app.get('/mcp', sessionVerb);
 app.delete('/mcp', sessionVerb);
 
-const argv = process.argv.slice(2);
-const portIdx = argv.indexOf('--port');
-const port = portIdx === -1 ? Number(process.env.PORT ?? 3000) : Number(argv[portIdx + 1]);
-app.listen(port, () => console.error(`standalone-get example server listening on http://127.0.0.1:${port}/mcp`));
+const { port } = parseExampleArgs();
+app.listen(port, () => {
+    console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
+});

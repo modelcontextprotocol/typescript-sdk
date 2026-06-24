@@ -8,6 +8,7 @@
     },
     "dependencies": {
         "@mcp-examples/oauth": "workspace:*",
+        "@mcp-examples/shared": "workspace:*",
         "@modelcontextprotocol/client": "workspace:*",
         "@modelcontextprotocol/express": "workspace:*",
         "@modelcontextprotocol/node": "workspace:*",

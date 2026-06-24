@@ -7,45 +7,42 @@
  * `eventStore` buffered while disconnected. Also asserts every progress log
  * (including the one emitted while disconnected) was delivered.
  */
+import { check, parseExampleArgs } from '@mcp-examples/shared';
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 
-import { check, httpUrlFromArgs, runClient } from '../harness.js';
+const { url } = parseExampleArgs();
 
-const URL = httpUrlFromArgs('http://127.0.0.1:3001/mcp');
-
-runClient('sse-polling', async () => {
-    const transport = new StreamableHTTPClientTransport(new globalThis.URL(URL));
-    // The mid-stream disconnect surfaces as a transport error before the
-    // automatic reconnect; that is the EXPECTED flow, not a failure.
-    transport.onerror = () => {};
-
-    // Explicitly the 2025 `initialize` handshake — `closeSSE`/`eventStore` live
-    // on the sessionful-2025 transport, so this story is legacy-only by design
-    // (it was previously reaching 2025 by negotiation fallback; pin it).
-    const client = new Client({ name: 'sse-polling-client', version: '1.0.0' }, { versionNegotiation: { mode: 'legacy' } });
-    const logs: string[] = [];
-    client.setNotificationHandler('notifications/message', n => {
-        logs.push(String(n.params.data));
-    });
-    await client.connect(transport);
-
-    let lastEventId: string | undefined;
-    const result = await client.request(
-        { method: 'tools/call', params: { name: 'long-operation', arguments: {} } },
-        { onresumptiontoken: token => (lastEventId = token) }
-    );
-
-    const text = (result as { content?: Array<{ type: string; text?: string }> }).content?.[0]?.text ?? '';
-    check.match(text, /completed successfully/);
-    check.ok(lastEventId, 'resumption tokens should have been observed');
-    // The 75% line is emitted WHILE the client is disconnected; receiving it
-    // proves the event store replayed it on reconnect. (Replay ordering relative
-    // to the terminal result is not asserted — the result resolving is the
-    // signal the disconnect was survived.)
-    check.ok(
-        logs.some(l => l.includes('75%')),
-        `events emitted while disconnected should be replayed (got: ${logs.join(' | ')})`
-    );
-
-    await client.close();
+// `closeSSE`/`eventStore` live on the sessionful-2025 transport, so this
+// story is legacy-only by design — it was previously reaching 2025 by
+// negotiation fallback; pin it.
+const client = new Client({ name: 'sse-polling-client', version: '1.0.0' }, { versionNegotiation: { mode: 'legacy' } });
+const logs: string[] = [];
+client.setNotificationHandler('notifications/message', n => {
+    logs.push(String(n.params.data));
 });
+
+const transport = new StreamableHTTPClientTransport(new URL(url));
+// The mid-stream disconnect surfaces as a transport error before the
+// automatic reconnect; that is the EXPECTED flow, not a failure.
+transport.onerror = () => {};
+await client.connect(transport);
+
+let lastEventId: string | undefined;
+const result = await client.request(
+    { method: 'tools/call', params: { name: 'long-operation', arguments: {} } },
+    { onresumptiontoken: token => (lastEventId = token) }
+);
+
+const text = (result as { content?: Array<{ type: string; text?: string }> }).content?.[0]?.text ?? '';
+check.match(text, /completed successfully/);
+check.ok(lastEventId, 'resumption tokens should have been observed');
+// The 75% line is emitted WHILE the client is disconnected; receiving it
+// proves the event store replayed it on reconnect. (Replay ordering relative
+// to the terminal result is not asserted — the result resolving is the
+// signal the disconnect was survived.)
+check.ok(
+    logs.some(l => l.includes('75%')),
+    `events emitted while disconnected should be replayed (got: ${logs.join(' | ')})`
+);
+
+await client.close();

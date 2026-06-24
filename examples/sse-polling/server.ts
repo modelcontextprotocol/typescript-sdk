@@ -9,11 +9,14 @@
  * - Uses `eventStore` to persist events for replay after reconnection
  * - Uses `ctx.http?.closeSSE()` callback to gracefully disconnect clients mid-operation
  *
- * HTTP-only, sessionful 2025 by definition.
+ * HTTP-only, sessionful 2025 by definition — `closeSSE`/`eventStore`/`retryInterval`
+ * live on `NodeStreamableHTTPServerTransport`, so this story wires that transport
+ * directly instead of the canonical `createMcpHandler` entry.
  */
 import { randomUUID } from 'node:crypto';
 
-import { InMemoryEventStore } from '@mcp-examples/shared';
+import { parseExampleArgs } from '@mcp-examples/shared';
+import { InMemoryEventStore } from '@mcp-examples/shared/auth';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { CallToolResult } from '@modelcontextprotocol/server';
@@ -21,8 +24,7 @@ import { isInitializeRequest, McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 
-// Create a fresh MCP server per client connection to avoid shared state between clients
-const getServer = () => {
+function buildServer(): McpServer {
     const server = new McpServer(
         {
             name: 'sse-polling-example',
@@ -82,7 +84,7 @@ const getServer = () => {
     );
 
     return server;
-};
+}
 
 // Set up Express app
 const app = createMcpExpressApp();
@@ -111,7 +113,7 @@ app.all('/mcp', async (req: Request, res: Response) => {
             }
         });
         transport.onclose = () => transport.sessionId && transports.delete(transport.sessionId);
-        await getServer().connect(transport);
+        await buildServer().connect(transport);
         await transport.handleRequest(req, res, req.body);
     } else if (sid) {
         // Unknown/expired session ID → 404 so the client knows to re-initialize.
@@ -121,12 +123,9 @@ app.all('/mcp', async (req: Request, res: Response) => {
     }
 });
 
-// Start the server
-const argv = process.argv.slice(2);
-const portIdx = argv.indexOf('--port');
-const PORT = portIdx === -1 ? Number(process.env.PORT ?? 3001) : Number(argv[portIdx + 1]);
-app.listen(PORT, () => {
-    console.error(`SSE Polling Example Server running on http://localhost:${PORT}/mcp`);
+const { port } = parseExampleArgs();
+app.listen(port, () => {
+    console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
     console.error('This server demonstrates SEP-1699 SSE polling:');
     console.error('- retryInterval: 300ms (client waits before reconnecting)');
     console.error('- eventStore: InMemoryEventStore (events are persisted for replay)');

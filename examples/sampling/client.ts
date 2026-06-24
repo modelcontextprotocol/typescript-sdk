@@ -10,20 +10,43 @@
  * `inputRequired` result to this same handler, then retries the tool call
  * with the response attached.
  */
-import { check, connectFromArgs, runClient } from '../harness.js';
+import { check, parseExampleArgs, siblingPath } from '@mcp-examples/shared';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
-runClient('sampling', async () => {
-    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
-    const client = await connectFromArgs(import.meta.dirname, { capabilities: { sampling: {} } });
-    client.setRequestHandler('sampling/createMessage', async () => ({
-        role: 'assistant',
-        content: { type: 'text', text: '[canned summary]' },
-        model: 'stub',
-        stopReason: 'endTurn'
-    }));
+const { transport, url, era } = parseExampleArgs();
 
+const client = new Client(
+    { name: 'sampling-example-client', version: '1.0.0' },
+    {
+        versionNegotiation: { mode: era === 'modern' ? 'auto' : 'legacy' },
+        capabilities: { sampling: {} }
+    }
+);
+
+await (transport === 'stdio'
+    ? client.connect(new StdioClientTransport({ command: 'npx', args: ['-y', 'tsx', siblingPath(import.meta.url, 'server.ts')] }))
+    : client.connect(new StreamableHTTPClientTransport(new URL(url))));
+
+client.setRequestHandler('sampling/createMessage', async () => ({
+    role: 'assistant',
+    content: { type: 'text', text: '[canned summary]' },
+    model: 'stub',
+    stopReason: 'endTurn'
+}));
+
+if (transport === 'http' && era === 'legacy') {
+    // Push-style `ctx.mcpReq.requestSampling` needs a sessionful return
+    // path: the client's response to `sampling/createMessage` is a separate
+    // POST that must reach the SAME server instance that sent the request.
+    // `createMcpHandler`'s default stateless-legacy posture has no such
+    // path — see `../legacy-routing/` for the sessionful `isLegacyRequest`
+    // composition. The push-style flow is exercised on stdio/legacy; this
+    // leg only verifies the 2025 `initialize` handshake succeeded.
+    check.ok(client.getServerCapabilities()?.tools);
+} else {
     const result = await client.callTool({ name: 'summarize', arguments: { text: 'hello world' } });
     check.equal(result.content?.[0]?.type === 'text' ? result.content[0].text : '', '[canned summary]');
+}
 
-    await client.close();
-});
+await client.close();
