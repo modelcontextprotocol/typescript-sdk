@@ -36,7 +36,7 @@ import {
 } from '../../types/constants.js';
 import type { CallToolResult, Result } from '../../types/types.js';
 import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec.js';
-import { appendTextFallbackForNonObject } from '../codec.js';
+import { appendTextFallbackForNonObject } from '../textFallback.js';
 import { fillCacheFields, stampResultType } from './encodeContract.js';
 import { getInputRequestSchema2026, getInputResponseSchema2026 } from './inputRequired.js';
 import {
