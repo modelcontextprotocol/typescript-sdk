@@ -1154,7 +1154,7 @@ async function authInternal(
             console.warn(
                 '[mcp-sdk] OAuthClientProvider does not implement saveDiscoveryState()/discoveryState(); ' +
                     'the SEP-2352 callback-leg authorization-server binding cannot be checked. ' +
-                    'Implement discoveryState (persist alongside codeVerifier) — see migration.md §SEP-2352.'
+                    'Implement discoveryState (persist alongside codeVerifier) — see docs/migration/upgrade-to-v2.md §SEP-2352.'
             );
         } else if (!issuersMatch(recordedIssuer, issuer)) {
             throw new AuthorizationServerMismatchError(recordedIssuer, issuer);

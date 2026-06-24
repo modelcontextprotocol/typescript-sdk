@@ -97,7 +97,7 @@ describe('EmptyResultSchema is strict', () => {
         // path this is invisible for conforming peers: the era codec consumes
         // (2026) or strips (2025, Q1-SD3 ii) the wire member before any
         // schema validation runs. Changeset: codec-split-wire-break;
-        // docs/migration.md "Wire schemas no longer model resultType".
+        // docs/migration/support-2026-07-28.md "Per-era wire codecs".
         expect(EmptyResultSchema.safeParse({ resultType: 'complete' }).success).toBe(false);
     });
 });
@@ -145,8 +145,8 @@ describe('typed result schemas are loose', () => {
         // root: a task-shaped (or otherwise content-less) body parsed as a
         // silent `{content: []}` success. Content is required by the spec in
         // every revision; a content-less body now fails the parse LOUDLY.
-        // Changeset: codec-split-wire-break; docs/migration.md
-        // "tools/call results must include content".
+        // Changeset: codec-split-wire-break; docs/migration/upgrade-to-v2.md
+        // "Wire tightening (every era)".
         expect(CallToolResultSchema.safeParse({ structuredContent: { ok: true } }).success).toBe(false);
         const parsed = CallToolResultSchema.parse({ content: [], structuredContent: { ok: true } });
         expect(parsed.content).toEqual([]);

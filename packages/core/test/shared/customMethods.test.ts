@@ -50,7 +50,7 @@ describe('Protocol custom-method support', () => {
             // making the custom path consistent with the spec-method path.
             // Strict consumer schemas that reject unknown keys must now model
             // (or strip) _meta. Changeset: codec-split-wire-break;
-            // docs/migration.md "custom handlers receive _meta".
+            // docs/migration/upgrade-to-v2.md "Wire tightening (every era)".
             const [a, b] = await pair();
             const Strict = z.strictObject({ x: z.number() });
             b.setRequestHandler('acme/strict', { params: Strict }, async params => {

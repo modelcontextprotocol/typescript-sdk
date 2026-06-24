@@ -8,7 +8,7 @@ The MCP (Model Context Protocol) TypeScript client SDK. Build MCP clients that c
 
 <!-- prettier-ignore -->
 > [!NOTE]
-> This is **v2** of the MCP TypeScript SDK. It replaces the monolithic `@modelcontextprotocol/sdk` package from v1. See the **[migration guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/migration.md)** if you're coming from v1.
+> This is **v2** of the MCP TypeScript SDK. It replaces the monolithic `@modelcontextprotocol/sdk` package from v1. See the **[migration guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/migration/upgrade-to-v2.md)** if you're coming from v1.
 
 ## Install
 
