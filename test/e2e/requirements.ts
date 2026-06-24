@@ -2263,6 +2263,22 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'client-auth:finishauth:urlsearchparams-sanitizes': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-response-issuer-validation',
+        behavior:
+            "transport.finishAuth(URLSearchParams) extracts code and iss, validates iss against the recorded issuer first, and on mismatch throws IssuerMismatchError without surfacing the callback's error/error_description/error_uri values; the authorization code is never sent to a token endpoint.",
+        transports: ['streamableHttp'],
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'hosting:auth:as-iss-emission': {
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#authorization-response-issuer-validation',
+        behavior:
+            "The bundled authorization server (mcpAuthRouter from @modelcontextprotocol/server-legacy) advertises authorization_response_iss_parameter_supported (default true; derived from the provider) and its authorize handler appends iss (RFC 9207 §2) to every redirect — success and error — issued to the client's redirect_uri without requiring OAuthServerProvider.authorize() to do so.",
+        transports: ['streamableHttp'],
+        note: 'These exercise the HTTP hosting/auth layer (mostly over real Express); the matrix transport arg is ignored, so they run as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
     'client-auth:prm-discovery:no-prm-fallback': {
         source: 'sdk',
         behavior:

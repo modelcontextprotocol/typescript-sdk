@@ -23,9 +23,11 @@ import {
     refreshAuthorization,
     registerClient,
     RegistrationRejectedError,
+    resolveAuthorizationCallbackParams,
     resolveClientMetadata,
     selectClientAuthMethod,
     startAuthorization,
+    UnauthorizedError,
     validateAuthorizationResponseIssuer,
     validateClientMetadataUrl
 } from '../../src/client/auth.js';
@@ -1258,6 +1260,45 @@ describe('OAuth Authorization', () => {
             const err = new IssuerMismatchError('authorization_response', expectedIssuer, 'https://a\nINFO: forged');
             expect(err.message).not.toContain('\nINFO');
             expect(err.message).toContain(String.raw`https://a\nINFO: forged`);
+        });
+    });
+
+    describe('resolveAuthorizationCallbackParams', () => {
+        const issuer = 'https://auth.example.com';
+        const provider = {
+            discoveryState: async () => ({
+                authorizationServerMetadata: {
+                    issuer,
+                    authorization_endpoint: `${issuer}/authorize`,
+                    token_endpoint: `${issuer}/token`,
+                    response_types_supported: ['code'],
+                    authorization_response_iss_parameter_supported: true
+                }
+            })
+        } as unknown as OAuthClientProvider;
+
+        it('treats an empty ?code= as no-code (falls through to the error/neither diagnostic)', async () => {
+            // URLSearchParams.get('code') returns '' (not null) for `?code=`, so a `!== null`
+            // check would have POSTed `code=` to the token endpoint and lost the explicit
+            // diagnostic. The truthy check restores the pre-PR behavior.
+            await expect(
+                resolveAuthorizationCallbackParams(new URLSearchParams(`code=&state=x&iss=${issuer}`), undefined, provider, issuer)
+            ).rejects.toThrow(UnauthorizedError);
+            // With an `error` param present, surfaces the gated OAuthError instead.
+            await expect(
+                resolveAuthorizationCallbackParams(
+                    new URLSearchParams(`code=&error=access_denied&iss=${issuer}`),
+                    undefined,
+                    provider,
+                    issuer
+                )
+            ).rejects.toThrow(OAuthError);
+        });
+
+        it('returns {authorizationCode, iss} when a non-empty code is present', async () => {
+            await expect(
+                resolveAuthorizationCallbackParams(new URLSearchParams(`code=abc&iss=${issuer}`), undefined, provider, issuer)
+            ).resolves.toEqual({ authorizationCode: 'abc', iss: issuer });
         });
     });
 
