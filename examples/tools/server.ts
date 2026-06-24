@@ -27,7 +27,10 @@ function buildServer(): McpServer {
                 b: z.number().describe('right operand')
             }),
             outputSchema: z.object({ op: z.string(), result: z.number() }),
-            annotations: { readOnlyHint: true, idempotentHint: true }
+            annotations: { readOnlyHint: true, idempotentHint: true },
+            // Icons a client may render in its UI. `src` is required;
+            // `mimeType`, `sizes`, and `theme` are optional hints.
+            icons: [{ src: 'https://example.test/calc.svg', mimeType: 'image/svg+xml', sizes: ['any'] }]
         },
         async ({ op, a, b }) => {
             const result = op === 'add' ? a + b : op === 'sub' ? a - b : a * b;

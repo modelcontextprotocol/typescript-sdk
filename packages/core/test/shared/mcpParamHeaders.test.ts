@@ -302,6 +302,30 @@ describe('validateMcpParamHeaders — server-behavior table', () => {
         expect(validateMcpParamHeaders(intDecl, { n: 42 }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}N`]: '42.0' }))).toBeUndefined();
     });
 
+    test('number-typed body values that String() in exponent form still compare numerically', () => {
+        const numDecl = [{ path: ['t'], headerName: 'T', type: 'number' }] as const;
+        // String(0.0000001) === '1e-7', which is not a canonical decimal — the
+        // body-side gate is `typeof bodyRaw === 'number'`, NOT the regex, so a
+        // numerically-equal canonical-decimal header is accepted.
+        expect(
+            validateMcpParamHeaders(numDecl, { t: 0.0000001 }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}T`]: '0.0000001' }))
+        ).toBeUndefined();
+        // And a numerically-different canonical decimal still rejects.
+        const r = validateMcpParamHeaders(numDecl, { t: 0.0000001 }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}T`]: '0.0000002' }));
+        expect(r).toMatchObject({ kind: 'reject', cell: 'param-header-mismatch' });
+    });
+
+    test('numeric comparison only engages for canonical decimals (no hex / exponent coercion)', () => {
+        const intDecl = [{ path: ['n'], headerName: 'N', type: 'integer' }] as const;
+        // Each of these would satisfy `Number(header) === 42` but is NOT the
+        // body's `'42'`; the strict-decimal gate keeps them on the
+        // string-comparison path so they reject as a mismatch.
+        for (const loose of ['0x2a', '4.2e1']) {
+            const r = validateMcpParamHeaders(intDecl, { n: 42 }, new Headers({ [`${MCP_PARAM_HEADER_PREFIX}N`]: loose }));
+            expect(r).toMatchObject({ kind: 'reject', cell: 'param-header-mismatch' });
+        }
+    });
+
     test('a non-numeric primitive in a number-declared param falls back to string comparison (no false NaN mismatch)', () => {
         const intDecl = [{ path: ['n'], headerName: 'N', type: 'integer' }] as const;
         // Identical header/body — must NOT report a header/body disagreement;

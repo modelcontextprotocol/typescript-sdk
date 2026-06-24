@@ -2062,8 +2062,8 @@ export class Client extends Protocol<ClientContext> {
         } else if (evicted !== undefined) {
             for (const method of evicted) {
                 // `evict()` bumps the generation FIRST and unconditionally
-                // (the `_cacheListResult` race guard relies on the bump, not
-                // on the store's deletes completing), then drops only THIS
+                // (the `ClientResponseCache.write` race guard relies on the
+                // bump, not on the store's deletes completing), then drops only THIS
                 // server's two partition singletons — co-tenants on a shared
                 // store keep their entries. Store failures are reported via
                 // `onerror` inside `evict()` and the call resolves, so
