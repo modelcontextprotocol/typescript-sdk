@@ -174,6 +174,7 @@ class InteractiveOAuthClient {
             redirect_uris: [CALLBACK_URL],
             grant_types: ['authorization_code', 'refresh_token'],
             response_types: ['code'],
+            application_type: 'native',
             token_endpoint_auth_method: 'client_secret_post'
         };
 

@@ -27,10 +27,10 @@ import {
 } from '@modelcontextprotocol/core';
 import pkceChallenge from 'pkce-challenge';
 
-import { IssuerMismatchError } from './authErrors.js';
+import { InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors.js';
 
 // Re-exported for back-compat — the canonical home is ./authErrors.js.
-export { IssuerMismatchError } from './authErrors.js';
+export { InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors.js';
 
 /**
  * Function type for adding client authentication to token requests.
@@ -616,6 +616,80 @@ export function applyPublicAuth(clientId: string, params: URLSearchParams): void
     params.set('client_id', clientId);
 }
 
+/** Loopback hosts exempt from the in-transit `https:` requirement (RFC 8252 §7.3). */
+function isLoopbackHost(hostname: string): boolean {
+    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1';
+}
+
+/**
+ * SEP-2207: refuse to send credentials to a non-TLS, non-loopback token endpoint.
+ * Throws {@linkcode InsecureTokenEndpointError}. Loopback hosts are exempt.
+ */
+export function assertSecureTokenEndpoint(tokenEndpoint: string | URL): URL {
+    const url = new URL(String(tokenEndpoint));
+    if (url.protocol !== 'https:' && !isLoopbackHost(url.hostname)) {
+        throw new InsecureTokenEndpointError(url.href);
+    }
+    return url;
+}
+
+/**
+ * Derives an OIDC `application_type` from a client's registered redirect URIs
+ * when the consumer has not set one explicitly (SEP-837). Loopback hosts and
+ * non-`http(s)` custom URI schemes indicate a native application (RFC 8252);
+ * everything else is treated as a web application. The result is a heuristic
+ * default — callers that know better should set `clientMetadata.application_type`
+ * themselves, which {@linkcode resolveClientMetadata} never overwrites.
+ *
+ * A mixed redirect set (for example a public `https:` URI alongside a loopback
+ * URI) is inherently ambiguous under OIDC DCR §2 — neither value satisfies the
+ * AS for both URIs — so consumers with mixed sets should set `application_type`
+ * explicitly rather than relying on this heuristic.
+ */
+function deriveApplicationType(redirectUris: readonly string[] | undefined): 'native' | 'web' {
+    for (const raw of redirectUris ?? []) {
+        let url: URL;
+        try {
+            url = new URL(raw);
+        } catch {
+            continue;
+        }
+        if (url.protocol !== 'http:' && url.protocol !== 'https:') return 'native';
+        if (isLoopbackHost(url.hostname)) return 'native';
+    }
+    return 'web';
+}
+
+/**
+ * Reads {@linkcode OAuthClientProvider.clientMetadata | clientMetadata} from the
+ * provider and fills the SEP-837 / SEP-2207 defaults the SDK relies on, so
+ * {@linkcode registerClient} sees a consistent, fully-populated document.
+ *
+ * - `grant_types` defaults to `['authorization_code', 'refresh_token']` for
+ *   interactive providers (those with a {@linkcode OAuthClientProvider.redirectUrl | redirectUrl})
+ *   so authorization servers that gate refresh-token issuance on the registered
+ *   grant types issue one (SEP-2207). Non-interactive providers (no
+ *   `redirectUrl`) get no `grant_types` default. This default applies to the
+ *   Dynamic Client Registration body only — it does **not** drive
+ *   {@linkcode determineScope}'s `offline_access` augmentation.
+ * - `application_type` defaults from `redirect_uris`: loopback redirect hosts
+ *   and custom URI schemes → `'native'`, otherwise `'web'` (SEP-837 / RFC 8252).
+ *
+ * A field the consumer set explicitly is **never** overwritten. {@linkcode auth}
+ * calls this once at the top of the flow; direct callers of
+ * {@linkcode registerClient} that want the same defaults should pass the result
+ * of this function as `clientMetadata`.
+ */
+export function resolveClientMetadata(provider: Pick<OAuthClientProvider, 'clientMetadata' | 'redirectUrl'>): OAuthClientMetadata {
+    const clientMetadata = provider.clientMetadata;
+    return {
+        ...clientMetadata,
+        grant_types:
+            clientMetadata.grant_types ?? (provider.redirectUrl === undefined ? undefined : ['authorization_code', 'refresh_token']),
+        application_type: clientMetadata.application_type ?? deriveApplicationType(clientMetadata.redirect_uris)
+    };
+}
+
 /**
  * Parses an OAuth error response from a string or Response object.
  *
@@ -722,8 +796,10 @@ export function determineScope(options: {
     //   4. Omit scope parameter
     let effectiveScope = requestedScope || resourceMetadata?.scopes_supported?.join(' ') || clientMetadata.scope;
 
-    // SEP-2207: Append offline_access when the AS advertises it
-    // and the client supports the refresh_token grant.
+    // SEP-2207: Append offline_access when the AS advertises it and the client
+    // supports the refresh_token grant. Gated on consumer-supplied grant_types;
+    // SDK DCR default intentionally NOT applied here so statically-registered/CIMD
+    // clients are not pushed into offline_access + prompt=consent.
     if (
         effectiveScope &&
         authServerMetadata?.scopes_supported?.includes('offline_access') &&
@@ -740,6 +816,10 @@ async function authInternal(
     provider: OAuthClientProvider,
     { serverUrl, authorizationCode, iss, scope, resourceMetadataUrl, fetchFn, skipIssuerMetadataValidation }: AuthOptions
 ): Promise<AuthResult> {
+    // SEP-837 / SEP-2207: resolve spec defaults for the DCR body. determineScope()
+    // intentionally reads the raw provider.clientMetadata instead.
+    const clientMetadata = resolveClientMetadata(provider);
+
     // Check if the provider has cached discovery state to skip discovery
     const cachedState = await provider.discoveryState?.();
 
@@ -866,7 +946,7 @@ async function authInternal(
 
             const fullInformation = await registerClient(authorizationServerUrl, {
                 metadata,
-                clientMetadata: provider.clientMetadata,
+                clientMetadata,
                 scope: resolvedScope,
                 fetchFn
             });
@@ -923,6 +1003,12 @@ async function authInternal(
             await provider.saveTokens(newTokens);
             return 'AUTHORIZED';
         } catch (error) {
+            // A non-TLS token endpoint is a configuration error — re-authorizing cannot
+            // fix it. Surface it so the consumer sees the misconfiguration instead of an
+            // unexplained re-auth prompt.
+            if (error instanceof InsecureTokenEndpointError) {
+                throw error;
+            }
             // If this is a ServerError, or an unknown type, log it out and try to continue. Otherwise, escalate so we can fix things and retry.
             if (!(error instanceof OAuthError) || error.code === OAuthErrorCode.ServerError) {
                 // Could not refresh OAuth tokens
@@ -1660,7 +1746,7 @@ export async function executeTokenRequest(
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
-    const tokenUrl = metadata?.token_endpoint ? new URL(metadata.token_endpoint) : new URL('/token', authorizationServerUrl);
+    const tokenUrl = assertSecureTokenEndpoint(metadata?.token_endpoint ?? new URL('/token', authorizationServerUrl));
 
     const headers = new Headers({
         'Content-Type': 'application/x-www-form-urlencoded',
@@ -1944,19 +2030,24 @@ export async function registerClient(
         registrationUrl = new URL('/register', authorizationServerUrl);
     }
 
+    // `clientMetadata` arrives via resolveClientMetadata() inside auth(), so the
+    // SEP-837/2207 defaults are already applied. Direct callers that want the
+    // same defaults should pass resolveClientMetadata(provider) here.
+    const submittedMetadata: OAuthClientMetadata = {
+        ...clientMetadata,
+        ...(scope === undefined ? {} : { scope })
+    };
+
     const response = await (fetchFn ?? fetch)(registrationUrl, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
-        body: JSON.stringify({
-            ...clientMetadata,
-            ...(scope === undefined ? {} : { scope })
-        })
+        body: JSON.stringify(submittedMetadata)
     });
 
     if (!response.ok) {
-        throw await parseErrorResponse(response);
+        throw new RegistrationRejectedError({ status: response.status, body: await response.text(), submittedMetadata });
     }
 
     return OAuthClientInformationFullSchema.parse(await response.json());
