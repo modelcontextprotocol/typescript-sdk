@@ -594,9 +594,9 @@ New `ClientOptions`:
 
 The `ResponseCacheStore` interface gained `delete(key)` (the per-URI invalidation `notifications/resources/updated` drives) — custom stores written against the alpha substrate need to add it. The default `InMemoryResponseCacheStore` is now bounded (default 512 entries, oldest-first eviction; configurable via `{ maxEntries }`).
 
-**Output-schema validator lifecycle (every era):** validator compilation is now lazy — validators are compiled on the first `callTool()` against the cached `tools/list` entry, not eagerly inside `listTools()` — and non-throwing: an uncompilable `outputSchema` is `console.warn`-ed
-and validation is skipped for that tool only. In v1, `listTools()` threw on an uncompilable `outputSchema`; now it succeeds, and a pluggable `jsonSchemaValidator` provider observes compilation at `callTool` time, not `listTools` time. The legacy-era `listTools()` path is
-unchanged at the wire level but is observably different at the validator-lifecycle level.
+**Output-schema validator lifecycle (every era):** validator compilation is now lazy — validators are compiled on the first `callTool()` against the cached `tools/list` entry, not eagerly inside `listTools()`. In v1, `listTools()` threw on an uncompilable `outputSchema`; now
+`listTools()` succeeds (every tool stays listed) and the compile failure is captured per-tool. Calling `callTool()` on the affected tool then throws `ProtocolError(InvalidParams, "Tool 'X' has an invalid outputSchema: …")`, **before the request is sent** — output-schema
+validation is never silently skipped. A pluggable `jsonSchemaValidator` provider observes compilation at `callTool` time, not `listTools` time. The legacy-era `listTools()` path is unchanged at the wire level but is observably different at the validator-lifecycle level.
 
 ### `InMemoryTransport` moved
 
@@ -1444,6 +1444,76 @@ If you import from one of these subpaths in your own code, the corresponding pee
 subpath in some files and rely on the default in others.
 
 To replace validation wholesale rather than customizing the built-in classes, implement the `jsonSchemaValidator` interface and pass your own implementation through the option above.
+
+### JSON Schema 2020-12 posture (SEP-1613, SEP-2106)
+
+SEP-1613 (in the 2025-11-25 revision) declares JSON Schema **draft 2020-12** as the dialect for tool `inputSchema` / `outputSchema`, and SEP-2106 (2026-07-28 draft) widens both to the full 2020-12 vocabulary — `$defs`, `$ref`, `$anchor`, composition (`allOf`/`anyOf`/`oneOf`),
+conditionals (`if`/`then`/`else`), `prefixItems`, `unevaluatedProperties` — and lifts the `type:"object"` root restriction on `outputSchema` and `structuredContent`. This SDK release brings the validator posture and the public types into line with both SEPs.
+
+#### Default validator is JSON Schema 2020-12 only
+
+The default validator supports **JSON Schema 2020-12 only** (the spec's only MUST). On Node it is now `Ajv2020` (`ajv/dist/2020`) instead of the draft-07 `Ajv` class; the Cloudflare Workers default was already 2020-12. Schemas declaring a different `$schema` are rejected with a
+clear `Error("…unsupported dialect … 2020-12 only…")`. Nothing in your code changes unless you fall into one of three populations:
+
+- **You declared 2020-12 keywords (`$defs`, `prefixItems`, `unevaluatedProperties`, `dependentRequired`) in a server schema and they were silently ignored.** They are now enforced. If a previously "passing" tool input or output starts failing validation, the schema was always
+  wrong on the wire — fix the schema or the data.
+- **You authored draft-07 idioms via `fromJsonSchema()`** (e.g. tuple `items: [...]` instead of `prefixItems`, draft-07 `definitions`). Port to 2020-12 spelling, or pass a draft-07 Ajv instance **as the second argument** — `fromJsonSchema(schema, new AjvJsonSchemaValidator(ajv))` — built per the opt-back recipe below. The `McpServer`/`Client` `jsonSchemaValidator` option does **not** reach `fromJsonSchema()`-authored schemas (`fromJsonSchema()` compiles eagerly with the package-level default unless a validator is passed directly).
+- **You imported `Ajv` from the SDK's validator subpath and relied on the re-export being the draft-07 class.** It still is — `Ajv` remains the draft-07 class (re-exported for the opt-back), but it is **no longer** what the SDK uses by default.
+
+To validate other dialects, pass a pre-configured Ajv instance:
+
+```typescript
+import { Ajv, addFormats, AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
+
+// Opt back to the v1 (draft-07) default — accepted structurally; the $schema check is skipped.
+const ajv = new Ajv({ strict: false, validateFormats: true, validateSchema: false, allErrors: true });
+addFormats(ajv);
+const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { jsonSchemaValidator: new AjvJsonSchemaValidator(ajv) });
+```
+
+#### External `$ref` is not dereferenced — use `#/$defs/…` or `#anchor`
+
+The SDK never dereferences external `$ref`/`$dynamicRef` (the spec MUST-NOT is "do not dereference", not "reject"). Neither built-in engine fetches: Ajv throws a `MissingRefError` at compile time on an unresolved external reference; `@cfworker/json-schema` leaves it
+unresolved. This is unchanged from v1 — there is no new break here. What is new is that on the client, one tool whose schema the engine refuses to compile **does not poison `tools/list`**: every tool stays listed, and the compile failure surfaces lazily when `callTool` is
+invoked on that tool, as `ProtocolError(InvalidParams, "Tool 'X' has an invalid outputSchema: …")`, before the request is sent. To author a reusable subschema, inline it under `$defs` and reference it with a same-document `#/$defs/Name` or `#anchor` fragment — those compile and
+validate on both built-in engines.
+
+#### `CallToolResult.structuredContent` is now typed `unknown`
+
+SEP-2106 lifts the `type:"object"` root restriction on `outputSchema`, so `structuredContent` may legally be an array, a string, a number, a boolean, or `null`. The public TypeScript type is widened from `{ [key: string]: unknown }` to `unknown` to match. **This is a deliberate
+source-level break** for typed consumers that previously indexed into `structuredContent` directly: that worked because the v1 type let you read any key as `unknown`, which was already a lie about what the value at that key was. `unknown` is the honest type for a generic host
+that does not know the server's output schema at compile time — narrow at the call site:
+
+```typescript
+const r = await client.callTool({ name: 'compute', arguments: { n: 7 } });
+
+// SEP-2106 narrowing pattern: prove the shape, then read.
+const sc = r.structuredContent;
+if (typeof sc === 'object' && sc !== null && 'value' in sc && typeof sc.value === 'number') {
+    use(sc.value);
+}
+```
+
+The presence check is `!== undefined`, not falsy: `null`, `0`, `false`, `""` are legal `structuredContent` values now and are validated against the tool's `outputSchema` like any other value (so a falsy value against an object-typed schema still fails — this is **not** a guard
+weakening). Runtime validation against the cached `outputSchema` remains the safety net regardless of how you narrow on the TypeScript side.
+
+#### Non-object `outputSchema` and the legacy `{result:…}` wrap
+
+A tool may now register an `outputSchema` whose root is `type:"array"`, `type:"string"`, etc. Because the 2025-11-25 wire keeps `outputSchema`/`structuredContent` at their object/Record shapes for byte-identity, a non-object root is **2026-only vocabulary**. When such a tool is
+listed toward a 2025-era client, the **2025 wire codec** wraps the `outputSchema` in a `{type:"object", properties:{result:<natural schema>}, required:["result"]}` envelope so legacy clients can parse and compile it; same-document `$ref` / `$dynamicRef` JSON Pointers inside the
+natural schema are rewritten (`#` → `#/properties/result`, `#/…` → `#/properties/result/…`) so they keep resolving after the wrap; the rewrite is position-aware (a property **named** `default`/`const` under `properties`/`$defs` is recursed into as a subschema, while the
+**keyword** `default`/`const` is left as instance data) and `$id`-scoped (a natural schema or subtree carrying `$id` keeps its refs unrewritten — they resolve against the embedded base, not the wrapper root). On `tools/call` toward the same 2025-era client, `structuredContent`
+is wrapped as `{result:<value>}` whenever the value is non-object (array/primitive/`null`) — the 2025 wire shape requires an object — **and** whenever the advertised schema has a non-object root, so the result satisfies the wrapped schema and a `z.union([z.object(...), z.string()])`
+outputSchema wraps **both** branches as `{result:…}` on the 2025 era. 2026-era clients see the natural schema and the natural value — no envelope. The wrap lives in the wire codec, so it applies whether you registered the tool through `McpServer` or set a low-level `tools/list`
+handler on `Server` directly; for low-level `tools/call` handlers, route the result through `server.projectCallToolResult(result, advertisedOutputSchemaJson)` to get the matching `structuredContent` wrap. This matches the C# SDK's `TransformOutputSchemaForLegacyWire` behavior.
+
+Independently, **on every era** (the SEP's MUST applies regardless of client version), when a handler returns non-object `structuredContent` and no `type:"text"` content of its own, the codec's `projectCallToolResult` auto-appends `{ type: "text", text: JSON.stringify(structuredContent) }`
+so consumers that read only `content` still receive a rendering — author any `text` block yourself to opt out.
+
+**Typeless-root output schemas are only stamped `type:"object"` when provably safe.** A Standard-Schema value whose JSON Schema root has no `type` — for example `z.union([z.string(), z.number()])` (`{anyOf:[…]}`), `z.any()` (`{}`), or `z.object({…}).nullable()` — is advertised
+as-is on the 2026 era and wrapped in `{result:…}` on the 2025 projection, because stamping `type:"object"` there would produce a self-contradictory schema that rejects every value. The SDK still defaults `type:"object"` when the root carries object keywords
+(`properties`/`patternProperties`/`additionalProperties`/`required`) **or** is a `oneOf`/`anyOf`/`allOf` whose every member is `type:"object"` — so `z.discriminatedUnion(...)`, `z.union([z.object(...), …])`, and `z.intersection(...)` of objects keep their 2025-era advertisement
+unchanged.
 
 ## Specification clarifications adopted (no SDK behavior change)
 

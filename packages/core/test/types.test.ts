@@ -497,7 +497,7 @@ describe('Types', () => {
             expect(result.success).toBe(false);
         });
 
-        test('should still require type: object at root for outputSchema', () => {
+        test('SEP-2106: outputSchema accepts any JSON Schema root (the public schema; the 2025 wire schema still rejects)', () => {
             const tool = {
                 name: 'test',
                 inputSchema: { type: 'object' },
@@ -506,7 +506,7 @@ describe('Types', () => {
                 }
             };
             const result = ToolSchema.safeParse(tool);
-            expect(result.success).toBe(false);
+            expect(result.success).toBe(true);
         });
 
         test('should accept simple minimal schema (backward compatibility)', () => {

@@ -2,6 +2,7 @@ import type {
     BaseContext,
     CacheableResultMethod,
     CacheHint,
+    CallToolResult,
     ClientCapabilities,
     CreateMessageRequest,
     CreateMessageRequestParamsBase,
@@ -882,6 +883,28 @@ export class Server extends Protocol<ServerContext> {
      */
     getNegotiatedProtocolVersion(): string | undefined {
         return this._negotiatedProtocolVersion;
+    }
+
+    /**
+     * Project a `tools/call` result through this instance's negotiated wire
+     * codec — the era-agnostic SEP-2106 §4.3 TextContent auto-append, plus on
+     * the 2025 era the `{result:…}` wrap when `structuredContent` is a
+     * non-object value or the advertised `outputSchema` had a non-object root.
+     * Identity for object-shaped `structuredContent` on the 2026 era.
+     *
+     * `McpServer`'s built-in `tools/call` handler routes through this method.
+     * Low-level `setRequestHandler('tools/call', …)` authors call it
+     * themselves so the projection lives in one place (the codec) and the
+     * server-side handler stays era-blind.
+     *
+     * This is the only codec function exposed on `Server` — the full
+     * `WireCodec` is intentionally not part of the public surface.
+     */
+    public projectCallToolResult(
+        result: CallToolResult,
+        advertisedOutputSchema: Readonly<Record<string, unknown>> | undefined
+    ): CallToolResult {
+        return this._wireCodec().projectCallToolResult(result, advertisedOutputSchema);
     }
 
     /**

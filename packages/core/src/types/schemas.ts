@@ -1314,18 +1314,14 @@ export const ToolSchema = z.object({
         })
         .catchall(z.unknown()),
     /**
-     * An optional JSON Schema 2020-12 object defining the structure of the tool's output
+     * An optional JSON Schema 2020-12 document describing the structure of the tool's output
      * returned in the `structuredContent` field of a `CallToolResult`.
-     * Must have `type: 'object'` at the root level per MCP spec.
+     *
+     * SEP-2106: any JSON Schema root is permitted (e.g. `type:'array'`, `oneOf`, `$ref`).
+     * The 2025-11-25 wire parse retains the `type:'object'` constraint via the frozen schema in
+     * `wire/rev2025-11-25/schemas.ts`; this neutral/public schema widens.
      */
-    outputSchema: z
-        .object({
-            type: z.literal('object'),
-            properties: z.record(z.string(), JSONValueSchema).optional(),
-            required: z.array(z.string()).optional()
-        })
-        .catchall(z.unknown())
-        .optional(),
+    outputSchema: z.looseObject({ $schema: z.string().optional() }).optional(),
     /**
      * Optional additional tool information.
      */
@@ -1369,11 +1365,16 @@ export const CallToolResultSchema = ResultSchema.extend({
     content: z.array(ContentBlockSchema),
 
     /**
-     * An object containing structured tool output.
+     * Structured tool output.
      *
-     * If the `Tool` defines an outputSchema, this field MUST be present in the result, and contain a JSON object that matches the schema.
+     * If the `Tool` defines an `outputSchema`, this field MUST be present in the result and
+     * contain a JSON value that matches the schema.
+     *
+     * SEP-2106: any JSON value is permitted (arrays, primitives, `null`). Narrow before property
+     * access. The 2025-11-25 wire parse retains the object-only constraint via the frozen schema
+     * in `wire/rev2025-11-25/schemas.ts`; this neutral/public schema widens.
      */
-    structuredContent: z.record(z.string(), z.unknown()).optional(),
+    structuredContent: z.unknown().optional(),
 
     /**
      * Whether the tool call ended in an error.
@@ -1594,7 +1595,11 @@ export const ToolResultContentSchema = z.object({
     type: z.literal('tool_result'),
     toolUseId: z.string().describe('The unique identifier for the corresponding tool call.'),
     content: z.array(ContentBlockSchema),
-    structuredContent: z.object({}).loose().optional(),
+    /**
+     * SEP-2106: any JSON value is permitted. The 2025-11-25 wire parse retains the object-only
+     * constraint via the frozen schema in `wire/rev2025-11-25/schemas.ts`.
+     */
+    structuredContent: z.unknown().optional(),
     isError: z.boolean().optional(),
 
     /**

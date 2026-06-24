@@ -269,7 +269,7 @@ const result = await client.callTool({
 console.log(result.content);
 ```
 
-Tool results may include a `structuredContent` field — a machine-readable JSON object for programmatic use by the client application, complementing `content` which is for the LLM:
+Tool results may include a `structuredContent` field — a machine-readable JSON value (any JSON type per SEP-2106) for programmatic use by the client application, complementing `content` which is for the LLM:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#callTool_structuredOutput"
 const result = await client.callTool({
@@ -277,9 +277,13 @@ const result = await client.callTool({
     arguments: { weightKg: 70, heightM: 1.75 }
 });
 
-// Machine-readable output for the client application
-if (result.structuredContent) {
-    console.log(result.structuredContent); // e.g. { bmi: 22.86 }
+// Machine-readable output for the client application. SEP-2106: structuredContent is
+// `unknown` (any JSON value). Check for presence with `!== undefined` and narrow before use.
+if (result.structuredContent !== undefined) {
+    const sc: unknown = result.structuredContent; // e.g. { bmi: 22.86 }
+    if (typeof sc === 'object' && sc !== null && 'bmi' in sc) {
+        console.log(sc.bmi);
+    }
 }
 ```
 

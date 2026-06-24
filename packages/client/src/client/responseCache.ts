@@ -612,9 +612,14 @@ export class ClientResponseCache {
      * `Client` passes its `_jsonSchemaValidator` wrapper) so this
      * class carries no validator-provider dependency. One tool's uncompilable
      * `outputSchema` (e.g. an invalid `pattern` regex or unresolvable `$ref`)
-     * must not poison every other tool's `callTool` — the callback returns
-     * `undefined` (and warns naming the offender) for the bad one and the
-     * index simply omits it.
+     * must not poison every other tool's `callTool` — the callback isolates
+     * that compile error per tool by returning a per-tool error variant which
+     * the index stores alongside the good ones, and `callTool` surfaces it as
+     * a typed `InvalidParams` only for that name. Because the error is held on
+     * this stamp-keyed substrate (not a parallel map), it inherits the
+     * substrate's invalidation lifecycle: a `list_changed` eviction drops it,
+     * a refetched `tools/list` re-derives it, and `resetForReconnect` clears
+     * the lot.
      */
     async outputValidator<V>(name: string, compile: (tool: Tool) => V | undefined): Promise<V | undefined> {
         const entry = await this._probe('tools/list');
@@ -625,10 +630,8 @@ export class ClientResponseCache {
         if (this._toolOutputValidatorIndex?.stamp !== entry.stamp) {
             const byName = new Map<string, unknown>();
             for (const tool of (entry.value as ListToolsResult).tools) {
-                if (tool.outputSchema) {
-                    const validator = compile(tool);
-                    if (validator !== undefined) byName.set(tool.name, validator);
-                }
+                const compiled = compile(tool);
+                if (compiled !== undefined) byName.set(tool.name, compiled);
             }
             this._toolOutputValidatorIndex = { stamp: entry.stamp, byName };
         }

@@ -505,6 +505,129 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         source: 'sdk',
         behavior: 'Server-side output schema validation is skipped when the tool returns an isError result.'
     },
+
+    // Tools: JSON Schema 2020-12 validator posture (SEP-1613 / SEP-2106)
+
+    'client:jsonschema:same-document-ref-ok': {
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools#output-schema',
+        behavior:
+            'A tool whose advertised outputSchema uses same-document $ref ("#/$defs/…" or "#anchor") compiles on the client and validates structuredContent against the referenced subschema.'
+    },
+    'client:jsonschema:unsupported-dialect-graceful': {
+        source: 'sdk',
+        behavior:
+            'A tool whose advertised outputSchema declares a $schema dialect URI the built-in validator does not recognise is refused gracefully on the client: callTool throws InvalidParams with a clear "unsupported dialect … 2020-12 only" message instead of having the underlying engine fail opaquely.'
+    },
+    'client:jsonschema:bad-schema-isolates-tool': {
+        source: 'sdk',
+        behavior:
+            'One bad outputSchema in a tools/list response (a schema the validator engine refuses to compile — e.g. an unresolvable external $ref) does not poison the listing: tools/list resolves with every tool present, callTool on the bad tool throws InvalidParams, and callTool on the other tools succeeds.'
+    },
+    'client:jsonschema:non-object-output': {
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools#output-schema',
+        behavior:
+            'A tool whose advertised outputSchema has a non-object root (e.g. type:"array") is accepted by the client validator on the 2026-07-28 era: structuredContent matching that root validates and is returned typed unknown.',
+        note: 'Restricted to the entryModern arm because the 2025-era wire codec keeps outputSchema/structuredContent at their type:"object" / Record shapes (byte-identity), so a non-object root only round-trips natively on the 2026-07-28 path.'
+    },
+    'client:jsonschema:2020-12:prefixItems': {
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools#output-schema',
+        behavior:
+            'The default client validator enforces JSON Schema 2020-12 vocabulary: a tool whose advertised outputSchema uses prefixItems rejects structuredContent that violates the per-index item schemas (a draft-07 engine with strict:false would silently ignore prefixItems and accept).',
+        note: 'Restricted to the entryModern arm because the array-typed outputSchema/structuredContent only round-trip natively on the 2026-07-28 wire codec.'
+    },
+    'client:jsonschema:dialect:default-is-2020-12': {
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools#output-schema',
+        behavior:
+            'A tool whose advertised outputSchema declares no $schema is validated by the client with the 2020-12 engine (the default): a 2020-12-only keyword (prefixItems) in the schema is enforced, so structuredContent violating it causes callTool to throw InvalidParams.',
+        note: 'Restricted to the entryModern arm so the schema (carrying prefixItems) round-trips through the 2026-07-28 wire codec verbatim.'
+    },
+    'client:jsonschema:falsy-structured-content-validated': {
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools#structured-content',
+        behavior:
+            'A falsy structuredContent value (0, false, "", null) is treated as present by the client and validated against the cached outputSchema — the presence check is `=== undefined`, not falsy, so a tool returning structuredContent: 0 against outputSchema {type:"integer"} resolves with the value rather than throwing "did not return structured content".',
+        note: 'Restricted to the entryModern arm because primitive structuredContent only round-trips natively on the 2026-07-28 wire codec.'
+    },
+    'server:jsonschema:array-structured-content-textfallback': {
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools#structured-content',
+        behavior:
+            'A McpServer tool whose handler returns array-typed structuredContent and no text content has a {type:"text", text: JSON.stringify(structuredContent)} block auto-appended (the SEP-2106 backward-compatibility fallback) so legacy-style consumers still receive a rendering. An author-supplied text block suppresses the auto-append.',
+        note: 'Runs on the entryModern arm so the array structuredContent round-trips natively.'
+    },
+    'server:jsonschema:primitive-structured-content': {
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        source: 'https://modelcontextprotocol.io/specification/draft/server/tools#structured-content',
+        behavior:
+            'A McpServer tool whose handler returns primitive (string / number / boolean / null) structuredContent round-trips on the 2026-07-28 era: the value reaches the client as typed unknown and the auto TextContent fallback carries its JSON serialisation.',
+        note: 'Runs on the entryModern arm so a non-object structuredContent round-trips natively.'
+    },
+    '2025:jsonschema:non-object-output-wrapped': {
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'On a 2025-era listing, a McpServer tool registered with a non-object-root outputSchema has the outputSchema wrapped in {type:"object",properties:{result:<natural>},required:["result"]} (the SEP-2106 legacy interop envelope): the tool stays listed, the schema is valid 2025 wire data, and a 2025 client can compile/validate against the wrapped shape.',
+        note: 'Bounded to the 2025-11-25 axis on the entryStateless arm: a statement about what 2025-era clients see when served by a SEP-2106-aware server.'
+    },
+    '2025:jsonschema:non-object-structured-content-wrapped': {
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'On a 2025-era tools/call, a McpServer tool whose handler returns non-object structuredContent (array/primitive/null) has the auto-TextContent fallback injected and the structuredContent wrapped as {result:<value>}: the result satisfies both the 2025 wire shape (object-only) and the wrapped outputSchema advertised in tools/list.',
+        note: 'Bounded to the 2025-11-25 axis on the entryStateless arm. The result-side mirror of the legacy outputSchema wrap.'
+    },
+    '2025:jsonschema:ref-rewrite-on-wrap': {
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'On a 2025-era listing, a non-object outputSchema with same-document $ref JSON Pointers ("#", "#/…") wrapped under #/properties/result has every such $ref rewritten to keep resolving: the wrapped schema compiles on the client and validates the wrapped {result:…} structuredContent.',
+        note: 'Bounded to the 2025-11-25 axis on the entryStateless arm. Mirrors the C# SDK TransformOutputSchemaForLegacyWire.'
+    },
+    '2025:jsonschema:ref-rewrite-scope': {
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'The legacy-wrap $ref rewrite is position-aware: it applies to $ref AND $dynamicRef in subschema positions, but NOT to keyword-position data (const/enum/default/examples) where a {$ref:…} is a literal value; a property NAMED default/const under properties/$defs IS recursed into. The rewrite is $id-scoped: a natural schema (or any subtree) carrying $id keeps its same-document refs unrewritten — they resolve against the embedded base, not the wrapper root.',
+        note: 'Bounded to the 2025-11-25 axis on the entryStateless arm. Goes beyond the C# RewriteRefPointers on both points.'
+    },
+    '2025:jsonschema:schemaless-non-object-sc-wrapped': {
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'On a 2025-era tools/call, a tool with NO advertised outputSchema whose handler returns non-object structuredContent (array/primitive/null) has the value wrapped as {result:<value>} regardless: the 2025 wire shape requires structuredContent to be an object, so the projection wraps on value shape alone when there is no schema to consult.',
+        note: 'Bounded to the 2025-11-25 axis on the entryStateless arm. The schema-less twin of 2025:jsonschema:non-object-structured-content-wrapped.'
+    },
+    '2025:jsonschema:wrap-follows-schema-not-value': {
+        transports: ['entryStateless'],
+        removedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'On the 2025 era, a McpServer tool whose outputSchema has a non-object root (e.g. z.union([z.object(...), z.string()]) → typeless {anyOf:[…]}) wraps EVERY structuredContent value as {result:<value>} — including object-valued results — so the result always satisfies the wrapped outputSchema advertised in tools/list. The wrap predicate follows the per-tool schema decision, not the runtime value shape.',
+        note: 'Bounded to the 2025-11-25 axis on the entryStateless arm. The schema-side mirror is 2025:jsonschema:non-object-output-wrapped.'
+    },
+    'server:jsonschema:union-output-natural': {
+        transports: ['entryModern'],
+        addedInSpecVersion: '2026-07-28',
+        source: 'sdk',
+        behavior:
+            'On the 2026 era, a McpServer tool whose outputSchema is z.union([z.object(...), z.string()]) advertises the natural typeless {anyOf:[…]} root and returns structuredContent unwrapped on both branches (object and string); the era-agnostic auto-TextContent fallback still fires for the non-object branch.',
+        note: 'Runs on the entryModern arm so the typeless-root outputSchema and primitive structuredContent round-trip natively.'
+    },
+
     'mcpserver:tool:duplicate-name': {
         source: 'sdk',
         behavior: 'Registering a tool with a name already in use is rejected at registration time.'
