@@ -23,6 +23,6 @@
         ],
         "era": "dual",
         "path": "/mcp",
-        "//": "OAuth client_credentials is HTTP-layer and era-agnostic; the client honours --legacy via negotiationFromArgs."
+        "//": "OAuth client_credentials is HTTP-layer and era-agnostic; the client honours --legacy via parseExampleArgs().era."
     }
 }

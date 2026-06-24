@@ -13,12 +13,12 @@
  *   listen router fans onto every open subscription.
  *
  * The `flip_tools` tool toggles the `farewell` tool and publishes the change,
- * so the client decides when to mutate (no timer race in the harness). The
- * shared `runServerFromArgs` scaffold doesn't expose the handler/instance, so
- * this example branches on `--http` itself (same flags, same factory).
+ * so the client decides when to mutate (no timer race with the runner). The
+ * canonical-shape transport branch below assigns `publish` per entry.
  */
 import { createServer } from 'node:http';
 
+import { parseExampleArgs } from '@mcp-examples/shared';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { RegisteredTool, ServerEventBus, ServerNotifier } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
@@ -67,10 +67,14 @@ function buildServer(): McpServer {
     return server;
 }
 
-const argv = process.argv.slice(2);
-if (argv.includes('--http')) {
-    const portIdx = argv.indexOf('--port');
-    const port = portIdx === -1 ? Number(process.env.PORT ?? 3000) : Number(argv[portIdx + 1]);
+const { transport, port } = parseExampleArgs();
+
+if (transport === 'stdio') {
+    // Over stdio the per-instance `farewell.update` inside `flip_tools` IS the
+    // publish, so `publish` stays a no-op here.
+    void serveStdio(buildServer);
+    console.error('[server] serving over stdio');
+} else {
     // Host with the per-request HTTP entry on its default posture. The handler
     // creates an in-process bus by default; supply your own `bus` for
     // multi-process deployments.
@@ -80,11 +84,6 @@ if (argv.includes('--http')) {
     void bus; // (the typed publish facade `notify` wraps `bus.publish`)
     publish = () => notify.toolsChanged();
     createServer(toNodeHandler(handler)).listen(port, () => {
-        console.error(`[server] listening on http://127.0.0.1:${port}/ (HTTP)`);
+        console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
     });
-} else {
-    // Over stdio the per-instance `farewell.update` inside `flip_tools` IS the
-    // publish, so `publish` stays a no-op here.
-    serveStdio(buildServer);
-    console.error('[server] serving over stdio');
 }

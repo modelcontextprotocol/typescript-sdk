@@ -7,6 +7,9 @@
         "client": "tsx client.ts"
     },
     "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",
         "zod": "catalog:runtimeShared"
     },
@@ -15,6 +18,6 @@
     },
     "example": {
         "era": "modern",
-        "//": "The story body drives BOTH eras itself (legacy via versionNegotiation: undefined, modern via the harness default); pinned so the harness runs it once per transport."
+        "//": "The story body drives BOTH eras itself (legacy via { mode: 'legacy' }, modern via { mode: 'auto' }); pinned so the runner runs it once per transport."
     }
 }

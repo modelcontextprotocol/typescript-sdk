@@ -6,14 +6,19 @@
  * (`legacy: 'stateless'`, the default). This replaces the hand-wired
  * "new transport + new server per POST" stateless idiom of the 1.x SDK with
  * a one-liner.
+ *
+ * HTTP-only — `createMcpHandler`'s `legacy: 'stateless'` posture is an HTTP
+ * hosting concern; a stdio leg would bypass it. See `dual-era/` for the stdio
+ * analogue.
  */
 import { createServer } from 'node:http';
 
+import { parseExampleArgs } from '@mcp-examples/shared';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
-const handler = createMcpHandler(() => {
+function buildServer(): McpServer {
     const server = new McpServer({ name: 'stateless-legacy-example', version: '1.0.0' }, { capabilities: { logging: {} } });
     server.registerTool(
         'greet',
@@ -21,11 +26,11 @@ const handler = createMcpHandler(() => {
         async ({ name }) => ({ content: [{ type: 'text', text: `Hello, ${name}!` }] })
     );
     return server;
-});
+}
 
-const argv = process.argv.slice(2);
-const portIdx = argv.indexOf('--port');
-const port = portIdx === -1 ? 3000 : Number(argv[portIdx + 1]);
+const { port } = parseExampleArgs();
+
+const handler = createMcpHandler(buildServer);
 createServer(toNodeHandler(handler)).listen(port, () => {
-    console.error(`stateless-legacy example server listening on http://127.0.0.1:${port}/`);
+    console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
 });

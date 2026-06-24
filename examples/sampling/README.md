@@ -11,7 +11,8 @@ The client registers **one** `sampling/createMessage` handler; on the 2026-07-28
 
 > Push-style sampling is **deprecated** as of protocol revision 2026-07-28 (SEP-2577) but remains functional during the deprecation window.
 
-Runs the full transport × era matrix.
+Push-style sampling is exercised on **stdio/legacy** (`createMcpHandler`'s stateless-legacy posture has no return path for the client's response POST — see `../legacy-routing/` for the sessionful composition); the http/legacy leg only verifies the initialize handshake.
+2026-07-28 `inputRequired.createMessage` runs on both transports.
 
 ```bash
 pnpm --filter @mcp-examples/sampling client               # 2026-07-28 (inputRequired)

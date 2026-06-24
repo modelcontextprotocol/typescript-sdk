@@ -17,21 +17,23 @@
  *
  * DEMO ONLY — NOT FOR PRODUCTION. The AS auto-approves and issues whatever
  * scope is asked for; tokens are validated in-process against the same AS.
+ *
+ * HTTP-only by definition (the OAuth dance is HTTP redirects + Bearer headers),
+ * so the canonical stdio branch does not apply.
  */
 import { randomUUID } from 'node:crypto';
 import { createServer } from 'node:http';
 
+import { parseExampleArgs } from '@mcp-examples/shared';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { AuthInfo } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
-const argv = process.argv.slice(2);
-const portIdx = argv.indexOf('--port');
-const MCP_PORT = portIdx === -1 ? 3000 : Number(argv[portIdx + 1]);
-const AS_PORT = MCP_PORT + 1;
-const MCP_URL = `http://127.0.0.1:${MCP_PORT}/mcp`;
+const { port } = parseExampleArgs();
+const AS_PORT = port + 1;
+const MCP_URL = `http://127.0.0.1:${port}/mcp`;
 const AS_ISSUER = `http://127.0.0.1:${AS_PORT}`;
 
 // ---------------------------------------------------------------------------
@@ -136,7 +138,7 @@ const asServer = createServer((req, res) => {
     }
     json(404, { error: 'not_found' });
 });
-asServer.listen(AS_PORT, '127.0.0.1', () => console.error(`[scoped-tools] demo AS listening on ${AS_ISSUER}`));
+asServer.listen(AS_PORT, '127.0.0.1', () => console.error(`[server] demo AS listening on ${AS_ISSUER}`));
 
 // ---------------------------------------------------------------------------
 // Resource Server (MCP) — bearer-verify at the gate, per-tool scope in handlers
@@ -163,7 +165,7 @@ function requireScope(
     return { isError: true, content: [{ type: 'text', text: `insufficient_scope: requires ${scope}` }] };
 }
 
-const handler = createMcpHandler(() => {
+function buildServer(): McpServer {
     const server = new McpServer({ name: 'scoped-tools', version: '1.0.0' });
     server.registerTool('list-files', { description: 'Requires files:read.', inputSchema: z.object({}) }, (_args, ctx) => {
         const auth = ctx.http?.authInfo;
@@ -182,20 +184,22 @@ const handler = createMcpHandler(() => {
         );
     });
     return server;
-});
+}
+
+const handler = createMcpHandler(buildServer);
+const node = toNodeHandler(handler);
 
 const app = createMcpExpressApp();
 // RFC 9728 PRM: the client discovers the AS from the 401 challenge → this route → AS metadata.
 app.get('/.well-known/oauth-protected-resource/mcp', (_req, res) => {
     res.json({ resource: MCP_URL, authorization_servers: [AS_ISSUER], scopes_supported: ['files:read', 'files:write'] });
 });
-const node = toNodeHandler(handler);
 app.all('/mcp', (req, res) => {
     const authInfo = verifyBearer(req.headers.authorization ?? null);
     if (!authInfo) {
         res.set(
             'www-authenticate',
-            `Bearer resource_metadata="http://127.0.0.1:${MCP_PORT}/.well-known/oauth-protected-resource/mcp", scope="files:read"`
+            `Bearer resource_metadata="http://127.0.0.1:${port}/.well-known/oauth-protected-resource/mcp", scope="files:read"`
         );
         res.status(401).json({ error: 'invalid_token' });
         return;
@@ -206,4 +210,4 @@ app.all('/mcp', (req, res) => {
     void node(req, res, req.body);
 });
 
-app.listen(MCP_PORT, '127.0.0.1', () => console.error(`[scoped-tools] MCP RS listening on ${MCP_URL}`));
+app.listen(port, '127.0.0.1', () => console.error(`[server] MCP RS listening on ${MCP_URL}`));

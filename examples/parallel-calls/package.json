@@ -7,7 +7,9 @@
         "client": "tsx client.ts"
     },
     "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
         "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",
         "zod": "catalog:runtimeShared"
     },

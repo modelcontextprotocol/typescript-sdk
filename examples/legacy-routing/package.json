@@ -7,6 +7,7 @@
         "client": "tsx client.ts"
     },
     "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
         "@modelcontextprotocol/client": "workspace:*",
         "@modelcontextprotocol/express": "workspace:*",
         "@modelcontextprotocol/node": "workspace:*",
@@ -24,6 +25,6 @@
             "http"
         ],
         "era": "modern",
-        "//": "The story body drives BOTH eras itself (one legacy + one modern client against the same port); pinned so the harness runs it once."
+        "//": "The story body drives BOTH eras itself (one legacy + one modern client against the same port); pinned so the runner invokes it once."
     }
 }

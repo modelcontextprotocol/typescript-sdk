@@ -17,11 +17,14 @@
  *
  * One binary, either transport.
  */
-import type { RegisteredResource } from '@modelcontextprotocol/server';
-import { McpServer } from '@modelcontextprotocol/server';
-import * as z from 'zod/v4';
+import { createServer } from 'node:http';
 
-import { runServerFromArgs } from '../harness.js';
+import { parseExampleArgs } from '@mcp-examples/shared';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import type { RegisteredResource } from '@modelcontextprotocol/server';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import { serveStdio } from '@modelcontextprotocol/server/stdio';
+import * as z from 'zod/v4';
 
 const notes = new Map<string, string>();
 let nextId = 1;
@@ -111,5 +114,14 @@ function buildServer(): McpServer {
     return server;
 }
 
-// runServerFromArgs is the example harness's transport selector (default stdio, --http for HTTP). In your own server you'd call serveStdio(buildServer) or createMcpHandler(buildServer) directly.
-runServerFromArgs(buildServer);
+const { transport, port } = parseExampleArgs();
+
+if (transport === 'stdio') {
+    void serveStdio(buildServer);
+    console.error('[server] serving over stdio');
+} else {
+    const handler = createMcpHandler(buildServer);
+    createServer(toNodeHandler(handler)).listen(port, () => {
+        console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
+    });
+}

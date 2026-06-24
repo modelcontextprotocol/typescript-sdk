@@ -13,9 +13,10 @@
  * The example calls `flip_tools` to mutate the server's tool set on demand
  * (rather than a timer), then asserts the change notification arrived.
  */
-import type { McpSubscription } from '@modelcontextprotocol/client';
-
-import { check, connectFromArgs, runClient } from '../harness.js';
+import { check, parseExampleArgs, siblingPath } from '@mcp-examples/shared';
+import type { ClientOptions, McpSubscription } from '@modelcontextprotocol/client';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 /** Wait until `pred()` is true or `timeoutMs` elapses. */
 async function until(pred: () => boolean, timeoutMs = 5000): Promise<void> {
@@ -26,10 +27,27 @@ async function until(pred: () => boolean, timeoutMs = 5000): Promise<void> {
     }
 }
 
-async function autoOpenLeg(): Promise<void> {
+const { transport, url } = parseExampleArgs();
+
+// Both legs connect identically and differ only in ClientOptions; the local
+// helper keeps the SDK transport setup visible in THIS file (the canonical
+// shape) while avoiding duplicating it for each leg. Modern-only —
+// `subscriptions/listen` is a 2026-07-28 protocol feature.
+const connect = async (options?: ClientOptions): Promise<Client> => {
+    const client = new Client(
+        { name: 'subscriptions-example-client', version: '1.0.0' },
+        { versionNegotiation: { mode: 'auto' }, ...options }
+    );
+    await (transport === 'stdio'
+        ? client.connect(new StdioClientTransport({ command: 'npx', args: ['-y', 'tsx', siblingPath(import.meta.url, 'server.ts')] }))
+        : client.connect(new StreamableHTTPClientTransport(new URL(url))));
+    return client;
+};
+
+// --- auto-open via ClientOptions.listChanged ---
+{
     let count = 0;
-    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
-    const client = await connectFromArgs(import.meta.dirname, {
+    const client = await connect({
         listChanged: {
             tools: {
                 autoRefresh: false,
@@ -53,8 +71,9 @@ async function autoOpenLeg(): Promise<void> {
     check.ok(count >= 2, 'auto-open leg should receive at least two tools/list_changed');
 }
 
-async function manualLeg(): Promise<void> {
-    const client = await connectFromArgs(import.meta.dirname);
+// --- manual client.listen() ---
+{
+    const client = await connect();
     let count = 0;
     client.setNotificationHandler('notifications/tools/list_changed', () => void count++);
     const sub: McpSubscription = await client.listen({ toolsListChanged: true });
@@ -69,8 +88,3 @@ async function manualLeg(): Promise<void> {
     await client.close();
     check.ok(count >= 2, 'manual leg should receive at least two tools/list_changed');
 }
-
-runClient('subscriptions', async () => {
-    await autoOpenLeg();
-    await manualLeg();
-});

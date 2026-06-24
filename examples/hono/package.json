@@ -8,6 +8,7 @@
     },
     "dependencies": {
         "@hono/node-server": "catalog:runtimeServerOnly",
+        "@mcp-examples/shared": "workspace:*",
         "@modelcontextprotocol/client": "workspace:*",
         "@modelcontextprotocol/hono": "workspace:*",
         "@modelcontextprotocol/server": "workspace:*",
@@ -22,6 +23,6 @@
         ],
         "era": "dual",
         "path": "/mcp",
-        "//": "createMcpHandler.fetch hosting is era-agnostic (default 'stateless' posture serves both); the client honours --legacy via negotiationFromArgs."
+        "//": "createMcpHandler.fetch hosting is era-agnostic (default 'stateless' posture serves both)."
     }
 }

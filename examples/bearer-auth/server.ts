@@ -7,6 +7,7 @@
  * endpoint is hosted on `createMcpHandler` with the verified `authInfo` passed
  * through to the factory (`ctx.authInfo`). HTTP-only by definition.
  */
+import { parseExampleArgs } from '@mcp-examples/shared';
 import type { OAuthTokenVerifier } from '@modelcontextprotocol/express';
 import {
     createMcpExpressApp,
@@ -15,14 +16,20 @@ import {
     requireBearerAuth
 } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
-import type { AuthInfo, OAuthMetadata } from '@modelcontextprotocol/server';
+import type { AuthInfo, McpServerFactory, OAuthMetadata } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
-const argv = process.argv.slice(2);
-const portIdx = argv.indexOf('--port');
-const PORT = portIdx === -1 ? 3000 : Number(argv[portIdx + 1]);
-const mcpServerUrl = new URL(`http://localhost:${PORT}/mcp`);
+const buildServer: McpServerFactory = ctx => {
+    const server = new McpServer({ name: 'bearer-auth-example', version: '1.0.0' });
+    server.registerTool('whoami', { description: 'Returns the authenticated subject.', inputSchema: z.object({}) }, async () => ({
+        content: [{ type: 'text', text: `client=${ctx.authInfo?.clientId ?? 'anon'}` }]
+    }));
+    return server;
+};
+
+const { port } = parseExampleArgs();
+const mcpServerUrl = new URL(`http://localhost:${port}/mcp`);
 
 const oauthMetadata: OAuthMetadata = {
     issuer: 'https://auth.example.com',
@@ -41,13 +48,10 @@ const staticTokenVerifier: OAuthTokenVerifier = {
     }
 };
 
-const handler = createMcpHandler(ctx => {
-    const server = new McpServer({ name: 'bearer-auth-example', version: '1.0.0' });
-    server.registerTool('whoami', { description: 'Returns the authenticated subject.', inputSchema: z.object({}) }, async () => ({
-        content: [{ type: 'text', text: `client=${ctx.authInfo?.clientId ?? 'anon'}` }]
-    }));
-    return server;
-});
+// Bearer auth is HTTP-layer (no stdio arm). The MCP handler is the canonical
+// `createMcpHandler(buildServer)`; the Express auth middleware in front of it
+// is the point of this story.
+const handler = createMcpHandler(buildServer);
 
 const app = createMcpExpressApp();
 app.use(
@@ -67,6 +71,6 @@ const auth = requireBearerAuth({
 const node = toNodeHandler(handler);
 app.all('/mcp', auth, (req, res) => void node(req, res, req.body));
 
-app.listen(PORT, () => {
-    console.error(`bearer-auth example server on http://127.0.0.1:${PORT}/mcp`);
+app.listen(port, () => {
+    console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
 });

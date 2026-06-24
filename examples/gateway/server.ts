@@ -6,10 +6,12 @@
  * number of MCP requests served (server/discover, tools/call, …). The client
  * asserts against it to PROVE that `connect({ prior })` sent nothing.
  */
-import { McpServer } from '@modelcontextprotocol/server';
-import * as z from 'zod/v4';
+import { createServer } from 'node:http';
 
-import { runServerFromArgs } from '../harness.js';
+import { parseExampleArgs } from '@mcp-examples/shared';
+import { toNodeHandler } from '@modelcontextprotocol/node';
+import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
+import * as z from 'zod/v4';
 
 let requestCount = 0;
 
@@ -36,5 +38,12 @@ function buildServer(): McpServer {
     return server;
 }
 
-// runServerFromArgs is the example harness's transport selector (default stdio, --http for HTTP). In your own server you'd call serveStdio(buildServer) or createMcpHandler(buildServer) directly.
-runServerFromArgs(buildServer);
+// HTTP-only — the request_count proof depends on `createMcpHandler`'s
+// per-request factory; on stdio the factory is per-connection and the 2/3/7
+// assertions would not hold.
+const { port } = parseExampleArgs();
+
+const handler = createMcpHandler(buildServer);
+createServer(toNodeHandler(handler)).listen(port, () => {
+    console.error(`[server] listening on http://127.0.0.1:${port}/mcp`);
+});

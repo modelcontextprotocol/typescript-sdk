@@ -1,25 +1,33 @@
 /**
  * Drives the resources example: list, list templates, read direct + templated.
  */
-import { check, connectFromArgs, runClient } from '../harness.js';
+import { check, parseExampleArgs, siblingPath } from '@mcp-examples/shared';
+import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
-runClient('resources', async () => {
-    // connectFromArgs picks transport (default: spawn ./server.ts over stdio; --http <url>) and era (--legacy) from argv. Your code would construct a Client and connect over your chosen transport directly.
-    const client = await connectFromArgs(import.meta.dirname);
+const { transport, url, era } = parseExampleArgs();
 
-    const list = await client.listResources();
-    check.ok(list.resources.some(r => r.uri === 'config://app'));
+const client = new Client(
+    { name: 'resources-example-client', version: '1.0.0' },
+    { versionNegotiation: { mode: era === 'modern' ? 'auto' : 'legacy' } }
+);
 
-    const templates = await client.listResourceTemplates();
-    check.ok(templates.resourceTemplates.some(t => t.uriTemplate === 'greeting://{name}'));
+await (transport === 'stdio'
+    ? client.connect(new StdioClientTransport({ command: 'npx', args: ['-y', 'tsx', siblingPath(import.meta.url, 'server.ts')] }))
+    : client.connect(new StreamableHTTPClientTransport(new URL(url))));
 
-    const config = await client.readResource({ uri: 'config://app' });
-    const configContent = config.contents[0];
-    check.equal(configContent && 'text' in configContent ? configContent.text : '', '{"feature":true}');
+const list = await client.listResources();
+check.ok(list.resources.some(r => r.uri === 'config://app'));
 
-    const hello = await client.readResource({ uri: 'greeting://world' });
-    const helloContent = hello.contents[0];
-    check.equal(helloContent && 'text' in helloContent ? helloContent.text : '', 'Hello, world!');
+const templates = await client.listResourceTemplates();
+check.ok(templates.resourceTemplates.some(t => t.uriTemplate === 'greeting://{name}'));
 
-    await client.close();
-});
+const config = await client.readResource({ uri: 'config://app' });
+const configContent = config.contents[0];
+check.equal(configContent && 'text' in configContent ? configContent.text : '', '{"feature":true}');
+
+const hello = await client.readResource({ uri: 'greeting://world' });
+const helloContent = hello.contents[0];
+check.equal(helloContent && 'text' in helloContent ? helloContent.text : '', 'Hello, world!');
+
+await client.close();

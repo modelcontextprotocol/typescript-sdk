@@ -1,5 +1,17 @@
+/**
+ * Interactive readline REPL for driving an MCP server by hand.
+ *
+ * The canonical top-level-await connect→assert→close shape does not apply:
+ * this is an interactive command loop (stdin is the readline
+ * prompt, so there is no stdio-transport arm) and the `connect`/`disconnect`/
+ * `reconnect`/`terminate-session` commands deliberately tear the transport up
+ * and down repeatedly. The explicit `new Client(...)` /
+ * `new StreamableHTTPClientTransport(...)` / `client.connect(...)` calls live
+ * inline in `connect()` below so the SDK surface is still visible.
+ */
 import { createInterface } from 'node:readline';
 
+import { parseExampleArgs } from '@mcp-examples/shared';
 import type {
     GetPromptRequest,
     ListPromptsRequest,
@@ -23,7 +35,7 @@ let notificationCount = 0;
 // Global client and transport for interactive commands
 let client: Client | null = null;
 let transport: StreamableHTTPClientTransport | null = null;
-let serverUrl = 'http://localhost:3000/mcp';
+let serverUrl = parseExampleArgs().url;
 let notificationsToolLastEventId: string | undefined;
 let sessionId: string | undefined;
 

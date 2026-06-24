@@ -128,8 +128,8 @@ asserts results, exits non-zero on mismatch). `pnpm run:examples` runs every sto
 configured transport×era legs; the `examples (build + e2e)` CI job is part of the per-PR gate
 basket. See `examples/README.md` for the full story matrix.
 
-- `examples/harness.ts` — dual-transport scaffold (`connectFromArgs`, `runServerFromArgs`, `httpUrlFromArgs`, `runClient`)
-- `examples/shared/` — `@mcp-examples/shared` package (demo OAuth provider, `InMemoryEventStore`)
+- `examples/shared/` — `@mcp-examples/shared` package. Root export is args-only (`parseExampleArgs`, `check`, `siblingPath`); the demo OAuth provider and `InMemoryEventStore` live at the `@mcp-examples/shared/auth` subpath so non-auth stories don't eagerly evaluate better-auth/express/better-sqlite3. Stories import only this plumbing and inline the SDK transport setup themselves — see `examples/CONTRIBUTING.md`.
+- `scripts/examples/` — runner (`run-examples.ts`)
 - `examples/guides/` — typecheck-only snippet collections synced into `docs/{server,client}.md`
 
 ## Message Flow (Bidirectional Protocol)

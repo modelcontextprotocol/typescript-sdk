@@ -362,6 +362,9 @@ importers:
 
   examples/bearer-auth:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -384,6 +387,15 @@ importers:
 
   examples/caching:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -410,6 +422,15 @@ importers:
 
   examples/custom-methods:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -423,6 +444,15 @@ importers:
 
   examples/custom-version:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -433,6 +463,15 @@ importers:
 
   examples/dual-era:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -446,9 +485,15 @@ importers:
 
   examples/elicitation:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -462,9 +507,15 @@ importers:
 
   examples/gateway:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -481,6 +532,9 @@ importers:
       '@hono/node-server':
         specifier: catalog:runtimeServerOnly
         version: 1.19.11(hono@4.12.9)
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -500,6 +554,9 @@ importers:
 
   examples/json-response:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -519,6 +576,9 @@ importers:
 
   examples/legacy-routing:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -550,9 +610,15 @@ importers:
 
   examples/mrtr:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -625,9 +691,15 @@ importers:
 
   examples/parallel-calls:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -641,6 +713,15 @@ importers:
 
   examples/prompts:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -688,6 +769,15 @@ importers:
 
   examples/resources:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -698,6 +788,15 @@ importers:
 
   examples/sampling:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -711,6 +810,15 @@ importers:
 
   examples/schema-validators:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -736,6 +844,9 @@ importers:
       '@mcp-examples/oauth':
         specifier: workspace:*
         version: link:../oauth
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -878,6 +989,9 @@ importers:
 
   examples/standalone-get:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -903,6 +1017,9 @@ importers:
 
   examples/stateless-legacy:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -922,6 +1039,15 @@ importers:
 
   examples/stickynotes:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -935,6 +1061,15 @@ importers:
 
   examples/streaming:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
@@ -948,6 +1083,9 @@ importers:
 
   examples/subscriptions:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
       '@modelcontextprotocol/client':
         specifier: workspace:*
         version: link:../../packages/client
@@ -967,6 +1105,15 @@ importers:
 
   examples/tools:
     dependencies:
+      '@mcp-examples/shared':
+        specifier: workspace:*
+        version: link:../shared
+      '@modelcontextprotocol/client':
+        specifier: workspace:*
+        version: link:../../packages/client
+      '@modelcontextprotocol/node':
+        specifier: workspace:*
+        version: link:../../packages/middleware/node
       '@modelcontextprotocol/server':
         specifier: workspace:*
         version: link:../../packages/server
