@@ -5,6 +5,7 @@ import { expect, vi } from 'vitest';
 
 import type { OAuthClientProvider } from '../../src/client/auth.js';
 import {
+    assertSecureTokenEndpoint,
     auth,
     buildDiscoveryUrls,
     determineScope,
@@ -14,10 +15,13 @@ import {
     discoverOAuthServerInfo,
     exchangeAuthorization,
     extractWWWAuthenticateParams,
+    InsecureTokenEndpointError,
     isHttpsUrl,
     IssuerMismatchError,
     refreshAuthorization,
     registerClient,
+    RegistrationRejectedError,
+    resolveClientMetadata,
     selectClientAuthMethod,
     startAuthorization,
     validateAuthorizationResponseIssuer,
@@ -2171,6 +2175,11 @@ describe('OAuth Authorization', () => {
             ...validClientMetadata
         };
 
+        function lastRegisterBody(): Record<string, unknown> {
+            const call = mockFetch.mock.calls.at(-1);
+            return JSON.parse(call![1].body as string) as Record<string, unknown>;
+        }
+
         it('registers client and returns client information', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -2184,17 +2193,13 @@ describe('OAuth Authorization', () => {
 
             expect(clientInfo).toEqual(validClientInfo);
             expect(mockFetch).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    href: 'https://auth.example.com/register'
-                }),
-                expect.objectContaining({
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(validClientMetadata)
-                })
+                expect.objectContaining({ href: 'https://auth.example.com/register' }),
+                expect.objectContaining({ method: 'POST', headers: { 'Content-Type': 'application/json' } })
             );
+            expect(lastRegisterBody()).toMatchObject({
+                redirect_uris: ['http://localhost:3000/callback'],
+                client_name: 'Test Client'
+            });
         });
 
         it('includes scope in registration body when provided, overriding clientMetadata.scope', async () => {
@@ -2221,17 +2226,58 @@ describe('OAuth Authorization', () => {
 
             expect(clientInfo).toEqual(expectedClientInfo);
             expect(mockFetch).toHaveBeenCalledWith(
-                expect.objectContaining({
-                    href: 'https://auth.example.com/register'
-                }),
-                expect.objectContaining({
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ ...validClientMetadata, scope: 'openid profile' })
-                })
+                expect.objectContaining({ href: 'https://auth.example.com/register' }),
+                expect.objectContaining({ method: 'POST', headers: { 'Content-Type': 'application/json' } })
             );
+            expect(lastRegisterBody()).toMatchObject({ ...validClientMetadata, scope: 'openid profile' });
+        });
+
+        it('POSTs the supplied clientMetadata verbatim (defaults are applied upstream by resolveClientMetadata)', async () => {
+            mockFetch.mockResolvedValueOnce({ ok: true, status: 200, json: async () => validClientInfo });
+            await registerClient('https://auth.example.com', {
+                clientMetadata: resolveClientMetadata({
+                    clientMetadata: validClientMetadata,
+                    redirectUrl: 'http://localhost:3000/callback'
+                })
+            });
+            expect(lastRegisterBody()).toMatchObject({
+                redirect_uris: ['http://localhost:3000/callback'],
+                client_name: 'Test Client',
+                application_type: 'native',
+                grant_types: ['authorization_code', 'refresh_token']
+            });
+        });
+
+        it('tolerates a non-enum application_type echoed by the AS (passes through, no throw)', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({ ...validClientInfo, application_type: 'service' })
+            });
+            const info = await registerClient('https://auth.example.com', { clientMetadata: validClientMetadata });
+            expect(info.application_type).toBe('service');
+        });
+
+        it('throws RegistrationRejectedError carrying status, body, and submitted metadata on rejection', async () => {
+            const errorBody = JSON.stringify({ error: 'invalid_redirect_uri', error_description: 'http not permitted for web' });
+            mockFetch.mockResolvedValueOnce(new Response(errorBody, { status: 400 }));
+
+            const submitted = resolveClientMetadata({
+                clientMetadata: { client_name: 't', redirect_uris: ['https://app.example.com/cb'] },
+                redirectUrl: 'https://app.example.com/cb'
+            });
+            const err = await registerClient('https://auth.example.com', { clientMetadata: submitted }).catch(e => e as unknown);
+
+            expect(err).toBeInstanceOf(RegistrationRejectedError);
+            expect(err).not.toBeInstanceOf(OAuthError);
+            const rre = err as RegistrationRejectedError;
+            expect(rre.status).toBe(400);
+            expect(rre.body).toBe(errorBody);
+            expect(JSON.parse(rre.body).error).toBe(OAuthErrorCode.InvalidRedirectUri);
+            // The submitted metadata echoes what was sent — including SDK-applied defaults.
+            expect(rre.submittedMetadata.application_type).toBe('web');
+            expect(rre.submittedMetadata.grant_types).toEqual(['authorization_code', 'refresh_token']);
+            expect(rre.submittedMetadata.redirect_uris).toEqual(['https://app.example.com/cb']);
         });
 
         it('validates client information response schema', async () => {
@@ -2278,7 +2324,130 @@ describe('OAuth Authorization', () => {
                 registerClient('https://auth.example.com', {
                     clientMetadata: validClientMetadata
                 })
-            ).rejects.toThrow('Dynamic client registration failed');
+            ).rejects.toThrow(/Dynamic client registration failed/i);
+        });
+    });
+
+    describe('SEP-2207: token-endpoint https guard', () => {
+        const clientInformation = { client_id: 'client123', client_secret: 'secret123' };
+
+        it('assertSecureTokenEndpoint: throws on non-loopback http, returns URL for loopback', () => {
+            expect(() => assertSecureTokenEndpoint('http://10.0.0.5/token')).toThrow(InsecureTokenEndpointError);
+            expect(assertSecureTokenEndpoint('http://127.0.0.1:3000/token')).toBeInstanceOf(URL);
+        });
+
+        it('rejects a non-https token_endpoint before sending credentials', async () => {
+            await expect(
+                exchangeAuthorization('https://auth.example.com', {
+                    metadata: {
+                        issuer: 'https://auth.example.com',
+                        authorization_endpoint: 'https://auth.example.com/authorize',
+                        token_endpoint: 'http://auth.example.com/token',
+                        response_types_supported: ['code']
+                    },
+                    clientInformation,
+                    authorizationCode: 'code',
+                    codeVerifier: 'verifier',
+                    redirectUri: 'http://localhost:3000/callback'
+                })
+            ).rejects.toThrow(InsecureTokenEndpointError);
+            expect(mockFetch).not.toHaveBeenCalled();
+        });
+
+        it('rejects when the authorization-server URL fallback resolves to non-https', async () => {
+            await expect(refreshAuthorization('http://auth.example.com', { clientInformation, refreshToken: 'rt' })).rejects.toThrow(
+                InsecureTokenEndpointError
+            );
+            expect(mockFetch).not.toHaveBeenCalled();
+        });
+
+        it('propagates through auth() on the refresh branch instead of falling through to /authorize', async () => {
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({ ok: false, status: 404 });
+                }
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://api.example.com',
+                            authorization_endpoint: 'https://api.example.com/authorize',
+                            token_endpoint: 'http://api.example.com/token',
+                            response_types_supported: ['code']
+                        })
+                    });
+                }
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+            const redirectToAuthorization = vi.fn();
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return { redirect_uris: ['http://localhost:3000/callback'] };
+                },
+                clientInformation: () => clientInformation,
+                tokens: () => ({ access_token: 'old', token_type: 'Bearer', refresh_token: 'rt' }),
+                saveTokens: vi.fn(),
+                redirectToAuthorization,
+                saveCodeVerifier: vi.fn(),
+                codeVerifier: () => 'v'
+            };
+
+            await expect(auth(provider, { serverUrl: 'https://api.example.com/mcp' })).rejects.toThrow(InsecureTokenEndpointError);
+            expect(redirectToAuthorization).not.toHaveBeenCalled();
+            expect(mockFetch.mock.calls.some(c => c[0].toString().includes('/token'))).toBe(false);
+        });
+
+        it.each(['http://localhost:9001/token', 'http://127.0.0.1:9001/token', 'http://[::1]:9001/token'])(
+            'permits loopback host %s',
+            async tokenEndpoint => {
+                mockFetch.mockResolvedValueOnce(Response.json({ access_token: 't', token_type: 'Bearer' }));
+                await expect(
+                    refreshAuthorization('http://localhost:9001', {
+                        metadata: {
+                            issuer: 'http://localhost:9001',
+                            authorization_endpoint: 'http://localhost:9001/authorize',
+                            token_endpoint: tokenEndpoint,
+                            response_types_supported: ['code']
+                        },
+                        clientInformation,
+                        refreshToken: 'rt'
+                    })
+                ).resolves.toBeDefined();
+            }
+        );
+    });
+
+    // SEP-2207 verify-only: behaviors already correct at the v2 baseline,
+    // pinned here so a regression fails CI rather than the conformance referee.
+    describe('SEP-2207: refresh-token guidance (verify-only pins)', () => {
+        const clientInformation = { client_id: 'client123', client_secret: 'secret123' };
+
+        it('does not assume a refresh_token is issued (optional in the token-response schema)', async () => {
+            mockFetch.mockResolvedValueOnce(Response.json({ access_token: 't', token_type: 'Bearer' }));
+            const tokens = await exchangeAuthorization('https://auth.example.com', {
+                clientInformation,
+                authorizationCode: 'code',
+                codeVerifier: 'verifier',
+                redirectUri: 'http://localhost:3000/callback'
+            });
+            expect(tokens.refresh_token).toBeUndefined();
+        });
+
+        it('keeps the prior refresh_token when the AS omits a replacement on refresh', async () => {
+            mockFetch.mockResolvedValueOnce(Response.json({ access_token: 'new', token_type: 'Bearer' }));
+            const tokens = await refreshAuthorization('https://auth.example.com', { clientInformation, refreshToken: 'rt-old' });
+            expect(tokens.refresh_token).toBe('rt-old');
+        });
+
+        it('adopts a rotated refresh_token when the AS returns one', async () => {
+            mockFetch.mockResolvedValueOnce(Response.json({ access_token: 'new', token_type: 'Bearer', refresh_token: 'rt-new' }));
+            const tokens = await refreshAuthorization('https://auth.example.com', { clientInformation, refreshToken: 'rt-old' });
+            expect(tokens.refresh_token).toBe('rt-new');
         });
     });
 
@@ -4055,6 +4224,80 @@ describe('OAuth Authorization', () => {
         });
     });
 
+    describe('resolveClientMetadata', () => {
+        const resolve = (clientMetadata: OAuthClientMetadata) =>
+            resolveClientMetadata({ clientMetadata, redirectUrl: 'http://localhost:3000/callback' });
+
+        describe('SEP-837: application_type heuristic default', () => {
+            it.each([
+                ['http://localhost:3000/callback', 'native'],
+                ['http://127.0.0.1:8080/cb', 'native'],
+                ['http://[::1]:8080/cb', 'native'],
+                ['myapp://oauth/callback', 'native'],
+                ['com.example.app:/cb', 'native'],
+                ['https://app.example.com/callback', 'web'],
+                ['http://app.internal/callback', 'web']
+            ])('derives application_type for redirect_uri %s → %s', (redirectUri, expected) => {
+                expect(resolve({ client_name: 't', redirect_uris: [redirectUri] }).application_type).toBe(expected);
+            });
+
+            it("derives 'native' when any one redirect_uri is loopback", () => {
+                const md = resolve({ client_name: 't', redirect_uris: ['https://app.example.com/cb', 'http://localhost:3000/cb'] });
+                expect(md.application_type).toBe('native');
+            });
+
+            it('never overwrites a consumer-set application_type', () => {
+                const md = resolve({
+                    client_name: 't',
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    application_type: 'web'
+                });
+                // Loopback would heuristically pick 'native'; the consumer's 'web' wins.
+                expect(md.application_type).toBe('web');
+            });
+
+            it("defaults to 'web' when redirect_uris is empty / undefined", () => {
+                expect(resolve({ client_name: 't', redirect_uris: [] }).application_type).toBe('web');
+            });
+        });
+
+        describe('SEP-2207: grant_types default', () => {
+            it("defaults grant_types to ['authorization_code', 'refresh_token'] when omitted", () => {
+                const md = resolve({ client_name: 't', redirect_uris: ['http://localhost:3000/callback'] });
+                expect(md.grant_types).toEqual(['authorization_code', 'refresh_token']);
+            });
+
+            it('never overwrites a consumer-set grant_types', () => {
+                const md = resolve({
+                    client_name: 't',
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    grant_types: ['client_credentials']
+                });
+                expect(md.grant_types).toEqual(['client_credentials']);
+            });
+
+            it('leaves grant_types undefined for non-interactive providers (no redirectUrl)', () => {
+                const md = resolveClientMetadata({
+                    clientMetadata: { client_name: 't', redirect_uris: [] },
+                    redirectUrl: undefined
+                });
+                expect(md.grant_types).toBeUndefined();
+            });
+        });
+
+        it('preserves all other consumer-set fields verbatim', () => {
+            const md = resolve({
+                client_name: 'Test Client',
+                redirect_uris: ['http://localhost:3000/callback'],
+                scope: 'a b c',
+                token_endpoint_auth_method: 'none'
+            });
+            expect(md.client_name).toBe('Test Client');
+            expect(md.scope).toBe('a b c');
+            expect(md.token_endpoint_auth_method).toBe('none');
+        });
+    });
+
     describe('determineScope', () => {
         const baseClientMetadata = {
             redirect_uris: ['http://localhost:3000/callback'],
@@ -4263,7 +4506,7 @@ describe('OAuth Authorization', () => {
                 expect(result).toBe('mcp:read mcp:write');
             });
 
-            it('does NOT augment when grant_types is undefined (respects OAuth defaults)', () => {
+            it('does NOT augment with offline_access when grant_types is undefined (respects OAuth defaults)', () => {
                 const result = determineScope({
                     resourceMetadata: {
                         resource: 'https://api.example.com/',
@@ -4274,6 +4517,50 @@ describe('OAuth Authorization', () => {
                 });
 
                 expect(result).toBe('mcp:read mcp:write');
+            });
+
+            it('auth() does not push statically-registered clients into offline_access + prompt=consent', async () => {
+                mockFetch.mockImplementation(url => {
+                    const urlString = url.toString();
+                    if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                        return Promise.resolve({ ok: false, status: 404 });
+                    }
+                    if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                        return Promise.resolve({
+                            ok: true,
+                            status: 200,
+                            json: async () => ({
+                                issuer: 'https://api.example.com',
+                                authorization_endpoint: 'https://api.example.com/authorize',
+                                token_endpoint: 'https://api.example.com/token',
+                                response_types_supported: ['code'],
+                                scopes_supported: ['mcp:read', 'offline_access']
+                            })
+                        });
+                    }
+                    return Promise.resolve({ ok: false, status: 404 });
+                });
+                const redirectToAuthorization = vi.fn();
+                const provider: OAuthClientProvider = {
+                    get redirectUrl() {
+                        return 'http://localhost:3000/callback';
+                    },
+                    get clientMetadata() {
+                        return { redirect_uris: ['http://localhost:3000/callback'], scope: 'mcp:read' };
+                    },
+                    clientInformation: () => ({ client_id: 'static' }),
+                    tokens: () => undefined,
+                    saveTokens: vi.fn(),
+                    redirectToAuthorization,
+                    saveCodeVerifier: vi.fn(),
+                    codeVerifier: () => 'v'
+                };
+
+                const result = await auth(provider, { serverUrl: 'https://api.example.com/mcp' });
+                expect(result).toBe('REDIRECT');
+                const authorizationUrl = redirectToAuthorization.mock.calls[0]![0] as URL;
+                expect(authorizationUrl.searchParams.get('scope')).toBe('mcp:read');
+                expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
             });
         });
     });

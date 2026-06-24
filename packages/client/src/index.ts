@@ -18,6 +18,7 @@ export type {
     OAuthServerInfo
 } from './client/auth.js';
 export {
+    assertSecureTokenEndpoint,
     auth,
     buildDiscoveryUrls,
     discoverAuthorizationServerMetadata,
@@ -33,6 +34,7 @@ export {
     prepareAuthorizationCodeRequest,
     refreshAuthorization,
     registerClient,
+    resolveClientMetadata,
     selectClientAuthMethod,
     selectResourceURL,
     startAuthorization,
@@ -40,7 +42,7 @@ export {
     validateAuthorizationResponseIssuer,
     validateClientMetadataUrl
 } from './client/auth.js';
-export { IssuerMismatchError, OAuthClientFlowError } from './client/authErrors.js';
+export { InsecureTokenEndpointError, IssuerMismatchError, OAuthClientFlowError, RegistrationRejectedError } from './client/authErrors.js';
 export type {
     AssertionCallback,
     ClientCredentialsProviderOptions,

@@ -2235,6 +2235,60 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['streamableHttp'],
         note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
     },
+    'client-auth:dcr:app-type-heuristic': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#application-type',
+        behavior:
+            "When clientMetadata.application_type is omitted, Dynamic Client Registration defaults it from the redirect URIs: a loopback host or custom URI scheme yields 'native', otherwise 'web' (SEP-837).",
+        transports: ['streamableHttp'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:dcr:app-type-override': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#application-type',
+        behavior:
+            'A consumer-set clientMetadata.application_type is sent verbatim in Dynamic Client Registration; the SDK heuristic never overwrites it.',
+        transports: ['streamableHttp'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:dcr:registration-rejected-error': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization/client-registration#application-type',
+        behavior:
+            "When the authorization server rejects Dynamic Client Registration, the SDK throws RegistrationRejectedError carrying the HTTP status, raw body, and the submitted metadata so callers can retry with adjusted metadata; the auth() orchestrator's OAuthError retry path does not swallow it.",
+        transports: ['streamableHttp'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:dcr:grant-types-default': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#refresh-token-grant',
+        behavior:
+            "When clientMetadata.grant_types is omitted, Dynamic Client Registration defaults it to ['authorization_code', 'refresh_token'] so authorization servers may issue refresh tokens (SEP-2207); a consumer-set grant_types is never rewritten.",
+        transports: ['streamableHttp'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:token-endpoint:https-guard': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#refresh-token-grant',
+        behavior:
+            "The token-exchange and refresh paths refuse to send credentials to a non-https token endpoint (localhost / 127.0.0.1 / ::1 exempt) by throwing InsecureTokenEndpointError, and auth()'s refresh branch surfaces it instead of falling through to a fresh /authorize redirect.",
+        transports: ['streamableHttp'],
+        addedInSpecVersion: '2026-07-28',
+        note: 'This exercises the HTTP hosting/auth layer and OAuth client; the matrix transport arg is ignored, so it runs as a single streamableHttp-labelled cell to avoid duplicate runs.'
+    },
+    'client-auth:refresh:rotation-handling': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#refresh-token-grant',
+        behavior:
+            'On refresh, a new refresh_token returned by the AS replaces the prior one; if the AS omits refresh_token the prior one is preserved; the SDK never assumes a refresh_token will be issued (SEP-2207).',
+        transports: ['streamableHttp'],
+        note: 'Verify-only pin of behavior already correct at the v2 baseline. Runs as a single streamableHttp-labelled cell.'
+    },
+    'client-auth:scope:offline-access-gate': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/authorization#refresh-token-grant',
+        behavior:
+            "The client appends offline_access to the requested scope only when the authorization server's metadata advertises it in scopes_supported and the client's grant_types includes refresh_token (SEP-2207).",
+        transports: ['streamableHttp'],
+        note: 'Verify-only pin of behavior already correct at the v2 baseline. Runs as a single streamableHttp-labelled cell.'
+    },
 
     // Client middleware (SDK)
 

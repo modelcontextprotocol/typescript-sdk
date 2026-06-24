@@ -18,11 +18,15 @@ import {
     discoverAuthorizationServerMetadata,
     discoverOAuthProtectedResourceMetadata,
     exchangeAuthorization,
+    InsecureTokenEndpointError,
     IssuerMismatchError,
     OAuthError,
     OAuthErrorCode,
     PrivateKeyJwtProvider,
     refreshAuthorization,
+    registerClient,
+    RegistrationRejectedError,
+    resolveClientMetadata,
     SdkError,
     SSEClientTransport,
     SseError,
@@ -38,6 +42,7 @@ import type {
     AuthorizationServerMetadata,
     OAuthClientInformationFull,
     OAuthClientInformationMixed,
+    OAuthClientMetadata,
     OAuthTokens
 } from '@modelcontextprotocol/server';
 import { LATEST_PROTOCOL_VERSION, McpServer } from '@modelcontextprotocol/server';
@@ -63,6 +68,7 @@ interface MockASConfig {
     tokenResponses?: Array<Partial<OAuthTokens>>;
     tokenErrorResponses?: Array<{ error: string; error_description?: string }>;
     registerResponse?: Partial<OAuthClientInformationFull>;
+    registerErrorResponse?: { status: number; error: string; error_description?: string };
     asMetadata?: Partial<AuthorizationServerMetadata>;
     prmMetadata?: Record<string, unknown>;
     noPRMDiscovery?: boolean;
@@ -157,6 +163,10 @@ function createMockAuthorizationServer(config: MockASConfig = {}) {
         if (path === '/register' && req.method === 'POST') {
             const body = z.record(z.string(), z.unknown()).parse(await req.json());
             registerCalls.push({ body });
+            if (config.registerErrorResponse) {
+                const { status, ...err } = config.registerErrorResponse;
+                return Response.json(err, { status, headers: { 'Content-Type': 'application/json' } });
+            }
             // RFC 7591: the registration response echoes the submitted metadata plus issued credentials.
             const response = {
                 ...body,
@@ -192,6 +202,7 @@ class RecordingOAuthClientProvider implements OAuthClientProvider {
             tokens?: OAuthTokens;
             clientInformation?: OAuthClientInformationMixed;
             clientMetadataUrl?: string;
+            clientMetadata?: Partial<OAuthClientMetadata>;
         } = {}
     ) {
         if (initial.tokens) this.saved.tokens = initial.tokens;
@@ -206,10 +217,11 @@ class RecordingOAuthClientProvider implements OAuthClientProvider {
         return this.initial.clientMetadataUrl;
     }
 
-    get clientMetadata() {
+    get clientMetadata(): OAuthClientMetadata {
         return {
             client_name: 'Test Client',
-            redirect_uris: [this.redirectUrl]
+            redirect_uris: [this.redirectUrl],
+            ...this.initial.clientMetadata
         };
     }
 
@@ -2151,4 +2163,232 @@ verifies('client-transport:sse:401-unauthorized-code', async (_args: TestArgs) =
     } finally {
         await authTransport.close();
     }
+});
+
+// --- SEP-837 / SEP-2207 (DCR hygiene) -------------------------------------------------
+
+verifies(['client-auth:dcr:app-type-heuristic', 'client-auth:dcr:grant-types-default'], async (_args: TestArgs) => {
+    const as = createMockAuthorizationServer();
+    // No application_type, no grant_types in clientMetadata; redirect_uri is loopback.
+    const provider = new RecordingOAuthClientProvider();
+    const mcpHost = createAuthenticatedHost('dcr-token');
+    const combinedFetch = createCombinedFetch({ as, mcpHost, validToken: 'dcr-token' });
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+    try {
+        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+
+        expect(as.registerCalls).toHaveLength(1);
+        const body = defined(as.registerCalls[0], 'registration call').body;
+        // SEP-837: loopback redirect URI → 'native' by heuristic.
+        expect(body.application_type).toBe('native');
+        // SEP-2207: omitted grant_types → defaulted to include refresh_token.
+        expect(body.grant_types).toEqual(['authorization_code', 'refresh_token']);
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
+});
+
+verifies(
+    'client-auth:dcr:app-type-heuristic',
+    async (_args: TestArgs) => {
+        // Heuristic 'web' branch: drive registerClient() with a resolveClientMetadata() result so the
+        // test can use a non-loopback redirect URI without going through auth()'s redirectUrl plumbing.
+        const as = createMockAuthorizationServer();
+        const fetchFn = (url: URL | string, init?: RequestInit) => as.handleRequest(new Request(url, init));
+
+        await registerClient(ISSUER, {
+            clientMetadata: resolveClientMetadata({
+                clientMetadata: { client_name: 'web-app', redirect_uris: ['https://app.example.com/callback'] },
+                redirectUrl: 'https://app.example.com/callback'
+            }),
+            fetchFn
+        });
+
+        expect(as.registerCalls).toHaveLength(1);
+        expect(defined(as.registerCalls[0], 'registration call').body.application_type).toBe('web');
+    },
+    { title: "non-loopback https redirect URI defaults to 'web'" }
+);
+
+verifies('client-auth:dcr:app-type-override', async (_args: TestArgs) => {
+    const as = createMockAuthorizationServer();
+    // Loopback redirect URI but the consumer explicitly says 'web' (e.g. web app dev-served on localhost).
+    const provider = new RecordingOAuthClientProvider({ clientMetadata: { application_type: 'web' } });
+    const mcpHost = createAuthenticatedHost('dcr-token');
+    const combinedFetch = createCombinedFetch({ as, mcpHost, validToken: 'dcr-token' });
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+    try {
+        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+
+        expect(as.registerCalls).toHaveLength(1);
+        const body = defined(as.registerCalls[0], 'registration call').body;
+        expect(body.application_type).toBe('web'); // heuristic would have picked 'native'
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
+});
+
+verifies('client-auth:dcr:grant-types-default', async (_args: TestArgs) => {
+    // Consumer-set grant_types is never rewritten.
+    const as = createMockAuthorizationServer();
+    const fetchFn = (url: URL | string, init?: RequestInit) => as.handleRequest(new Request(url, init));
+
+    await registerClient(ISSUER, {
+        clientMetadata: { client_name: 'm2m', redirect_uris: ['http://localhost:3000/cb'], grant_types: ['client_credentials'] },
+        fetchFn
+    });
+
+    expect(as.registerCalls).toHaveLength(1);
+    expect(defined(as.registerCalls[0], 'registration call').body.grant_types).toEqual(['client_credentials']);
+});
+
+verifies('client-auth:dcr:registration-rejected-error', async (_args: TestArgs) => {
+    const as = createMockAuthorizationServer({
+        registerErrorResponse: { status: 400, error: 'invalid_redirect_uri', error_description: 'loopback not permitted' }
+    });
+    const provider = new RecordingOAuthClientProvider();
+    const mcpHost = createAuthenticatedHost('never');
+    const combinedFetch = createCombinedFetch({ as, mcpHost, validToken: 'never' });
+
+    const client = new Client({ name: 'c', version: '0' });
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+
+    try {
+        const err = await client.connect(transport).catch((error: unknown) => error);
+
+        // Propagates through auth() — not caught by the OAuthError retry path.
+        expect(err).toBeInstanceOf(RegistrationRejectedError);
+        expect(err).not.toBeInstanceOf(OAuthError);
+        const rre = err as RegistrationRejectedError;
+        expect(rre.status).toBe(400);
+        expect(rre.body).toContain('invalid_redirect_uri');
+        // Submitted metadata reflects what was POSTed (after defaults applied) so callers can adjust+retry.
+        expect(rre.submittedMetadata.application_type).toBe('native');
+        expect(rre.submittedMetadata.redirect_uris).toEqual(['http://localhost:3000/callback']);
+        // Exactly one /register call — the auth() recovery path did not silently retry.
+        expect(as.registerCalls).toHaveLength(1);
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
+});
+
+verifies('client-auth:token-endpoint:https-guard', async (_args: TestArgs) => {
+    // AS metadata advertises a non-https, non-loopback token endpoint.
+    const as = createMockAuthorizationServer({ asMetadata: { token_endpoint: 'http://auth.example.com/token' } });
+    const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'https-guard-client' } });
+    provider.saveCodeVerifier('verifier');
+    const fetchFn = (url: URL | string, init?: RequestInit) => as.handleRequest(new Request(url, init));
+
+    // Exchange path through auth(): redeeming an authorization code is rejected before the request is sent.
+    await expect(auth(provider, { serverUrl: MCP_URL, authorizationCode: 'code', fetchFn })).rejects.toThrow(InsecureTokenEndpointError);
+    expect(as.tokenCalls).toHaveLength(0);
+
+    // Refresh path through auth(): a stored refresh_token + non-https token endpoint surfaces the
+    // configuration error to the caller — it is NOT swallowed into a silent /authorize redirect.
+    const refreshProvider = new RecordingOAuthClientProvider({
+        clientInformation: { client_id: 'https-guard-client' },
+        tokens: { access_token: 'old', token_type: 'Bearer', refresh_token: 'rt' }
+    });
+    await expect(auth(refreshProvider, { serverUrl: MCP_URL, fetchFn })).rejects.toThrow(InsecureTokenEndpointError);
+    expect(as.tokenCalls).toHaveLength(0);
+    expect(refreshProvider.redirectedTo).toHaveLength(0);
+
+    // And the lower-level helper rejects with the same dedicated class.
+    await expect(
+        refreshAuthorization(ISSUER, {
+            metadata: {
+                issuer: ISSUER,
+                authorization_endpoint: `${ISSUER}/authorize`,
+                token_endpoint: 'http://auth.example.com/token',
+                response_types_supported: ['code']
+            },
+            clientInformation: { client_id: 'https-guard-client' },
+            refreshToken: 'rt',
+            fetchFn
+        })
+    ).rejects.toThrow(InsecureTokenEndpointError);
+    expect(as.tokenCalls).toHaveLength(0);
+
+    // Loopback exemption: the in-process mock AS itself uses an https issuer; cover the exemption
+    // directly so a future tightening of the guard does not silently break local-dev / test setups.
+    const loopbackAs = createMockAuthorizationServer({ asMetadata: { token_endpoint: 'http://127.0.0.1:9001/token' } });
+    // Route the loopback token URL to the mock.
+    const loopbackFetch = (url: URL | string, init?: RequestInit) => loopbackAs.handleRequest(new Request(url, init));
+    await expect(
+        refreshAuthorization(ISSUER, {
+            metadata: {
+                issuer: ISSUER,
+                authorization_endpoint: `${ISSUER}/authorize`,
+                token_endpoint: 'http://127.0.0.1:9001/token',
+                response_types_supported: ['code']
+            },
+            clientInformation: { client_id: 'https-guard-client' },
+            refreshToken: 'rt',
+            fetchFn: loopbackFetch
+        })
+    ).resolves.toBeDefined();
+});
+
+verifies('client-auth:refresh:rotation-handling', async (_args: TestArgs) => {
+    const clientInformation = { client_id: 'rotation-client', client_secret: 's' };
+    const as = createMockAuthorizationServer({
+        tokenResponses: [
+            { access_token: 'a1', token_type: 'Bearer' }, // no refresh_token issued
+            { access_token: 'a2', token_type: 'Bearer' }, // refresh: AS omits refresh_token → keep prior
+            { access_token: 'a3', token_type: 'Bearer', refresh_token: 'rt-new' } // refresh: rotated
+        ]
+    });
+    const fetchFn = (url: URL | string, init?: RequestInit) => as.handleRequest(new Request(url, init));
+
+    // No-assume-issuance: token response without refresh_token parses cleanly.
+    const t1 = await exchangeAuthorization(ISSUER, {
+        clientInformation,
+        authorizationCode: 'code',
+        codeVerifier: 'verifier',
+        redirectUri: 'http://localhost:3000/callback',
+        fetchFn
+    });
+    expect(t1.refresh_token).toBeUndefined();
+
+    // Prior refresh_token preserved when AS omits a replacement.
+    const t2 = await refreshAuthorization(ISSUER, { clientInformation, refreshToken: 'rt-old', fetchFn });
+    expect(t2.refresh_token).toBe('rt-old');
+
+    // Rotated refresh_token adopted when AS returns one.
+    const t3 = await refreshAuthorization(ISSUER, { clientInformation, refreshToken: 'rt-old', fetchFn });
+    expect(t3.refresh_token).toBe('rt-new');
+});
+
+verifies('client-auth:scope:offline-access-gate', async (_args: TestArgs) => {
+    // AS advertises offline_access; provider explicitly sets grant_types including refresh_token,
+    // so offline_access is appended to the requested scope on authorize.
+    const asWith = createMockAuthorizationServer({ asMetadata: { scopes_supported: ['openid', 'offline_access'] } });
+    const providerWith = new RecordingOAuthClientProvider({
+        clientMetadata: { grant_types: ['authorization_code', 'refresh_token'] }
+    });
+    const fetchWith = createCombinedFetch({ as: asWith, mcpHost: createAuthenticatedHost('never'), validToken: 'never' });
+
+    await auth(providerWith, { serverUrl: MCP_URL, fetchFn: fetchWith });
+
+    const redirectWith = defined(providerWith.redirectedTo[0], 'authorization redirect URL');
+    expect(redirectWith.searchParams.get('scope')?.split(' ')).toContain('offline_access');
+
+    // AS does NOT advertise offline_access → never appended.
+    const asWithout = createMockAuthorizationServer({ asMetadata: { scopes_supported: ['openid'] } });
+    const providerWithout = new RecordingOAuthClientProvider();
+    const fetchWithout = createCombinedFetch({ as: asWithout, mcpHost: createAuthenticatedHost('never'), validToken: 'never' });
+
+    await auth(providerWithout, { serverUrl: MCP_URL, fetchFn: fetchWithout });
+
+    const redirectWithout = defined(providerWithout.redirectedTo[0], 'authorization redirect URL');
+    expect((redirectWithout.searchParams.get('scope') ?? '').split(' ')).not.toContain('offline_access');
 });
