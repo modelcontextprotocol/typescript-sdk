@@ -160,8 +160,7 @@ async function runToolsCallClient(serverUrl: string): Promise<void> {
     logger.debug('Successfully listed tools');
 
     // Call the add_numbers tool
-    const addTool = tools.tools.find(t => t.name === 'add_numbers');
-    if (addTool) {
+    if (tools.tools.some(t => t.name === 'add_numbers')) {
         const result = await client.callTool({
             name: 'add_numbers',
             arguments: { a: 5, b: 3 }
@@ -188,8 +187,7 @@ async function runToolsCallModernClient(serverUrl: string): Promise<void> {
     logger.debug('Successfully listed tools');
 
     // Call the add_numbers tool
-    const addTool = tools.tools.find(t => t.name === 'add_numbers');
-    if (addTool) {
+    if (tools.tools.some(t => t.name === 'add_numbers')) {
         const result = await client.callTool({
             name: 'add_numbers',
             arguments: { a: 5, b: 3 }
@@ -225,6 +223,51 @@ async function runRequestMetadataClient(serverUrl: string): Promise<void> {
 registerScenario('initialize', runBasicClient);
 registerScenario('tools_call', runToolsCallClient);
 registerScenario('request-metadata', runRequestMetadataClient);
+
+// ============================================================================
+// SEP-2243 standard-header client scenario (Mcp-Method / Mcp-Name)
+// ============================================================================
+
+// http-standard-headers: the referee mock answers initialize, tools/list,
+// tools/call, resources/list, resources/read, prompts/list, prompts/get and
+// asserts that each POST carried the correct Mcp-Method header (and Mcp-Name
+// for the call/read/get verbs). The SDK emits both headers on the modern
+// streamableHttp path, so the fixture just needs to drive each method once.
+// The mock has no server/discover handler and its 2025-shaped initialize
+// response doesn't satisfy the v2 client — same connect-time gap as the other
+// SEP-2243 mocks — so connect via the withLocalDiscoverResponse shim. The
+// initialize / notifications/initialized checks are intentionally left
+// SKIPPED; the legacy initialize path's missing Mcp-Method is tracked as a
+// baseline bug. The mock advertises its own surface (test_headers /
+// file:///path/to/file%20name.txt / test_prompt) — the fixture lists first
+// and uses whatever the mock returned so it stays referee-version-agnostic.
+async function runHttpStandardHeadersClient(serverUrl: string): Promise<void> {
+    const client = await connectModernHeaderClient(serverUrl);
+    logger.debug('Successfully connected to MCP server');
+
+    const { tools } = await client.listTools();
+    const tool = tools[0];
+    if (tool) {
+        await client.callTool({ name: tool.name, arguments: {} });
+    }
+
+    const { resources } = await client.listResources();
+    const resource = resources[0];
+    if (resource) {
+        await client.readResource({ uri: resource.uri });
+    }
+
+    const { prompts } = await client.listPrompts();
+    const prompt = prompts[0];
+    if (prompt) {
+        await client.getPrompt({ name: prompt.name, arguments: {} });
+    }
+
+    await client.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenario('http-standard-headers', runHttpStandardHeadersClient);
 
 // ============================================================================
 // SEP-2243 custom-header client scenarios (protocol revision 2026-07-28)
@@ -319,7 +362,10 @@ function withLocalDiscoverResponse(serverInfo: { name: string; version: string }
                             id: message.id,
                             result: {
                                 supportedVersions: ['2026-07-28'],
-                                capabilities: { tools: { listChanged: true } },
+                                // Advertise the full read surface so capability-gated
+                                // list/read/get calls reach the real mock; callers that
+                                // only use tools are unaffected by the extra entries.
+                                capabilities: { tools: { listChanged: true }, resources: {}, prompts: {} },
                                 serverInfo
                             }
                         },
@@ -425,6 +471,10 @@ registerScenarios(
         'auth/metadata-var3',
         'auth/2025-03-26-oauth-metadata-backcompat',
         'auth/2025-03-26-oauth-endpoint-fallback',
+        // RFC 8707 resource-indicator binding: the referee serves a PRM whose
+        // `resource` does not match the MCP server URL; the SDK's discovery path
+        // must reject before token exchange (the referee sets `allowClientError`).
+        'auth/resource-mismatch',
         'auth/scope-from-www-authenticate',
         'auth/scope-from-scopes-supported',
         'auth/scope-omitted-when-undefined',
@@ -789,9 +839,4 @@ async function main(): Promise<void> {
     }
 }
 
-try {
-    await main();
-} catch (error) {
-    logger.error('Error:', error);
-    process.exit(1);
-}
+await main();

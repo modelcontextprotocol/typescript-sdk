@@ -70,8 +70,11 @@ export const handle401 = async (
  * - Does not throw UnauthorizedError on redirect, but instead retries
  * - Calls next() instead of throwing for redirect-based auth
  *
- * @param provider - OAuth client provider for authentication
- * @param baseUrl - Base URL for OAuth server discovery (defaults to request URL domain)
+ * @param clientName - `client_name` for the auto-created ConformanceOAuthProvider (ignored when `existingProvider` is supplied)
+ * @param baseUrl - Base URL for OAuth server discovery (defaults to request URL origin)
+ * @param handle401Fn - Challenge handler invoked on 401/403 (defaults to {@link handle401})
+ * @param clientMetadataUrl - CIMD URL for the auto-created provider (ignored when `existingProvider` is supplied)
+ * @param existingProvider - Pre-populated provider; when set, `clientName`/`clientMetadataUrl` are unused
  * @returns A fetch middleware function
  */
 export const withOAuthRetry = (
@@ -107,7 +110,7 @@ export const withOAuthRetry = (
 
             let response = await makeRequest();
 
-            // Handle 401 responses by attempting re-authentication
+            // Handle 401/403 responses by attempting re-authentication
             if (response.status === 401 || response.status === 403) {
                 const serverUrl = baseUrl || (typeof input === 'string' ? new URL(input).origin : input.origin);
                 await handle401Fn(response, provider, next, serverUrl);
@@ -115,7 +118,7 @@ export const withOAuthRetry = (
                 response = await makeRequest();
             }
 
-            // If we still have a 401 after re-auth attempt, throw an error
+            // If we still have a 401/403 after re-auth attempt, throw an error
             if (response.status === 401 || response.status === 403) {
                 const url = typeof input === 'string' ? input : input.toString();
                 throw new UnauthorizedError(`Authentication failed for ${url}`);
