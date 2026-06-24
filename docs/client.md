@@ -13,7 +13,15 @@ A client connects to a server, discovers what it offers — tools, resources, pr
 The examples below use these imports. Adjust based on which features and transport you need:
 
 ```ts source="../examples/guides/clientGuide.examples.ts#imports"
-import type { AuthProvider } from '@modelcontextprotocol/client';
+import type {
+    AuthProvider,
+    OAuthClientInformationContext,
+    OAuthClientInformationMixed,
+    OAuthClientMetadata,
+    OAuthClientProvider,
+    OAuthDiscoveryState,
+    OAuthTokens
+} from '@modelcontextprotocol/client';
 import {
     applyMiddlewares,
     Client,
@@ -21,6 +29,7 @@ import {
     createMiddleware,
     CrossAppAccessProvider,
     discoverAndRequestJwtAuthGrant,
+    IssuerMismatchError,
     PrivateKeyJwtProvider,
     ProtocolError,
     SdkError,
@@ -28,7 +37,8 @@ import {
     SSEClientTransport,
     StreamableHTTPClientTransport,
     TRACEPARENT_META_KEY,
-    TRACESTATE_META_KEY
+    TRACESTATE_META_KEY,
+    UnauthorizedError
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 ```
@@ -191,9 +201,114 @@ Server only implements `client_secret_basic`/`client_secret_post`, so there is n
 
 ### Full OAuth with user authorization
 
-For user-facing applications, implement the {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface to handle the full authorization code flow (redirects, code verifiers, token storage, dynamic client registration). The {@linkcode
-@modelcontextprotocol/client!client/client.Client#connect | connect()} call will throw {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} when authorization is needed — catch it, complete the browser flow, pass the redirect URL's query to {@linkcode
-@modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport#finishAuth | transport.finishAuth(url.searchParams)} (so the SDK can validate the RFC 9207 `iss` parameter), and reconnect.
+For user-facing applications, implement the {@linkcode @modelcontextprotocol/client!client/auth.OAuthClientProvider | OAuthClientProvider} interface to handle the full authorization code flow (redirects, code verifiers, token storage, dynamic client registration). Key persisted
+client credentials by the `ctx.issuer` passed to `clientInformation()` / `saveClientInformation()` so credentials registered with one authorization server are never sent to another:
+
+```ts source="../examples/guides/clientGuide.examples.ts#auth_oauthClientProvider"
+class MyOAuthProvider implements OAuthClientProvider {
+    // Key DCR-obtained credentials by issuer so a client_id registered with one
+    // authorization server is never returned for another (SEP-2352).
+    private creds = new Map<string, OAuthClientInformationMixed>();
+    private storedTokens?: OAuthTokens;
+    private verifier?: string;
+    private discovery?: OAuthDiscoveryState;
+    lastState?: string;
+
+    readonly redirectUrl = 'http://localhost:8090/callback';
+    readonly clientMetadata: OAuthClientMetadata = {
+        client_name: 'My MCP Client',
+        redirect_uris: ['http://localhost:8090/callback'],
+        // Loopback redirect → the SDK would default this to 'native'; set
+        // explicitly when the heuristic is wrong for your deployment (SEP-837).
+        application_type: 'native'
+    };
+
+    clientInformation(ctx?: OAuthClientInformationContext) {
+        return ctx ? this.creds.get(ctx.issuer) : undefined;
+    }
+    saveClientInformation(info: OAuthClientInformationMixed, ctx?: OAuthClientInformationContext) {
+        if (ctx) this.creds.set(ctx.issuer, info);
+    }
+    tokens() {
+        return this.storedTokens;
+    }
+    saveTokens(tokens: OAuthTokens) {
+        // In production, persist to OS keychain / secure storage — never plain files.
+        this.storedTokens = tokens;
+    }
+    // CSRF binding for the redirect — the SDK puts this on the authorize URL;
+    // your callback handler compares it before calling `finishAuth`.
+    state() {
+        this.lastState = crypto.randomUUID();
+        return this.lastState;
+    }
+    // Callback-leg AS-binding (SEP-2352): record what discovery resolved before
+    // the redirect so the SDK can verify the code is exchanged at the same AS.
+    saveDiscoveryState(state: OAuthDiscoveryState) {
+        this.discovery = state;
+    }
+    discoveryState() {
+        return this.discovery;
+    }
+    redirectToAuthorization(url: URL) {
+        onRedirect(url);
+    }
+    saveCodeVerifier(v: string) {
+        this.verifier = v;
+    }
+    codeVerifier() {
+        if (!this.verifier) throw new Error('no code verifier');
+        return this.verifier;
+    }
+}
+
+const provider = new MyOAuthProvider();
+const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), {
+    authProvider: provider
+});
+```
+
+The {@linkcode @modelcontextprotocol/client!client/client.Client#connect | connect()} call throws {@linkcode @modelcontextprotocol/client!client/auth.UnauthorizedError | UnauthorizedError} when authorization is needed — catch it, complete the browser flow, hand the callback query
+to {@linkcode @modelcontextprotocol/client!client/streamableHttp.StreamableHTTPClientTransport#finishAuth | transport.finishAuth()}, and reconnect. Passing the whole `URLSearchParams` lets the SDK extract `code` and validate the RFC 9207 `iss` parameter for you:
+
+```ts source="../examples/guides/clientGuide.examples.ts#auth_finishAuth"
+const client = new Client({ name: 'my-client', version: '1.0.0' });
+const transport = new StreamableHTTPClientTransport(url, { authProvider: provider });
+try {
+    await client.connect(transport);
+    return client;
+} catch (error) {
+    // With version negotiation, the connect-time 401 may surface wrapped as
+    // SdkError(EraNegotiationFailed) whose .data.cause is the UnauthorizedError.
+    const root = error instanceof UnauthorizedError ? error : (error as { data?: { cause?: unknown } }).data?.cause;
+    if (!(root instanceof UnauthorizedError)) throw error;
+    // The transport called redirectToAuthorization(); fall through to the browser callback.
+}
+
+const callbackUrl = await waitForCallback();
+const params = new URL(callbackUrl).searchParams;
+
+// The SDK does not validate `state` — compare it to the value your provider generated.
+if (params.get('state') !== provider.lastState) throw new Error('state mismatch');
+
+try {
+    // Preferred: hand over the whole query — the SDK extracts `code` and
+    // `iss`, validates `iss` (RFC 9207), and never surfaces callback-derived
+    // `error`/`error_description` text on mismatch.
+    await transport.finishAuth(params);
+} catch (error) {
+    if (error instanceof IssuerMismatchError) {
+        // Mix-up attack: do NOT render params.get('error_description') to the user.
+        throw new Error('Authorization failed: issuer mismatch');
+    }
+    throw error;
+}
+
+// Reconnect on a FRESH transport — a started transport cannot be restarted;
+// OAuth state (tokens, verifier, discovery) lives on the provider, not the transport.
+await client.connect(new StreamableHTTPClientTransport(url, { authProvider: provider }));
+return client;
+```
 
 For a complete working OAuth flow, see [`simpleOAuthClient.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleOAuthClient.ts) and
 [`simpleOAuthClientProvider.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/oauth/simpleOAuthClientProvider.ts).

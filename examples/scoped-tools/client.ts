@@ -34,6 +34,7 @@ runClient('scoped-tools', async () => {
     const clientMetadata: OAuthClientMetadata = {
         client_name: 'Scoped-Tools Step-Up Client',
         redirect_uris: [CALLBACK_URL],
+        application_type: 'native',
         grant_types: ['authorization_code'],
         response_types: ['code'],
         token_endpoint_auth_method: 'none',
