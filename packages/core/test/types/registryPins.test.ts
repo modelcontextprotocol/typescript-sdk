@@ -20,10 +20,19 @@
  */
 import { describe, expect, it } from 'vitest';
 
+// Post-relocation home (Q1 increment-2 step 1): the pinned contents are
+// unchanged — only the module housing the registries moved.
+import { getNotificationSchema, getRequestSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry.js';
+// The 2025 wire schemas are fully self-contained in the era's schema module:
+// every per-method schema the registry serves is a FROZEN 2025-11-25 copy so
+// the public/neutral layer can evolve (e.g. SEP-2106 widening) without
+// changing the 2025 wire-parse contract. The registry serves the FROZEN
+// copies, so the by-reference pins target this module.
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
     CancelledNotificationSchema,
+    CancelTaskRequestSchema,
     CompleteRequestSchema,
     CompleteResultSchema,
     CreateMessageRequestSchema,
@@ -34,6 +43,8 @@ import {
     EmptyResultSchema,
     GetPromptRequestSchema,
     GetPromptResultSchema,
+    GetTaskPayloadRequestSchema,
+    GetTaskRequestSchema,
     InitializedNotificationSchema,
     InitializeRequestSchema,
     InitializeResultSchema,
@@ -45,6 +56,7 @@ import {
     ListResourceTemplatesResultSchema,
     ListRootsRequestSchema,
     ListRootsResultSchema,
+    ListTasksRequestSchema,
     ListToolsRequestSchema,
     ListToolsResultSchema,
     LoggingMessageNotificationSchema,
@@ -58,21 +70,9 @@ import {
     RootsListChangedNotificationSchema,
     SetLevelRequestSchema,
     SubscribeRequestSchema,
+    TaskStatusNotificationSchema,
     ToolListChangedNotificationSchema,
     UnsubscribeRequestSchema
-} from '../../src/types/index.js';
-// Post-relocation home (Q1 increment-2 step 1): the pinned contents are
-// unchanged — only the module housing the registries moved.
-import { getNotificationSchema, getRequestSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry.js';
-// The 2025-only task wire vocabulary now lives in the era's schema module
-// (Q1 increment-2 step 4); the schema OBJECTS serving the registry are the
-// same — these pins still hold by reference.
-import {
-    CancelTaskRequestSchema,
-    GetTaskPayloadRequestSchema,
-    GetTaskRequestSchema,
-    ListTasksRequestSchema,
-    TaskStatusNotificationSchema
 } from '../../src/wire/rev2025-11-25/schemas.js';
 
 /** The exact 2025-era request-method → schema map (today's wire surface, verbatim). */

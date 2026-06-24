@@ -21,13 +21,25 @@
  * 2026-vocabulary code path in the 2025 codec, it exists on the decode side
  * only, and it deletes — never reads, maps, or emits — the foreign value.
  */
-import type { Result } from '../../types/types.js';
-import type { DecodedResult, LiftedWireMaterial, WireCodec } from '../codec.js';
+import type * as z from 'zod/v4';
+
+import type { CallToolResult, Result } from '../../types/types.js';
+import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec.js';
 import { getNotificationSchema, getRequestSchema, getResultSchema, hasNotificationMethod2025, hasRequestMethod2025 } from './registry.js';
+import { CreateMessageResultSchema, CreateMessageResultWithToolsSchema } from './schemas.js';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+/** Tri-state wrap of an optional Zod schema lookup (the function-only contract). */
+function triState<T>(schema: z.ZodType<T> | undefined, raw: unknown): ValidateOutcome<T> {
+    if (schema === undefined) return { ok: false, reason: 'not-in-era' };
+    const parsed = schema.safeParse(raw);
+    return parsed.success ? { ok: true, value: parsed.data } : { ok: false, reason: 'invalid', message: String(parsed.error) };
+}
+
+const NOT_IN_ERA: ValidateOutcome<never> = { ok: false, reason: 'not-in-era' };
 
 /** The wire→neutral trust boundary: a decoded 2025-era wire result is adopted as the neutral `Result` here (the module's single deliberate assertion). */
 function toNeutralResult(value: unknown): Result {
@@ -40,18 +52,31 @@ export const rev2025Codec: WireCodec = {
     hasRequestMethod: hasRequestMethod2025,
     hasNotificationMethod: hasNotificationMethod2025,
 
-    requestSchema: getRequestSchema,
-    resultSchema: getResultSchema,
-    notificationSchema: getNotificationSchema,
-
+    // ── Function-only validation surface ──
+    validateRequest: (method: string, raw: unknown) => triState(getRequestSchema(method), raw),
+    validateResult: (method: string, raw: unknown) => triState(getResultSchema(method), raw),
+    validateNotification: (method: string, raw: unknown) => triState(getNotificationSchema(method), raw),
     // No in-band input-request vocabulary on this era: elicitation, sampling
     // and roots are real wire request methods here (see the registry).
-    inputRequestSchema: (): undefined => {
-        return;
-    },
-    inputResponseSchema: (): undefined => {
-        return;
-    },
+    hasInputRequestMethod: (): boolean => false,
+    validateInputRequest: (): ValidateOutcome<never> => NOT_IN_ERA,
+    validateInputResponse: (): ValidateOutcome<never> => NOT_IN_ERA,
+
+    // Arrow literals can't carry overload signatures; the cast is sound (the
+    // boolean dispatches to exactly the schema each overload names).
+    samplingResultVariant: ((hasTools: boolean, raw: unknown) =>
+        triState(hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema, raw)) as WireCodec['samplingResultVariant'],
+
+    // The 2025 era carries no per-request `_meta` envelope — legacy wire
+    // bytes stay identical (the never-stamp guarantee, outbound-request half).
+    outboundEnvelope: (_material: OutboundEnvelopeMaterial): undefined => undefined,
+    validateEnvelopeMeta: (_meta: Readonly<Record<string, unknown>>): EnvelopeIssue[] => [],
+
+    // Identity stub in this commit. The SEP-2106 wrap (and the matching
+    // `encodeResult('tools/list')` projection) is wired by the commit that
+    // widens the public schemas — see `./legacyWrap.ts` for the helpers it
+    // consumes. Kept identity here so both halves activate together.
+    projectCallToolResult: (result: CallToolResult): CallToolResult => result,
 
     decodeResult(_method: string, raw: unknown): DecodedResult {
         // Strip-on-lift (Q1-SD3 ii): a foreign `resultType` on the 2025 leg is

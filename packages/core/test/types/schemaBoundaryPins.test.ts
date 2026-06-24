@@ -30,6 +30,7 @@ import {
 // 2026-era wire module (Q1 increment 2); its accept/reject line is unchanged.
 import {
     ClientCapabilities2026Schema,
+    ClientCapabilitiesSchema as Wire2026ClientCapabilitiesSchema,
     ListToolsResultSchema as Wire2026ListToolsResultSchema,
     RequestMetaEnvelopeSchema
 } from '../../src/wire/rev2026-07-28/schemas.js';
@@ -230,15 +231,18 @@ describe('RequestMetaEnvelopeSchema', () => {
     test('the 2026 client-capabilities fork tracks the shared shape exactly (minus tasks, by reference)', () => {
         // The fork lists its members explicitly (dts-rollup determinism — see
         // rev2026-07-28/schemas.ts); this oracle keeps the explicit list from
-        // drifting: same keys as the shared schema minus `tasks`, and every
-        // member is the SAME schema object, composed by reference.
+        // drifting: same keys as the neutral schema minus `tasks`, and every
+        // member is the SAME schema object as the wire module's frozen
+        // ClientCapabilitiesSchema, composed by reference. (The wire module is
+        // self-contained — it no longer composes from the neutral layer; the
+        // by-reference check is against the frozen local copy.)
         const sharedKeys = Object.keys(ClientCapabilitiesSchema.shape).filter(key => key !== 'tasks');
         expect(Object.keys(ClientCapabilities2026Schema.shape)).toEqual(sharedKeys);
         for (const key of sharedKeys) {
             expect(
                 (ClientCapabilities2026Schema.shape as Record<string, unknown>)[key],
-                `member '${key}' must be composed by reference from the shared shape`
-            ).toBe((ClientCapabilitiesSchema.shape as Record<string, unknown>)[key]);
+                `member '${key}' must be composed by reference from the frozen wire shape`
+            ).toBe((Wire2026ClientCapabilitiesSchema.shape as Record<string, unknown>)[key]);
         }
     });
 });

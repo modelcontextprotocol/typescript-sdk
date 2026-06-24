@@ -723,6 +723,10 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
             // Check if this is an initialization request
             // https://spec.modelcontextprotocol.io/specification/2025-03-26/basic/lifecycle/
+            // The schema-validated guard (types/guards.ts → types/schemas.ts —
+            // NOT a wire/rev* import) gates a transport state mutation: a
+            // malformed `initialize` must NOT set `_initialized = true` before
+            // the protocol layer rejects it.
             const isInitializationRequest = messages.some(element => isInitializeRequest(element));
             if (isInitializationRequest) {
                 // If it's a server with session management and the session ID is already set we should reject the request

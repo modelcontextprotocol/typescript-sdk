@@ -28,6 +28,7 @@ import { ProtocolError } from '../../src/types/errors.js';
 import type { Result } from '../../src/types/types.js';
 import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec.js';
 import { rev2026Codec } from '../../src/wire/rev2026-07-28/codec.js';
+import { DiscoverResultSchema as Wire2026DiscoverResultSchema } from '../../src/wire/rev2026-07-28/schemas.js';
 import {
     DEFAULT_CACHE_SCOPE,
     DEFAULT_CACHE_TTL_MS,
@@ -198,6 +199,62 @@ describe('the codec integration (encodeResult applies the contract in pinned ord
 
     test('a stray input_required from a non-multi-round-trip handler throws out of encodeResult (answered as an internal error upstream)', () => {
         expect(() => rev2026Codec.encodeResult('tools/list', asResult({ resultType: 'input_required' }))).toThrowError(ProtocolError);
+    });
+});
+
+describe('inbound receiver-side defaults (the parse-side leniency that lets the probe classifier route through the codec)', () => {
+    const minimalDiscover = {
+        supportedVersions: ['2026-07-28'],
+        capabilities: {},
+        serverInfo: { name: 's', version: '1' }
+    };
+
+    test("validateResult('server/discover', …) fills ttlMs/cacheScope when absent", () => {
+        const outcome = rev2026Codec.validateResult('server/discover', minimalDiscover);
+        expect(outcome.ok).toBe(true);
+        if (!outcome.ok) throw new Error('unreachable');
+        expect(outcome.value.ttlMs).toBe(0);
+        expect(outcome.value.cacheScope).toBe('private');
+    });
+
+    test("the wire-true DiscoverResultSchema fills resultType: 'complete' when absent", () => {
+        // Schema-level receiver leniency (spec schema.ts:208). `decodeResult`
+        // step 1 stays strict per Q1-SD3(i) — this defaults the wire-true Zod
+        // parse only.
+        const parsed = Wire2026DiscoverResultSchema.parse(minimalDiscover);
+        expect(parsed.resultType).toBe('complete');
+        expect(parsed.ttlMs).toBe(0);
+        expect(parsed.cacheScope).toBe('private');
+    });
+
+    test('present-but-invalid cache hints (negative ttlMs, unknown cacheScope) fall back to defaults per spec receiver leniency', () => {
+        // caching.mdx:58 — "if ttlMs is negative, clients SHOULD ignore it and
+        // treat it as 0". `.catch()` covers both absence and malformed values.
+        const outcome = rev2026Codec.validateResult('server/discover', {
+            ...minimalDiscover,
+            ttlMs: -1,
+            cacheScope: 'session'
+        });
+        expect(outcome.ok).toBe(true);
+        if (!outcome.ok) throw new Error('unreachable');
+        expect(outcome.value.ttlMs).toBe(0);
+        expect(outcome.value.cacheScope).toBe('private');
+        // The wire-true schema applies the same `.catch()` leniency.
+        const parsed = Wire2026DiscoverResultSchema.parse({ ...minimalDiscover, ttlMs: -1, cacheScope: 'session' });
+        expect(parsed.ttlMs).toBe(0);
+        expect(parsed.cacheScope).toBe('private');
+    });
+
+    test('explicit values still win over the defaults', () => {
+        const outcome = rev2026Codec.validateResult('server/discover', {
+            ...minimalDiscover,
+            ttlMs: 30_000,
+            cacheScope: 'public'
+        });
+        expect(outcome.ok).toBe(true);
+        if (!outcome.ok) throw new Error('unreachable');
+        expect(outcome.value.ttlMs).toBe(30_000);
+        expect(outcome.value.cacheScope).toBe('public');
     });
 });
 

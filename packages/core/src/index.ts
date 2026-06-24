@@ -19,16 +19,18 @@ export * from './shared/transport.js';
 export * from './shared/uriTemplate.js';
 export * from './types/index.js';
 export * from './util/inMemory.js';
-// Wire-codec internals: ONLY the version→codec resolver the sibling packages
-// need (era state itself lives on Protocol and is written through the
-// package-internal write hook exported by shared/protocol.ts). Nothing
-// per-revision (schemas, registries, codec objects) is ever exported — not
-// even on this internal barrel — so per-era vocabulary cannot leak toward the
-// public surface.
+// Wire-codec internals: the version→codec resolver the sibling packages need
+// (era state itself lives on Protocol and is written through the
+// package-internal write hook exported by shared/protocol.ts), plus the
+// internal modern-revision literal so sibling packages can name the era a
+// 2026-only seam runs in. NOTHING per-revision (registries, codec objects,
+// per-revision schemas) is ever exported on this barrel — sibling packages
+// reach the wire layer ONLY through `codecForVersion`'s function-only
+// `WireCodec` surface.
 export * from './util/schema.js';
 export * from './util/standardSchema.js';
 export * from './util/zodCompat.js';
-export { codecForVersion } from './wire/codec.js';
+export { codecForVersion, MODERN_WIRE_REVISION } from './wire/codec.js';
 
 // Validator providers are type-only here — import the runtime classes from the explicit
 // `@modelcontextprotocol/{core,client,server}/validators/{ajv,cf-worker}` subpaths to customise.
