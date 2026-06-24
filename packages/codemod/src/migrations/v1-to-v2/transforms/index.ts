@@ -1,6 +1,5 @@
 import type { Transform } from '../../../types.js';
 import { contextTypesTransform } from './contextTypes.js';
-import { expressMiddlewareTransform } from './expressMiddleware.js';
 import { handlerRegistrationTransform } from './handlerRegistration.js';
 import { importPathsTransform } from './importPaths.js';
 import { mcpServerApiTransform } from './mcpServerApi.js';
@@ -28,8 +27,8 @@ import { symbolRenamesTransform } from './symbolRenames.js';
 //    to .registerTool() etc. contextTypes handles both old and new names,
 //    but running mcpServerApi first ensures consistent argument structure.
 //
-// 5. handlerRegistration, schemaParamRemoval, and expressMiddleware are
-//    independent of each other but all depend on importPaths having run.
+// 5. handlerRegistration and schemaParamRemoval are independent of each
+//    other but both depend on importPaths having run.
 //
 // 6. specSchemaAccess runs after handlerRegistration and schemaParamRemoval:
 //    those transforms remove spec schema references they handle. specSchemaAccess
@@ -45,7 +44,6 @@ export const v1ToV2Transforms: Transform[] = [
     handlerRegistrationTransform,
     schemaParamRemovalTransform,
     specSchemaAccessTransform,
-    expressMiddlewareTransform,
     contextTypesTransform,
     mockPathsTransform
 ];

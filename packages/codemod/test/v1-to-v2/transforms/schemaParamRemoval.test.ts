@@ -63,6 +63,19 @@ describe('schema-param-removal transform', () => {
         expect(result).toContain('MyCustomSchema');
     });
 
+    it('does not remove a non-MCP schema from extra.sendRequest() for a custom method', () => {
+        const input = [
+            `import { MySchema } from './my-schemas';`,
+            `const result = await extra.sendRequest({ method: 'acme/x', params }, MySchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        // The schema arg and its import must be left alone — only MCP-imported
+        // *Schema identifiers are stripped (same guard as the request/callTool path).
+        expect(result).toContain("extra.sendRequest({ method: 'acme/x', params }, MySchema)");
+        expect(result).toContain(`import { MySchema } from './my-schemas';`);
+    });
+
     it('is idempotent', () => {
         const input = [
             `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,

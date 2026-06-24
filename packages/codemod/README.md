@@ -27,8 +27,9 @@ The mechanical rename mappings are the source of truth — see
   `extra.*` → `ctx.mcpReq.*` / `ctx.http?.*`
 
 Transforms in `src/migrations/v1-to-v2/transforms/` also rewrite `.tool()` →
-`registerTool` (with `z.object()` wrap), drop the result-schema argument from
-`client.request()` / `client.callTool()` for spec methods, rewrite spec-`*Schema`
+`registerTool` (wrapping `inputSchema` / `outputSchema` / `argsSchema` / `uriSchema`
+raw shapes with `z.object()`), drop the result-schema argument from `client.request()`
+/ `client.callTool()` for spec methods, rewrite spec-`*Schema`
 constant accesses (`.safeParse` → `isSpecType` / `specTypeSchemas`), rename
 `StreamableHTTPError` → `SdkHttpError` / `IsomorphicHeaders` → `Headers`, rewrite
 `SchemaInput<T>` → `StandardSchemaWithJSON.InferInput<T>`, route
@@ -55,10 +56,10 @@ grep -rn '@mcp-codemod-error' .
 
 CJS→ESM / Node 20 pre-flight, `new Headers()` / `.get()` access rewrites, OAuth
 error-class consolidation (`instanceof InvalidGrantError` → `OAuthError` +
-`OAuthErrorCode`), per-scenario `SdkErrorCode` branch selection, `outputSchema`
-`z.object()` wrap, `ctx.mcpReq.send()` schema-arg drop, and behavioral adaptation are
-manual — see the [migration guide](../../docs/migration/upgrade-to-v2.md) for what to
-do after the codemod runs.
+`OAuthErrorCode`), per-scenario `SdkErrorCode` branch selection, `ctx.mcpReq.send()`
+schema-arg drop, and behavioral adaptation are manual — see the
+[migration guide](../../docs/migration/upgrade-to-v2.md) for what to do after the
+codemod runs.
 
 The codemod handles the v1→v2 SDK surface upgrade only. Adopting the 2026-07-28
 protocol revision (`createMcpHandler`, multi-round-trip requests, `versionNegotiation`)
