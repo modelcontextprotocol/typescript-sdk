@@ -5,6 +5,7 @@ import type {
     CompleteRequestResourceTemplate,
     CompleteResult,
     GetPromptResult,
+    Icon,
     Implementation,
     ListPromptsResult,
     ListResourcesResult,
@@ -143,6 +144,7 @@ export class McpServer {
                                 ? (standardSchemaToJsonSchema(tool.inputSchema, 'input') as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
+                            icons: tool.icons,
                             execution: tool.execution,
                             _meta: tool._meta
                         };
@@ -457,6 +459,7 @@ export class McpServer {
                             title: prompt.title,
                             description: prompt.description,
                             arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
+                            icons: prompt.icons,
                             _meta: prompt._meta
                         };
                     })
@@ -627,6 +630,7 @@ export class McpServer {
         description: string | undefined,
         argsSchema: StandardSchemaWithJSON | undefined,
         callback: PromptCallback<StandardSchemaWithJSON | undefined>,
+        icons: Icon[] | undefined,
         _meta: Record<string, unknown> | undefined
     ): RegisteredPrompt {
         // Track current schema and callback for handler regeneration
@@ -637,6 +641,7 @@ export class McpServer {
             title,
             description,
             argsSchema,
+            icons,
             _meta,
             handler: createPromptHandler(name, argsSchema, callback),
             enabled: true,
@@ -650,6 +655,7 @@ export class McpServer {
                 }
                 if (updates.title !== undefined) registeredPrompt.title = updates.title;
                 if (updates.description !== undefined) registeredPrompt.description = updates.description;
+                if (updates.icons !== undefined) registeredPrompt.icons = updates.icons;
                 if (updates._meta !== undefined) registeredPrompt._meta = updates._meta;
 
                 // Track if we need to regenerate the handler
@@ -697,6 +703,7 @@ export class McpServer {
         inputSchema: StandardSchemaWithJSON | undefined,
         outputSchema: StandardSchemaWithJSON | undefined,
         annotations: ToolAnnotations | undefined,
+        icons: Icon[] | undefined,
         execution: ToolExecution | undefined,
         _meta: Record<string, unknown> | undefined,
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
@@ -713,6 +720,7 @@ export class McpServer {
             inputSchema,
             outputSchema,
             annotations,
+            icons,
             execution,
             _meta,
             handler: handler,
@@ -749,6 +757,7 @@ export class McpServer {
 
                 if (updates.outputSchema !== undefined) registeredTool.outputSchema = updates.outputSchema;
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
+                if (updates.icons !== undefined) registeredTool.icons = updates.icons;
                 if (updates._meta !== undefined) registeredTool._meta = updates._meta;
                 if (updates.enabled !== undefined) registeredTool.enabled = updates.enabled;
                 this.sendToolListChanged();
@@ -796,6 +805,7 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<InputArgs>
@@ -809,6 +819,7 @@ export class McpServer {
             inputSchema?: InputArgs;
             outputSchema?: OutputArgs;
             annotations?: ToolAnnotations;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: LegacyToolCallback<InputArgs>
@@ -821,6 +832,7 @@ export class McpServer {
             inputSchema?: StandardSchemaWithJSON | ZodRawShape;
             outputSchema?: StandardSchemaWithJSON | ZodRawShape;
             annotations?: ToolAnnotations;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: ToolCallback<StandardSchemaWithJSON | undefined> | LegacyToolCallback<ZodRawShape>
@@ -829,7 +841,7 @@ export class McpServer {
             throw new Error(`Tool ${name} is already registered`);
         }
 
-        const { title, description, inputSchema, outputSchema, annotations, _meta } = config;
+        const { title, description, inputSchema, outputSchema, annotations, icons, _meta } = config;
 
         return this._createRegisteredTool(
             name,
@@ -838,6 +850,7 @@ export class McpServer {
             normalizeRawShapeSchema(inputSchema),
             normalizeRawShapeSchema(outputSchema),
             annotations,
+            icons,
             undefined,
             _meta,
             cb as ToolCallback<StandardSchemaWithJSON | undefined>
@@ -876,6 +889,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<Args>
@@ -887,6 +901,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: Args;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: LegacyPromptCallback<Args>
@@ -897,6 +912,7 @@ export class McpServer {
             title?: string;
             description?: string;
             argsSchema?: StandardSchemaWithJSON | ZodRawShape;
+            icons?: Icon[];
             _meta?: Record<string, unknown>;
         },
         cb: PromptCallback<StandardSchemaWithJSON> | LegacyPromptCallback<ZodRawShape>
@@ -905,7 +921,7 @@ export class McpServer {
             throw new Error(`Prompt ${name} is already registered`);
         }
 
-        const { title, description, argsSchema, _meta } = config;
+        const { title, description, argsSchema, icons, _meta } = config;
 
         const registeredPrompt = this._createRegisteredPrompt(
             name,
@@ -913,6 +929,7 @@ export class McpServer {
             description,
             normalizeRawShapeSchema(argsSchema),
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
+            icons,
             _meta
         );
 
@@ -1091,6 +1108,7 @@ export type RegisteredTool = {
     inputSchema?: StandardSchemaWithJSON;
     outputSchema?: StandardSchemaWithJSON;
     annotations?: ToolAnnotations;
+    icons?: Icon[];
     execution?: ToolExecution;
     _meta?: Record<string, unknown>;
     handler: AnyToolHandler<StandardSchemaWithJSON | undefined>;
@@ -1106,6 +1124,7 @@ export type RegisteredTool = {
         paramsSchema?: StandardSchemaWithJSON;
         outputSchema?: StandardSchemaWithJSON;
         annotations?: ToolAnnotations;
+        icons?: Icon[];
         _meta?: Record<string, unknown>;
         callback?: ToolCallback<StandardSchemaWithJSON>;
         enabled?: boolean;
@@ -1215,6 +1234,7 @@ export type RegisteredPrompt = {
     title?: string;
     description?: string;
     argsSchema?: StandardSchemaWithJSON;
+    icons?: Icon[];
     _meta?: Record<string, unknown>;
     /** @hidden */
     handler: PromptHandler;
@@ -1226,6 +1246,7 @@ export type RegisteredPrompt = {
         title?: string;
         description?: string;
         argsSchema?: Args;
+        icons?: Icon[];
         _meta?: Record<string, unknown>;
         callback?: PromptCallback<Args>;
         enabled?: boolean;

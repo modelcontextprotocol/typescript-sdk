@@ -43,6 +43,8 @@ const getServer = () => {
         {
             title: 'Greeting Tool', // Display name for UI
             description: 'A simple greeting tool',
+            // Optional icons a client can render in its UI for this tool.
+            icons: [{ src: './greet.svg', sizes: ['48x48'], mimeType: 'image/svg+xml' }],
             inputSchema: z.object({
                 name: z.string().describe('Name to greet')
             })
