@@ -1564,9 +1564,28 @@ The inline options object on `auth()` is now the named `AuthOptions` type, expor
 
 New TypeScript-only aliases `StoredOAuthTokens` and `StoredOAuthClientInformation` add an optional `issuer?: string` field on top of the wire types and are used as the parameter/return types of `tokens()` / `saveTokens()` and `clientInformation()` / `saveClientInformation()`. The `issuer` field is **not** part of the RFC 6749/7591 wire responses and is intentionally absent from `OAuthTokensSchema` / `OAuthClientInformationSchema` so an authorization server cannot populate it; once the SEP-2352 behavior change lands the SDK will stamp it onto credentials before calling `saveTokens` / `saveClientInformation`. Provider implementations should round-trip it unchanged. The field is currently inert.
 
+### Authorization-server mix-up defense (RFC 9207 / RFC 8414 §3.3)
+
+**Action required for hosts handling OAuth callbacks.**
+
+`transport.finishAuth()` and `auth()` now validate the `iss` parameter from the authorization callback against the issuer recorded from the authorization server's validated metadata (RFC 9207). A **mismatched** `iss` is rejected with `IssuerMismatchError` before the code is exchanged regardless of what the AS advertised; a **missing** `iss` is rejected only when the AS advertised `authorization_response_iss_parameter_supported: true`.
+
+**You must** pass the callback URL's query parameters to the SDK so it can read `iss` alongside `code`:
+
+```typescript
+const url = new URL(callbackUrl);
+await transport.finishAuth(url.searchParams); // SDK reads `code` + `iss`
+```
+
+`transport.finishAuth(code, iss)` remains supported for back-compat. If you bypass `auth()` and call `exchangeAuthorization()` / `fetchToken()` directly, pass `iss` in the options bag — the same validation runs there.
+
+**You must not** display or act on `error`, `error_description`, or `error_uri` from the callback URL when `IssuerMismatchError` is thrown — those values are attacker-controlled in a mix-up attack.
+
+`discoverAuthorizationServerMetadata()` now rejects metadata whose `issuer` does not exactly match the URL it was fetched for (RFC 8414 §3.3). If you connect to a known-misconfigured AS, set `skipIssuerMetadataValidation: true` on `StreamableHTTPClientTransportOptions` / `SSEClientTransportOptions` (or on `AuthOptions` if you call `auth()` directly, or `skipIssuerValidation: true` on the low-level helper) — **this weakens the mix-up defense and should be treated as a temporary workaround.** It suppresses only the metadata-echo check; the callback-`iss` validation always runs (and degrades to a no-op only when `iss` is absent and the AS does not advertise support).
+
 ### Conformance obligations for `OAuthClientProvider` implementers
 
-<!-- Filled in as the SEP-2468/2352/2350/837/2207 behavior PRs land. -->
+<!-- Filled in as the SEP-2352/2350/837/2207 behavior PRs land. -->
 
 ## Using an LLM to migrate your code
 

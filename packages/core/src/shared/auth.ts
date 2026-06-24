@@ -66,7 +66,9 @@ export const OAuthMetadataSchema = z.looseObject({
     introspection_endpoint_auth_methods_supported: z.array(z.string()).optional(),
     introspection_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
     code_challenge_methods_supported: z.array(z.string()).optional(),
-    client_id_metadata_document_supported: z.boolean().optional()
+    client_id_metadata_document_supported: z.boolean().optional(),
+    // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod .catch(), not a Promise chain
+    authorization_response_iss_parameter_supported: z.boolean().optional().catch(undefined)
 });
 
 /**
@@ -110,7 +112,9 @@ export const OpenIdProviderMetadataSchema = z.looseObject({
     require_request_uri_registration: z.boolean().optional(),
     op_policy_uri: SafeUrlSchema.optional(),
     op_tos_uri: SafeUrlSchema.optional(),
-    client_id_metadata_document_supported: z.boolean().optional()
+    client_id_metadata_document_supported: z.boolean().optional(),
+    // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod .catch(), not a Promise chain
+    authorization_response_iss_parameter_supported: z.boolean().optional().catch(undefined)
 });
 
 /**

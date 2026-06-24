@@ -425,7 +425,19 @@ registerScenarios(
         'auth/token-endpoint-auth-post',
         'auth/token-endpoint-auth-none',
         'auth/offline-access-scope',
-        'auth/offline-access-not-supported'
+        'auth/offline-access-not-supported',
+        // SEP-2468 (RFC 9207 iss / RFC 8414 §3.3 issuer-echo). The well-behaved
+        // client captures `iss` from the authorization redirect and passes it to
+        // `auth()`; the SDK validates internally. Positive scenarios proceed to
+        // the token endpoint; negative scenarios throw `IssuerMismatchError` and
+        // the process exits with an error (the referee sets `allowClientError`).
+        'auth/iss-supported',
+        'auth/iss-not-advertised',
+        'auth/iss-supported-missing',
+        'auth/iss-wrong-issuer',
+        'auth/iss-unexpected',
+        'auth/iss-normalized',
+        'auth/metadata-issuer-mismatch'
     ],
     runAuthClient
 );
