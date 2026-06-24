@@ -7,6 +7,7 @@ const V2_PACKAGES = new Set([
     '@modelcontextprotocol/client',
     '@modelcontextprotocol/server',
     '@modelcontextprotocol/core',
+    '@modelcontextprotocol/sdk-shared',
     '@modelcontextprotocol/node',
     '@modelcontextprotocol/express'
 ]);

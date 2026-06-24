@@ -61,7 +61,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 | v1 import path                                    | v2 package                                                                                                                                                                                           |
 | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk/types.js`              | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
+| `@modelcontextprotocol/sdk/types.js`              | Types / error classes / enums / guards → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; Zod `*Schema` constants → `@modelcontextprotocol/sdk-shared`                                |
 | `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
 | `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
 | `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
@@ -98,8 +98,7 @@ Notes:
 | `StreamableHTTPError`                    | REMOVED (use `SdkHttpError` with `SdkErrorCode.ClientHttp*`)                                                    |
 | `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                         |
 
-All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are no longer part of the public API — they are internal to the SDK. For runtime validation, use
-`isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or `specTypeSchemas.TypeName` for the `StandardSchemaV1Sync` validator object. The keys are typed as `SpecTypeName`, a literal union of all spec type names.
+All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`. The **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) move to `@modelcontextprotocol/sdk-shared`; `<Name>Schema.parse(value)` / `.safeParse(value)` keep working unchanged (the codemod rewrites the import path). To validate **without** depending on Zod, use `isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or `specTypeSchemas.TypeName` (a `StandardSchemaV1Sync` validator) from `@modelcontextprotocol/client` / `@modelcontextprotocol/server`; the keys are typed as `SpecTypeName`, a literal union of all spec type names.
 
 ### Error class changes
 

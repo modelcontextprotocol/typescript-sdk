@@ -4,6 +4,13 @@ export interface ImportMapping {
     renamedSymbols?: Record<string, string>;
     /** Route specific symbols to a different target package than `target`. */
     symbolTargetOverrides?: Record<string, string>;
+    /**
+     * Route every imported symbol whose name ends in `Schema` to this package, instead of `target`.
+     * Used for `sdk/types.js`: the spec Zod schemas now live in `@modelcontextprotocol/sdk-shared`
+     * (so `<Name>Schema.parse(...)` keeps working), while the spec types/constants resolve by context.
+     * `symbolTargetOverrides` (exact-name) takes precedence over this suffix rule.
+     */
+    schemaSymbolTarget?: string;
     removalMessage?: string;
     /** No entries currently set this; scaffolding for when a v1 symbol has no v2 equivalent yet. */
     isV2Gap?: boolean;
@@ -119,6 +126,7 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     '@modelcontextprotocol/sdk/types.js': {
         target: 'RESOLVE_BY_CONTEXT',
         status: 'moved',
+        schemaSymbolTarget: '@modelcontextprotocol/sdk-shared',
         renamedSymbols: {
             ResourceTemplate: 'ResourceTemplateType'
         }

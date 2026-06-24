@@ -3,10 +3,12 @@ import fg from 'fast-glob';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-// Find all package.json files under packages/ and build package list
+// Find all package.json files under packages/ and build package list.
+// Exclude node_modules and the codemod batch-test's cloned real-world repos, which are not part
+// of this SDK's public API surface (and would otherwise fail docs:check locally when present).
 const packageJsonPaths = await fg('packages/**/package.json', {
     cwd: process.cwd(),
-    ignore: ['**/node_modules/**']
+    ignore: ['**/node_modules/**', '**/batch-test/**']
 });
 const packages = packageJsonPaths.map(p => {
     const rootDir = join(process.cwd(), p.replace('/package.json', ''));
@@ -45,6 +47,14 @@ export default {
         readme: false
     },
     customJs: 'docs/v2-banner.js',
+    // The spec-generated schema/type JSDoc uses `{@linkcode <SpecType> | method}` cross-references.
+    // With the data model split across packages (Zod schemas in @modelcontextprotocol/sdk-shared,
+    // their types in @modelcontextprotocol/server / -client), typedoc's per-package link resolution
+    // can't resolve those bare cross-package references. Disable only the invalid-link check; every
+    // other validation (notExported, etc.) stays on under treatWarningsAsErrors.
+    validation: {
+        invalidLink: false
+    },
     treatWarningsAsErrors: true,
     out: 'tmp/docs/',
     externalSymbolLinkMappings: {

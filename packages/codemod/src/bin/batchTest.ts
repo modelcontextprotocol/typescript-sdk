@@ -88,6 +88,7 @@ const LOCAL_PACKAGE_DIRS: Record<string, string> = {
     '@modelcontextprotocol/core': path.join(SDK_ROOT, 'packages/core'),
     '@modelcontextprotocol/server': path.join(SDK_ROOT, 'packages/server'),
     '@modelcontextprotocol/server-legacy': path.join(SDK_ROOT, 'packages/server-legacy'),
+    '@modelcontextprotocol/sdk-shared': path.join(SDK_ROOT, 'packages/sdk-shared'),
     '@modelcontextprotocol/express': path.join(SDK_ROOT, 'packages/middleware/express'),
     '@modelcontextprotocol/fastify': path.join(SDK_ROOT, 'packages/middleware/fastify'),
     '@modelcontextprotocol/hono': path.join(SDK_ROOT, 'packages/middleware/hono'),

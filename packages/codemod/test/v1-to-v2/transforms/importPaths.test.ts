@@ -74,25 +74,100 @@ describe('import-paths transform', () => {
         expect(result.diagnostics[0]!.message).toContain('SSEServerTransport is deprecated');
     });
 
-    it('resolves sdk/types.js based on sibling client imports', () => {
+    it('resolves a sdk/types.js TYPE import based on sibling client imports', () => {
         const input = [
             `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
-            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
             ''
         ].join('\n');
         const result = applyTransform(input, { projectType: 'both' });
         expect(result).toContain(`from "@modelcontextprotocol/client"`);
-        expect(result).toContain('CallToolResultSchema');
+        expect(result).toContain('CallToolResult');
+        expect(result).not.toContain('@modelcontextprotocol/sdk-shared');
     });
 
-    it('resolves sdk/types.js based on sibling server imports', () => {
+    it('resolves a sdk/types.js TYPE import based on sibling server imports', () => {
         const input = [
             `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
-            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
             ''
         ].join('\n');
         const result = applyTransform(input, { projectType: 'both' });
         expect(result).toContain(`from "@modelcontextprotocol/server"`);
+        expect(result).toContain('CallToolResult');
+    });
+
+    it('routes *Schema imports from sdk/types.js to @modelcontextprotocol/sdk-shared', () => {
+        const input = `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain('CallToolResultSchema');
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('routes schemas to sdk-shared regardless of client/server sibling context', () => {
+        // The only sibling is a client import, but the schema must still go to sdk-shared.
+        const input = [
+            `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'both' });
+        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain('ListToolsResultSchema');
+    });
+
+    it('splits a mixed type + schema import: type resolves by context, schema to sdk-shared', () => {
+        const input = [
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `import { CallToolResult, CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'both' });
+        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain(`from "@modelcontextprotocol/server"`);
+        expect(result).toContain('CallToolResult');
+        expect(result).toContain('CallToolResultSchema');
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('does not rewrite schema .parse() usages (migrates as an import-path swap)', () => {
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const r = CallToolResultSchema.parse(value);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('CallToolResultSchema.parse(value)');
+        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+    });
+
+    it('flags *Schema accesses through a namespace import of sdk/types.js (cannot be split)', () => {
+        const input = [
+            `import * as types from '@modelcontextprotocol/sdk/types.js';`,
+            `const r = types.CallToolResultSchema.parse(value);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const messages = result.diagnostics.map(d => d.message).join('\n');
+        // The namespace can't be split, so the schema can't be auto-routed — but the user must be told.
+        expect(messages).toContain('@modelcontextprotocol/sdk-shared');
+        expect(messages).toContain('CallToolResultSchema');
+        // The namespace import itself still moves to the context package (its types live there).
+        // (setModuleSpecifier preserves the original quote style, so match quote-agnostically.)
+        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/server');
+    });
+
+    it('does not flag a namespace import of sdk/types.js that only accesses types', () => {
+        const input = [`import * as types from '@modelcontextprotocol/sdk/types.js';`, `const t: types.CallToolResult = value;`, ''].join(
+            '\n'
+        );
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('@modelcontextprotocol/sdk-shared');
     });
 
     it('resolves extensionless sdk/types (no .js suffix) the same as sdk/types.js', () => {

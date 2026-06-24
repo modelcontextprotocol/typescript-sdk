@@ -1,16 +1,16 @@
 [
     {
-        "repo": "upstash/context7",
-        "ref": "master",
+        "repo": "firebase/firebase-tools",
+        "ref": "main",
         "packages": [
             {
-                "dir": "packages/mcp",
-                "sourceDir": "src",
+                "dir": ".",
+                "sourceDir": "src/mcp",
                 "checks": {
-                    "typecheck": "pnpm run typecheck",
-                    "build": "pnpm run build",
-                    "test": "pnpm run test",
-                    "lint": "pnpm run lint"
+                    "typecheck": "npx tsc -p tsconfig.compile.json",
+                    "build": null,
+                    "test": null,
+                    "lint": null
                 }
             }
         ]

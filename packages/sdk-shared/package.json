@@ -1,7 +1,7 @@
 {
-    "name": "@modelcontextprotocol/codemod",
+    "name": "@modelcontextprotocol/sdk-shared",
     "version": "2.0.0-alpha.0",
-    "description": "Codemod to migrate MCP TypeScript SDK code from v1 to v2",
+    "description": "Model Context Protocol implementation for TypeScript - shared spec Zod schemas",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
     "homepage": "https://modelcontextprotocol.io",
@@ -17,52 +17,45 @@
     "keywords": [
         "modelcontextprotocol",
         "mcp",
-        "codemod",
-        "migration"
+        "schemas",
+        "zod"
     ],
-    "bin": {
-        "mcp-codemod": "./dist/cli.mjs"
-    },
     "exports": {
         ".": {
-            "types": "./dist/index.d.mts",
-            "import": "./dist/index.mjs"
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
         }
     },
+    "types": "./dist/index.d.ts",
     "files": [
         "dist"
     ],
     "scripts": {
         "typecheck": "tsgo -p tsconfig.json --noEmit",
-        "generate:versions": "tsx scripts/generateVersions.ts",
-        "prebuild": "pnpm run generate:versions",
         "build": "tsdown",
         "build:watch": "tsdown --watch",
         "prepack": "pnpm run build",
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "pnpm run typecheck && pnpm run lint",
-        "batch-test": "tsx src/bin/batchTest.ts",
-        "batch-test:clean": "rm -rf batch-test/repos batch-test/results batch-test/tarballs",
         "test": "vitest run",
         "test:watch": "vitest"
     },
     "dependencies": {
-        "commander": "^13.0.0",
-        "ts-morph": "^28.0.0"
+        "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
+        "@eslint/js": "catalog:devTools",
+        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
-        "@modelcontextprotocol/eslint-config": "workspace:^",
-        "@eslint/js": "catalog:devTools",
         "@typescript/native-preview": "catalog:devTools",
         "eslint": "catalog:devTools",
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
         "tsdown": "catalog:devTools",
-        "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"

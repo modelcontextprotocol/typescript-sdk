@@ -516,29 +516,39 @@ The return type is now inferred from the method name via `ResultTypeMap`. For ex
 
 For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
-If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), use `isSpecType` or `specTypeSchemas`:
+If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), import the schema from `@modelcontextprotocol/sdk-shared`. Your `.parse()` / `.safeParse()` calls keep working unchanged — only the import path changes:
 
 ```typescript
-// v1: runtime validation with Zod schema
+// v1
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 if (CallToolResultSchema.safeParse(value).success) {
     /* ... */
 }
 
-// v2: keyed type predicate
+// v2 — same code, new import path
+import { CallToolResultSchema } from '@modelcontextprotocol/sdk-shared';
+if (CallToolResultSchema.safeParse(value).success) {
+    /* ... */
+}
+```
+
+`@modelcontextprotocol/sdk-shared` is the canonical home for the spec Zod schemas. `@modelcontextprotocol/server` and `@modelcontextprotocol/client` keep a Zod-free public surface, so the raw `*Schema` constants live in `sdk-shared`. (The codemod rewrites these imports for you.)
+
+If you'd rather **not** depend on Zod, `@modelcontextprotocol/client` and `@modelcontextprotocol/server` also expose Zod-free validators keyed by `SpecTypeName` — a literal union of every named spec type, so you get autocomplete and a compile error on typos:
+
+```typescript
 import { isSpecType } from '@modelcontextprotocol/client';
 if (isSpecType.CallToolResult(value)) {
     /* ... */
 }
 const blocks = mixed.filter(isSpecType.ContentBlock);
 
-// v2: or get the StandardSchemaV1Sync validator object directly
+// or the StandardSchemaV1Sync validator object directly
 import { specTypeSchemas } from '@modelcontextprotocol/client';
 const result = specTypeSchemas.CallToolResult['~standard'].validate(value);
 ```
 
-`isSpecType` and `specTypeSchemas` are keyed by `SpecTypeName` — a literal union of every named type in the MCP spec — so you get autocomplete and a compile error on typos. `specTypeSchemas.X` is a `StandardSchemaV1Sync<In, Out>` — `validate()` returns the result synchronously,
-so you can access `.issues` / `.value` without `await`. It composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
+`specTypeSchemas.X` is a `StandardSchemaV1Sync<In, Out>` — `validate()` returns the result synchronously, so you can access `.issues` / `.value` without `await`. It composes with any Standard-Schema-aware library. The pre-existing `isCallToolResult(value)` guard still works.
 
 ### Client list methods return empty results for missing capabilities
 
@@ -584,7 +594,7 @@ The following deprecated type aliases have been removed from `@modelcontextproto
 | `IsomorphicHeaders`                      | Use Web Standard `Headers`                                                                        |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
-All other types and schemas exported from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`.
+All other symbols exported from `@modelcontextprotocol/sdk/types.js` retain their original names. Import the **types**, error classes, enums, and guards from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`, and the **Zod schemas** (the `*Schema` constants) from `@modelcontextprotocol/sdk-shared`.
 
 > **Note on `isJSONRPCResponse`:** v1's `isJSONRPCResponse` was a deprecated alias that only checked for _result_ responses (it was equivalent to `isJSONRPCResultResponse`). v2 removes the deprecated alias and introduces a **new** `isJSONRPCResponse` with corrected semantics — it
 > checks for _any_ response (either result or error). If you are migrating v1 code that used `isJSONRPCResponse`, rename it to `isJSONRPCResultResponse` to preserve the original behavior. Use the new `isJSONRPCResponse` only when you want to match both result and error responses.

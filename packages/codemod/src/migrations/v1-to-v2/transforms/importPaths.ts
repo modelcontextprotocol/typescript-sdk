@@ -1,10 +1,12 @@
 import type { SourceFile } from 'ts-morph';
+import { SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { renameAllReferences } from '../../../utils/astUtils.js';
 import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics.js';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
+import type { ImportMapping } from '../mappings/importMap.js';
 import { isAuthImport, lookupImportMapping } from '../mappings/importMap.js';
 import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
 
@@ -16,6 +18,21 @@ const REEXPORT_WARNINGS: Record<string, string> = {
     StreamableHTTPError:
         'Re-exported StreamableHTTPError was renamed to SdkHttpError in v2 with a different constructor. Update this re-export manually.'
 };
+
+/**
+ * The per-symbol target package for a symbol imported/re-exported from `mapping`'s module, or
+ * `undefined` when the symbol should use the mapping's resolved `target`. Exact-name
+ * `symbolTargetOverrides` win over the `schemaSymbolTarget` (`*Schema`) suffix rule.
+ */
+function symbolTargetOverride(name: string, mapping: ImportMapping): string | undefined {
+    if (mapping.symbolTargetOverrides && name in mapping.symbolTargetOverrides) {
+        return mapping.symbolTargetOverrides[name];
+    }
+    if (mapping.schemaSymbolTarget && name.endsWith('Schema')) {
+        return mapping.schemaSymbolTarget;
+    }
+    return undefined;
+}
 
 export const importPathsTransform: Transform = {
     name: 'Import path rewrites',
@@ -119,17 +136,42 @@ export const importPathsTransform: Transform = {
             const hasAlias = namedImports.some(n => n.getAliasNode() !== undefined);
             if (defaultImport || namespaceImport || hasAlias) {
                 let effectiveTarget = targetPackage;
-                if (mapping.symbolTargetOverrides && !namespaceImport && !defaultImport) {
-                    const allOverridden = namedImports.length > 0 && namedImports.every(n => n.getName() in mapping.symbolTargetOverrides!);
-                    if (allOverridden) {
-                        effectiveTarget = mapping.symbolTargetOverrides[namedImports[0]!.getName()]!;
-                    } else if (namedImports.some(n => n.getName() in mapping.symbolTargetOverrides!)) {
+                if ((mapping.symbolTargetOverrides || mapping.schemaSymbolTarget) && !namespaceImport && !defaultImport) {
+                    const overrides = namedImports.map(n => symbolTargetOverride(n.getName(), mapping));
+                    const uniqueOverrides = new Set(overrides.filter((t): t is string => t !== undefined));
+                    const allOverridden = namedImports.length > 0 && overrides.every(t => t !== undefined);
+                    if (allOverridden && uniqueOverrides.size === 1) {
+                        effectiveTarget = [...uniqueOverrides][0]!;
+                    } else if (uniqueOverrides.size > 0) {
                         diagnostics.push(
                             actionRequired(
                                 filePath,
                                 imp,
                                 `Aliased import from ${specifier} mixes symbols that belong to different v2 packages. ` +
                                     `Split the import manually so each symbol targets the correct package.`
+                            )
+                        );
+                    }
+                }
+                // A namespace import (`import * as ns from '…/types.js'`) cannot be split per-symbol, so
+                // any `ns.<Name>Schema` accesses would silently resolve against the wrong package. Flag them.
+                if (namespaceImport && mapping.schemaSymbolTarget) {
+                    const nsName = namespaceImport.getText();
+                    const schemaNames = [
+                        ...new Set(
+                            sourceFile
+                                .getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)
+                                .filter(pa => pa.getExpression().getText() === nsName && pa.getName().endsWith('Schema'))
+                                .map(pa => pa.getName())
+                        )
+                    ];
+                    if (schemaNames.length > 0) {
+                        diagnostics.push(
+                            actionRequired(
+                                filePath,
+                                imp,
+                                `Namespace import of ${specifier} is used to access Zod schema(s) (${schemaNames.join(', ')}) that moved to ${mapping.schemaSymbolTarget}. ` +
+                                    `Import them with a named import (e.g. \`import { ${schemaNames[0]} } from '${mapping.schemaSymbolTarget}'\`) and update the qualified usages.`
                             )
                         );
                     }
@@ -168,7 +210,7 @@ export const importPathsTransform: Transform = {
                 const name = n.getName();
                 const resolvedName = mapping.renamedSymbols?.[name] ?? name;
                 const specifierTypeOnly = typeOnly || n.isTypeOnly();
-                const symbolTarget = mapping.symbolTargetOverrides?.[name] ?? targetPackage;
+                const symbolTarget = symbolTargetOverride(name, mapping) ?? targetPackage;
                 usedPackages.add(symbolTarget);
                 addPending(symbolTarget, [resolvedName], specifierTypeOnly);
             }
@@ -262,12 +304,14 @@ function rewriteExportDeclarations(
             }
         }
 
-        if (mapping.symbolTargetOverrides) {
+        if (mapping.symbolTargetOverrides || mapping.schemaSymbolTarget) {
             const namedExports = exp.getNamedExports();
-            const allOverridden = namedExports.length > 0 && namedExports.every(s => s.getName() in mapping.symbolTargetOverrides!);
-            if (allOverridden) {
-                targetPackage = mapping.symbolTargetOverrides[namedExports[0]!.getName()]!;
-            } else if (namedExports.some(s => s.getName() in mapping.symbolTargetOverrides!)) {
+            const overrides = namedExports.map(s => symbolTargetOverride(s.getName(), mapping));
+            const uniqueOverrides = new Set(overrides.filter((t): t is string => t !== undefined));
+            const allOverridden = namedExports.length > 0 && overrides.every(t => t !== undefined);
+            if (allOverridden && uniqueOverrides.size === 1) {
+                targetPackage = [...uniqueOverrides][0]!;
+            } else if (uniqueOverrides.size > 0) {
                 diagnostics.push(
                     actionRequired(
                         filePath,

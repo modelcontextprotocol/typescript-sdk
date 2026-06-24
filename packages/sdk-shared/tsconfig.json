@@ -1,0 +1,11 @@
+{
+    "extends": "@modelcontextprotocol/tsconfig",
+    "include": ["./"],
+    "exclude": ["node_modules", "dist"],
+    "compilerOptions": {
+        "paths": {
+            "*": ["./*"],
+            "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/types/schemas.ts"]
+        }
+    }
+}
