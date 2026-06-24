@@ -1135,7 +1135,9 @@ export type RegisteredTool = {
 /**
  * Creates an executor that invokes the handler with the appropriate arguments.
  * When `inputSchema` is defined, the handler is called with `(args, ctx)`.
- * When `inputSchema` is undefined, the handler is called with just `(ctx)`.
+ * When `inputSchema` is undefined, single-argument callbacks are called with `(ctx)`.
+ * Two-argument callbacks are called with `({}, ctx)` so handlers that need both
+ * values receive the context in the correct argument slot.
  */
 function createToolExecutor(
     inputSchema: StandardSchemaWithJSON | undefined,
@@ -1146,7 +1148,12 @@ function createToolExecutor(
         return async (args, ctx) => callback(args, ctx);
     }
 
-    // When no inputSchema, call with just ctx (the handler expects (ctx) signature)
+    if (handler.length >= 2) {
+        const callback = handler as ToolCallbackInternal;
+        return async (_args, ctx) => callback({}, ctx);
+    }
+
+    // When no inputSchema, one-argument handlers expect just ctx.
     const callback = handler as (ctx: ServerContext) => CallToolResult | Promise<CallToolResult>;
     return async (_args, ctx) => callback(ctx);
 }

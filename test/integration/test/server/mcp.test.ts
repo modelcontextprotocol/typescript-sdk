@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client';
-import type { Notification, TextContent } from '@modelcontextprotocol/core';
+import type { CallToolResult, Notification, ServerContext, TextContent } from '@modelcontextprotocol/core';
 import { getDisplayName, InMemoryTransport, ProtocolErrorCode, UriTemplate, UrlElicitationRequiredError } from '@modelcontextprotocol/core';
 import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
@@ -6280,6 +6280,43 @@ describe('Zod v4', () => {
                 ])
             );
         });
+    });
+
+    test('should pass empty args before context for no-schema two-argument tool callbacks', async () => {
+        const server = new McpServer({
+            name: 'test',
+            version: '1.0.0'
+        });
+
+        const client = new Client({
+            name: 'test-client',
+            version: '1.0.0'
+        });
+
+        let receivedArgs: unknown;
+        let receivedRequestId: unknown;
+
+        const twoArgumentHandler = ((args: unknown, ctx: ServerContext): CallToolResult => {
+            receivedArgs = args;
+            receivedRequestId = ctx.mcpReq.id;
+            return {
+                content: [{ type: 'text' as const, text: 'Success' }]
+            };
+        }) as unknown as (ctx: ServerContext) => CallToolResult;
+
+        server.registerTool('no-schema-two-arg', {}, twoArgumentHandler);
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+
+        const result = await client.callTool({
+            name: 'no-schema-two-arg'
+        });
+
+        expect(result.content).toEqual([{ type: 'text', text: 'Success' }]);
+        expect(receivedArgs).toEqual({});
+        expect(receivedRequestId).toBeDefined();
     });
 
     // SEP-2663: `taskSupport: 'required'` enforcement and the automatic-polling wrapper
