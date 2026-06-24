@@ -214,8 +214,9 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
         // cases). Those pre-SEP schemas were valid 2025 wire data via the unconditional stamp,
         // so the stamp is kept where it is provably safe. A typeless root that is NOT provably
         // object-shaped (e.g. `z.union([z.string(), z.number()])` → `{anyOf:[…]}`) is returned
-        // as-is — stamping there would be self-contradictory. The legacy projection drop gates
-        // anything that does not end up `type:'object'`.
+        // as-is — stamping there would be self-contradictory. Anything that does not end up
+        // `type:'object'` is wrapped as `{type:'object', properties:{result:…}}` by the 2025
+        // codec's legacy projection (see `wire/rev2025-11-25/legacyWrap.ts`).
         if (result.type !== undefined) return result;
         return isProvablyObjectShapedRoot(result) ? { type: 'object', ...result } : result;
     }
