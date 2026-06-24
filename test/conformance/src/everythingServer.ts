@@ -55,7 +55,9 @@ const eventStoreData = new Map<string, { eventId: string; message: unknown; stre
 function createEventStore(): EventStore {
     return {
         async storeEvent(streamId: StreamId, message: unknown): Promise<EventId> {
-            const eventId = `${streamId}::${Date.now()}_${randomUUID()}`;
+            // Fixed-width timestamp so the lexicographic sort in
+            // replayEventsAfter is robustly chronological.
+            const eventId = `${streamId}::${String(Date.now()).padStart(15, '0')}_${randomUUID()}`;
             eventStoreData.set(eventId, { eventId, message, streamId });
             return eventId;
         },
@@ -125,6 +127,11 @@ function createMcpServer() {
                 prompts: {
                     listChanged: true
                 },
+                // `logging` is deprecated as of protocol version 2026-07-28
+                // (SEP-2577). Intentionally retained so the 2025-era
+                // logging/setLevel conformance leg still negotiates the
+                // capability; the 2026-07-28 path uses the per-request
+                // envelope and ignores this field.
                 logging: {},
                 completions: {}
             },
@@ -140,7 +147,7 @@ function createMcpServer() {
     function sendLog(
         level: 'debug' | 'info' | 'notice' | 'warning' | 'error' | 'critical' | 'alert' | 'emergency',
         message: string,
-        _data?: unknown
+        data?: unknown
     ) {
         mcpServer.server
             .notification({
@@ -148,7 +155,7 @@ function createMcpServer() {
                 params: {
                     level,
                     logger: 'conformance-test-server',
-                    data: _data || message
+                    data: data ?? message
                 }
             })
             .catch(() => {
@@ -311,42 +318,28 @@ function createMcpServer() {
             inputSchema: z.object({})
         },
         async (_args, ctx): Promise<CallToolResult> => {
-            const progressToken = ctx.mcpReq._meta?.progressToken ?? 0;
-            console.log('Progress token:', progressToken);
-            await ctx.mcpReq.notify({
-                method: 'notifications/progress',
-                params: {
-                    progressToken,
-                    progress: 0,
-                    total: 100,
-                    message: `Completed step ${0} of ${100}`
+            const progressToken = ctx.mcpReq._meta?.progressToken;
+            // Per spec, servers MUST NOT emit notifications/progress without a
+            // client-supplied token — only report progress when one was sent.
+            if (progressToken !== undefined) {
+                for (const progress of [0, 50, 100]) {
+                    await ctx.mcpReq.notify({
+                        method: 'notifications/progress',
+                        params: {
+                            progressToken,
+                            progress,
+                            total: 100,
+                            message: `Completed step ${progress} of ${100}`
+                        }
+                    });
+                    if (progress < 100) {
+                        await new Promise(resolve => setTimeout(resolve, 50));
+                    }
                 }
-            });
-            await new Promise(resolve => setTimeout(resolve, 50));
-
-            await ctx.mcpReq.notify({
-                method: 'notifications/progress',
-                params: {
-                    progressToken,
-                    progress: 50,
-                    total: 100,
-                    message: `Completed step ${50} of ${100}`
-                }
-            });
-            await new Promise(resolve => setTimeout(resolve, 50));
-
-            await ctx.mcpReq.notify({
-                method: 'notifications/progress',
-                params: {
-                    progressToken,
-                    progress: 100,
-                    total: 100,
-                    message: `Completed step ${100} of ${100}`
-                }
-            });
+            }
 
             return {
-                content: [{ type: 'text', text: String(progressToken) }]
+                content: [{ type: 'text', text: String(progressToken ?? 'no-progress-token') }]
             };
         }
     );
@@ -408,7 +401,7 @@ function createMcpServer() {
                 prompt: z.string().describe('The prompt to send to the LLM')
             })
         },
-        async (args: { prompt: string }, ctx): Promise<CallToolResult> => {
+        async (args, ctx): Promise<CallToolResult> => {
             try {
                 // Request sampling from client
                 const result = (await ctx.mcpReq.send({
@@ -459,7 +452,7 @@ function createMcpServer() {
                 message: z.string().describe('The message to show the user')
             })
         },
-        async (args: { message: string }, ctx): Promise<CallToolResult> => {
+        async (args, ctx): Promise<CallToolResult> => {
             try {
                 // Request user input from client
                 const result = await ctx.mcpReq.send({
@@ -967,6 +960,12 @@ function createMcpServer() {
             if (ctx.mcpReq.inputResponses !== undefined) {
                 return { content: [{ type: 'text', text: 'Capability-aware input requests fulfilled' }] };
             }
+            // `sampling` and `roots` on ClientCapabilities are @deprecated as
+            // of protocol version 2026-07-28 (SEP-2577). This fixture reads
+            // them intentionally: the conformance scenario asserts that the
+            // server only emits input-request kinds the client declared, and
+            // the per-request envelope carries the declared capabilities in
+            // the (deprecated) wire vocabulary.
             const declared = ctx.mcpReq.envelope?.[CLIENT_CAPABILITIES_META_KEY];
             const inputRequests: InputRequests = {};
             if (declared?.elicitation !== undefined) {
@@ -1111,7 +1110,7 @@ function createMcpServer() {
         'test://watched-resource',
         {
             title: 'Watched Resource',
-            description: 'A resource that auto-updates every 3 seconds',
+            description: 'Static resource registered for subscribe/unsubscribe testing',
             mimeType: 'text/plain'
         },
         async (): Promise<ReadResourceResult> => {
@@ -1177,7 +1176,7 @@ function createMcpServer() {
                 arg2: z.string().describe('Second test argument')
             })
         },
-        async (args: { arg1: string; arg2: string }): Promise<GetPromptResult> => {
+        async (args): Promise<GetPromptResult> => {
             return {
                 messages: [
                     {
@@ -1202,7 +1201,7 @@ function createMcpServer() {
                 resourceUri: z.string().describe('URI of the resource to embed')
             })
         },
-        async (args: { resourceUri: string }): Promise<GetPromptResult> => {
+        async (args): Promise<GetPromptResult> => {
             return {
                 messages: [
                     {
@@ -1352,7 +1351,7 @@ app.use(
     cors({
         origin: '*',
         exposedHeaders: ['Mcp-Session-Id'],
-        allowedHeaders: ['Content-Type', 'mcp-session-id', 'last-event-id']
+        allowedHeaders: ['Content-Type', 'mcp-session-id', 'last-event-id', 'mcp-protocol-version', 'mcp-method']
     })
 );
 

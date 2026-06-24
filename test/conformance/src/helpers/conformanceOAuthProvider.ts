@@ -16,7 +16,6 @@ export class ConformanceOAuthProvider implements OAuthClientProvider {
     private _codeVerifier?: string;
     private _authCode?: string;
     private _iss?: string;
-    private _authCodePromise?: Promise<string>;
     private _discoveryState?: OAuthDiscoveryState;
 
     constructor(
