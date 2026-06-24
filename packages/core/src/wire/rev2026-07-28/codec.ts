@@ -120,6 +120,7 @@ export const rev2026Codec: WireCodec & {
 
     hasRequestMethod: hasRequestMethod2026,
     hasNotificationMethod: hasNotificationMethod2026,
+    hasInputRequestMethod: (method: string): boolean => getInputRequestSchema2026(method) !== undefined,
 
     // ── Function-only validation surface ──
     validateRequest: (method: string, raw: unknown) => triState(getRequestSchema2026(method), raw),

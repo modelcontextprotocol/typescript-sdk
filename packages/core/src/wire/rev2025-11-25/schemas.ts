@@ -15,7 +15,9 @@
  * registry; the deprecated Task* TYPES remain importable from the types barrel
  * (Q1-SD2: nameability is constant, runtime availability is version-keyed) but
  * appear in no API signature. Q1 increment 2 — deletions are physical: the
- * 2026-era codec has no Task* schemas at all.
+ * 2026-era REGISTRY has no Task* methods (its frozen building-block copies do
+ * carry the deprecated Task* sub-schemas by composition — soft contamination,
+ * tracked for anchor-exactness adjudication).
  *
  * The only cross-layer dependency is `import type { JSONObject, JSONValue }`
  * from the neutral types barrel — pure structural type aliases with no parse
