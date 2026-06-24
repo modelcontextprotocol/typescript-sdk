@@ -384,7 +384,7 @@ registerScenario('sep-2322-client-request-state', runMrtrClient);
 // ============================================================================
 
 async function runAuthClient(serverUrl: string): Promise<void> {
-    const client = new Client({ name: 'test-auth-client', version: '1.0.0' }, { capabilities: {} });
+    const client = new Client({ name: 'test-auth-client', version: '1.0.0' }, { capabilities: {}, versionNegotiation: { mode: 'auto' } });
 
     const oauthFetch = withOAuthRetry('test-auth-client', new URL(serverUrl), handle401, CIMD_CLIENT_METADATA_URL)(fetch);
 
@@ -437,7 +437,11 @@ registerScenarios(
         'auth/iss-wrong-issuer',
         'auth/iss-unexpected',
         'auth/iss-normalized',
-        'auth/metadata-issuer-mismatch'
+        'auth/metadata-issuer-mismatch',
+        // SEP-2352: PRM `authorization_servers` switches between calls; the client's
+        // issuer-stamped credential storage reads back as undefined at the new AS and
+        // re-registers there.
+        'auth/authorization-server-migration'
     ],
     runAuthClient
 );

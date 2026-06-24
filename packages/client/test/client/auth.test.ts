@@ -1,4 +1,11 @@
-import type { AuthorizationServerMetadata, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
+import type {
+    AuthorizationServerMetadata,
+    OAuthClientInformationMixed,
+    OAuthClientMetadata,
+    OAuthTokens,
+    StoredOAuthClientInformation,
+    StoredOAuthTokens
+} from '@modelcontextprotocol/core';
 import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
 import type { Mock } from 'vitest';
 import { expect, vi } from 'vitest';
@@ -7,9 +14,11 @@ import type { OAuthClientProvider } from '../../src/client/auth.js';
 import {
     assertSecureTokenEndpoint,
     auth,
+    AuthorizationServerMismatchError,
     buildDiscoveryUrls,
     computeScopeUnion,
     determineScope,
+    discardIfIssuerMismatch,
     discoverAuthorizationServerMetadata,
     discoverOAuthMetadata,
     discoverOAuthProtectedResourceMetadata,
@@ -31,7 +40,8 @@ import {
     validateAuthorizationResponseIssuer,
     validateClientMetadataUrl
 } from '../../src/client/auth.js';
-import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
+import type { OAuthClientInformationContext, OAuthDiscoveryState } from '../../src/client/auth.js';
+import { ClientCredentialsProvider, createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({
@@ -4040,10 +4050,11 @@ describe('OAuth Authorization', () => {
                 serverUrl: 'https://server.example.com'
             });
 
-            // Should save URL-based client info
-            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
-                client_id: 'https://example.com/client-metadata.json'
-            });
+            // Should save URL-based client info (stamped with the resolved issuer + ctx)
+            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith(
+                { client_id: 'https://example.com/client-metadata.json', issuer: 'https://server.example.com' },
+                { issuer: 'https://server.example.com' }
+            );
         });
 
         it('falls back to DCR when server does not support URL-based client IDs', async () => {
@@ -4085,11 +4096,15 @@ describe('OAuth Authorization', () => {
             });
 
             // Should save DCR client info
-            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
-                client_id: 'generated-uuid',
-                client_secret: 'generated-secret',
-                redirect_uris: ['http://localhost:3000/callback']
-            });
+            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith(
+                {
+                    client_id: 'generated-uuid',
+                    client_secret: 'generated-secret',
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    issuer: 'https://server.example.com'
+                },
+                { issuer: 'https://server.example.com' }
+            );
         });
 
         it('throws an error when clientMetadataUrl is not an HTTPS URL', async () => {
@@ -4241,11 +4256,15 @@ describe('OAuth Authorization', () => {
             });
 
             // Should fall back to DCR
-            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith({
-                client_id: 'generated-uuid',
-                client_secret: 'generated-secret',
-                redirect_uris: ['http://localhost:3000/callback']
-            });
+            expect(mockProvider.saveClientInformation).toHaveBeenCalledWith(
+                {
+                    client_id: 'generated-uuid',
+                    client_secret: 'generated-secret',
+                    redirect_uris: ['http://localhost:3000/callback'],
+                    issuer: 'https://server.example.com'
+                },
+                { issuer: 'https://server.example.com' }
+            );
         });
     });
 
@@ -4661,6 +4680,359 @@ describe('OAuth Authorization', () => {
                 expect(authorizationUrl.searchParams.get('scope')).toBe('mcp:read');
                 expect(authorizationUrl.searchParams.has('prompt')).toBe(false);
             });
+        });
+    });
+
+    describe('SEP-2352: per-authorization-server credential isolation (issuer-stamped)', () => {
+        const AS_ONE = 'https://as-one.example.com';
+        const AS_TWO = 'https://as-two.example.com';
+
+        const asMetadata = (issuer: string): AuthorizationServerMetadata => ({
+            issuer,
+            authorization_endpoint: `${issuer}/authorize`,
+            token_endpoint: `${issuer}/token`,
+            registration_endpoint: `${issuer}/register`,
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256'],
+            grant_types_supported: ['authorization_code', 'refresh_token', 'client_credentials']
+        });
+
+        function createMigratingFetch() {
+            let active = AS_ONE;
+            const registerCalls: string[] = [];
+            const tokenCalls: Array<{ issuer: string; body: URLSearchParams }> = [];
+            const fetchFn = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+                const u = new URL(String(url));
+                if (u.pathname.includes('/.well-known/oauth-protected-resource')) {
+                    return Response.json({ resource: 'https://api.example.com/mcp', authorization_servers: [active] });
+                }
+                if (u.pathname.includes('/.well-known/')) {
+                    return Response.json(asMetadata(u.origin));
+                }
+                if (u.pathname === '/register') {
+                    registerCalls.push(u.origin);
+                    return Response.json({ client_id: `cid-${u.host}`, client_secret: 's', redirect_uris: [] }, { status: 201 });
+                }
+                if (u.pathname === '/token') {
+                    const body = new URLSearchParams(String(init?.body));
+                    tokenCalls.push({ issuer: u.origin, body });
+                    return Response.json({ access_token: 'at', token_type: 'Bearer' });
+                }
+                return new Response(null, { status: 404 });
+            };
+            return { fetchFn, registerCalls, tokenCalls, switchTo: (i: string) => (active = i) };
+        }
+
+        /** Single-slot blob provider — round-trips the SDK-stamped values verbatim. */
+        function createBlobProvider(withDiscoveryState = true): OAuthClientProvider & {
+            redirected: URL[];
+            stored: { info?: StoredOAuthClientInformation; tokens?: StoredOAuthTokens };
+        } {
+            const stored: { info?: StoredOAuthClientInformation; tokens?: StoredOAuthTokens } = {};
+            const redirected: URL[] = [];
+            let discovery: OAuthDiscoveryState | undefined;
+            let verifier: string | undefined;
+            return {
+                redirected,
+                stored,
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return { client_name: 't', redirect_uris: ['http://localhost:3000/callback'] };
+                },
+                clientInformation: () => stored.info,
+                saveClientInformation: i => void (stored.info = i),
+                tokens: () => stored.tokens,
+                saveTokens: t => void (stored.tokens = t),
+                redirectToAuthorization: u => void redirected.push(u),
+                saveCodeVerifier: v => void (verifier = v),
+                codeVerifier: () => verifier ?? 'v',
+                ...(withDiscoveryState && {
+                    saveDiscoveryState: (s: OAuthDiscoveryState) => void (discovery = s),
+                    discoveryState: () => discovery,
+                    invalidateCredentials: (s: string) => {
+                        if (s === 'client' || s === 'all') stored.info = undefined;
+                        if (s === 'tokens' || s === 'all') stored.tokens = undefined;
+                        if (s === 'discovery' || s === 'all') discovery = undefined;
+                    }
+                })
+            };
+        }
+
+        it('discardIfIssuerMismatch: returns undefined only on a different stamp; warns on unstamped', () => {
+            const stamped: StoredOAuthTokens = { access_token: 'a', token_type: 'Bearer', issuer: AS_ONE };
+            const unstamped: StoredOAuthTokens = { access_token: 'a', token_type: 'Bearer' };
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+            expect(discardIfIssuerMismatch(stamped, AS_ONE)).toBe(stamped);
+            expect(discardIfIssuerMismatch(stamped, AS_TWO)).toBeUndefined();
+            expect(discardIfIssuerMismatch(unstamped, AS_TWO)).toBe(unstamped);
+            expect(discardIfIssuerMismatch<StoredOAuthTokens>(undefined, AS_TWO)).toBeUndefined();
+            expect(warn).toHaveBeenCalledTimes(1);
+            warn.mockRestore();
+        });
+
+        it('clientInformation stamped for AS-one is discarded at AS-two → re-registers (single-slot blob provider)', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+
+            expect(await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            expect(provider.stored.info?.issuer).toBe(AS_ONE);
+            expect(srv.registerCalls).toEqual([AS_ONE]);
+
+            srv.switchTo(AS_TWO);
+            provider.invalidateCredentials?.('discovery');
+            expect(await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            expect(srv.registerCalls).toEqual([AS_ONE, AS_TWO]);
+            expect(provider.stored.info?.issuer).toBe(AS_TWO);
+            expect(provider.redirected.at(-1)?.origin).toBe(AS_TWO);
+            expect(provider.redirected.at(-1)?.searchParams.get('client_id')).toBe('cid-as-two.example.com');
+        });
+
+        it('refresh_token stamped for AS-one is never POSTed to AS-two', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'cid', issuer: AS_TWO };
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-one', issuer: AS_ONE };
+            srv.switchTo(AS_TWO);
+
+            expect(await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            for (const { issuer, body } of srv.tokenCalls) {
+                expect(issuer).not.toBe(AS_TWO);
+                expect(body.get('refresh_token')).not.toBe('rt-one');
+            }
+        });
+
+        it('issuer-keyed provider holds independent credentials per AS', async () => {
+            const srv = createMigratingFetch();
+            const map = new Map<string, OAuthClientInformationMixed>();
+            const provider: OAuthClientProvider = {
+                get redirectUrl() {
+                    return 'http://localhost:3000/callback';
+                },
+                get clientMetadata() {
+                    return { client_name: 't', redirect_uris: ['http://localhost:3000/callback'] };
+                },
+                clientInformation: (ctx?: OAuthClientInformationContext) => (ctx ? map.get(ctx.issuer) : undefined),
+                saveClientInformation: (i, ctx) => void (ctx && map.set(ctx.issuer, i)),
+                tokens: () => undefined,
+                saveTokens: () => {},
+                redirectToAuthorization: () => {},
+                saveCodeVerifier: () => {},
+                codeVerifier: () => 'v'
+            };
+
+            await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn });
+            srv.switchTo(AS_TWO);
+            await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn });
+            expect(map.get(AS_ONE)?.client_id).toBe('cid-as-one.example.com');
+            expect(map.get(AS_TWO)?.client_id).toBe('cid-as-two.example.com');
+        });
+
+        it('callback-leg gate throws when discoveryState issuer differs from resolved issuer', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'cid', issuer: AS_ONE };
+            // Recorded redirect target = AS-one, but cached state lacks an authorizationServerUrl
+            // so authInternal runs fresh discovery → AS-two.
+            provider.saveDiscoveryState?.({
+                authorizationServerUrl: '',
+                authorizationServerMetadata: asMetadata(AS_ONE)
+            } as OAuthDiscoveryState);
+            srv.switchTo(AS_TWO);
+
+            await expect(
+                auth(provider, { serverUrl: 'https://api.example.com/mcp', authorizationCode: 'code', fetchFn: srv.fetchFn })
+            ).rejects.toBeInstanceOf(AuthorizationServerMismatchError);
+        });
+
+        it('callback-leg gate fails closed when provider implements saveDiscoveryState but discoveryState() is undefined', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'cid', issuer: AS_ONE };
+            // Provider implements saveDiscoveryState/discoveryState, but the recorded state was
+            // lost (e.g. fresh process / page navigation between redirect and callback). The
+            // gate must fail closed rather than silently re-discover.
+            // (createBlobProvider starts with discoveryState() → undefined.)
+            const err = await auth(provider, {
+                serverUrl: 'https://api.example.com/mcp',
+                authorizationCode: 'code',
+                fetchFn: srv.fetchFn
+            }).then(
+                () => undefined,
+                e => e
+            );
+            expect(err).toBeInstanceOf(AuthorizationServerMismatchError);
+            expect((err as AuthorizationServerMismatchError).recordedIssuer).toContain(
+                'discoveryState was not available on the callback leg'
+            );
+            expect(srv.tokenCalls).toHaveLength(0);
+        });
+
+        it('warns once on the callback leg when the provider has no discoveryState', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider(false);
+            provider.stored.info = { client_id: 'cid', issuer: AS_ONE };
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await auth(provider, {
+                serverUrl: 'https://api.example.com/mcp',
+                authorizationCode: 'code',
+                iss: AS_ONE,
+                fetchFn: srv.fetchFn
+            });
+            expect(warn).toHaveBeenCalledTimes(1);
+            expect(warn.mock.calls[0]?.[0]).toContain('saveDiscoveryState');
+            warn.mockRestore();
+        });
+
+        it('back-stamps a legacy unstamped clientInformation on first use after upgrade', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            // Pre-SEP-2352 storage: no `issuer` field on the stored blob.
+            provider.stored.info = { client_id: 'legacy-cid', client_secret: 'legacy-secret' };
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            expect(await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('REDIRECT');
+            // First use binds the unstamped value to the resolved AS — closes the permanent window.
+            expect(provider.stored.info).toEqual({ client_id: 'legacy-cid', client_secret: 'legacy-secret', issuer: AS_ONE });
+            // The legacy value was used, not re-registered.
+            expect(srv.registerCalls).toHaveLength(0);
+            expect(warn.mock.calls.some(c => String(c[0]).includes("no 'issuer' stamp"))).toBe(true);
+            warn.mockRestore();
+
+            // Subsequent call against AS-two now sees a stamped value and re-registers.
+            srv.switchTo(AS_TWO);
+            provider.invalidateCredentials?.('discovery');
+            await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn });
+            expect(srv.registerCalls).toEqual([AS_TWO]);
+        });
+
+        it('back-stamps a legacy unstamped token set on first use', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'cid', issuer: AS_ONE };
+            provider.stored.tokens = { access_token: 'at', token_type: 'Bearer', refresh_token: 'rt-legacy' };
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn });
+            // The unstamped token set is written back with the resolved issuer before refresh.
+            expect(provider.stored.tokens?.issuer).toBe(AS_ONE);
+            warn.mockRestore();
+        });
+
+        it('callback-leg gate: saveDiscoveryState is NOT called when AuthorizationServerMismatchError throws', async () => {
+            // Case 1: cachedState undefined → fail-closed '(none recorded)' → fresh discovery
+            // result must NOT have been persisted (a retry would otherwise read it back as
+            // recordedIssuer and the gate would pass).
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            const saveSpy = vi.fn(provider.saveDiscoveryState!);
+            provider.saveDiscoveryState = saveSpy;
+            provider.stored.info = { client_id: 'cid', issuer: AS_ONE };
+
+            await expect(
+                auth(provider, { serverUrl: 'https://api.example.com/mcp', authorizationCode: 'code', fetchFn: srv.fetchFn })
+            ).rejects.toBeInstanceOf(AuthorizationServerMismatchError);
+            expect(saveSpy).not.toHaveBeenCalled();
+            expect(provider.discoveryState?.()).toBeUndefined();
+
+            // Case 2: cachedState records AS-one (forces full discovery via empty
+            // authorizationServerUrl), discovery resolves AS-two → throw → AS-one record is
+            // untouched.
+            const srv2 = createMigratingFetch();
+            const provider2 = createBlobProvider();
+            provider2.stored.info = { client_id: 'cid', issuer: AS_ONE };
+            provider2.saveDiscoveryState?.({
+                authorizationServerUrl: '',
+                authorizationServerMetadata: asMetadata(AS_ONE)
+            } as OAuthDiscoveryState);
+            srv2.switchTo(AS_TWO);
+
+            await expect(
+                auth(provider2, { serverUrl: 'https://api.example.com/mcp', authorizationCode: 'code', fetchFn: srv2.fetchFn })
+            ).rejects.toBeInstanceOf(AuthorizationServerMismatchError);
+            expect((provider2.discoveryState?.() as OAuthDiscoveryState).authorizationServerMetadata?.issuer).toBe(AS_ONE);
+        });
+
+        it('callback-leg gate: trailing-slash difference between recorded fallback URL and metadata issuer is tolerated', async () => {
+            const srv = createMigratingFetch();
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'cid', issuer: AS_ONE };
+            // Redirect leg recorded the SDK-derived String(URL) form (slash-suffixed) with no
+            // metadata; callback leg sees metadata.issuer (slash-free). Same AS — must not throw.
+            provider.saveDiscoveryState?.({ authorizationServerUrl: AS_ONE + '/' } as OAuthDiscoveryState);
+
+            await expect(
+                auth(provider, { serverUrl: 'https://api.example.com/mcp', authorizationCode: 'code', iss: AS_ONE, fetchFn: srv.fetchFn })
+            ).resolves.toBe('AUTHORIZED');
+        });
+
+        it('discardIfIssuerMismatch: trailing-slash difference does not discard', () => {
+            const stamped = { client_id: 'x', issuer: 'https://as.example.com' };
+            expect(discardIfIssuerMismatch(stamped, 'https://as.example.com/')).toBe(stamped);
+            expect(discardIfIssuerMismatch({ client_id: 'x', issuer: 'https://as.example.com/' }, 'https://as.example.com')).toBeDefined();
+        });
+
+        it('invalid_client on code exchange does not surface AuthorizationServerMismatchError', async () => {
+            const base = createMigratingFetch();
+            const fetchFn = async (url: string | URL, init?: RequestInit): Promise<Response> => {
+                if (new URL(String(url)).pathname === '/token') {
+                    return Response.json({ error: 'invalid_client' }, { status: 400 });
+                }
+                return base.fetchFn(url, init);
+            };
+            const provider = createBlobProvider();
+            provider.stored.info = { client_id: 'cid', issuer: AS_ONE };
+            provider.saveDiscoveryState?.({
+                authorizationServerUrl: AS_ONE,
+                authorizationServerMetadata: asMetadata(AS_ONE)
+            } as OAuthDiscoveryState);
+
+            const err = await auth(provider, {
+                serverUrl: 'https://api.example.com/mcp',
+                authorizationCode: 'code',
+                iss: AS_ONE,
+                fetchFn
+            }).then(
+                () => undefined,
+                e => e
+            );
+            // The retry surfaces the (comprehensible) missing-client-information error, not a
+            // false '(none recorded)' AS-change.
+            expect(err).not.toBeInstanceOf(AuthorizationServerMismatchError);
+            expect((provider.discoveryState?.() as OAuthDiscoveryState).authorizationServerUrl).toBe(AS_ONE);
+        });
+
+        it('ClientCredentialsProvider without expectedIssuer: no SEP-2352 warn on auth()', async () => {
+            const srv = createMigratingFetch();
+            const provider = new ClientCredentialsProvider({ clientId: 'static', clientSecret: 's' });
+            const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+            await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn });
+            await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn });
+            expect(warn.mock.calls.filter(c => /no 'issuer' stamp/.test(String(c[0])))).toHaveLength(0);
+            warn.mockRestore();
+        });
+
+        it('m2m expectedIssuer: ClientCredentialsProvider refuses to send the credential to a different AS', async () => {
+            const srv = createMigratingFetch();
+            srv.switchTo(AS_TWO);
+            const provider = new ClientCredentialsProvider({ clientId: 'static', clientSecret: 's', expectedIssuer: AS_ONE });
+
+            const err = await auth(provider, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn }).then(
+                () => undefined,
+                e => e
+            );
+            expect(err).toBeInstanceOf(AuthorizationServerMismatchError);
+            expect((err as AuthorizationServerMismatchError).recordedIssuer).toBe(AS_ONE);
+            expect((err as AuthorizationServerMismatchError).currentIssuer).toBe(AS_TWO);
+            expect(srv.tokenCalls.filter(c => c.issuer === AS_TWO)).toHaveLength(0);
+
+            // Matching expectedIssuer proceeds.
+            srv.switchTo(AS_ONE);
+            const ok = new ClientCredentialsProvider({ clientId: 'static', clientSecret: 's', expectedIssuer: AS_ONE });
+            expect(await auth(ok, { serverUrl: 'https://api.example.com/mcp', fetchFn: srv.fetchFn })).toBe('AUTHORIZED');
         });
     });
 });

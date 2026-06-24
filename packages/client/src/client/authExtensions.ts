@@ -5,7 +5,7 @@
  * for common machine-to-machine authentication scenarios.
  */
 
-import type { FetchLike, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
+import type { FetchLike, OAuthClientMetadata, StoredOAuthClientInformation, StoredOAuthTokens } from '@modelcontextprotocol/core';
 import type { CryptoKey, JWK } from 'jose';
 
 import type { AddClientAuthentication, OAuthClientProvider } from './auth.js';
@@ -117,6 +117,15 @@ export interface ClientCredentialsProviderOptions {
      * Space-separated scopes values requested by the client.
      */
     scope?: string;
+
+    /**
+     * The authorization server's `issuer` identifier these credentials were registered with.
+     * Stamped onto the stored client information so `auth()`'s SEP-2352 issuer check
+     * refuses to send the credential to any other authorization server. Hosts supplying
+     * static client credentials SHOULD set this; omitting it preserves the legacy
+     * (no-binding) behaviour for back-compat.
+     */
+    expectedIssuer?: string;
 }
 
 /**
@@ -138,14 +147,15 @@ export interface ClientCredentialsProviderOptions {
  * ```
  */
 export class ClientCredentialsProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
-    private _clientInfo: OAuthClientInformation;
+    private _tokens?: StoredOAuthTokens;
+    private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
 
     constructor(options: ClientCredentialsProviderOptions) {
         this._clientInfo = {
             client_id: options.clientId,
-            client_secret: options.clientSecret
+            client_secret: options.clientSecret,
+            issuer: options.expectedIssuer
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'client-credentials-client',
@@ -164,19 +174,20 @@ export class ClientCredentialsProvider implements OAuthClientProvider {
         return this._clientMetadata;
     }
 
-    clientInformation(): OAuthClientInformation {
+    clientInformation(): StoredOAuthClientInformation {
         return this._clientInfo;
     }
 
-    saveClientInformation(info: OAuthClientInformation): void {
-        this._clientInfo = info;
-    }
+    // No saveClientInformation: credentials are constructor-supplied and bound to a single
+    // authorization server. When `expectedIssuer` is set and the resolved AS differs, the
+    // SEP-2352 stamp check discards `clientInformation()` and auth() throws
+    // AuthorizationServerMismatchError(expectedIssuer, resolved) rather than sending the credential.
 
-    tokens(): OAuthTokens | undefined {
+    tokens(): StoredOAuthTokens | undefined {
         return this._tokens;
     }
 
-    saveTokens(tokens: OAuthTokens): void {
+    saveTokens(tokens: StoredOAuthTokens): void {
         this._tokens = tokens;
     }
 
@@ -243,6 +254,12 @@ export interface PrivateKeyJwtProviderOptions {
      * with finer granularity than what scopes alone allow.
      */
     claims?: Record<string, unknown>;
+
+    /**
+     * The authorization server's `issuer` identifier these credentials were registered with.
+     * Seeds the SEP-2352 issuer stamp — see {@linkcode ClientCredentialsProviderOptions.expectedIssuer}.
+     */
+    expectedIssuer?: string;
 }
 
 /**
@@ -266,14 +283,15 @@ export interface PrivateKeyJwtProviderOptions {
  * ```
  */
 export class PrivateKeyJwtProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
-    private _clientInfo: OAuthClientInformation;
+    private _tokens?: StoredOAuthTokens;
+    private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
     addClientAuthentication: AddClientAuthentication;
 
     constructor(options: PrivateKeyJwtProviderOptions) {
         this._clientInfo = {
-            client_id: options.clientId
+            client_id: options.clientId,
+            issuer: options.expectedIssuer
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'private-key-jwt-client',
@@ -300,19 +318,19 @@ export class PrivateKeyJwtProvider implements OAuthClientProvider {
         return this._clientMetadata;
     }
 
-    clientInformation(): OAuthClientInformation {
+    clientInformation(): StoredOAuthClientInformation {
         return this._clientInfo;
     }
 
-    saveClientInformation(info: OAuthClientInformation): void {
-        this._clientInfo = info;
-    }
+    // No saveClientInformation: credentials are constructor-supplied; the SEP-2352 stamp
+    // check enforces `expectedIssuer` and auth() throws
+    // AuthorizationServerMismatchError(expectedIssuer, resolved) on mismatch.
 
-    tokens(): OAuthTokens | undefined {
+    tokens(): StoredOAuthTokens | undefined {
         return this._tokens;
     }
 
-    saveTokens(tokens: OAuthTokens): void {
+    saveTokens(tokens: StoredOAuthTokens): void {
         this._tokens = tokens;
     }
 
@@ -361,6 +379,12 @@ export interface StaticPrivateKeyJwtProviderOptions {
      * Space-separated scopes values requested by the client.
      */
     scope?: string;
+
+    /**
+     * The authorization server's `issuer` identifier this assertion was minted for.
+     * Seeds the SEP-2352 issuer stamp — see {@linkcode ClientCredentialsProviderOptions.expectedIssuer}.
+     */
+    expectedIssuer?: string;
 }
 
 /**
@@ -371,14 +395,15 @@ export interface StaticPrivateKeyJwtProviderOptions {
  * uses it directly for authentication.
  */
 export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
-    private _clientInfo: OAuthClientInformation;
+    private _tokens?: StoredOAuthTokens;
+    private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
     addClientAuthentication: AddClientAuthentication;
 
     constructor(options: StaticPrivateKeyJwtProviderOptions) {
         this._clientInfo = {
-            client_id: options.clientId
+            client_id: options.clientId,
+            issuer: options.expectedIssuer
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'static-private-key-jwt-client',
@@ -403,19 +428,19 @@ export class StaticPrivateKeyJwtProvider implements OAuthClientProvider {
         return this._clientMetadata;
     }
 
-    clientInformation(): OAuthClientInformation {
+    clientInformation(): StoredOAuthClientInformation {
         return this._clientInfo;
     }
 
-    saveClientInformation(info: OAuthClientInformation): void {
-        this._clientInfo = info;
-    }
+    // No saveClientInformation: credentials are constructor-supplied; the SEP-2352 stamp
+    // check enforces `expectedIssuer` and auth() throws
+    // AuthorizationServerMismatchError(expectedIssuer, resolved) on mismatch.
 
-    tokens(): OAuthTokens | undefined {
+    tokens(): StoredOAuthTokens | undefined {
         return this._tokens;
     }
 
-    saveTokens(tokens: OAuthTokens): void {
+    saveTokens(tokens: StoredOAuthTokens): void {
         this._tokens = tokens;
     }
 
@@ -527,6 +552,12 @@ export interface CrossAppAccessProviderOptions {
      * Custom fetch implementation. Defaults to global fetch.
      */
     fetchFn?: FetchLike;
+
+    /**
+     * The MCP authorization server's `issuer` identifier these credentials were registered with.
+     * Seeds the SEP-2352 issuer stamp — see {@linkcode ClientCredentialsProviderOptions.expectedIssuer}.
+     */
+    expectedIssuer?: string;
 }
 
 /**
@@ -569,8 +600,8 @@ export interface CrossAppAccessProviderOptions {
  * ```
  */
 export class CrossAppAccessProvider implements OAuthClientProvider {
-    private _tokens?: OAuthTokens;
-    private _clientInfo: OAuthClientInformation;
+    private _tokens?: StoredOAuthTokens;
+    private _clientInfo: StoredOAuthClientInformation;
     private _clientMetadata: OAuthClientMetadata;
     private _assertionCallback: AssertionCallback;
     private _fetchFn: FetchLike;
@@ -581,7 +612,8 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
     constructor(options: CrossAppAccessProviderOptions) {
         this._clientInfo = {
             client_id: options.clientId,
-            client_secret: options.clientSecret
+            client_secret: options.clientSecret,
+            issuer: options.expectedIssuer
         };
         this._clientMetadata = {
             client_name: options.clientName ?? 'cross-app-access-client',
@@ -601,19 +633,19 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
         return this._clientMetadata;
     }
 
-    clientInformation(): OAuthClientInformation {
+    clientInformation(): StoredOAuthClientInformation {
         return this._clientInfo;
     }
 
-    saveClientInformation(info: OAuthClientInformation): void {
-        this._clientInfo = info;
-    }
+    // No saveClientInformation: credentials are constructor-supplied; the SEP-2352 stamp
+    // check enforces `expectedIssuer` and auth() throws
+    // AuthorizationServerMismatchError(expectedIssuer, resolved) on mismatch.
 
-    tokens(): OAuthTokens | undefined {
+    tokens(): StoredOAuthTokens | undefined {
         return this._tokens;
     }
 
-    saveTokens(tokens: OAuthTokens): void {
+    saveTokens(tokens: StoredOAuthTokens): void {
         this._tokens = tokens;
     }
 
@@ -633,14 +665,14 @@ export class CrossAppAccessProvider implements OAuthClientProvider {
      * Saves the authorization server URL discovered during OAuth flow.
      * This is called by the auth() function after RFC 9728 discovery.
      */
-    saveAuthorizationServerUrl?(authorizationServerUrl: string): void {
+    saveAuthorizationServerUrl(authorizationServerUrl: string): void {
         this._authorizationServerUrl = authorizationServerUrl;
     }
 
     /**
      * Returns the cached authorization server URL if available.
      */
-    authorizationServerUrl?(): string | undefined {
+    authorizationServerUrl(): string | undefined {
         return this._authorizationServerUrl;
     }
 
