@@ -20,7 +20,7 @@
  * - Termination is stream close (HTTP); no JSON-RPC result is ever emitted.
  */
 import type { JSONRPCRequest, RequestId, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core';
-import { SUBSCRIPTION_ID_META_KEY, SubscriptionFilterSchema } from '@modelcontextprotocol/core';
+import { codecForVersion, MODERN_WIRE_REVISION, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core';
 
 import type { ServerEventBus } from './serverEventBus.js';
 import { honoredSubset, listenFilterAccepts, serverEventToNotification } from './serverEventBus.js';
@@ -77,10 +77,10 @@ function stampSubscriptionId(
  * marks `notifications` REQUIRED on the listen request).
  */
 export function parseListenFilter(message: JSONRPCRequest): SubscriptionFilter | undefined {
-    const raw: unknown = message.params?.['notifications'];
-    if (raw === undefined) return undefined;
-    const parsed = SubscriptionFilterSchema.safeParse(raw);
-    return parsed.success ? parsed.data : undefined;
+    // `subscriptions/listen` is 2026-only vocabulary; route through the era
+    // codec's request validator (the wire layer owns the filter schema).
+    const outcome = codecForVersion(MODERN_WIRE_REVISION).validateRequest('subscriptions/listen', message);
+    return outcome.ok ? outcome.value.params?.notifications : undefined;
 }
 
 /**

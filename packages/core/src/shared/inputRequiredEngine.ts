@@ -131,7 +131,7 @@ export async function dispatchInputRequest(
         );
     }
     const method = entry['method'];
-    if (codec.inputRequestSchema(method) === undefined) {
+    if (!codec.hasInputRequestMethod(method)) {
         throw new SdkError(
             SdkErrorCode.InvalidResult,
             `Invalid input request '${key}': '${method}' is not an embedded request the ${codec.era} revision defines ` +

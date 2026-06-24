@@ -14,23 +14,20 @@
  * the `io.modelcontextprotocol/` prefix do NOT constitute a claim on their
  * own — but once the claim key is present, a malformed envelope is a
  * validation error, never a silent fall back to legacy handling.
+ *
+ * The wire-exact envelope schema, the required-key set, and the per-key issue
+ * mapping live in the wire layer (the 2026-era codec's `validateEnvelopeMeta`).
+ * This module never reaches into a per-revision wire module directly.
  */
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../types/constants.js';
-import { RequestMetaEnvelopeSchema } from '../wire/rev2026-07-28/schemas.js';
+import { PROTOCOL_VERSION_META_KEY } from '../types/constants.js';
+import type { EnvelopeIssue } from '../wire/codec.js';
+import { codecForVersion, MODERN_WIRE_REVISION } from '../wire/codec.js';
 
-/** A single self-identifying problem found while validating a per-request `_meta` envelope. */
-export interface EnvelopeIssue {
-    /**
-     * The envelope key the problem is about: one of the reserved `_meta` keys,
-     * or a dotted path inside one (e.g. `io.modelcontextprotocol/clientInfo.name`).
-     */
-    key: string;
-    /** A short description of what is wrong with that key (`missing`, or a validation message). */
-    problem: string;
-}
-
-/** The reserved `_meta` keys an envelope must carry (in reporting order). */
-const REQUIRED_ENVELOPE_KEYS: readonly string[] = [PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY];
+// Re-export from the wire layer (the canonical home): the issue shape is part
+// of the function-only WireCodec contract. Imported above for the local return
+// type, so the bare re-export form is used.
+// eslint-disable-next-line unicorn/prefer-export-from
+export type { EnvelopeIssue };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -74,26 +71,8 @@ export function envelopeClaimVersion(params: unknown): string | undefined {
  * present keys, in a stable order.
  */
 export function validateEnvelopeMeta(meta: Record<string, unknown>): EnvelopeIssue[] {
-    const issues: EnvelopeIssue[] = [];
-
-    for (const key of REQUIRED_ENVELOPE_KEYS) {
-        if (!(key in meta)) {
-            issues.push({ key, problem: 'missing' });
-        }
-    }
-
-    const parsed = RequestMetaEnvelopeSchema.safeParse(meta);
-    if (!parsed.success) {
-        for (const issue of parsed.error.issues) {
-            const path = issue.path.map(String);
-            const key = path.length > 0 ? path.join('.') : '_meta';
-            // Missing required keys were already reported above in canonical order.
-            if (path.length === 1 && issues.some(existing => existing.key === key && existing.problem === 'missing')) {
-                continue;
-            }
-            issues.push({ key, problem: issue.message });
-        }
-    }
-
-    return issues;
+    // Delegate to the era codec: the required-key pre-pass and the wire-exact
+    // `RequestMetaEnvelopeSchema` parse live in `wire/rev2026-07-28/` — this
+    // module never reaches into per-revision wire vocabulary.
+    return codecForVersion(MODERN_WIRE_REVISION).validateEnvelopeMeta(meta);
 }

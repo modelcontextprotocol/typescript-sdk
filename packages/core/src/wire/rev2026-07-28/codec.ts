@@ -28,8 +28,14 @@
 import type * as z from 'zod/v4';
 
 import { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
-import type { Result } from '../../types/types.js';
-import type { DecodedResult, LiftedWireMaterial, WireCodec } from '../codec.js';
+import {
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
+    LOG_LEVEL_META_KEY,
+    PROTOCOL_VERSION_META_KEY
+} from '../../types/constants.js';
+import type { CallToolResult, Result } from '../../types/types.js';
+import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec.js';
 import { fillCacheFields, stampResultType } from './encodeContract.js';
 import { getInputRequestSchema2026, getInputResponseSchema2026 } from './inputRequired.js';
 import {
@@ -55,6 +61,18 @@ import {
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+/** Tri-state wrap of an optional Zod schema lookup (the function-only contract). */
+function triState<T>(schema: z.ZodType<T> | undefined, raw: unknown): ValidateOutcome<T> {
+    if (schema === undefined) return { ok: false, reason: 'not-in-era' };
+    const parsed = schema.safeParse(raw);
+    return parsed.success ? { ok: true, value: parsed.data } : { ok: false, reason: 'invalid', message: String(parsed.error) };
+}
+
+const NOT_IN_ERA: ValidateOutcome<never> = { ok: false, reason: 'not-in-era' };
+
+/** The reserved `_meta` keys an envelope must carry on this era (in reporting order). */
+const REQUIRED_ENVELOPE_KEYS: readonly string[] = [PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY];
 
 /** Strip the known deleted-field set from an outbound result (Q1-SD3 iii). */
 function enforceDeletedFields(method: string, result: Result): Result {
@@ -90,21 +108,72 @@ function enforceDeletedFields(method: string, result: Result): Result {
     return next as Result;
 }
 
-export const rev2026Codec: WireCodec = {
+export const rev2026Codec: WireCodec & {
+    /**
+     * @deprecated Off-interface in-band registry probe retained for the
+     * existing inputRequiredFunnel pin. Use {@link WireCodec.validateInputRequest}
+     * — its `not-in-era` outcome is the membership signal.
+     */
+    inputRequestSchema(method: string): unknown;
+} = {
     era: '2026-07-28',
 
     hasRequestMethod: hasRequestMethod2026,
     hasNotificationMethod: hasNotificationMethod2026,
+    hasInputRequestMethod: (method: string): boolean => getInputRequestSchema2026(method) !== undefined,
 
-    requestSchema: getRequestSchema2026,
-    resultSchema: getResultSchema2026,
-    notificationSchema: getNotificationSchema2026,
-
+    // ── Function-only validation surface ──
+    validateRequest: (method: string, raw: unknown) => triState(getRequestSchema2026(method), raw),
+    validateResult: (method: string, raw: unknown) => triState(getResultSchema2026(method), raw),
+    validateNotification: (method: string, raw: unknown) => triState(getNotificationSchema2026(method), raw),
     // In-band multi-round-trip vocabulary: the demoted elicitation/sampling/
     // roots shapes carried inside `input_required` results (NOT wire request
     // methods on this era — registry membership is deliberately not granted).
+    validateInputRequest: (method: string, raw: unknown) => triState(getInputRequestSchema2026(method), raw),
+    validateInputResponse: (method: string, raw: unknown) => triState(getInputResponseSchema2026(method), raw),
+
+    // Sampling is in-band on this era — callers fall through to
+    // `validateInputResponse('sampling/createMessage', …)`.
+    samplingResultVariant: (): ValidateOutcome<never> => NOT_IN_ERA,
+
+    outboundEnvelope(material: OutboundEnvelopeMaterial): Readonly<Record<string, unknown>> {
+        return {
+            [PROTOCOL_VERSION_META_KEY]: material.protocolVersion,
+            [CLIENT_INFO_META_KEY]: material.clientInfo,
+            [CLIENT_CAPABILITIES_META_KEY]: material.clientCapabilities,
+            ...(material.logLevel !== undefined && { [LOG_LEVEL_META_KEY]: material.logLevel })
+        };
+    },
+
+    validateEnvelopeMeta(meta: Readonly<Record<string, unknown>>): EnvelopeIssue[] {
+        const issues: EnvelopeIssue[] = [];
+        for (const key of REQUIRED_ENVELOPE_KEYS) {
+            if (!(key in meta)) issues.push({ key, problem: 'missing' });
+        }
+        const parsed = RequestMetaEnvelopeSchema.safeParse(meta);
+        if (!parsed.success) {
+            for (const issue of parsed.error.issues) {
+                const path = issue.path.map(String);
+                const key = path.length > 0 ? path.join('.') : '_meta';
+                // Missing required keys were already reported above in canonical order.
+                if (path.length === 1 && issues.some(existing => existing.key === key && existing.problem === 'missing')) {
+                    continue;
+                }
+                issues.push({ key, problem: issue.message });
+            }
+        }
+        return issues;
+    },
+
+    // SEP-2106 result-side projection is identity on the modern era — the
+    // wire shape carries the natural `structuredContent` directly.
+    projectCallToolResult: (result: CallToolResult): CallToolResult => result,
+
+    // Retained off-interface for the inputRequiredFunnel registry-membership
+    // pin (asserts the in-band schema set without exercising parse): the
+    // function-only WireCodec contract carries no schema-returning members,
+    // so this lives only on the concrete object's widened type.
     inputRequestSchema: getInputRequestSchema2026,
-    inputResponseSchema: getInputResponseSchema2026,
 
     decodeResult(method: string, raw: unknown): DecodedResult {
         if (!isPlainObject(raw)) {

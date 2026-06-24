@@ -576,7 +576,7 @@ describe('T6 width-leak killed at both roots', () => {
 
     test('2025 era: with the content default gone, a bare task-shaped body fails the plain schema loudly', async () => {
         const { rev2025Codec } = await import('../../src/wire/rev2025-11-25/codec.js');
-        const { CallToolResultSchema } = await import('../../src/types/schemas.js');
+        const { CallToolResultSchema } = await import('../../src/wire/rev2025-11-25/schemas.js');
         const decoded = rev2025Codec.decodeResult('tools/call', { task: { taskId: 't-1', status: 'working' } });
         expect(decoded.kind).toBe('complete');
         if (decoded.kind === 'complete') {

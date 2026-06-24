@@ -54,11 +54,7 @@ import type {
 } from '@modelcontextprotocol/core';
 import {
     buildMcpParamHeaders,
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
     codecForVersion,
-    CreateMessageResultSchema,
-    CreateMessageResultWithToolsSchema,
     DEFAULT_REQUEST_TIMEOUT_MSEC,
     DiscoverResultSchema,
     HEADER_MISMATCH_ERROR_CODE,
@@ -71,7 +67,6 @@ import {
     modernProtocolVersions,
     parseSchema,
     Protocol,
-    PROTOCOL_VERSION_META_KEY,
     ProtocolError,
     ProtocolErrorCode,
     resolveInputRequiredDriverConfig,
@@ -80,7 +75,6 @@ import {
     SdkError,
     SdkErrorCode,
     SUBSCRIPTION_ID_META_KEY,
-    SubscriptionFilterSchema,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core';
 
@@ -636,14 +630,15 @@ export class Client extends Protocol<ClientContext> {
      */
     protected override _outboundMetaEnvelope(): Readonly<Record<string, unknown>> | undefined {
         const version = this._negotiatedProtocolVersion;
-        if (version === undefined || !isModernProtocolVersion(version)) {
-            return undefined;
-        }
-        return {
-            [PROTOCOL_VERSION_META_KEY]: version,
-            [CLIENT_INFO_META_KEY]: this._clientInfo,
-            [CLIENT_CAPABILITIES_META_KEY]: this._capabilities
-        };
+        if (version === undefined) return undefined;
+        // The era branch lives in the codec: the 2025 era's `outboundEnvelope`
+        // is `undefined` (legacy bytes stay identical); the 2026 era builds
+        // the keyed object.
+        return this._wireCodec().outboundEnvelope({
+            protocolVersion: version,
+            clientInfo: this._clientInfo,
+            clientCapabilities: this._capabilities
+        });
     }
 
     /**
@@ -755,29 +750,31 @@ export class Client extends Protocol<ClientContext> {
     ): (request: JSONRPCRequest, ctx: ClientContext) => Promise<Result> {
         if (method === 'elicitation/create') {
             return async (request, ctx) => {
-                // Era-exact validation: the schemas are resolved from the
-                // instance era at dispatch time. On the 2025 era the method
-                // is a wire request (registry schemas); on the 2026 era it is
-                // in-band vocabulary reached only via the multi-round-trip
-                // driver, so the in-band schemas apply.
+                // Era-exact validation via the function-only WireCodec
+                // contract: resolved from the instance era at dispatch time.
+                // On the 2025 era the method is a wire request (registry
+                // validator); on the 2026 era it is in-band vocabulary
+                // reached only via the multi-round-trip driver, so the wire
+                // validator returns `not-in-era` and we fall through to the
+                // in-band one. The era registry entry IS the plain
+                // ElicitResult schema (the result map is aligned to the
+                // typed map — no widened unions), so no narrower surface is
+                // needed.
                 const codec = codecForVersion(this._negotiatedProtocolVersion);
-                const elicitRequestSchema = codec.requestSchema('elicitation/create') ?? codec.inputRequestSchema('elicitation/create');
-                // The era registry entry IS the plain ElicitResult schema
-                // (the result map is aligned to the typed map — no widened
-                // unions), so no narrower surface is needed.
-                const elicitResultSchema = codec.resultSchema('elicitation/create') ?? codec.inputResponseSchema('elicitation/create');
-                if (!elicitRequestSchema || !elicitResultSchema) {
-                    throw new ProtocolError(ProtocolErrorCode.InternalError, 'No wire schema for elicitation/create in the resolved era');
+                let validatedRequest = codec.validateRequest('elicitation/create', request);
+                if (!validatedRequest.ok && validatedRequest.reason === 'not-in-era') {
+                    validatedRequest = codec.validateInputRequest('elicitation/create', request);
                 }
-                const validatedRequest = parseSchema(elicitRequestSchema, request);
-                if (!validatedRequest.success) {
-                    // Type guard: if success is false, error is guaranteed to exist
-                    const errorMessage =
-                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation request: ${errorMessage}`);
+                if (!validatedRequest.ok) {
+                    throw new ProtocolError(
+                        validatedRequest.reason === 'not-in-era' ? ProtocolErrorCode.InternalError : ProtocolErrorCode.InvalidParams,
+                        validatedRequest.reason === 'not-in-era'
+                            ? 'No wire schema for elicitation/create in the resolved era'
+                            : `Invalid elicitation request: ${validatedRequest.message}`
+                    );
                 }
 
-                const { params } = validatedRequest.data;
+                const { params } = validatedRequest.value;
                 params.mode = params.mode ?? 'form';
                 const { supportsFormMode, supportsUrlMode } = getSupportedElicitationModes(this._capabilities.elicitation);
 
@@ -791,15 +788,20 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
-                const validationResult = parseSchema(elicitResultSchema, result);
-                if (!validationResult.success) {
-                    // Type guard: if success is false, error is guaranteed to exist
-                    const errorMessage =
-                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid elicitation result: ${errorMessage}`);
+                let validationResult = codec.validateResult('elicitation/create', result);
+                if (!validationResult.ok && validationResult.reason === 'not-in-era') {
+                    validationResult = codec.validateInputResponse('elicitation/create', result);
+                }
+                if (!validationResult.ok) {
+                    throw new ProtocolError(
+                        validationResult.reason === 'not-in-era' ? ProtocolErrorCode.InternalError : ProtocolErrorCode.InvalidParams,
+                        validationResult.reason === 'not-in-era'
+                            ? 'No wire schema for elicitation/create in the resolved era'
+                            : `Invalid elicitation result: ${validationResult.message}`
+                    );
                 }
 
-                const validatedResult = validationResult.data;
+                const validatedResult = validationResult.value;
                 const requestedSchema = params.mode === 'form' ? (params.requestedSchema as JsonSchemaType) : undefined;
 
                 if (
@@ -823,59 +825,50 @@ export class Client extends Protocol<ClientContext> {
         if (method === 'sampling/createMessage') {
             return async (request, ctx) => {
                 // Era-exact validation via the instance era (see above): wire
-                // request schema on the 2025 era, in-band schema on the 2026
-                // era (where sampling reaches the handler only as an embedded
-                // input request).
+                // request validator on the 2025 era; on the 2026 era sampling
+                // is in-band vocabulary (it reaches the handler only as an
+                // embedded input request) so the wire validator returns
+                // `not-in-era` and we fall through to the in-band one.
                 const codec = codecForVersion(this._negotiatedProtocolVersion);
-                const wireSamplingRequestSchema = codec.requestSchema('sampling/createMessage');
-                const samplingRequestSchema = wireSamplingRequestSchema ?? codec.inputRequestSchema('sampling/createMessage');
-                if (!samplingRequestSchema) {
+                let validatedRequest = codec.validateRequest('sampling/createMessage', request);
+                if (!validatedRequest.ok && validatedRequest.reason === 'not-in-era') {
+                    validatedRequest = codec.validateInputRequest('sampling/createMessage', request);
+                }
+                if (!validatedRequest.ok) {
                     throw new ProtocolError(
-                        ProtocolErrorCode.InternalError,
-                        'No wire schema for sampling/createMessage in the resolved era'
+                        validatedRequest.reason === 'not-in-era' ? ProtocolErrorCode.InternalError : ProtocolErrorCode.InvalidParams,
+                        validatedRequest.reason === 'not-in-era'
+                            ? 'No wire schema for sampling/createMessage in the resolved era'
+                            : `Invalid sampling request: ${validatedRequest.message}`
                     );
                 }
-                const validatedRequest = parseSchema(samplingRequestSchema, request);
-                if (!validatedRequest.success) {
-                    const errorMessage =
-                        validatedRequest.error instanceof Error ? validatedRequest.error.message : String(validatedRequest.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling request: ${errorMessage}`);
-                }
 
-                const { params } = validatedRequest.data;
+                const { params } = validatedRequest.value;
 
                 const result = await handler(request, ctx);
 
-                // The result-side schema mirrors the request-side selection so
-                // both stay on the same era's vocabulary. On the 2025 era the
-                // schema depends on the REQUEST params (tools vs no tools) —
-                // something a method-keyed registry entry cannot express, so
-                // the pair is picked here. When the request schema came from
-                // the in-band fallback (2026 era, where sampling reaches the
-                // handler only as an embedded input request), the embedded
-                // response schema applies — it covers plain and tool-bearing
-                // responses alike.
-                const hasTools = params.tools || params.toolChoice;
-                const resultSchema =
-                    wireSamplingRequestSchema === undefined
-                        ? codec.inputResponseSchema('sampling/createMessage')
-                        : hasTools
-                          ? CreateMessageResultWithToolsSchema
-                          : CreateMessageResultSchema;
-                if (!resultSchema) {
+                // The result-side validator mirrors the request-side selection
+                // so both stay on the same era's vocabulary. On the 2025 era
+                // the schema depends on the REQUEST params (tools vs no tools)
+                // — `samplingResultVariant` owns that pair. On the 2026 era
+                // it returns `not-in-era` and we fall through to the embedded
+                // response validator (it covers plain and tool-bearing
+                // responses alike).
+                const hasTools = Boolean(params.tools || params.toolChoice);
+                let validatedResult = codec.samplingResultVariant(hasTools, result);
+                if (!validatedResult.ok && validatedResult.reason === 'not-in-era') {
+                    validatedResult = codec.validateInputResponse('sampling/createMessage', result);
+                }
+                if (!validatedResult.ok) {
                     throw new ProtocolError(
-                        ProtocolErrorCode.InternalError,
-                        'No result schema for sampling/createMessage in the resolved era'
+                        validatedResult.reason === 'not-in-era' ? ProtocolErrorCode.InternalError : ProtocolErrorCode.InvalidParams,
+                        validatedResult.reason === 'not-in-era'
+                            ? 'No result schema for sampling/createMessage in the resolved era'
+                            : `Invalid sampling result: ${validatedResult.message}`
                     );
                 }
-                const validationResult = parseSchema(resultSchema, result);
-                if (!validationResult.success) {
-                    const errorMessage =
-                        validationResult.error instanceof Error ? validationResult.error.message : String(validationResult.error);
-                    throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid sampling result: ${errorMessage}`);
-                }
 
-                return validationResult.data;
+                return validatedResult.value;
             };
         }
 
@@ -2065,8 +2058,11 @@ export class Client extends Protocol<ClientContext> {
             const subscriptionId = params?._meta?.[SUBSCRIPTION_ID_META_KEY];
             const entry = typeof subscriptionId === 'string' ? this._listenState.get(subscriptionId) : undefined;
             if (entry !== undefined) {
-                const honored = SubscriptionFilterSchema.safeParse(params?.notifications ?? {});
-                entry.settle({ ack: honored.success ? honored.data : {} });
+                // Route through the era codec (the ack is 2026-only
+                // vocabulary): a malformed honored filter still settles the
+                // listen — `{}` means "nothing honored".
+                const honored = this._wireCodec().validateNotification('notifications/subscriptions/acknowledged', raw);
+                entry.settle({ ack: honored.ok ? honored.value.params.notifications : {} });
                 return;
             }
         }
@@ -2223,8 +2219,7 @@ export class Client extends Protocol<ClientContext> {
 
         // The method-keyed request() path validates the era registry's plain
         // CallToolResult schema — with the result map aligned to the typed
-        // map there is no wider union to narrow away (Q1-SD2 holds by
-        // construction).
+        // map there is no wider union to narrow away.
         let result: CallToolResult;
         try {
             result = await this.request({ method: 'tools/call', params }, await buildSendOptions());
