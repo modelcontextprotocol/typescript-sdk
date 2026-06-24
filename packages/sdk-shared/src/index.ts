@@ -11,14 +11,15 @@
 // Scope: Zod schemas ONLY. The corresponding spec TypeScript types, error classes, enums, and
 // type guards are part of the public API of @modelcontextprotocol/server and /client.
 //
-// The list below is the complete set of `export const *Schema` declarations in core's schema
-// module; the sdkSharedSchemas test asserts it stays in sync. The @modelcontextprotocol/core
-// specifier is aliased (tsconfig.json + tsdown.config.ts) to core's schemas module and bundled.
+// The list below is the spec `*Schema` set: every `export const *Schema` in core's schema module
+// EXCEPT internal helper schemas that have no public spec type (e.g. BaseRequestParamsSchema,
+// NotificationsParamsSchema). It mirrors core's SPEC_SCHEMA_KEYS allowlist; the sdkSharedSchemas
+// test asserts it stays in sync. The @modelcontextprotocol/core specifier is aliased (tsconfig.json
+// + tsdown.config.ts) to core's schemas module and bundled.
 export {
     AnnotationsSchema,
     AudioContentSchema,
     BaseMetadataSchema,
-    BaseRequestParamsSchema,
     BlobResourceContentsSchema,
     BooleanSchemaSchema,
     CallToolRequestParamsSchema,
@@ -32,7 +33,6 @@ export {
     ClientNotificationSchema,
     ClientRequestSchema,
     ClientResultSchema,
-    ClientTasksCapabilitySchema,
     CompatibilityCallToolResultSchema,
     CompleteRequestParamsSchema,
     CompleteRequestSchema,
@@ -81,7 +81,6 @@ export {
     JSONRPCResultResponseSchema,
     JSONValueSchema,
     LegacyTitledEnumSchemaSchema,
-    ListChangedOptionsBaseSchema,
     ListPromptsRequestSchema,
     ListPromptsResultSchema,
     ListResourcesRequestSchema,
@@ -101,7 +100,6 @@ export {
     ModelPreferencesSchema,
     MultiSelectEnumSchemaSchema,
     NotificationSchema,
-    NotificationsParamsSchema,
     NumberSchemaSchema,
     PaginatedRequestParamsSchema,
     PaginatedRequestSchema,
@@ -145,7 +143,6 @@ export {
     ServerNotificationSchema,
     ServerRequestSchema,
     ServerResultSchema,
-    ServerTasksCapabilitySchema,
     SetLevelRequestParamsSchema,
     SetLevelRequestSchema,
     SingleSelectEnumSchemaSchema,

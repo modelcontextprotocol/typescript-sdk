@@ -8,6 +8,7 @@ import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import type { ImportMapping } from '../mappings/importMap.js';
 import { isAuthImport, lookupImportMapping } from '../mappings/importMap.js';
+import { SPEC_SCHEMA_NAMES } from '../mappings/specSchemaNames.js';
 import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
 
 const REEXPORT_WARNINGS: Record<string, string> = {
@@ -19,16 +20,23 @@ const REEXPORT_WARNINGS: Record<string, string> = {
         'Re-exported StreamableHTTPError was renamed to SdkHttpError in v2 with a different constructor. Update this re-export manually.'
 };
 
+/** The v2 name a symbol resolves to after renames (per-mapping override, then global SIMPLE_RENAMES). */
+function resolveRenamedName(name: string, mapping: ImportMapping): string {
+    return mapping.renamedSymbols?.[name] ?? SIMPLE_RENAMES[name] ?? name;
+}
+
 /**
  * The per-symbol target package for a symbol imported/re-exported from `mapping`'s module, or
  * `undefined` when the symbol should use the mapping's resolved `target`. Exact-name
- * `symbolTargetOverrides` win over the `schemaSymbolTarget` (`*Schema`) suffix rule.
+ * `symbolTargetOverrides` win over `schemaSymbolTarget`, which routes a symbol to the shared-schemas
+ * package only when its rename-resolved name is an actual spec schema constant (`SPEC_SCHEMA_NAMES`) —
+ * not merely any name ending in `Schema`, so spec TYPES such as `BooleanSchema` resolve by context.
  */
 function symbolTargetOverride(name: string, mapping: ImportMapping): string | undefined {
     if (mapping.symbolTargetOverrides && name in mapping.symbolTargetOverrides) {
         return mapping.symbolTargetOverrides[name];
     }
-    if (mapping.schemaSymbolTarget && name.endsWith('Schema')) {
+    if (mapping.schemaSymbolTarget && SPEC_SCHEMA_NAMES.has(resolveRenamedName(name, mapping))) {
         return mapping.schemaSymbolTarget;
     }
     return undefined;
@@ -161,7 +169,11 @@ export const importPathsTransform: Transform = {
                         ...new Set(
                             sourceFile
                                 .getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)
-                                .filter(pa => pa.getExpression().getText() === nsName && pa.getName().endsWith('Schema'))
+                                .filter(
+                                    pa =>
+                                        pa.getExpression().getText() === nsName &&
+                                        SPEC_SCHEMA_NAMES.has(resolveRenamedName(pa.getName(), mapping))
+                                )
                                 .map(pa => pa.getName())
                         )
                     ];

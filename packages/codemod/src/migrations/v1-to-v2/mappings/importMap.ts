@@ -5,10 +5,13 @@ export interface ImportMapping {
     /** Route specific symbols to a different target package than `target`. */
     symbolTargetOverrides?: Record<string, string>;
     /**
-     * Route every imported symbol whose name ends in `Schema` to this package, instead of `target`.
-     * Used for `sdk/types.js`: the spec Zod schemas now live in `@modelcontextprotocol/sdk-shared`
-     * (so `<Name>Schema.parse(...)` keeps working), while the spec types/constants resolve by context.
-     * `symbolTargetOverrides` (exact-name) takes precedence over this suffix rule.
+     * Route an imported symbol to this package (instead of `target`) when its rename-resolved name is
+     * an actual spec schema constant — a member of `SPEC_SCHEMA_NAMES`. Used for `sdk/types.js`: the
+     * spec Zod schemas now live in `@modelcontextprotocol/sdk-shared` (so `<Name>Schema.parse(...)`
+     * keeps working), while spec types/constants/guards resolve by context. Matching on membership
+     * (not a `*Schema` suffix) keeps spec TYPES whose name ends in `Schema` — e.g. the elicitation
+     * primitives `BooleanSchema`/`StringSchema`/`EnumSchema` — routed by context, where their types
+     * live. `symbolTargetOverrides` (exact-name) takes precedence.
      */
     schemaSymbolTarget?: string;
     removalMessage?: string;

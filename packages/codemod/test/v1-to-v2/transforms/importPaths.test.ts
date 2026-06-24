@@ -142,6 +142,65 @@ describe('import-paths transform', () => {
         expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
     });
 
+    it('routes elicitation primitive *Schema TYPE names from sdk/types.js by context, not to sdk-shared', () => {
+        // These names END in `Schema` but are TYPES; their Zod constant is `<Name>SchemaSchema`. They
+        // must resolve to the context package (where the types live), never to sdk-shared (which only
+        // exports the `*SchemaSchema` constants) — otherwise the codemod emits a broken import.
+        const elicitationTypeNames = [
+            'BooleanSchema',
+            'StringSchema',
+            'NumberSchema',
+            'EnumSchema',
+            'SingleSelectEnumSchema',
+            'MultiSelectEnumSchema',
+            'TitledSingleSelectEnumSchema',
+            'UntitledSingleSelectEnumSchema',
+            'TitledMultiSelectEnumSchema',
+            'UntitledMultiSelectEnumSchema',
+            'LegacyTitledEnumSchema'
+        ];
+        for (const typeName of elicitationTypeNames) {
+            const input = `import { ${typeName} } from '@modelcontextprotocol/sdk/types.js';\n`;
+            const result = applyTransform(input, { projectType: 'server' });
+            expect(result, typeName).toContain(`from "@modelcontextprotocol/server"`);
+            expect(result, typeName).not.toContain('@modelcontextprotocol/sdk-shared');
+            expect(result, typeName).toContain(typeName);
+        }
+    });
+
+    it('splits a primitive-schema TYPE from its matching schema CONSTANT (BooleanSchema vs BooleanSchemaSchema)', () => {
+        // They differ only by a trailing `Schema`, which the suffix heuristic could not distinguish.
+        // The constant goes to sdk-shared; the type resolves by context.
+        const input = `import { BooleanSchema, BooleanSchemaSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain('BooleanSchemaSchema');
+        expect(result).toContain(`from "@modelcontextprotocol/server"`);
+        expect(result).toMatch(/BooleanSchema\b/);
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('routes a renamed spec schema (JSONRPCErrorSchema) from sdk/types.js to sdk-shared', () => {
+        // JSONRPCErrorSchema → JSONRPCErrorResponseSchema, a sdk-shared export. Membership is checked
+        // against the rename-resolved name; the symbolRenames transform applies the rename afterward,
+        // so importPaths alone leaves the name unchanged but routes it to sdk-shared.
+        const input = `import { JSONRPCErrorSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain('JSONRPCErrorSchema');
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('emits a split diagnostic for a re-export mixing a spec schema and a *Schema type (no silent breakage)', () => {
+        // The `*Schema` suffix would have routed BooleanSchema to sdk-shared silently (no such export);
+        // membership routing instead surfaces the mismatch so the user splits the re-export manually.
+        const input = `export { CallToolResultSchema, BooleanSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('mixes symbols') && d.message.includes('Split'))).toBe(true);
+    });
+
     it('flags *Schema accesses through a namespace import of sdk/types.js (cannot be split)', () => {
         const input = [
             `import * as types from '@modelcontextprotocol/sdk/types.js';`,
