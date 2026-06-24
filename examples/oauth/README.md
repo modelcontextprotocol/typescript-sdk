@@ -5,7 +5,7 @@ The **authorization-code** OAuth grant — the interactive "user signs in and ap
 - `server.ts` — `setupAuthServer` (the better-auth/OIDC demo Authorization Server from `@mcp-examples/shared`) on `:PORT+1`, and a `createMcpHandler` Resource Server behind `requireBearerAuth({ verifier: demoTokenVerifier })` on `:PORT/mcp`, advertising the AS via
   `createProtectedResourceMetadataRouter` (RFC 9728). DEMO ONLY — the AS auto-signs-in a fixed user, and with `OAUTH_DEMO_AUTO_CONSENT=1` it also auto-approves the consent screen.
 - `client.ts` — **CI-runnable headless flow.** Drives the same SDK auth machinery as the browser client, but instead of `open()`ing the authorization URL it follows the 302 chain itself with `fetch(..., { redirect: 'manual' })` (the demo AS's auto-sign-in + auto-consent collapse
-  every interactive step into a redirect), reads the `code` off the final `Location` header, calls `transport.finishAuth(code)`, reconnects, and asserts `ctx.authInfo` round-trips. This is what the harness runs.
+  every interactive step into a redirect), reads the callback query off the final `Location` header, calls `transport.finishAuth(url.searchParams)` (so the SDK reads `code` + `iss` per RFC 9207), reconnects, and asserts `ctx.authInfo` round-trips. This is what the harness runs.
 - `simpleOAuthClient.ts` + `simpleOAuthClientProvider.ts` — **manual real-browser flow.** Full authorization-code flow against any OAuth-protected MCP server: opens the browser, runs a local callback server on `:8090`, exchanges the code, then drops into a small `list`/`call`
   REPL. Run this when you want to see the consent page.
 - `dualModeAuth.ts` — two auth patterns through the one `authProvider` option: host-managed bearer token vs a built-in `OAuthClientProvider`.

@@ -18,6 +18,7 @@ import {
     discoverAuthorizationServerMetadata,
     discoverOAuthProtectedResourceMetadata,
     exchangeAuthorization,
+    IssuerMismatchError,
     OAuthError,
     OAuthErrorCode,
     PrivateKeyJwtProvider,
@@ -29,6 +30,7 @@ import {
     StaticPrivateKeyJwtProvider,
     StreamableHTTPClientTransport,
     UnauthorizedError,
+    validateAuthorizationResponseIssuer,
     withLogging,
     withOAuth
 } from '@modelcontextprotocol/client';
@@ -519,7 +521,11 @@ verifies('client-auth:as-metadata-discovery:issuer-validation', async (_args: Te
     const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
 
     try {
-        await expect(client.connect(transport)).rejects.toThrow(/issuer/i);
+        const err: unknown = await client.connect(transport).catch((error: unknown) => error);
+        expect(err).toBeInstanceOf(IssuerMismatchError);
+        expect((err as IssuerMismatchError).kind).toBe('metadata');
+        // Intentionally not an OAuthError — the auth() retry block must not swallow it.
+        expect(err).not.toBeInstanceOf(OAuthError);
 
         // The mismatched metadata is rejected before registering, redirecting the user, or requesting tokens.
         expect(as.registerCalls).toHaveLength(0);
@@ -529,6 +535,112 @@ verifies('client-auth:as-metadata-discovery:issuer-validation', async (_args: Te
         await client.close();
         await mcpHost.close();
     }
+});
+
+/**
+ * Runs the redirect leg of the OAuth flow against a mock AS configured with `asMetadata`, then
+ * calls `transport.finishAuth(code, iss)`. Returns the thrown error (or undefined on success)
+ * and the recorded token-endpoint calls so the caller can assert whether the code went on the wire.
+ */
+async function runFinishAuthScenario(asMetadata: Partial<AuthorizationServerMetadata>, iss: string | undefined) {
+    const as = createMockAuthorizationServer({ asMetadata, tokenResponses: [{ access_token: 'iss-flow-token', token_type: 'Bearer' }] });
+    const provider = new RecordingOAuthClientProvider();
+    const mcpHost = createAuthenticatedHost('iss-flow-token');
+    const combinedFetch = createCombinedFetch({ as, mcpHost, validToken: 'iss-flow-token' });
+
+    const transport = new StreamableHTTPClientTransport(new URL(MCP_URL), { authProvider: provider, fetch: combinedFetch });
+    const client = new Client({ name: 'c', version: '0' });
+    try {
+        // First connect → 401 → discovery → REDIRECT.
+        await expect(client.connect(transport)).rejects.toThrow(UnauthorizedError);
+        expect(provider.redirectedTo).toHaveLength(1);
+
+        let thrown: unknown;
+        try {
+            await transport.finishAuth('granted-code', iss);
+        } catch (error) {
+            thrown = error;
+        }
+        return { thrown, tokenCalls: as.tokenCalls, provider };
+    } finally {
+        await client.close();
+        await mcpHost.close();
+    }
+}
+
+verifies('client-auth:iss:match', async (_args: TestArgs) => {
+    const { thrown, tokenCalls, provider } = await runFinishAuthScenario({ authorization_response_iss_parameter_supported: true }, ISSUER);
+    expect(thrown).toBeUndefined();
+    expect(tokenCalls).toHaveLength(1);
+    expect(defined(tokenCalls[0], 'token call').body.get('code')).toBe('granted-code');
+    expect(provider.saved.tokens?.access_token).toBe('iss-flow-token');
+});
+
+verifies('client-auth:iss:mismatch-reject', async (_args: TestArgs) => {
+    const { thrown, tokenCalls } = await runFinishAuthScenario(
+        { authorization_response_iss_parameter_supported: true },
+        'https://attacker.example.com'
+    );
+    expect(thrown).toBeInstanceOf(IssuerMismatchError);
+    expect((thrown as IssuerMismatchError).kind).toBe('authorization_response');
+    expect((thrown as IssuerMismatchError).expected).toBe(ISSUER);
+    // The authorization code never reaches a token endpoint.
+    expect(tokenCalls).toHaveLength(0);
+});
+
+verifies('client-auth:iss:supported-missing-reject', async (_args: TestArgs) => {
+    const { thrown, tokenCalls } = await runFinishAuthScenario({ authorization_response_iss_parameter_supported: true }, undefined);
+    expect(thrown).toBeInstanceOf(IssuerMismatchError);
+    expect((thrown as IssuerMismatchError).received).toBeUndefined();
+    expect(tokenCalls).toHaveLength(0);
+});
+
+verifies('client-auth:iss:unadvertised-proceed', async (_args: TestArgs) => {
+    // Row 4: not advertised + iss absent → the exchange proceeds. Also covers row 3 (not advertised
+    // + iss present → still compared) by additionally asserting the same scenario rejects a wrong iss.
+    const proceed = await runFinishAuthScenario({}, undefined);
+    expect(proceed.thrown).toBeUndefined();
+    expect(proceed.tokenCalls).toHaveLength(1);
+
+    const reject = await runFinishAuthScenario({}, 'https://attacker.example.com');
+    expect(reject.thrown).toBeInstanceOf(IssuerMismatchError);
+    expect(reject.tokenCalls).toHaveLength(0);
+});
+
+verifies('client-auth:iss:no-normalize', async (_args: TestArgs) => {
+    // Each value is URL-equivalent to ISSUER under RFC 3986 §6.2.2-6.2.3 normalization, but
+    // RFC 9207 mandates simple string comparison — every one MUST be rejected.
+    for (const iss of [ISSUER.toUpperCase(), `${ISSUER}/`, `${ISSUER}:443`, ISSUER.replace('https', 'HTTPS')]) {
+        expect(() => validateAuthorizationResponseIssuer({ iss, expectedIssuer: ISSUER, issParameterSupported: true })).toThrow(
+            IssuerMismatchError
+        );
+    }
+
+    // And end-to-end through finishAuth(): a trailing-slash difference is a real reject.
+    const { thrown, tokenCalls } = await runFinishAuthScenario({ authorization_response_iss_parameter_supported: true }, `${ISSUER}/`);
+    expect(thrown).toBeInstanceOf(IssuerMismatchError);
+    expect(tokenCalls).toHaveLength(0);
+});
+
+verifies('client-auth:iss:opt-out', async (_args: TestArgs) => {
+    // skipIssuerMetadataValidation suppresses AU-02 (metadata echo): mismatched-issuer metadata is accepted.
+    const as = createMockAuthorizationServer({ asMetadata: { issuer: 'https://misconfigured.example.com' } });
+    const fetchFn = (url: URL | string, init?: RequestInit) => as.handleRequest(new Request(url, init));
+    const provider = new RecordingOAuthClientProvider();
+    await auth(provider, { serverUrl: MCP_URL, skipIssuerMetadataValidation: true, fetchFn });
+    expect(provider.redirectedTo).toHaveLength(1);
+
+    // It does NOT suppress AU-01 (callback iss): a mismatched iss is still rejected before token exchange.
+    await expect(
+        auth(provider, {
+            serverUrl: MCP_URL,
+            authorizationCode: 'granted-code',
+            iss: 'https://attacker.example.com',
+            skipIssuerMetadataValidation: true,
+            fetchFn
+        })
+    ).rejects.toThrow(IssuerMismatchError);
+    expect(as.tokenCalls).toHaveLength(0);
 });
 
 verifies('client-auth:bearer-header:every-request', async (_args: TestArgs) => {
@@ -921,8 +1033,10 @@ verifies('client-auth:prm-discovery:fallback-order', async (_args: TestArgs) => 
 
 verifies('client-auth:prm-discovery:no-prm-fallback', async (_args: TestArgs) => {
     const VALID = 'legacy-fallback-token';
+    // RFC 8414 §3.3: metadata fetched at the MCP origin must claim that origin as its issuer.
     const as = createMockAuthorizationServer({
         noPRMDiscovery: true,
+        asMetadata: { issuer: new URL(MCP_URL).origin },
         tokenResponses: [{ access_token: VALID, token_type: 'Bearer' }]
     });
     const provider = new RecordingOAuthClientProvider({ clientInformation: { client_id: 'legacy-fallback-client' } });

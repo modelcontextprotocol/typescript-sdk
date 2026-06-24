@@ -19,17 +19,27 @@
 
 client:
     # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-    # SEP-2468 (authorization response iss parameter): not implemented in the client.
+    # SEP-2468 (authorization response iss parameter): the SEP-2468 check itself
+    # PASSES — these stay listed because the referee's createAuthServer also
+    # asserts SEP-837 `application_type` on the same DCR request, which fails
+    # until PR-B (SEP-837 heuristic-default) lands. Burn these alongside PR-B.
     - auth/iss-supported
     - auth/iss-not-advertised
     - auth/iss-supported-missing
     - auth/iss-wrong-issuer
     - auth/iss-unexpected
     - auth/iss-normalized
-    - auth/metadata-issuer-mismatch
+    # `auth/metadata-issuer-mismatch` (the seventh SEP-2468 cell) burns: the SDK
+    # rejects the mismatched metadata before DCR, so the SEP-837 check never fires.
     # SEP-2352 (authorization server migration): client does not re-register when
     # PRM authorization_servers changes.
     - auth/authorization-server-migration
+    # SEP-2468 RFC 9207 `iss` validation is now default-ON. The referee's
+    # 2025-03-26 backcompat mock emits a callback `iss` with a `/oauth` path
+    # component that does not match its own metadata `issuer` (conformance#359
+    # fixed the metadata side; the callback `iss` is a follow-up). The SDK
+    # correctly rejects per RFC 9207 §2.4. Scenario is `removedIn: 2025-06-18`.
+    - auth/2025-03-26-oauth-metadata-backcompat
     # SEP-837 (application_type during DCR): the check only fires on draft-version
     # runs; this draft scenario is the one place the client still hits it.
     - auth/offline-access-not-supported
