@@ -8,9 +8,11 @@
 
 export type {
     AddClientAuthentication,
+    AuthOptions,
     AuthProvider,
     AuthResult,
     ClientAuthMethod,
+    OAuthClientInformationContext,
     OAuthClientProvider,
     OAuthDiscoveryState,
     OAuthServerInfo
@@ -37,6 +39,7 @@ export {
     UnauthorizedError,
     validateClientMetadataUrl
 } from './client/auth.js';
+export { OAuthClientFlowError } from './client/authErrors.js';
 export type {
     AssertionCallback,
     ClientCredentialsProviderOptions,

@@ -8,7 +8,9 @@ import type {
     OAuthClientMetadata,
     OAuthMetadata,
     OAuthProtectedResourceMetadata,
-    OAuthTokens
+    OAuthTokens,
+    StoredOAuthClientInformation,
+    StoredOAuthTokens
 } from '@modelcontextprotocol/core';
 import {
     checkResourceAllowed,
@@ -80,6 +82,22 @@ export interface AuthProvider {
      * needed so the next `token()` call returns a valid token.
      */
     onUnauthorized?(ctx: UnauthorizedContext): Promise<void>;
+}
+
+/**
+ * Context passed to the credential-persistence methods on
+ * {@linkcode OAuthClientProvider} — `clientInformation` / `saveClientInformation`
+ * and `tokens` / `saveTokens`. Carries the resolved authorization-server `issuer`
+ * so provider implementations can key persisted credentials per authorization
+ * server (RFC 6749 §2.2 — client identifiers are unique to the AS that issued
+ * them). Providers that store a single credential set may ignore it.
+ */
+export interface OAuthClientInformationContext {
+    /**
+     * The authorization server's `issuer` identifier from its validated metadata
+     * document, used as the binding key for persisted credentials.
+     */
+    issuer: string;
 }
 
 /**
@@ -167,8 +185,14 @@ export interface OAuthClientProvider {
      * Loads information about this OAuth client, as registered already with the
      * server, or returns `undefined` if the client is not registered with the
      * server.
+     *
+     * @param ctx - Carries the resolved authorization-server `issuer`. Providers
+     *   that persist credentials per authorization server should return the entry
+     *   keyed by `ctx.issuer`. Providers with a single credential set may ignore it.
      */
-    clientInformation(): OAuthClientInformationMixed | undefined | Promise<OAuthClientInformationMixed | undefined>;
+    clientInformation(
+        ctx?: OAuthClientInformationContext
+    ): StoredOAuthClientInformation | undefined | Promise<StoredOAuthClientInformation | undefined>;
 
     /**
      * If implemented, this permits the OAuth client to dynamically register with
@@ -177,20 +201,32 @@ export interface OAuthClientProvider {
      *
      * This method is not required to be implemented if client information is
      * statically known (e.g., pre-registered).
+     *
+     * @param ctx - Carries the resolved authorization-server `issuer`. Providers
+     *   that persist credentials per authorization server should store the entry
+     *   keyed by `ctx.issuer`.
      */
-    saveClientInformation?(clientInformation: OAuthClientInformationMixed): void | Promise<void>;
+    saveClientInformation?(clientInformation: StoredOAuthClientInformation, ctx?: OAuthClientInformationContext): void | Promise<void>;
 
     /**
      * Loads any existing OAuth tokens for the current session, or returns
      * `undefined` if there are no saved tokens.
+     *
+     * @param ctx - Carries the resolved authorization-server `issuer`. Providers
+     *   that persist tokens per authorization server should return the entry
+     *   keyed by `ctx.issuer`. Providers with a single token set may ignore it.
      */
-    tokens(): OAuthTokens | undefined | Promise<OAuthTokens | undefined>;
+    tokens(ctx?: OAuthClientInformationContext): StoredOAuthTokens | undefined | Promise<StoredOAuthTokens | undefined>;
 
     /**
      * Stores new OAuth tokens for the current session, after a successful
      * authorization.
+     *
+     * @param ctx - Carries the resolved authorization-server `issuer`. Providers
+     *   that persist tokens per authorization server should store the entry
+     *   keyed by `ctx.issuer`.
      */
-    saveTokens(tokens: OAuthTokens): void | Promise<void>;
+    saveTokens(tokens: StoredOAuthTokens, ctx?: OAuthClientInformationContext): void | Promise<void>;
 
     /**
      * Invoked to redirect the user agent to the given URL to begin the authorization flow.
@@ -532,21 +568,49 @@ export async function parseErrorResponse(input: Response | string): Promise<OAut
 }
 
 /**
+ * Options for {@linkcode auth}. The full OAuth flow orchestrator's input.
+ */
+export interface AuthOptions {
+    /** The MCP server URL — the protected resource the flow authorizes against. */
+    serverUrl: string | URL;
+    /**
+     * The authorization code returned by the authorization server on the redirect
+     * callback. When set, {@linkcode auth} exchanges it for tokens; when unset,
+     * {@linkcode auth} runs discovery and either refreshes or initiates redirect.
+     */
+    authorizationCode?: string;
+    /**
+     * The form-urldecoded `iss` query parameter from the authorization callback,
+     * if present. Passed through to RFC 9207 §2.4 issuer validation alongside
+     * `authorizationCode`. The validation behavior is wired up in a follow-up
+     * change; this field is currently inert.
+     */
+    iss?: string;
+    /** Scope to request; computed by Scope Selection Strategy when omitted. */
+    scope?: string;
+    /** Explicit `resource_metadata` URL from a `WWW-Authenticate` challenge. */
+    resourceMetadataUrl?: URL;
+    /** Custom `fetch` implementation. */
+    fetchFn?: FetchLike;
+    /**
+     * Opt-out for the RFC 8414 §3.3 issuer-echo check during authorization
+     * server discovery. Disabling it is **security-weakening** and intended only
+     * for authorization servers known to publish a mismatched `issuer`. The
+     * check itself is wired up in a follow-up change; this flag is currently
+     * inert.
+     *
+     * @default false
+     */
+    skipIssuerMetadataValidation?: boolean;
+}
+
+/**
  * Orchestrates the full auth flow with a server.
  *
  * This can be used as a single entry point for all authorization functionality,
  * instead of linking together the other lower-level functions in this module.
  */
-export async function auth(
-    provider: OAuthClientProvider,
-    options: {
-        serverUrl: string | URL;
-        authorizationCode?: string;
-        scope?: string;
-        resourceMetadataUrl?: URL;
-        fetchFn?: FetchLike;
-    }
-): Promise<AuthResult> {
+export async function auth(provider: OAuthClientProvider, options: AuthOptions): Promise<AuthResult> {
     try {
         return await authInternal(provider, options);
     } catch (error) {
@@ -600,19 +664,7 @@ export function determineScope(options: {
 
 async function authInternal(
     provider: OAuthClientProvider,
-    {
-        serverUrl,
-        authorizationCode,
-        scope,
-        resourceMetadataUrl,
-        fetchFn
-    }: {
-        serverUrl: string | URL;
-        authorizationCode?: string;
-        scope?: string;
-        resourceMetadataUrl?: URL;
-        fetchFn?: FetchLike;
-    }
+    { serverUrl, authorizationCode, scope, resourceMetadataUrl, fetchFn }: AuthOptions
 ): Promise<AuthResult> {
     // Check if the provider has cached discovery state to skip discovery
     const cachedState = await provider.discoveryState?.();
