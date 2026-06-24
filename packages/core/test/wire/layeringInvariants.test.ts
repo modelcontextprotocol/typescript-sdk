@@ -6,9 +6,7 @@
  * lint rules cannot be silently weakened, scoped away, or `eslint-disable`d.
  *
  * Invariants:
- *   (a) No file outside src/wire/ imports from a wire/rev… module.
- *       One allowed exception: types/types.ts holds a single TYPE-ONLY import
- *       of the deprecated Task* vocabulary from wire/rev2025-11-25 (Q1-SD2).
+ *   (a) No file outside src/wire/ imports from a wire/rev… module. No exceptions.
  *   (b) No file inside a src/wire/rev… directory has a runtime (non-type-only)
  *       import from types/schemas — wire revision schemas are frozen copies.
  *   (c) No `eslint-disable` directive for `no-restricted-imports` appears in
@@ -61,14 +59,7 @@ describe('wire-layer / public-layer import isolation', () => {
 
     test('(a) no file outside src/wire/ imports from a wire/rev* module', () => {
         const offenders = outsideWire.filter(f => WIRE_REV_IMPORT.test(read(f)));
-        // Q1-SD2: types/types.ts re-exports the deprecated Task* vocabulary as
-        // TYPES ONLY from the 2025-11-25 wire schemas. That single type-only
-        // crossing is permitted; everything else routes through wire/codec.ts.
-        expect(offenders).toEqual(['types/types.ts']);
-        const typesSrc = read('types/types.ts');
-        const crossings = [...typesSrc.matchAll(new RegExp(WIRE_REV_IMPORT.source, 'gm'))];
-        expect(crossings).toHaveLength(1);
-        expect(crossings[0]?.[0].startsWith('import type')).toBe(true);
+        expect(offenders).toEqual([]);
     });
 
     test('(b) no runtime import of types/schemas inside src/wire/rev*/', () => {

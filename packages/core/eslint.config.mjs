@@ -8,9 +8,9 @@ export default [
         // Wire-layer isolation, outbound direction: nothing outside src/wire/ may
         // reach into a wire revision module. The wire layer's only public surface
         // is src/wire/codec.ts (the WireCodec interface) and src/wire/bootstrap.ts.
-        // Type-only imports are exempted — the sole intended user of that exemption
-        // is types/types.ts re-exporting the deprecated Task* vocabulary as types
-        // (Q1-SD2); test/wire/layeringInvariants.test.ts pins it to that one site.
+        // test/wire/layeringInvariants.test.ts re-derives the same invariant with
+        // zero exceptions. Type-only imports are exempted at the lint layer (a
+        // type-only crossing is erased at runtime), but the test allows none.
         files: ['src/**/*.ts'],
         ignores: ['src/wire/**'],
         rules: {
@@ -21,9 +21,7 @@ export default [
                         {
                             group: ['**/wire/rev*', '**/wire/rev*/**', '@modelcontextprotocol/core/wire/rev*'],
                             allowTypeImports: true,
-                            message:
-                                'Wire revision modules are codec-private. Route through src/wire/codec.ts (WireCodec) instead. ' +
-                                'The only permitted crossing is the type-only Task* re-export in types/types.ts (Q1-SD2).'
+                            message: 'Wire revision modules are codec-private. Route through src/wire/codec.ts (WireCodec) instead.'
                         }
                     ]
                 }

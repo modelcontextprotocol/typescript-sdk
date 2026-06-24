@@ -2219,8 +2219,7 @@ export class Client extends Protocol<ClientContext> {
 
         // The method-keyed request() path validates the era registry's plain
         // CallToolResult schema — with the result map aligned to the typed
-        // map there is no wider union to narrow away (Q1-SD2 holds by
-        // construction).
+        // map there is no wider union to narrow away.
         let result: CallToolResult;
         try {
             result = await this.request({ method: 'tools/call', params }, await buildSendOptions());

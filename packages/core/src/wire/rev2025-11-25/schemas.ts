@@ -12,9 +12,11 @@
  *
  * The 2025-only delta (the task message surface, restored types-only by #2248
  * for interop with task-capable 2025 peers) is parsed ONLY through this era's
- * registry; the deprecated Task* TYPES remain importable from the types barrel
- * (Q1-SD2: nameability is constant, runtime availability is version-keyed) but
- * appear in no API signature. Q1 increment 2 — deletions are physical: the
+ * registry; the deprecated Task* schemas also live (marked `@deprecated`) in
+ * the neutral schema layer so the public types stay nameable without a
+ * cross-layer import — nameability is constant, runtime availability is
+ * version-keyed — but appear in no API signature. Q1 increment 2 — deletions
+ * are physical: the
  * 2026-era REGISTRY has no Task* methods (its frozen building-block copies do
  * carry the deprecated Task* sub-schemas by composition — soft contamination,
  * tracked for anchor-exactness adjudication).

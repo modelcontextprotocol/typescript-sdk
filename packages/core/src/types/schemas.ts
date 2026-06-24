@@ -2154,13 +2154,182 @@ export const RootsListChangedNotificationSchema = NotificationSchema.extend({
     params: NotificationsParamsSchema.optional()
 });
 
+/* ───────────────────────────────────────────────────────────────────────────
+ * Tasks (2025-11-25 wire vocabulary, DEPRECATED)
+ *
+ * The task message surface defined by the 2025-11-25 protocol revision. These
+ * schemas are kept in the neutral layer so the public Task* types stay
+ * nameable without a cross-layer import into wire/rev*; the wire-parse
+ * contract for them is the FROZEN copy in wire/rev2025-11-25/schemas.ts.
+ *
+ * They appear in NO role aggregate below and no API signature — nameable-only
+ * vocabulary for interop with task-capable 2025 peers (#2248). Removable at
+ * the major version that drops 2025-era support.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Task creation parameters, used to ask that the server create a task to represent a request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const TaskCreationParamsSchema = z.looseObject({
+    /**
+     * Requested duration in milliseconds to retain task from creation.
+     */
+    ttl: z.number().optional(),
+
+    /**
+     * Time in milliseconds to wait between task status requests.
+     */
+    pollInterval: z.number().optional()
+});
+
+/**
+ * The status of a task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const TaskStatusSchema = z.enum(['working', 'input_required', 'completed', 'failed', 'cancelled']);
+
+/**
+ * A pollable state object associated with a request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const TaskSchema = z.object({
+    taskId: z.string(),
+    status: TaskStatusSchema,
+    /**
+     * Time in milliseconds to keep task results available after completion.
+     * If `null`, the task has unlimited lifetime until manually cleaned up.
+     */
+    ttl: z.union([z.number(), z.null()]),
+    /**
+     * ISO 8601 timestamp when the task was created.
+     */
+    createdAt: z.string(),
+    /**
+     * ISO 8601 timestamp when the task was last updated.
+     */
+    lastUpdatedAt: z.string(),
+    pollInterval: z.optional(z.number()),
+    /**
+     * Optional diagnostic message for failed tasks or other status information.
+     */
+    statusMessage: z.optional(z.string())
+});
+
+/**
+ * Result returned when a task is created, containing the task data wrapped in a `task` field.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const CreateTaskResultSchema = ResultSchema.extend({
+    task: TaskSchema
+});
+
+/**
+ * Parameters for task status notification.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const TaskStatusNotificationParamsSchema = NotificationsParamsSchema.merge(TaskSchema);
+
+/**
+ * A notification sent when a task's status changes.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const TaskStatusNotificationSchema = NotificationSchema.extend({
+    method: z.literal('notifications/tasks/status'),
+    params: TaskStatusNotificationParamsSchema
+});
+
+/**
+ * A request to get the state of a specific task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const GetTaskRequestSchema = RequestSchema.extend({
+    method: z.literal('tasks/get'),
+    params: BaseRequestParamsSchema.extend({
+        taskId: z.string()
+    })
+});
+
+/**
+ * The response to a {@linkcode GetTaskRequest | tasks/get} request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const GetTaskResultSchema = ResultSchema.merge(TaskSchema);
+
+/**
+ * A request to get the result of a specific task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const GetTaskPayloadRequestSchema = RequestSchema.extend({
+    method: z.literal('tasks/result'),
+    params: BaseRequestParamsSchema.extend({
+        taskId: z.string()
+    })
+});
+
+/**
+ * The response to a `tasks/result` request.
+ * The structure matches the result type of the original request.
+ * For example, a {@linkcode CallToolRequest | tools/call} task would return the `CallToolResult` structure.
+ *
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const GetTaskPayloadResultSchema = ResultSchema.loose();
+
+/**
+ * A request to list tasks.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const ListTasksRequestSchema = PaginatedRequestSchema.extend({
+    method: z.literal('tasks/list')
+});
+
+/**
+ * The response to a {@linkcode ListTasksRequest | tasks/list} request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const ListTasksResultSchema = PaginatedResultSchema.extend({
+    tasks: z.array(TaskSchema)
+});
+
+/**
+ * A request to cancel a specific task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const CancelTaskRequestSchema = RequestSchema.extend({
+    method: z.literal('tasks/cancel'),
+    params: BaseRequestParamsSchema.extend({
+        taskId: z.string()
+    })
+});
+
+/**
+ * The response to a {@linkcode CancelTaskRequest | tasks/cancel} request.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
+export const CancelTaskResultSchema = ResultSchema.merge(TaskSchema);
+
 /* Client messages */
 // NOTE (Q1 increment 2): the role unions below are the NEUTRAL message sets.
 // The 2025-era task vocabulary (tasks/* methods, task results, the task
-// status notification) is 2025-only WIRE vocabulary and now lives in
-// `wire/rev2025-11-25/schemas.ts`, which also exports the era's full wire
-// role unions. The deprecated Task* types remain importable from the types
-// barrel (Q1-SD2); they appear in no role aggregate and no API signature.
+// status notification) is 2025-only WIRE vocabulary; the deprecated Task*
+// schemas above are nameable-only and appear in NO role aggregate and no API
+// signature. The era's full wire role unions live in
+// `wire/rev2025-11-25/schemas.ts`.
 export const ClientRequestSchema = z.union([
     PingRequestSchema,
     InitializeRequestSchema,

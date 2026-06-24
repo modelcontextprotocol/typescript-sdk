@@ -4,26 +4,6 @@
 
 import type * as z from 'zod/v4';
 
-// Wire-module schema imports, TYPE-ONLY (erased at runtime): the deprecated
-// task vocabulary and the per-request envelope are wire-era artifacts whose
-// schemas live in the codec modules; their inferred TYPES stay importable
-// from this neutral layer (Q1-SD2).
-import type {
-    CancelTaskRequestSchema,
-    CancelTaskResultSchema,
-    CreateTaskResultSchema,
-    GetTaskPayloadRequestSchema,
-    GetTaskPayloadResultSchema,
-    GetTaskRequestSchema,
-    GetTaskResultSchema,
-    ListTasksRequestSchema,
-    ListTasksResultSchema,
-    TaskCreationParamsSchema,
-    TaskSchema,
-    TaskStatusNotificationParamsSchema,
-    TaskStatusNotificationSchema,
-    TaskStatusSchema
-} from '../wire/rev2025-11-25/schemas.js';
 import type {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -47,6 +27,8 @@ import type {
     CallToolResultSchema,
     CancelledNotificationParamsSchema,
     CancelledNotificationSchema,
+    CancelTaskRequestSchema,
+    CancelTaskResultSchema,
     ClientCapabilitiesSchema,
     ClientNotificationSchema,
     ClientRequestSchema,
@@ -60,6 +42,7 @@ import type {
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    CreateTaskResultSchema,
     CursorSchema,
     DiscoverRequestSchema,
     DiscoverResultSchema,
@@ -76,6 +59,10 @@ import type {
     GetPromptRequestParamsSchema,
     GetPromptRequestSchema,
     GetPromptResultSchema,
+    GetTaskPayloadRequestSchema,
+    GetTaskPayloadResultSchema,
+    GetTaskRequestSchema,
+    GetTaskResultSchema,
     IconSchema,
     IconsSchema,
     ImageContentSchema,
@@ -97,6 +84,8 @@ import type {
     ListResourceTemplatesResultSchema,
     ListRootsRequestSchema,
     ListRootsResultSchema,
+    ListTasksRequestSchema,
+    ListTasksResultSchema,
     ListToolsRequestSchema,
     ListToolsResultSchema,
     LoggingLevelSchema,
@@ -161,7 +150,12 @@ import type {
     SubscriptionsListenRequestParamsSchema,
     SubscriptionsListenRequestSchema,
     TaskAugmentedRequestParamsSchema,
+    TaskCreationParamsSchema,
     TaskMetadataSchema,
+    TaskSchema,
+    TaskStatusNotificationParamsSchema,
+    TaskStatusNotificationSchema,
+    TaskStatusSchema,
     TextContentSchema,
     TextResourceContentsSchema,
     TitledMultiSelectEnumSchemaSchema,
@@ -247,9 +241,8 @@ export type NotificationParams = Infer<typeof NotificationsParamsSchema>;
  *
  * Neutral hand-written shape keyed by the public meta-key constants — never
  * inferred from a wire-module schema (this neutral layer does not import from
- * `wire/rev*` for runtime types; the deprecated 2025-11-25 task vocabulary
- * above is the sole, type-only carve-out). A `type` alias rather than an
- * interface so it stays assignable to `_meta`'s string-indexed object slot.
+ * `wire/rev*`). A `type` alias rather than an interface so it stays assignable
+ * to `_meta`'s string-indexed object slot.
  */
 export type RequestMetaEnvelope = {
     [PROTOCOL_VERSION_META_KEY]: string;
