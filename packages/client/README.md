@@ -16,6 +16,8 @@ The MCP (Model Context Protocol) TypeScript client SDK. Build MCP clients that c
 npm install @modelcontextprotocol/client@alpha
 ```
 
+TypeScript ≥6.0 no longer auto-includes `@types/*` — add `"types": ["node"]` to your `tsconfig.json` `compilerOptions` (the published `.d.mts` references `Buffer`).
+
 ## Documentation
 
 - **[Repository README](https://github.com/modelcontextprotocol/typescript-sdk#readme)** — overview, package layout, examples
