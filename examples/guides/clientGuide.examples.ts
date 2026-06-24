@@ -101,6 +101,20 @@ async function Client_versionNegotiation(transport: StreamableHTTPClientTranspor
     //#endregion Client_versionNegotiation
 }
 
+/** Example: zero-round-trip connect from a persisted DiscoverResult. */
+async function Client_connect_prior(url: URL) {
+    //#region Client_connect_prior
+    // Probe once (here via the 'auto'-mode connect), persist the result …
+    const bootstrap = new Client({ name: 'gateway', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+    await bootstrap.connect(new StreamableHTTPClientTransport(url));
+    const persisted = JSON.stringify(bootstrap.getDiscoverResult());
+
+    // … then every worker connects with zero round trips.
+    const worker = new Client({ name: 'worker', version: '1.0.0' });
+    await worker.connect(new StreamableHTTPClientTransport(url), { prior: JSON.parse(persisted) });
+    //#endregion Client_connect_prior
+}
+
 // ---------------------------------------------------------------------------
 // Disconnecting
 // ---------------------------------------------------------------------------

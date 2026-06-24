@@ -121,6 +121,26 @@ Once a modern era is negotiated, the client automatically attaches the per-reque
 already-constructed instance via {@linkcode @modelcontextprotocol/client!client/client.Client#setVersionNegotiation | client.setVersionNegotiation()}. See the [2026-07-28 support guide](./migration/support-2026-07-28.md#serving-the-2026-07-28-revision) for the full failure semantics,
 probe policy, and the `'auto'`-mode compatibility table.
 
+#### Skipping the probe: `connect({ prior })`
+
+A gateway, proxy, or worker fleet that already knows the server's `server/discover` advertisement can skip the probe entirely. Pass a previously-obtained {@linkcode @modelcontextprotocol/client!index.DiscoverResult | DiscoverResult} via
+{@linkcode @modelcontextprotocol/client!client/client.ConnectOptions | ConnectOptions.prior} and `connect()` adopts it directly with **zero round trips** — the 2026-07-28 protocol is stateless on HTTP, so once the advertisement is known there is nothing left to negotiate.
+
+```ts source="../examples/guides/clientGuide.examples.ts#Client_connect_prior"
+// Probe once (here via the 'auto'-mode connect), persist the result …
+const bootstrap = new Client({ name: 'gateway', version: '1.0.0' }, { versionNegotiation: { mode: 'auto' } });
+await bootstrap.connect(new StreamableHTTPClientTransport(url));
+const persisted = JSON.stringify(bootstrap.getDiscoverResult());
+
+// … then every worker connects with zero round trips.
+const worker = new Client({ name: 'worker', version: '1.0.0' });
+await worker.connect(new StreamableHTTPClientTransport(url), { prior: JSON.parse(persisted) });
+```
+
+{@linkcode @modelcontextprotocol/client!client/client.Client#getDiscoverResult | client.getDiscoverResult()} returns the value that the `'auto'`/pinned probe path, an explicit {@linkcode @modelcontextprotocol/client!client/client.Client#discover | client.discover()} call, or a
+prior `connect({ prior })` recorded; it round-trips through `JSON.stringify`/`JSON.parse`. `connect({ prior })` is **2026-07-28+ only** — it rejects with `SdkError(EraNegotiationFailed)` when the supplied result and the client share no modern revision. Only reuse a persisted
+`DiscoverResult` across clients that present the **same authorization context** as the one that obtained it. See the [`gateway/` example](../examples/gateway/README.md) for the full probe-once / connect-many pattern with a server-side proof.
+
 ### Disconnecting
 
 Call {@linkcode @modelcontextprotocol/client!client/client.Client#close | await client.close() } to disconnect. Pending requests are rejected with a {@linkcode @modelcontextprotocol/client!index.SdkErrorCode.ConnectionClosed | CONNECTION_CLOSED} error.

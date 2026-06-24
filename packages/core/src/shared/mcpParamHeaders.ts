@@ -191,6 +191,10 @@ const BASE64_SENTINEL_SUFFIX = '?=';
 // RFC 4648 §4, padding required (the spec's encoding-examples table and the
 // conformance referee's invalid-padding cell both require canonical padding).
 const BASE64_CANONICAL = /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/;
+// Strict decimal — gates the numeric comparison in `validateMcpParamHeaders`
+// so `Number()` never sees the looser forms it would otherwise accept
+// (`'0x1a'`, `' 42 '`, `'1e3'`).
+const CANONICAL_DECIMAL = /^-?\d+(\.\d+)?$/;
 
 /**
  * Convert a primitive argument value to its string representation per the
@@ -369,17 +373,18 @@ export function validateMcpParamHeaders(
             );
         }
         // Integer/number-typed declarations compare numerically (the spec's
-        // SHOULD — `42.0` and `42` are equal), but only when both sides parse
-        // to finite numbers. A non-numeric primitive (e.g. `'abc'` where the
-        // schema declares `integer`) is a body-vs-schema fault that params
-        // validation owns; comparing `NaN === NaN` would wrongly report a
-        // header/body mismatch for an identical pair, so fall back to string
-        // comparison and let dispatch emit `-32602` instead.
-        const decodedNum = Number(decoded);
-        const bodyNum = Number(bodyString);
+        // SHOULD — `42.0` and `42` are equal). The strict-decimal gate is
+        // applied to the *header* side only (so `'0x1a'`, `' 42 '`, `'1e3'`
+        // etc. never coerce); the body side is gated on being an actual JS
+        // number — `String(0.0000001) === '1e-7'` would fail the regex even
+        // though the value is perfectly canonical. A non-numeric body
+        // primitive (e.g. `'abc'` where the schema declares `integer`) is a
+        // body-vs-schema fault that params validation owns; fall back to
+        // string comparison and let dispatch emit `-32602` instead so an
+        // identical non-numeric pair never reports a mismatch.
         const numericComparable =
-            (decl.type === 'integer' || decl.type === 'number') && Number.isFinite(decodedNum) && Number.isFinite(bodyNum);
-        const equal = numericComparable ? decodedNum === bodyNum : decoded === bodyString;
+            (decl.type === 'integer' || decl.type === 'number') && CANONICAL_DECIMAL.test(decoded) && typeof bodyRaw === 'number';
+        const equal = numericComparable ? Number(decoded) === bodyRaw : decoded === bodyString;
         if (!equal) {
             return paramHeaderMismatchRejection(
                 'param-header-mismatch',

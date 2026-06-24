@@ -17,6 +17,7 @@ runClient('tools', async () => {
     const required = (calc.inputSchema as { required?: string[] }).required ?? [];
     check.ok(required.includes('op') && required.includes('a') && required.includes('b'));
     check.ok(calc.outputSchema, 'calc should publish an outputSchema');
+    check.equal(calc.icons?.[0]?.src, 'https://example.test/calc.svg', 'calc should advertise its icons over the wire');
 
     const result = await client.callTool({ name: 'calc', arguments: { op: 'add', a: 2, b: 3 } });
     check.equal((result.structuredContent as { result?: number } | undefined)?.result, 5);
