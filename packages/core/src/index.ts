@@ -30,7 +30,6 @@ export * from './util/inMemory.js';
 export * from './util/schema.js';
 export * from './util/standardSchema.js';
 export * from './util/zodCompat.js';
-export type { WireCodec } from './wire/codec.js';
 export { codecForVersion, MODERN_WIRE_REVISION } from './wire/codec.js';
 
 // Validator providers are type-only here — import the runtime classes from the explicit
