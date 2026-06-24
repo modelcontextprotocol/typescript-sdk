@@ -109,6 +109,17 @@ describe('wrapOutputSchemaForLegacy: $id-scoped rewrite', () => {
         expect(dig(wrapped, 'properties', 'result', 'anyOf', 1)).toBe(sub);
     });
 
+    it('a root $schema is hoisted to the wrapper root (so the SEP-1613 dialect check still fires on the projection)', () => {
+        const wrapped = wrapOutputSchemaForLegacy({
+            $schema: 'http://json-schema.org/draft-07/schema#',
+            type: 'array',
+            items: { type: 'number' }
+        });
+        expect(wrapped['$schema']).toBe('http://json-schema.org/draft-07/schema#');
+        // The natural copy under properties.result also still carries it (harmless in subschema position).
+        expect(dig(wrapped, 'properties', 'result', '$schema')).toBe('http://json-schema.org/draft-07/schema#');
+    });
+
     it('a property NAMED $id under a name map does NOT establish a resolution base', () => {
         // `properties.$id` is a name-position entry whose value is a subschema; the
         // `$id` key here is a property name, not the keyword, so the surrounding

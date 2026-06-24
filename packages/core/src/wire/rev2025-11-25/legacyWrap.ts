@@ -68,10 +68,16 @@ const REF_REWRITE_NAME_MAP_KEYS: ReadonlySet<string> = new Set([
  * same reason.
  */
 export function wrapOutputSchemaForLegacy(natural: Readonly<Record<string, unknown>>): Record<string, unknown> {
+    // A root `$schema` is hoisted to the wrapper root: it's a document-level
+    // dialect declaration and the SEP-1613 dialect checks (both built-in
+    // providers) only inspect the root, so leaving it under `properties.result`
+    // would make a non-2020-12 schema pass the dialect check on the 2025
+    // projection while the same tool is rejected on the 2026 era.
+    const $schema = typeof natural['$schema'] === 'string' ? natural['$schema'] : undefined;
     // `$id` at the natural root: every same-document `#/…` ref inside resolves
     // against that base URI, not against the wrapper root — skip the rewrite.
     if (natural['$id'] !== undefined) {
-        return { type: 'object', properties: { result: natural }, required: ['result'] };
+        return { ...($schema !== undefined && { $schema }), type: 'object', properties: { result: natural }, required: ['result'] };
     }
     const rewriteRefs = (node: unknown, parentIsNameMap: boolean): unknown => {
         if (Array.isArray(node)) return node.map(item => rewriteRefs(item, false));
@@ -98,5 +104,10 @@ export function wrapOutputSchemaForLegacy(natural: Readonly<Record<string, unkno
         }
         return out;
     };
-    return { type: 'object', properties: { result: rewriteRefs(natural, false) }, required: ['result'] };
+    return {
+        ...($schema !== undefined && { $schema }),
+        type: 'object',
+        properties: { result: rewriteRefs(natural, false) },
+        required: ['result']
+    };
 }

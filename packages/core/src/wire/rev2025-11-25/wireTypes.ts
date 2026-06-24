@@ -26,8 +26,8 @@
  * - SEP-2106: `CallToolResult.structuredContent` / the `tool_result`
  *   sampling-content arm's `structuredContent` / `Tool.outputSchema`: 2025
  *   wire object-only; neutral `unknown` / open JSON Schema document. The
- *   2025 wire-exact shapes are inferred directly from the FROZEN copies in
- *   `./schemas.ts` (Wire2025SamplingMessage, Wire2025CallToolResult).
+ *   2025 wire-exact shape is inferred directly from the FROZEN copy in
+ *   `./schemas.ts` (Wire2025SamplingMessage).
  * - `PromptArgument.title` / `PromptReference.title`: present on the 2025
  *   wire (BaseMetadata); the neutral schemas do not declare it and the
  *   strip-mode parse drops it (PRE-EXISTING runtime gap, recorded in the
@@ -66,10 +66,7 @@ import type {
     Tool,
     UnsubscribeRequest
 } from '../../types/types.js';
-import type {
-    CallToolResultSchema as Frozen2025CallToolResultSchema,
-    SamplingMessageSchema as Frozen2025SamplingMessageSchema
-} from './schemas.js';
+import type { SamplingMessageSchema as Frozen2025SamplingMessageSchema } from './schemas.js';
 
 /** The 2025 anchor types blob values as bare `object`. */
 type ObjectMap = { [key: string]: object };
@@ -134,8 +131,6 @@ export type Wire2025InitializeResult = OmitKnown<InitializeResult, 'capabilities
 
 /** SEP-2106 adjudication: inferred from the FROZEN 2025 schema (object-only `structuredContent`). */
 export type Wire2025SamplingMessage = z4.infer<typeof Frozen2025SamplingMessageSchema>;
-/** SEP-2106 adjudication: inferred from the FROZEN 2025 schema (record `structuredContent`). */
-export type Wire2025CallToolResult = z4.infer<typeof Frozen2025CallToolResultSchema>;
 
 export type Wire2025CreateMessageRequestParams = OmitKnown<CreateMessageRequestParams, 'metadata' | 'tools' | 'messages'> & {
     metadata?: object;
