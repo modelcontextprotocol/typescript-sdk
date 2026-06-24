@@ -8,10 +8,7 @@
  * delta (the deprecated task family, the era role unions) AND frozen copies of
  * every era-shared shape (Tool, CallToolResult, Initialize*, ContentBlock,
  * prompts/resources/completion/elicitation, …). The 2026-era codec
- * (`wire/rev2026-07-28/`) is NOT yet symmetrically self-contained — it still
- * composes most era-shared building blocks from the neutral layer and only
- * locally re-defines the SEP-2106-affected and 2026-envelope shapes; completing
- * that separation is a follow-up for when the 2026 wire freezes.
+ * (`wire/rev2026-07-28/`) is symmetrically self-contained in the same way.
  *
  * The 2025-only delta (the task message surface, restored types-only by #2248
  * for interop with task-capable 2025 peers) is parsed ONLY through this era's

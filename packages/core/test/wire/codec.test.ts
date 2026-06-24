@@ -1,6 +1,6 @@
 /**
  * `codecForVersion` era resolution: the era predicate, not an exact-match
- * literal. A pinned modern revision other than '2026-08-28' (e.g. a
+ * literal. A pinned modern revision other than '2026-07-28' (e.g. a
  * `protocolVersionPin: '2026-09-01'`, or the first entry of a custom modern
  * supported-versions list) must resolve to the 2026-era codec — the probe
  * builder calls `codecForVersion(pin).outboundEnvelope(…)`, and an exact-match
