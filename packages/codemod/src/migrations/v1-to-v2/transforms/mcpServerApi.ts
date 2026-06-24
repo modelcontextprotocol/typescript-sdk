@@ -107,6 +107,9 @@ export const mcpServerApiTransform: Transform = {
             if (wrapSchemaInConfig(call, 'inputSchema', sourceFile, diagnostics)) {
                 changesCount++;
             }
+            if (wrapSchemaInConfig(call, 'outputSchema', sourceFile, diagnostics)) {
+                changesCount++;
+            }
         }
 
         for (const call of registerPromptCalls) {

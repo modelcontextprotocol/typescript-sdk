@@ -118,8 +118,7 @@ client.getNegotiatedProtocolVersion(); // '2026-07-28' or '2025-11-25'
 - **`mode: { pin: '2026-07-28' }`** — modern era at exactly that revision; no fallback. Against a 2025-only server `connect()` rejects with a typed error. Use `pin` where a silent downgrade would be worse than an error (tests, CI, servers you control).
 
 Once a modern era is negotiated, the client automatically attaches the per-request `_meta` envelope (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification. You can also configure negotiation pre-connect on an
-already-constructed instance via {@linkcode @modelcontextprotocol/client!client/client.Client#setVersionNegotiation | client.setVersionNegotiation()}. See the [2026-07-28 support guide](./migration/support-2026-07-28.md#serving-the-2026-07-28-revision) for the full failure semantics,
-probe policy, and the `'auto'`-mode compatibility table.
+already-constructed instance via {@linkcode @modelcontextprotocol/client!client/client.Client#setVersionNegotiation | client.setVersionNegotiation()}. See the [2026-07-28 support guide › Probe policy](./migration/support-2026-07-28.md#probe-policy) for the full failure semantics and probe-timeout behavior.
 
 #### Skipping the probe: `connect({ prior })`
 

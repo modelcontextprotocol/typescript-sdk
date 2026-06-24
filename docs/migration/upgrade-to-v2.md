@@ -67,8 +67,8 @@ In addition the codemod:
 - Updates `package.json` dependencies (`@modelcontextprotocol/sdk` → the v2 packages
   your imports actually use).
 - Rewrites `.tool()` / `.prompt()` / `.resource()` to `registerTool` / `registerPrompt`
-  / `registerResource` and wraps `inputSchema` / `argsSchema` / `uriSchema` raw Zod
-  shapes with `z.object()`.
+  / `registerResource` and wraps `inputSchema` / `outputSchema` / `argsSchema` /
+  `uriSchema` raw Zod shapes with `z.object()`.
 - Drops the result-schema argument from `client.request()` / `client.callTool()` for
   spec methods.
 - Rewrites standalone Zod-spec-schema usages: `XSchema.safeParse(v).success` →
@@ -104,9 +104,6 @@ recognized but could not safely rewrite with an `@mcp-codemod-error` comment.
 - **`ctx.mcpReq.send()` schema-arg drop** — the codemod drops the schema arg from
   `client.request()` / `client.callTool()` but leaves nested `ctx.mcpReq.send()` calls
   alone. → [Low-level protocol](#low-level-protocol--handler-context-ctx)
-- **`outputSchema` `z.object()` wrap** — `inputSchema`, `argsSchema`, and `uriSchema`
-  raw shapes are wrapped; `outputSchema` is left for review (it was rarely a raw shape
-  in v1). → [Server registration API](#server-registration-api)
 - **OAuth error-class consolidation** — `instanceof InvalidGrantError` → `OAuthError` +
   `OAuthErrorCode` is a judgment rewrite. → [Auth](#auth)
 - **`SdkErrorCode` branch selection** — the codemod renames `StreamableHTTPError` →
@@ -207,13 +204,13 @@ A few transports need a decision the codemod can't make:
   is now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
 
   The codemod's [`importMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts)
-  does **not** cover the per-file deep auth/middleware paths
-  (`…/server/auth/middleware/{bearerAuth,allowedMethods,clientAuth}.js`,
-  `…/server/auth/handlers/{authorize,metadata,register,revoke,token}.js`,
-  `…/server/auth/providers/proxyProvider.js`,
-  `…/server/middleware/hostHeaderValidation.js`, `…/server/express.js`) — rewrite those
-  imports by hand to the RS/AS targets above (`createMcpExpressApp` /
-  `CreateMcpExpressAppOptions` from `…/server/express.js` → `@modelcontextprotocol/express`).
+  routes every `…/server/auth/**` deep path (including
+  `…/server/auth/middleware/{bearerAuth,allowedMethods,clientAuth}.js`,
+  `…/server/auth/handlers/*.js`, `…/server/auth/providers/proxyProvider.js`) to
+  `@modelcontextprotocol/server-legacy/auth`, and `…/server/express.js` /
+  `…/server/middleware/hostHeaderValidation.js` to `@modelcontextprotocol/express`. The
+  AS→`server-legacy` routing is conservative — re-point RS-only call sites
+  (`requireBearerAuth`, `mcpAuthMetadataRouter`) at `@modelcontextprotocol/express` by hand.
 
 ### Low-level protocol & handler context (`ctx`)
 
@@ -328,9 +325,8 @@ The return type is inferred from the method name via `ResultTypeMap` (e.g.
 
 The deprecated variadic `.tool()`, `.prompt()`, `.resource()` are removed. Use
 `registerTool` / `registerPrompt` / `registerResource` with an explicit config object.
-The codemod converts the call shape and wraps `inputSchema` / `argsSchema` / `uriSchema`
-raw shapes; verify `outputSchema` (which the codemod does not wrap) is wrapped where
-present.
+The codemod converts the call shape and wraps `inputSchema` / `outputSchema` /
+`argsSchema` / `uriSchema` raw shapes.
 
 ```typescript
 // v1 — raw shape, variadic
@@ -806,7 +802,7 @@ surfaced per-tool on `callTool`).
 A tool may now register an `outputSchema` whose root is `type:"array"`, `type:"string"`,
 etc.; toward 2025-era clients the codec wraps it in a `{result:…}` envelope, and toward
 every era a non-object `structuredContent` with no `text` block of its own gets a
-`JSON.stringify(...)` `text` block auto-appended. See [support-2026-07-28.md](./support-2026-07-28.md#per-era-wire-codecs) for the per-era projection rules.
+`JSON.stringify(...)` `text` block auto-appended. See [support-2026-07-28.md › Per-era wire codecs](./support-2026-07-28.md#per-era-wire-codecs) for how the codec applies these per era.
 
 ### Behavioral changes
 

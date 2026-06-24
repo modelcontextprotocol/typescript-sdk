@@ -293,7 +293,7 @@ describe('integration', () => {
         expect(output).toContain('McpError');
     });
 
-    it('applies new transforms (removed APIs, SchemaInput, express middleware)', () => {
+    it('applies new transforms (removed APIs, SchemaInput, middleware import)', () => {
         const dir = createTempDir();
         const input = [
             `import { McpServer, schemaToJson, IsomorphicHeaders } from '@modelcontextprotocol/sdk/server/mcp.js';`,
@@ -304,7 +304,7 @@ describe('integration', () => {
             `type Input = SchemaInput<typeof mySchema>;`,
             `const h: IsomorphicHeaders = {};`,
             `if (error instanceof StreamableHTTPError) {}`,
-            `app.use(hostHeaderValidation({ allowedHosts: ['localhost'] }));`,
+            `app.use(hostHeaderValidation(['localhost']));`,
             ``
         ].join('\n');
 
@@ -331,9 +331,9 @@ describe('integration', () => {
         // schemaToJson removed (import gone)
         expect(output).not.toContain('schemaToJson');
 
-        // hostHeaderValidation signature migrated
+        // hostHeaderValidation import rewritten to @modelcontextprotocol/express; call unchanged
         expect(output).toContain("hostHeaderValidation(['localhost'])");
-        expect(output).not.toContain('allowedHosts');
+        expect(output).toContain('@modelcontextprotocol/express');
 
         // Diagnostics emitted
         expect(result.diagnostics.length).toBeGreaterThan(0);
@@ -470,7 +470,7 @@ describe('integration', () => {
             [
                 `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
                 `import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware.js';`,
-                `app.use(hostHeaderValidation({ allowedHosts: ['localhost'] }));`,
+                `app.use(hostHeaderValidation(['localhost']));`,
                 ``
             ].join('\n')
         );

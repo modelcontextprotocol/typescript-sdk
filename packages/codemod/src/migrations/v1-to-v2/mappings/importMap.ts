@@ -25,6 +25,10 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         target: '@modelcontextprotocol/client',
         status: 'moved'
     },
+    '@modelcontextprotocol/sdk/client/auth-extensions.js': {
+        target: '@modelcontextprotocol/client',
+        status: 'moved'
+    },
     '@modelcontextprotocol/sdk/client/streamableHttp.js': {
         target: '@modelcontextprotocol/client',
         status: 'moved'
@@ -83,6 +87,14 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
         target: '@modelcontextprotocol/express',
         status: 'moved'
     },
+    '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js': {
+        target: '@modelcontextprotocol/express',
+        status: 'moved'
+    },
+    '@modelcontextprotocol/sdk/server/express.js': {
+        target: '@modelcontextprotocol/express',
+        status: 'moved'
+    },
     '@modelcontextprotocol/sdk/server/zod-compat.js': {
         target: '',
         status: 'removed',
@@ -129,6 +141,14 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
     '@modelcontextprotocol/sdk/shared/transport.js': {
         target: 'RESOLVE_BY_CONTEXT',
+        status: 'moved'
+    },
+    '@modelcontextprotocol/sdk/shared/auth-utils.js': {
+        target: 'RESOLVE_BY_CONTEXT',
+        status: 'moved'
+    },
+    '@modelcontextprotocol/sdk/client/middleware.js': {
+        target: '@modelcontextprotocol/client',
         status: 'moved'
     },
     '@modelcontextprotocol/sdk/shared/uriTemplate.js': {
