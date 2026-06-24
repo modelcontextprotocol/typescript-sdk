@@ -18,6 +18,18 @@ pre-push:
     follow: true
     parallel: true
     jobs:
+        - name: 'Lockfile registry guard'
+          run: |
+              if grep -qE 'artifactory|\.svc\.cluster\.local' pnpm-lock.yaml; then
+                  echo ''
+                  echo 'ERROR: pnpm-lock.yaml contains a non-public registry URL.'
+                  echo 'A locally-configured scoped registry override has leaked into the lockfile.'
+                  echo 'The repo .npmrc pins all scopes to registry.npmjs.org — re-run `pnpm install`'
+                  echo 'from a clean shell (or remove the scoped override from your ~/.npmrc) and'
+                  echo 'verify the lockfile no longer references a private registry.'
+                  exit 1
+              fi
+
         - name: 'Typecheck'
           run: pnpm run typecheck:all
           fail_text: |
