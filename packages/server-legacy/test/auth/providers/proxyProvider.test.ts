@@ -106,6 +106,14 @@ describe('Proxy OAuth Server Provider', () => {
 
             expect(mockResponse.redirect).toHaveBeenCalledWith(expectedUrl.toString());
         });
+
+        it('reports authorizationResponseIssParameterSupported = false (upstream issues the callback)', () => {
+            // The proxy cannot guarantee its own `iss` on the callback, so the metadata flag
+            // derived from the provider must be false — otherwise RFC 9207 clients reject any
+            // callback that arrives *without* `iss`. (A present upstream `iss` still mismatches
+            // the proxy issuer regardless of this flag.)
+            expect(provider.authorizationResponseIssParameterSupported).toBe(false);
+        });
     });
 
     describe('token exchange', () => {

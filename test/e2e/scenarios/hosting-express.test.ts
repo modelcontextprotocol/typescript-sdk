@@ -25,12 +25,15 @@ import { createMcpExpressApp, mcpAuthMetadataRouter, requireBearerAuth } from '@
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import type { OAuthMetadata } from '@modelcontextprotocol/server';
 import { LATEST_PROTOCOL_VERSION, McpServer, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
+import type { AuthorizationParams, OAuthServerProvider } from '@modelcontextprotocol/server-legacy';
+import { mcpAuthRouter } from '@modelcontextprotocol/server-legacy';
 import type { Express, RequestHandler } from 'express';
 import express from 'express';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
 import { startExpressMinimal, startExpressWithHostValidation } from '../helpers/express.js';
+import { defined } from '../helpers/index.js';
 import { verifies } from '../helpers/verifies.js';
 import type { TestArgs } from '../types.js';
 
@@ -385,6 +388,70 @@ verifies('hosting:auth:query-token-ignored', async (_args: TestArgs) => {
         body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })
     });
     expect(headerRes.status).toBe(200);
+});
+
+verifies('hosting:auth:as-iss-emission', async (_args: TestArgs) => {
+    // Minimal OAuthServerProvider whose authorize() issues a plain success redirect WITHOUT
+    // appending `iss` itself — the bundled handler must add it so the metadata claim is true
+    // without provider action.
+    const seenIssuer: Array<string | undefined> = [];
+    const provider: OAuthServerProvider = {
+        clientsStore: {
+            // eslint-disable-next-line @typescript-eslint/require-await
+            async getClient(clientId) {
+                return clientId === 'demo-client'
+                    ? { client_id: 'demo-client', redirect_uris: ['https://client.example.com/cb'] }
+                    : undefined;
+            }
+        },
+        // eslint-disable-next-line @typescript-eslint/require-await
+        async authorize(_client, params: AuthorizationParams, res) {
+            seenIssuer.push(params.issuer);
+            const u = new URL(params.redirectUri);
+            u.searchParams.set('code', 'demo-auth-code');
+            if (params.state) u.searchParams.set('state', params.state);
+            res.redirect(302, u.href);
+        },
+        challengeForAuthorizationCode: async () => 'challenge',
+        exchangeAuthorizationCode: async () => ({ access_token: 't', token_type: 'Bearer' }),
+        exchangeRefreshToken: async () => ({ access_token: 't', token_type: 'Bearer' }),
+        verifyAccessToken: async token => ({ token, clientId: 'demo-client', scopes: [] })
+    };
+
+    const app = express();
+    app.use(mcpAuthRouter({ provider, issuerUrl: new URL('http://localhost/'), authorizationOptions: { rateLimit: false } }));
+    await using host = await startExpressMinimal(app);
+
+    // Metadata advertises RFC 9207 support.
+    const md = await fetch(new URL('/.well-known/oauth-authorization-server', host.baseUrl));
+    expect(md.status).toBe(200);
+    const mdBody = (await md.json()) as { issuer: string; authorization_response_iss_parameter_supported?: boolean };
+    expect(mdBody.authorization_response_iss_parameter_supported).toBe(true);
+
+    // Success redirect: handler supplies issuer to provider.authorize() and appends `iss` to
+    // the provider's redirect itself (provider did not set it).
+    const ok = await fetch(
+        new URL(
+            '/authorize?client_id=demo-client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcb&response_type=code&code_challenge=abc&code_challenge_method=S256&state=xyz',
+            host.baseUrl
+        ),
+        { redirect: 'manual' }
+    );
+    expect(ok.status).toBe(302);
+    const okLoc = new URL(defined(ok.headers.get('location'), 'location'));
+    expect(okLoc.searchParams.get('code')).toBe('demo-auth-code');
+    expect(okLoc.searchParams.get('iss')).toBe(mdBody.issuer);
+    expect(seenIssuer).toEqual([mdBody.issuer]);
+
+    // Error redirect (missing code_challenge → invalid_request): handler appends iss itself.
+    const err = await fetch(
+        new URL('/authorize?client_id=demo-client&redirect_uri=https%3A%2F%2Fclient.example.com%2Fcb&state=xyz', host.baseUrl),
+        { redirect: 'manual' }
+    );
+    expect(err.status).toBe(302);
+    const errLoc = new URL(defined(err.headers.get('location'), 'location'));
+    expect(errLoc.searchParams.get('error')).toBe('invalid_request');
+    expect(errLoc.searchParams.get('iss')).toBe(mdBody.issuer);
 });
 
 /** Listen `app` (already fully configured by the adapter under test) on an ephemeral 127.0.0.1 port; callers close() in finally. */

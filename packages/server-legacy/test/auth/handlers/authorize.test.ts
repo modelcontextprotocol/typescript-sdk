@@ -397,4 +397,78 @@ describe('Authorization Handler', () => {
             expect(location.searchParams.has('code')).toBe(true);
         });
     });
+
+    describe('RFC 9207 iss parameter', () => {
+        const ISSUER = 'https://auth.example.com/';
+        let issApp: express.Express;
+
+        beforeEach(() => {
+            issApp = express();
+            issApp.use('/authorize', authorizationHandler({ provider: mockProvider, issuerUrl: new URL(ISSUER) }));
+        });
+
+        it("appends iss to the provider's success redirect and supplies issuer to provider.authorize()", async () => {
+            // mockProvider.authorize() does NOT set `iss` itself — the handler must add it.
+            const spy = vi.spyOn(mockProvider, 'authorize');
+            const response = await supertest(issApp).get('/authorize').query({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'code',
+                code_challenge: 'challenge123',
+                code_challenge_method: 'S256'
+            });
+            expect(response.status).toBe(302);
+            const location = new URL(response.header.location!);
+            expect(location.searchParams.get('code')).toBe('mock_auth_code');
+            expect(location.searchParams.get('iss')).toBe(ISSUER);
+            expect(spy).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ issuer: ISSUER }), expect.anything());
+            spy.mockRestore();
+        });
+
+        it('leaves redirects to non-callback targets untouched', async () => {
+            // A provider that hops to an upstream authorize endpoint (proxy pattern) — the
+            // handler must not append `iss` to that hop.
+            const upstream = 'https://upstream.example.com/authorize?client_id=x';
+            const proxyLike: OAuthServerProvider = {
+                ...mockProvider,
+                async authorize(_client, _params, res) {
+                    res.redirect(upstream);
+                }
+            };
+            const proxyApp = express();
+            proxyApp.use('/authorize', authorizationHandler({ provider: proxyLike, issuerUrl: new URL(ISSUER) }));
+            const response = await supertest(proxyApp).get('/authorize').query({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'code',
+                code_challenge: 'challenge123',
+                code_challenge_method: 'S256'
+            });
+            expect(response.status).toBe(302);
+            expect(response.header.location).toBe(upstream);
+        });
+
+        it('appends iss to error redirects', async () => {
+            const response = await supertest(issApp).get('/authorize').query({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'token' // invalid → error redirect
+            });
+            expect(response.status).toBe(302);
+            const location = new URL(response.header.location!);
+            expect(location.searchParams.get('error')).toBe('invalid_request');
+            expect(location.searchParams.get('iss')).toBe(ISSUER);
+        });
+
+        it('omits iss when issuerUrl is not configured', async () => {
+            const response = await supertest(app).get('/authorize').query({
+                client_id: 'valid-client',
+                redirect_uri: 'https://example.com/callback',
+                response_type: 'token'
+            });
+            expect(response.status).toBe(302);
+            const location = new URL(response.header.location!);
+            expect(location.searchParams.has('iss')).toBe(false);
+        });
+    });
 });

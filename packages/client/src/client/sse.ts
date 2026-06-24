@@ -11,7 +11,16 @@ import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
 import type { AuthProvider, OAuthClientProvider } from './auth.js';
-import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
+import {
+    adaptOAuthProvider,
+    auth,
+    extractWWWAuthenticateParams,
+    isOAuthClientProvider,
+    resolveAuthorizationCallbackParams,
+    UnauthorizedError
+} from './auth.js';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
+import type { IssuerMismatchError } from './authErrors.js';
 
 export class SseError extends Error {
     constructor(
@@ -242,9 +251,14 @@ export class SSEClientTransport implements Transport {
     /**
      * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
      *
-     * Prefer passing the callback URL's `searchParams` directly — the SDK extracts
-     * `code` and `iss` (and validates `iss` per RFC 9207) for you. The `(code, iss?)`
+     * **Preferred:** pass the callback URL's `searchParams` directly. The SDK extracts `code`
+     * and `iss`, validates `iss` against the recorded issuer (RFC 9207) **before** reading any
+     * other parameter, and on mismatch throws an {@linkcode IssuerMismatchError} that carries
+     * none of the callback's `error`/`error_description`/`error_uri` text. The `(code, iss?)`
      * positional form remains supported for back-compat.
+     *
+     * The SDK does **not** validate `state`; compare it to your stored value before calling
+     * `finishAuth`.
      *
      * @param callbackParams - The `URLSearchParams` from the authorization callback URL
      *   (e.g. `new URL(callbackUrl).searchParams`). `code` and `iss` are read from it.
@@ -261,22 +275,18 @@ export class SSEClientTransport implements Transport {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
-        let authorizationCode: string;
-        if (codeOrParams instanceof URLSearchParams) {
-            const code = codeOrParams.get('code');
-            if (!code) {
-                throw new UnauthorizedError('Authorization callback is missing the "code" parameter');
-            }
-            authorizationCode = code;
-            iss = codeOrParams.get('iss') ?? undefined;
-        } else {
-            authorizationCode = codeOrParams;
-        }
+        const { authorizationCode, iss: issParam } = await resolveAuthorizationCallbackParams(
+            codeOrParams,
+            iss,
+            this._oauthProvider,
+            this._url,
+            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
+        );
 
         const result = await auth(this._oauthProvider, {
             serverUrl: this._url,
             authorizationCode,
-            iss,
+            iss: issParam,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
             fetchFn: this._fetchWithInit,
