@@ -20,10 +20,11 @@ export default defineConfig({
     shims: true,
     dts: {
         resolver: 'tsc',
-        resolve: ['ajv', 'ajv-formats'],
+        resolve: ['ajv', 'ajv-formats', 'json-schema-typed'],
         compilerOptions: {
             baseUrl: '.',
             paths: {
+                'fast-uri': ['../core/src/validators/fastUriShim.d.ts'],
                 '@modelcontextprotocol/core': ['../core/src/index.ts'],
                 '@modelcontextprotocol/core/public': ['../core/src/exports/public/index.ts'],
                 '@modelcontextprotocol/core/validators/ajv': ['../core/src/validators/ajvProvider.ts'],

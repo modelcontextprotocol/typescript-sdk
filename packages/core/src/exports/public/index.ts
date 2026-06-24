@@ -129,10 +129,10 @@ export {
 export type { SpecTypeName, SpecTypes } from '../../types/specTypeSchema.js';
 export { isSpecType, specTypeSchemas } from '../../types/specTypeSchema.js';
 export type { StandardSchemaV1, StandardSchemaV1Sync, StandardSchemaWithJSON } from '../../util/standardSchema.js';
-// Validator providers are type-only here — import the runtime classes from the explicit
-// `@modelcontextprotocol/{client,server}/validators/{ajv,cf-worker}` subpaths to customise.
-export type { AjvJsonSchemaValidator } from '../../validators/ajvProvider.js';
-export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from '../../validators/cfWorkerProvider.js';
+// Validator provider classes (`AjvJsonSchemaValidator`, `CfWorkerJsonSchemaValidator`) are
+// intentionally NOT re-exported here — import them from the explicit
+// `@modelcontextprotocol/{client,server}/validators/{ajv,cf-worker}` subpaths so the
+// root entrypoint's bundled `.d.mts` doesn't pull the inlined ajv/cfworker type chunks.
 // fromJsonSchema is intentionally NOT exported here — the server and client packages
 // provide runtime-aware wrappers that default to the appropriate validator via _shims.
 export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from '../../validators/types.js';

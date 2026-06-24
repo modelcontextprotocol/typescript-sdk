@@ -16,6 +16,8 @@ The MCP (Model Context Protocol) TypeScript server SDK. Build MCP servers that e
 npm install @modelcontextprotocol/server@alpha
 ```
 
+TypeScript ≥6.0 no longer auto-includes `@types/*` — add `"types": ["node"]` to your `tsconfig.json` `compilerOptions` (the published `.d.mts` references `Buffer`).
+
 Optional framework adapters: [`@modelcontextprotocol/express`](https://www.npmjs.com/package/@modelcontextprotocol/express), [`@modelcontextprotocol/hono`](https://www.npmjs.com/package/@modelcontextprotocol/hono),
 [`@modelcontextprotocol/node`](https://www.npmjs.com/package/@modelcontextprotocol/node).
 
