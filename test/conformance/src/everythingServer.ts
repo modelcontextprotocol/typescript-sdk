@@ -665,22 +665,48 @@ function createMcpServer() {
         }
     );
 
-    // SEP-1613: JSON Schema 2020-12 conformance test tool
+    // SEP-1613 / SEP-2106: JSON Schema 2020-12 conformance test tool.
+    // The scenario verifies that $schema/$defs/additionalProperties (SEP-1613)
+    // and the broader 2020-12 vocabulary — $anchor, allOf/anyOf, if/then/else —
+    // (SEP-2106) survive tools/list verbatim. The schema is hand-authored JSON
+    // (via fromJsonSchema) so the keywords are advertised exactly as written;
+    // a Zod object would not emit them.
     mcpServer.registerTool(
         'json_schema_2020_12_tool',
         {
-            description: 'Tool with JSON Schema 2020-12 features for conformance testing (SEP-1613)',
-            inputSchema: z.object({
-                name: z.string().optional(),
-                address: z
-                    .object({
-                        street: z.string().optional(),
-                        city: z.string().optional()
-                    })
-                    .optional()
+            description: 'Tool with JSON Schema 2020-12 features for conformance testing (SEP-1613, SEP-2106)',
+            inputSchema: fromJsonSchema({
+                $schema: 'https://json-schema.org/draft/2020-12/schema',
+                type: 'object',
+                $defs: {
+                    address: {
+                        $anchor: 'addressDef',
+                        type: 'object',
+                        properties: {
+                            street: { type: 'string' },
+                            city: { type: 'string' }
+                        }
+                    }
+                },
+                properties: {
+                    name: { type: 'string' },
+                    address: { $ref: '#/$defs/address' },
+                    contactMethod: { type: 'string', enum: ['phone', 'email'] },
+                    phone: { type: 'string' },
+                    email: { type: 'string' }
+                },
+                allOf: [{ anyOf: [{ required: ['phone'] }, { required: ['email'] }] }],
+                if: {
+                    properties: { contactMethod: { const: 'phone' } },
+                    required: ['contactMethod']
+                },
+                // eslint-disable-next-line unicorn/no-thenable -- `then` is a JSON Schema 2020-12 keyword
+                then: { required: ['phone'] },
+                else: { required: ['email'] },
+                additionalProperties: false
             })
         },
-        async (args: { name?: string; address?: { street?: string; city?: string } }): Promise<CallToolResult> => {
+        async (args): Promise<CallToolResult> => {
             return {
                 content: [
                     {

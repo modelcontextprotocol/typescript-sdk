@@ -687,6 +687,40 @@ async function runSSERetryClient(serverUrl: string): Promise<void> {
 registerScenario('sse-retry', runSSERetryClient);
 
 // ============================================================================
+// JSON Schema $ref dereference scenario (SEP-2106)
+// ============================================================================
+
+/**
+ * The scenario serves a tool whose outputSchema carries a network `$ref`; the
+ * conformance check passes when the client lists tools without dereferencing
+ * (fetching) that URL. The SDK never dereferences network refs — output
+ * schemas are compiled lazily on the first `callTool()` against the cached
+ * `tools/list` entry, and the underlying engine (Ajv / cfworker) does not
+ * fetch external refs (Ajv throws `MissingRefError`, captured per-tool) — so
+ * a plain connect → listTools → close is sufficient: `listTools()` returns
+ * normally and the canary URL is never fetched.
+ */
+async function runJsonSchemaRefNoDerefClient(serverUrl: string): Promise<void> {
+    const client = new Client({ name: 'json-schema-ref-no-deref-client', version: '1.0.0' }, { capabilities: {} });
+
+    const transport = new StreamableHTTPClientTransport(new URL(serverUrl));
+
+    await client.connect(transport);
+    logger.debug('Successfully connected to MCP server');
+
+    const tools = await client.listTools();
+    logger.debug(
+        'Available tools:',
+        tools.tools.map(t => t.name)
+    );
+
+    await transport.close();
+    logger.debug('Connection closed successfully');
+}
+
+registerScenario('json-schema-ref-no-deref', runJsonSchemaRefNoDerefClient);
+
+// ============================================================================
 // Main entry point
 // ============================================================================
 
