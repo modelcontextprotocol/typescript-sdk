@@ -78,7 +78,7 @@ serveStdio(() => {
 ```
 
 Plain 2025 clients open with `initialize` and are served exactly as before; 2026-capable clients negotiate via `server/discover` and send each request with the per-request `_meta` envelope, and their connection is pinned to a 2026-era instance. Pass `legacy: 'reject'` to refuse
-2025-era openings with the unsupported-protocol-version error. On 2026-pinned connections, read per-request client identity from `ctx.mcpReq.envelope` in your handlers rather than the connection-scoped accessors (see the [migration guide](./migration.md) for details). A runnable
+2025-era openings with the unsupported-protocol-version error. On 2026-pinned connections, read per-request client identity from `ctx.mcpReq.envelope` in your handlers rather than the connection-scoped accessors (see the [2026-07-28 support guide](./migration/support-2026-07-28.md) for details). A runnable
 example lives at `examples/dual-era/server.ts`, with a two-legged client at `examples/dual-era/client.ts`.
 
 ## Server instructions
@@ -665,7 +665,7 @@ middleware source for reference. When mounting a handler bare on a fetch-native 
 - [`examples/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples) — Full runnable server examples
 - [Client guide](./client.md) — Building MCP clients with this SDK
 - [MCP overview](https://modelcontextprotocol.io/docs/learn/architecture) — Protocol-level concepts: participants, layers, primitives
-- [Migration guide](./migration.md) — Upgrading from previous SDK versions
+- [Migration guide](./migration/index.md) — Upgrading from previous SDK versions
 - [FAQ](./faq.md) — Frequently asked questions and troubleshooting
 
 ### Additional examples

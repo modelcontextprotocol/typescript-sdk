@@ -118,7 +118,7 @@ client.getNegotiatedProtocolVersion(); // '2026-07-28' or '2025-11-25'
 - **`mode: { pin: '2026-07-28' }`** — modern era at exactly that revision; no fallback. Against a 2025-only server `connect()` rejects with a typed error. Use `pin` where a silent downgrade would be worse than an error (tests, CI, servers you control).
 
 Once a modern era is negotiated, the client automatically attaches the per-request `_meta` envelope (the reserved protocol-version / client-info / client-capabilities keys) to every outgoing request and notification. You can also configure negotiation pre-connect on an
-already-constructed instance via {@linkcode @modelcontextprotocol/client!client/client.Client#setVersionNegotiation | client.setVersionNegotiation()}. See the [migration guide](./migration.md#opt-in-protocol-version-negotiation-2026-07-28-draft) for the full failure semantics,
+already-constructed instance via {@linkcode @modelcontextprotocol/client!client/client.Client#setVersionNegotiation | client.setVersionNegotiation()}. See the [2026-07-28 support guide](./migration/support-2026-07-28.md#serving-the-2026-07-28-revision) for the full failure semantics,
 probe policy, and the `'auto'`-mode compatibility table.
 
 ### Disconnecting
@@ -827,7 +827,7 @@ For an end-to-end example of server-initiated SSE disconnection and automatic cl
 - [`examples/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples) — Full runnable client examples
 - [Server guide](./server.md) — Building MCP servers with this SDK
 - [MCP overview](https://modelcontextprotocol.io/docs/learn/architecture) — Protocol-level concepts: participants, layers, primitives
-- [Migration guide](./migration.md) — Upgrading from previous SDK versions
+- [Migration guide](./migration/index.md) — Upgrading from previous SDK versions
 - [FAQ](./faq.md) — Frequently asked questions and troubleshooting
 
 ### Additional examples

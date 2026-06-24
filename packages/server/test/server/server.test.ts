@@ -155,8 +155,8 @@ describe('Server', () => {
     });
 
     describe('tools/call handler-result validation (required content)', () => {
-        // Server-side pin for the documented wire break (docs/migration.md,
-        // "CallToolResult.content … required at the wire boundary"): with the
+        // Server-side pin for the documented wire break (docs/migration/upgrade-to-v2.md,
+        // "Wire tightening (every era)"): with the
         // content.default([]) affordance removed, a handler result without
         // `content` is rejected with -32602 `Invalid tools/call result` —
         // never silently defaulted onto the wire — while an authored-content

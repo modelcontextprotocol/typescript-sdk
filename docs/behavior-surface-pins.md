@@ -16,7 +16,7 @@ surface-visible and must be deliberate:
    accidental break.
 2. Update the pin in the same PR.
 3. Add a changeset if the surface is consumer-facing.
-4. Update `docs/migration.md` / `docs/migration-SKILL.md` where consumer-facing.
+4. Update `docs/migration/upgrade-to-v2.md` (or `docs/migration/support-2026-07-28.md` if 2026-only) where consumer-facing.
 
 Never weaken a pin (loosen an exact match, delete an assertion) just to make
 CI pass — that reopens the silent-drift hole the pin exists to close.

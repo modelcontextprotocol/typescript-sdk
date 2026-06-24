@@ -49,7 +49,7 @@ export const handlerRegistrationTransform: Transform = {
                         call,
                         `Custom method handler: ${methodName}(${schemaName}, ...). ` +
                             `In v2, use the 3-arg form: ${methodName}('method/name', { params, result? }, handler). ` +
-                            `See migration.md for details.`
+                            `See docs/migration/upgrade-to-v2.md for details.`
                     )
                 );
                 continue;

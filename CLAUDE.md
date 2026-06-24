@@ -24,10 +24,11 @@ pnpm --filter @modelcontextprotocol/core test -- -t "test name"
 
 ## Breaking Changes
 
-When making breaking changes, document them in **both**:
-
-- `docs/migration.md` — human-readable guide with before/after code examples
-- `docs/migration-SKILL.md` — LLM-optimized mapping tables for mechanical migration
+When making breaking changes, add to the relevant subsystem section in
+`docs/migration/upgrade-to-v2.md` (or `docs/migration/support-2026-07-28.md` if the
+change is 2026-07-28-only). Mechanical renames go in
+`packages/codemod/src/migrations/v1-to-v2/mappings/` and the codemod handles them — do
+not reproduce mapping tables in the guide; link to the mapping file instead.
 
 Include what changed, why, and how to migrate. Search for related sections and group related changes together rather than adding new standalone sections.
 
