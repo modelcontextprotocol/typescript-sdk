@@ -42,6 +42,7 @@
  * exported from `core/public`.
  */
 import type { SdkError } from '../errors/sdkErrors.js';
+import { isModernProtocolVersion } from '../shared/protocolEras.js';
 import type {
     CallToolResult,
     ClientCapabilities,
@@ -224,6 +225,9 @@ export interface WireCodec {
      * `{result:…}` wrap to `structuredContent` on the 2025 era when the
      * tool's ADVERTISED `outputSchema` has a non-object root (so the result
      * matches the `tools/list` projection). Identity on the 2026 era.
+     *
+     * Stub in this commit (identity on both eras); the SEP-2106 wrap is wired
+     * by the commit that widens the public schemas.
      */
     projectCallToolResult(result: CallToolResult, advertisedOutputSchema: Readonly<Record<string, unknown>> | undefined): CallToolResult;
 
@@ -272,14 +276,16 @@ export interface WireCodec {
 }
 
 /**
- * Era resolution, many-to-one (Q1-SD1): all `SUPPORTED_PROTOCOL_VERSIONS`
- * (the five legacy versions) → the 2025-era codec; '2026-07-28' → the
- * 2026-era codec; `undefined`/unknown → legacy (the DV-13 default posture —
- * hand-constructed instances and unclassified traffic are legacy-era).
- *
+ * Era resolution, many-to-one (Q1-SD1): every modern-era revision
+ * (`>= 2026-07-28`) → the 2026-era codec; every legacy revision (the five
+ * `SUPPORTED_PROTOCOL_VERSIONS`) and `undefined`/unknown → the 2025-era
+ * codec (the DV-13 default posture — hand-constructed instances and
+ * unclassified traffic are legacy-era). This is the same era predicate the
+ * rest of the SDK uses ({@link isModernProtocolVersion}); a pinned modern
+ * revision other than the literal '2026-07-28' must still resolve modern.
  */
 export function codecForVersion(version: string | undefined): WireCodec {
-    return version === MODERN_WIRE_REVISION ? rev2026Codec : rev2025Codec;
+    return version !== undefined && isModernProtocolVersion(version) ? rev2026Codec : rev2025Codec;
 }
 
 /**
