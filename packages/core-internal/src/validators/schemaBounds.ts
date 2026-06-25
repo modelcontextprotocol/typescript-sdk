@@ -40,6 +40,9 @@ function isSameDocumentReference(ref: string): boolean {
     return ref.startsWith('#');
 }
 
+const DATA_VALUE_KEYWORDS = new Set(['const', 'default', 'enum', 'examples']);
+const SCHEMA_MAP_KEYWORDS = new Set(['$defs', 'definitions', 'dependentSchemas', 'patternProperties', 'properties']);
+
 /**
  * Throws if a JSON Schema is unsafe to compile — either because it carries a non-local
  * `$ref`/`$dynamicRef` (which we refuse to dereference) or because it exceeds the configured
@@ -85,6 +88,15 @@ export function assertSchemaSafeToCompile(schema: unknown, limits: SchemaSafetyL
                     `JSON Schema contains a non-local "${key}" ("${value}"). External reference dereferencing is disabled; ` +
                         `only same-document references (e.g. "#/$defs/Foo" or "#anchor") are supported.`
                 );
+            }
+            if (DATA_VALUE_KEYWORDS.has(key)) {
+                continue;
+            }
+            if (SCHEMA_MAP_KEYWORDS.has(key) && value !== null && typeof value === 'object' && !Array.isArray(value)) {
+                for (const child of Object.values(value)) {
+                    walk(child, depth + 1);
+                }
+                continue;
             }
             walk(value, depth + 1);
         }

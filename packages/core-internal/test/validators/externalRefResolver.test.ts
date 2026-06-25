@@ -101,6 +101,58 @@ describe('resolveExternalSchemaRefs', () => {
         expect(validate({ b: 'no' }).valid).toBe(false);
     });
 
+    it('resolves relative refs inside fetched documents against the containing document URL', async () => {
+        const schema: JsonSchemaType = { $ref: 'https://schemas.example.com/models/person.json' };
+        const fetchImpl = fetchStub({
+            'https://schemas.example.com/models/person.json': {
+                type: 'object',
+                properties: {
+                    address: { $ref: '../common/address.json#/$defs/address' }
+                },
+                required: ['address']
+            },
+            'https://schemas.example.com/common/address.json': {
+                $defs: {
+                    address: {
+                        type: 'object',
+                        properties: { city: { type: 'string' } },
+                        required: ['city']
+                    }
+                }
+            }
+        });
+
+        const resolved = await resolveExternalSchemaRefs(schema, { allowlist: ['schemas.example.com'], fetch: fetchImpl });
+
+        expect(() => assertSchemaSafeToCompile(resolved)).not.toThrow();
+        expect(fetchImpl).toHaveBeenCalledWith('https://schemas.example.com/common/address.json', expect.anything());
+        const validate = new AjvJsonSchemaValidator().getValidator(resolved as JsonSchemaType);
+        expect(validate({ address: { city: 'Paris' } }).valid).toBe(true);
+        expect(validate({ address: {} }).valid).toBe(false);
+    });
+
+    it('does not dereference $ref-shaped data inside data-valued JSON Schema keywords', async () => {
+        const schema: JsonSchemaType = {
+            type: 'object',
+            properties: {
+                payload: {
+                    type: 'object',
+                    default: { $ref: 'https://data.example/default-value' },
+                    examples: [{ $ref: 'https://data.example/example-value' }]
+                }
+            }
+        };
+        const fetchImpl = vi.fn();
+
+        const resolved = await resolveExternalSchemaRefs(schema, {
+            allowlist: ['data.example'],
+            fetch: fetchImpl as unknown as typeof fetch
+        });
+
+        expect(resolved).toEqual(schema);
+        expect(fetchImpl).not.toHaveBeenCalled();
+    });
+
     it('calls onDereference for each fetched URI (observability)', async () => {
         const schema: JsonSchemaType = { $ref: 'https://schemas.example.com/a.json' };
         const fetchImpl = fetchStub({ 'https://schemas.example.com/a.json': { type: 'string' } });

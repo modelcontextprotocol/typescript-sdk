@@ -100,6 +100,17 @@ function isExternalRef(ref: string): boolean {
     return ref.length > 0 && !ref.startsWith('#');
 }
 
+const DATA_VALUE_KEYWORDS = new Set(['const', 'default', 'enum', 'examples']);
+const SCHEMA_MAP_KEYWORDS = new Set(['$defs', 'definitions', 'dependentSchemas', 'patternProperties', 'properties']);
+
+function resolveExternalBase(base: string, containingDocumentUri: string | undefined, originalRef: string): string {
+    try {
+        return new URL(base, containingDocumentUri).href;
+    } catch {
+        throw new Error(`Refusing to dereference "${originalRef}": not an absolute URI.`);
+    }
+}
+
 function ipv6LiteralFromHost(host: string): string | undefined {
     return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : undefined;
 }
@@ -290,7 +301,7 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
         const { $id: _id, $schema: _schema, ...rest } = doc;
         void _id;
         void _schema;
-        const flattened = await rewrite(rest, `/$defs/${slot}`);
+        const flattened = await rewrite(rest, `/$defs/${slot}`, base);
         bundle[slot] = flattened as Record<string, unknown>;
         return slot;
     };
@@ -302,10 +313,11 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
      * @param slotPrefix - `''` for the root document; `/$defs/<slot>` when rewriting a fetched
      *   document that is being flattened into that slot (so its internal `#/x` refs become
      *   `#/$defs/<slot>/x`).
+     * @param containingDocumentUri - the fetched document URL used to resolve relative refs.
      */
-    async function rewrite(node: unknown, slotPrefix: string): Promise<unknown> {
+    async function rewrite(node: unknown, slotPrefix: string, containingDocumentUri?: string): Promise<unknown> {
         if (Array.isArray(node)) {
-            return Promise.all(node.map(item => rewrite(item, slotPrefix)));
+            return Promise.all(node.map(item => rewrite(item, slotPrefix, containingDocumentUri)));
         }
         if (node === null || typeof node !== 'object') {
             return node;
@@ -321,7 +333,7 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
                                 `Use a JSON Pointer fragment (e.g. "#/$defs/Foo") or restructure the schema.`
                         );
                     }
-                    const slot = await ensureDocument(base);
+                    const slot = await ensureDocument(resolveExternalBase(base, containingDocumentUri, value));
                     out[key] = `#/$defs/${slot}${fragment}`;
                 } else if (slotPrefix === '') {
                     out[key] = value;
@@ -343,8 +355,19 @@ export async function resolveExternalSchemaRefs(schema: JsonSchemaType, options:
                     `Cannot flatten external schema: nested "${key}" is not supported. ` +
                         `Restructure the referenced document to use plain JSON Pointer references.`
                 );
+            } else if (DATA_VALUE_KEYWORDS.has(key)) {
+                out[key] = value;
+            } else if (SCHEMA_MAP_KEYWORDS.has(key) && value !== null && typeof value === 'object' && !Array.isArray(value)) {
+                out[key] = Object.fromEntries(
+                    await Promise.all(
+                        Object.entries(value as Record<string, unknown>).map(async ([childKey, childValue]) => [
+                            childKey,
+                            await rewrite(childValue, slotPrefix, containingDocumentUri)
+                        ])
+                    )
+                );
             } else {
-                out[key] = await rewrite(value, slotPrefix);
+                out[key] = await rewrite(value, slotPrefix, containingDocumentUri);
             }
         }
         return out;

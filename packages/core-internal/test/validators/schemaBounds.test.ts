@@ -36,6 +36,34 @@ describe('assertSchemaSafeToCompile', () => {
             const schema = { type: 'string', description: 'see https://example.com/docs', default: 'http://x' };
             expect(() => assertSchemaSafeToCompile(schema)).not.toThrow();
         });
+
+        it('ignores $ref-like object fields inside data-valued JSON Schema keywords', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    payload: {
+                        type: 'object',
+                        const: { $ref: 'https://data.example/const-value' },
+                        default: { $ref: 'https://data.example/default-value' },
+                        enum: [{ $ref: 'https://data.example/enum-value' }],
+                        examples: [{ $ref: 'https://data.example/example-value' }]
+                    }
+                }
+            };
+
+            expect(() => assertSchemaSafeToCompile(schema)).not.toThrow();
+        });
+
+        it('still rejects non-local refs in property schemas whose instance name matches a data keyword', () => {
+            const schema = {
+                type: 'object',
+                properties: {
+                    default: { $ref: 'https://evil.example/schema.json' }
+                }
+            };
+
+            expect(() => assertSchemaSafeToCompile(schema)).toThrow(/non-local/i);
+        });
     });
 
     describe('composition bounds', () => {
