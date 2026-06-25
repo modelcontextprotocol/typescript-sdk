@@ -248,6 +248,19 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+const ELICITATION_STRING_FORMATS = new Set(['email', 'uri', 'date', 'date-time']);
+
+function isSupportedFormatPattern(original: Record<string, unknown>, parsed: Record<string, unknown>, key: string): boolean {
+    return (
+        key === 'pattern' &&
+        typeof original.pattern === 'string' &&
+        parsed.type === 'string' &&
+        typeof parsed.format === 'string' &&
+        original.format === parsed.format &&
+        ELICITATION_STRING_FORMATS.has(parsed.format)
+    );
+}
+
 function findStrippedJsonSchemaPaths(original: unknown, parsed: unknown, path = ''): string[] {
     if (Array.isArray(original) && Array.isArray(parsed)) {
         return original.flatMap((item, index) => findStrippedJsonSchemaPaths(item, parsed[index], `${path}[${index}]`));
@@ -260,6 +273,9 @@ function findStrippedJsonSchemaPaths(original: unknown, parsed: unknown, path = 
     return Object.entries(original).flatMap(([key, value]) => {
         const childPath = path ? `${path}.${key}` : key;
         if (!Object.prototype.hasOwnProperty.call(parsed, key)) {
+            if (isSupportedFormatPattern(original, parsed, key)) {
+                return [];
+            }
             return [childPath];
         }
         return findStrippedJsonSchemaPaths(value, parsed[key], childPath);

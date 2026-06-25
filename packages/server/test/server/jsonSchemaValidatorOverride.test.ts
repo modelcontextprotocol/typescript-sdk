@@ -124,13 +124,14 @@ describe('server JSON Schema validator overrides', () => {
                 await clientTransport.send({
                     jsonrpc: '2.0',
                     id: message.id,
-                    result: { action: 'accept', content: { count: '5' } }
+                    result: { action: 'accept', content: { count: '5', email: 'user@example.com' } }
                 });
             }
         };
 
         const schema = z.object({
             count: z.coerce.number().min(1).meta({ title: 'Registration Count', description: 'Number of registrations to process' }),
+            email: z.string().email().meta({ title: 'Email', description: 'Email address' }),
             newsletter: z.boolean().default(false)
         });
 
@@ -142,8 +143,8 @@ describe('server JSON Schema validator overrides', () => {
         const result = await server.elicitInput(params);
 
         expectTypeOf(result).toMatchTypeOf<ElicitInputResult<typeof schema>>();
-        expectTypeOf(result.content).toEqualTypeOf<{ count: number; newsletter: boolean } | undefined>();
-        expect(result).toEqual({ action: 'accept', content: { count: 5, newsletter: false } });
+        expectTypeOf(result.content).toEqualTypeOf<{ count: number; email: string; newsletter: boolean } | undefined>();
+        expect(result).toEqual({ action: 'accept', content: { count: 5, email: 'user@example.com', newsletter: false } });
         expect(requestedSchema).toMatchObject({
             type: 'object',
             properties: {
@@ -153,10 +154,18 @@ describe('server JSON Schema validator overrides', () => {
                     title: 'Registration Count',
                     description: 'Number of registrations to process'
                 },
+                email: {
+                    type: 'string',
+                    format: 'email',
+                    title: 'Email',
+                    description: 'Email address'
+                },
                 newsletter: { type: 'boolean', default: false }
             },
-            required: ['count']
+            required: ['count', 'email']
         });
+        const emailSchema = (requestedSchema!.properties as Record<string, Record<string, unknown>>).email!;
+        expect(emailSchema.pattern).toBeUndefined();
         expect(validator.schemas).toEqual([]);
         expect(validator.values).toEqual([]);
 
