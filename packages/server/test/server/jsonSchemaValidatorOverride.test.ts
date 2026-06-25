@@ -210,6 +210,16 @@ describe('server JSON Schema validator overrides', () => {
         ).rejects.toThrow(/flat primitive properties/);
         expect(sawElicitationRequest).toBe(false);
 
+        await expect(
+            server.elicitInput({
+                message: 'What is your ID?',
+                requestedSchema: z.object({
+                    id: z.string().uuid()
+                })
+            })
+        ).rejects.toThrow(/format/);
+        expect(sawElicitationRequest).toBe(false);
+
         await server.close();
         await clientTransport.close();
     });
