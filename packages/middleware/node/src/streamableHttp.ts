@@ -10,8 +10,14 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { getRequestListener } from '@hono/node-server';
-import type { AuthInfo, JSONRPCMessage, MessageExtraInfo, RequestId, Transport } from '@modelcontextprotocol/core';
-import type { WebStandardStreamableHTTPServerTransportOptions } from '@modelcontextprotocol/server';
+import type {
+    AuthInfo,
+    JSONRPCMessage,
+    MessageExtraInfo,
+    RequestId,
+    Transport,
+    WebStandardStreamableHTTPServerTransportOptions
+} from '@modelcontextprotocol/server';
 import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 
 /**

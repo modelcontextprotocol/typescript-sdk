@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { importPathsTransform } from '../../../src/migrations/v1-to-v2/transforms/importPaths.js';
-import type { TransformContext } from '../../../src/types.js';
+import { importPathsTransform } from '../../../src/migrations/v1-to-v2/transforms/importPaths';
+import type { TransformContext } from '../../../src/types';
 
 function applyTransform(code: string, context: TransformContext = { projectType: 'both' }): string {
     const project = new Project({ useInMemoryFileSystem: true });
@@ -74,25 +74,364 @@ describe('import-paths transform', () => {
         expect(result.diagnostics[0]!.message).toContain('SSEServerTransport is deprecated');
     });
 
-    it('resolves sdk/types.js based on sibling client imports', () => {
+    it('resolves a sdk/types.js TYPE import based on sibling client imports', () => {
         const input = [
             `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
-            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
             ''
         ].join('\n');
         const result = applyTransform(input, { projectType: 'both' });
         expect(result).toContain(`from "@modelcontextprotocol/client"`);
-        expect(result).toContain('CallToolResultSchema');
+        expect(result).toContain('CallToolResult');
+        expect(result).not.toContain('@modelcontextprotocol/core');
     });
 
-    it('resolves sdk/types.js based on sibling server imports', () => {
+    it('resolves a sdk/types.js TYPE import based on sibling server imports', () => {
         const input = [
             `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
-            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `import { CallToolResult } from '@modelcontextprotocol/sdk/types.js';`,
             ''
         ].join('\n');
         const result = applyTransform(input, { projectType: 'both' });
         expect(result).toContain(`from "@modelcontextprotocol/server"`);
+        expect(result).toContain('CallToolResult');
+    });
+
+    it('routes *Schema imports from sdk/types.js to @modelcontextprotocol/core', () => {
+        const input = `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
+        expect(result).toContain('CallToolResultSchema');
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('routes schemas to core regardless of client/server sibling context', () => {
+        // The only sibling is a client import, but the schema must still go to core.
+        const input = [
+            `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
+            `import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'both' });
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
+        expect(result).toContain('ListToolsResultSchema');
+    });
+
+    it('splits a mixed type + schema import: type resolves by context, schema to core', () => {
+        const input = [
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `import { CallToolResult, CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'both' });
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
+        expect(result).toContain(`from "@modelcontextprotocol/server"`);
+        expect(result).toContain('CallToolResult');
+        expect(result).toContain('CallToolResultSchema');
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('splits an aliased types.js import: schema constant to core, aliased type to server', () => {
+        // The presence of an alias (`Tool as SDKTool`) must not force the whole import into one package;
+        // each symbol still routes to its correct v2 target, with the alias preserved.
+        const input = [
+            `import { CreateMessageRequestSchema, ClientCapabilities, Tool as SDKTool } from '@modelcontextprotocol/sdk/types.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toMatch(/import\s*\{[^}]*\bCreateMessageRequestSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/core["']/);
+        expect(result).toMatch(/import\s*\{[^}]*\bClientCapabilities\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/server["']/);
+        expect(result).toContain('Tool as SDKTool');
+        // the schema constant must NOT end up imported from @modelcontextprotocol/server
+        expect(result).not.toMatch(/import\s*\{[^}]*CreateMessageRequestSchema[^}]*\}\s*from\s*["']@modelcontextprotocol\/server["']/);
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('does not emit a "mixes symbols" diagnostic for an aliased mixed import (it splits instead)', () => {
+        const input = `import { CreateMessageRequestSchema, Tool as SDKTool } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('mixes symbols'))).toBe(false);
+    });
+
+    it('preserves a leading file-header comment when rewriting the first SDK import', () => {
+        const input = [
+            `/**`,
+            ` * Web-standard transport for MCP.`,
+            ` */`,
+            `import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';`,
+            `import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('Web-standard transport for MCP.');
+        expect(result).toContain('@modelcontextprotocol/server');
+        expect(result).not.toContain('@modelcontextprotocol/sdk/');
+    });
+
+    it('does not duplicate a multi-block leading header (blank line) when rewriting the first import in place', () => {
+        // The first SDK import is a namespace import, so it is rewritten in place (setModuleSpecifier) and
+        // its leading comments survive. The header is two // blocks separated by a BLANK line. A `\n`-join
+        // of the comment ranges loses that blank line, so the survival check would mis-fire and re-insert
+        // the header — duplicating it. The captured text must match the file's bytes exactly.
+        const input = [
+            `// Copyright ACME`,
+            ``,
+            `// Notes about the types module`,
+            `import * as types from '@modelcontextprotocol/sdk/types.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result.split('// Copyright ACME').length - 1).toBe(1);
+        expect(result).toContain('@modelcontextprotocol/server');
+    });
+
+    it('does not duplicate a CRLF leading header when rewriting the first import in place', () => {
+        // Same in-place rewrite, but the two // header lines are separated by CRLF. A `\n`-join never
+        // matches the file's `\r\n`, so the survival check would mis-fire and duplicate the header.
+        const input = `// Copyright ACME\r\n// Licensed MIT\r\n\r\nimport * as types from '@modelcontextprotocol/sdk/types.js';\r\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result.split('// Copyright ACME').length - 1).toBe(1);
+        expect(result).toContain('@modelcontextprotocol/server');
+    });
+
+    it('routes OAuth *Schema from sdk/shared/auth.js to core; the TYPE resolves by context', () => {
+        // OAuthTokensSchema is a Zod schema re-exported by core (AUTH_SCHEMA_NAMES), so route it
+        // there — `OAuthTokensSchema.parse(...)` keeps working. OAuthTokens (the type) has no schema-name
+        // match and resolves by context to @modelcontextprotocol/client.
+        const input = [
+            `import { OAuthTokensSchema, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';`,
+            `const t = OAuthTokensSchema.parse(raw);`,
+            `let x: OAuthTokens;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'client' });
+        expect(result).toMatch(/import\s*\{[^}]*\bOAuthTokensSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/core["']/);
+        expect(result).toMatch(/import\s*\{[^}]*\bOAuthTokens\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/client["']/);
+        expect(result).toContain('OAuthTokensSchema.parse(raw)');
+        expect(result).not.toContain('@modelcontextprotocol/sdk/shared/auth');
+    });
+
+    it('does not emit a project-type note when every symbol routes to core (both project)', () => {
+        // A types.js import of nothing but `*Schema` constants routes entirely to core, so the
+        // context package is never used — resolveTypesPackage must not be called, and no "both"-project
+        // info note should be emitted.
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { CallToolResultSchema, ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'both' });
+        expect(result.diagnostics.some(d => /both client and server|determine project type/i.test(d.message))).toBe(false);
+        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/core');
+        expect(sourceFile.getFullText()).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('does not warn about project type when an auth-schema-only import routes entirely to core (unknown project)', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { OAuthTokensSchema, OAuthMetadataSchema } from '@modelcontextprotocol/sdk/shared/auth.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'unknown' });
+        expect(result.diagnostics.some(d => /determine project type/i.test(d.message))).toBe(false);
+        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/core');
+    });
+
+    it('still warns about project type when a non-schema symbol falls through to context (unknown project)', () => {
+        // Control: `Tool` is a type with no schema-name match, so it falls through to context resolution —
+        // the warning must still fire (lazy resolution must not suppress genuine fall-throughs).
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { CallToolResultSchema, Tool } from '@modelcontextprotocol/sdk/types.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'unknown' });
+        expect(result.diagnostics.some(d => /determine project type/i.test(d.message))).toBe(true);
+    });
+
+    it('splits a mixed default + named schema import — schema to core, default to context', () => {
+        // The named `CallToolResultSchema` must route to core even though a default import is present;
+        // the default binding (which can't be split) moves to the context package. Pre-fix the whole import
+        // moved to context and the schema silently became a "no exported member" error.
+        const result = applyTransform(`import sdk, { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';\n`, {
+            projectType: 'server'
+        });
+        expect(result).toMatch(/import\s*\{[^}]*\bCallToolResultSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/core["']/);
+        expect(result).toMatch(/import\s+sdk\s+from\s*["']@modelcontextprotocol\/server["']/);
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('does not rewrite schema .parse() usages (migrates as an import-path swap)', () => {
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const r = CallToolResultSchema.parse(value);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('CallToolResultSchema.parse(value)');
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
+    });
+
+    it('routes elicitation primitive *Schema TYPE names from sdk/types.js by context, not to core', () => {
+        // These names END in `Schema` but are TYPES; their Zod constant is `<Name>SchemaSchema`. They
+        // must resolve to the context package (where the types live), never to core (which only
+        // exports the `*SchemaSchema` constants) — otherwise the codemod emits a broken import.
+        const elicitationTypeNames = [
+            'BooleanSchema',
+            'StringSchema',
+            'NumberSchema',
+            'EnumSchema',
+            'SingleSelectEnumSchema',
+            'MultiSelectEnumSchema',
+            'TitledSingleSelectEnumSchema',
+            'UntitledSingleSelectEnumSchema',
+            'TitledMultiSelectEnumSchema',
+            'UntitledMultiSelectEnumSchema',
+            'LegacyTitledEnumSchema'
+        ];
+        for (const typeName of elicitationTypeNames) {
+            const input = `import { ${typeName} } from '@modelcontextprotocol/sdk/types.js';\n`;
+            const result = applyTransform(input, { projectType: 'server' });
+            expect(result, typeName).toContain(`from "@modelcontextprotocol/server"`);
+            expect(result, typeName).not.toContain('@modelcontextprotocol/core');
+            expect(result, typeName).toContain(typeName);
+        }
+    });
+
+    it('splits a primitive-schema TYPE from its matching schema CONSTANT (BooleanSchema vs BooleanSchemaSchema)', () => {
+        // They differ only by a trailing `Schema`, which the suffix heuristic could not distinguish.
+        // The constant goes to core; the type resolves by context.
+        const input = `import { BooleanSchema, BooleanSchemaSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
+        expect(result).toContain('BooleanSchemaSchema');
+        expect(result).toContain(`from "@modelcontextprotocol/server"`);
+        expect(result).toMatch(/BooleanSchema\b/);
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('routes a renamed spec schema (JSONRPCErrorSchema) from sdk/types.js to core', () => {
+        // JSONRPCErrorSchema → JSONRPCErrorResponseSchema, a core export. Membership is checked
+        // against the rename-resolved name; the symbolRenames transform applies the rename afterward,
+        // so importPaths alone leaves the name unchanged but routes it to core.
+        const input = `import { JSONRPCErrorSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
+        expect(result).toContain('JSONRPCErrorSchema');
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('routes JSONRPCResponseSchema (result-only in v1) from sdk/types.js to core', () => {
+        // v1's JSONRPCResponseSchema validated only result responses; v2 reuses the name for a union.
+        // The rename to JSONRPCResultResponseSchema (a core export) preserves v1 behavior; importPaths
+        // routes it to core against the rename-resolved name (symbolRenames applies the rename after).
+        const input = `import { JSONRPCResponseSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+        expect(result).not.toContain(`from "@modelcontextprotocol/server"`);
+    });
+
+    it('flags a SafeUrlSchema import from sdk/shared/auth.js (no public v2 equivalent)', () => {
+        // SafeUrlSchema/OptionalSafeUrlSchema were internal URL field-validators in v1; v2's core
+        // deliberately does not re-export them, so there is no v2 home — emit guidance instead of silently
+        // routing to a package that has no such export.
+        const input = `import { SafeUrlSchema, OptionalSafeUrlSchema } from '@modelcontextprotocol/sdk/shared/auth.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const messages = result.diagnostics.map(d => d.message);
+        expect(messages.some(m => m.includes('SafeUrlSchema') && m.includes('no public v2 equivalent'))).toBe(true);
+        expect(messages.some(m => m.includes('OptionalSafeUrlSchema') && m.includes('no public v2 equivalent'))).toBe(true);
+    });
+
+    it('flags a star re-export of sdk/types.js that drops the moved schema constants', () => {
+        // `export * from '…/types.js'` cannot be routed per-symbol, so the Zod *Schema constants (now in
+        // core) silently disappear from the re-exporting barrel. Surface that for the user.
+        const input = `export * from '@modelcontextprotocol/sdk/types.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const messages = result.diagnostics.map(d => d.message).join('\n');
+        expect(messages).toContain('@modelcontextprotocol/core');
+        expect(messages).toMatch(/Star re-export/i);
+    });
+
+    it('flags a star re-export of sdk/shared/auth.js (schema constants move to core)', () => {
+        const input = `export * from '@modelcontextprotocol/sdk/shared/auth.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.map(d => d.message).join('\n')).toContain('@modelcontextprotocol/core');
+    });
+
+    it('emits a split diagnostic for a re-export mixing a spec schema and a *Schema type (no silent breakage)', () => {
+        // The `*Schema` suffix would have routed BooleanSchema to core silently (no such export);
+        // membership routing instead surfaces the mismatch so the user splits the re-export manually.
+        const input = `export { CallToolResultSchema, BooleanSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('mixes symbols') && d.message.includes('Split'))).toBe(true);
+    });
+
+    it('flags *Schema accesses through a namespace import of sdk/types.js (cannot be split)', () => {
+        const input = [
+            `import * as types from '@modelcontextprotocol/sdk/types.js';`,
+            `const r = types.CallToolResultSchema.parse(value);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const messages = result.diagnostics.map(d => d.message).join('\n');
+        // The namespace can't be split, so the schema can't be auto-routed — but the user must be told.
+        expect(messages).toContain('@modelcontextprotocol/core');
+        expect(messages).toContain('CallToolResultSchema');
+        // The namespace import itself still moves to the context package (its types live there).
+        // (setModuleSpecifier preserves the original quote style, so match quote-agnostically.)
+        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/server');
+    });
+
+    it('suggests the v2 (rename-resolved) name in the namespace schema-access diagnostic', () => {
+        // JSONRPCErrorSchema is re-exported by core as JSONRPCErrorResponseSchema; the suggested
+        // import must use the v2 name (the v1 name has no exported member), and mention the rename.
+        const input = [
+            `import * as types from '@modelcontextprotocol/sdk/types.js';`,
+            `const r = types.JSONRPCErrorSchema.safeParse(value);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const msg = result.diagnostics.map(d => d.message).join('\n');
+        expect(msg).toContain("import { JSONRPCErrorResponseSchema } from '@modelcontextprotocol/core'");
+        expect(msg).toContain('JSONRPCErrorSchema → JSONRPCErrorResponseSchema');
+        expect(msg).not.toContain('import { JSONRPCErrorSchema } from');
+    });
+
+    it('does not flag a namespace import of sdk/types.js that only accesses types', () => {
+        const input = [`import * as types from '@modelcontextprotocol/sdk/types.js';`, `const t: types.CallToolResult = value;`, ''].join(
+            '\n'
+        );
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('@modelcontextprotocol/core');
+    });
+
+    it('resolves extensionless sdk/types (no .js suffix) the same as sdk/types.js', () => {
+        const input = `import { CallToolResult } from '@modelcontextprotocol/sdk/types';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const output = sourceFile.getFullText();
+        expect(output).toContain(`from "@modelcontextprotocol/server"`);
+        expect(output).toContain('CallToolResult');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('Unknown SDK import path');
     });
 
     it('preserves type-only imports separately', () => {
@@ -339,6 +678,17 @@ describe('import-paths transform', () => {
         expect(result.diagnostics.some(d => d.message.includes('SSEServerTransport is deprecated'))).toBe(true);
     });
 
+    it('resolves extensionless sdk/types re-export (no .js suffix)', () => {
+        const input = `export { CallToolResult } from '@modelcontextprotocol/sdk/types';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const output = sourceFile.getFullText();
+        expect(output).toContain('@modelcontextprotocol/server');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('Unknown SDK export path');
+    });
+
     it('includes server-legacy in usedPackages for SSE import', () => {
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile(
@@ -405,7 +755,7 @@ describe('import-paths transform', () => {
         expect(result.diagnostics[0]!.message).toContain('RequestHandlerExtra');
     });
 
-    it('emits warning for aliased import mixing symbols from different v2 packages', () => {
+    it('splits an aliased import mixing symbols from different v2 packages (no longer bails)', () => {
         const input = [
             `import { StreamableHTTPServerTransport as T, EventStore } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
             ''
@@ -413,8 +763,13 @@ describe('import-paths transform', () => {
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
-        expect(result.diagnostics.length).toBeGreaterThan(0);
-        expect(result.diagnostics.some(d => d.message.includes('mixes symbols') && d.message.includes('Split'))).toBe(true);
+        const output = sourceFile.getFullText();
+        // transport (aliased + renamed) → /node; companion type → /server
+        expect(output).toContain('NodeStreamableHTTPServerTransport as T');
+        expect(output).toContain('@modelcontextprotocol/node');
+        expect(output).toMatch(/import\s*\{[^}]*\bEventStore\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/server["']/);
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.some(d => d.message.includes('mixes symbols'))).toBe(false);
     });
 
     it('emits warning for re-export mixing symbols from different v2 packages', () => {

@@ -6,6 +6,7 @@ const SDK_PREFIX = '@modelcontextprotocol/sdk';
 const V2_PACKAGES = new Set([
     '@modelcontextprotocol/client',
     '@modelcontextprotocol/server',
+    '@modelcontextprotocol/core-internal',
     '@modelcontextprotocol/core',
     '@modelcontextprotocol/node',
     '@modelcontextprotocol/express'
@@ -32,14 +33,28 @@ export function isTypeOnlyImport(imp: ImportDeclaration): boolean {
     return imp.isTypeOnly();
 }
 
+/** A named import to emit: either a bare name, or a `{ name, alias }` pair preserving an `as` alias. */
+export type NamedImportSpec = string | { name: string; alias?: string };
+
+function toSpec(n: NamedImportSpec): { name: string; alias?: string } {
+    return typeof n === 'string' ? { name: n } : n;
+}
+
+/** Local binding a spec introduces — the alias when present, otherwise the imported name. */
+function specLocalName(s: { name: string; alias?: string }): string {
+    return s.alias ?? s.name;
+}
+
 export function addOrMergeImport(
     sourceFile: SourceFile,
     moduleSpecifier: string,
-    namedImports: string[],
+    namedImports: NamedImportSpec[],
     isTypeOnly: boolean,
     insertIndex: number
 ): void {
     if (namedImports.length === 0) return;
+
+    const specs = namedImports.map(n => toSpec(n));
 
     const existing = sourceFile.getImportDeclarations().find(imp => {
         if (imp.getNamespaceImport()) return false;
@@ -47,16 +62,23 @@ export function addOrMergeImport(
     });
 
     if (existing) {
-        const existingNames = new Set(existing.getNamedImports().map(n => n.getName()));
-        const newNames = namedImports.filter(n => !existingNames.has(n));
-        if (newNames.length > 0) {
-            existing.addNamedImports(newNames);
+        const existingLocals = new Set(existing.getNamedImports().map(n => n.getAliasNode()?.getText() ?? n.getName()));
+        const newSpecs = specs.filter(s => !existingLocals.has(specLocalName(s)));
+        if (newSpecs.length > 0) {
+            existing.addNamedImports(newSpecs.map(s => (s.alias ? { name: s.name, alias: s.alias } : { name: s.name })));
         }
     } else {
+        const seen = new Set<string>();
+        const deduped = specs.filter(s => {
+            const local = specLocalName(s);
+            if (seen.has(local)) return false;
+            seen.add(local);
+            return true;
+        });
         const clampedIndex = Math.min(insertIndex, sourceFile.getImportDeclarations().length);
         sourceFile.insertImportDeclaration(clampedIndex, {
             moduleSpecifier,
-            namedImports: [...new Set(namedImports)],
+            namedImports: deduped.map(s => (s.alias ? { name: s.name, alias: s.alias } : { name: s.name })),
             isTypeOnly
         });
     }

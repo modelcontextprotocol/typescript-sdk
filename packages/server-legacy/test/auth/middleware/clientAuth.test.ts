@@ -1,6 +1,6 @@
-import { authenticateClient, ClientAuthenticationMiddlewareOptions } from '../../../src/auth/middleware/clientAuth.js';
-import { OAuthRegisteredClientsStore } from '../../../src/auth/clients.js';
-import { OAuthClientInformationFull } from '@modelcontextprotocol/core';
+import { authenticateClient, ClientAuthenticationMiddlewareOptions } from '../../../src/auth/middleware/clientAuth';
+import { OAuthRegisteredClientsStore } from '../../../src/auth/clients';
+import { OAuthClientInformationFull } from '@modelcontextprotocol/core-internal';
 import express from 'express';
 import supertest from 'supertest';
 

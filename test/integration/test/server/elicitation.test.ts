@@ -8,10 +8,10 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { ElicitRequestFormParams } from '@modelcontextprotocol/core';
-import { InMemoryTransport } from '@modelcontextprotocol/core';
-import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core/validators/ajv';
-import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core/validators/cfWorker';
+import type { ElicitRequestFormParams } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/ajv';
+import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/cfWorker';
 import { Server } from '@modelcontextprotocol/server';
 
 const ajvProvider = new AjvJsonSchemaValidator();

@@ -12,9 +12,9 @@ import { completable, McpServer, ProtocolError, ProtocolErrorCode, ResourceTempl
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const COLORS = ['red', 'green', 'blue', 'rebeccapurple'] as const;
 const FILE_PATHS = ['README.md', 'src/index.ts', 'src/types.ts'] as const;

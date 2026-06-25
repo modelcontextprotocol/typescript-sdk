@@ -516,7 +516,7 @@ function findPackageSrcDirs(packagesDir: string): string[] {
     const fullPath = join(entry.parentPath, entry.name);
 
     // Only include src dirs that are direct children of a package
-    // (e.g., packages/core/src, packages/middleware/express/src)
+    // (e.g., packages/core-internal/src, packages/middleware/express/src)
     // Skip nested src dirs like node_modules/*/src
     if (fullPath.includes('node_modules')) continue;
 
