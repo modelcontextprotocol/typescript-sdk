@@ -19,6 +19,7 @@ import type {
     Resource,
     ResourceTemplateReference,
     Result,
+    SdkLogger,
     ServerContext,
     StandardSchemaWithJSON,
     Tool,
@@ -123,6 +124,8 @@ export class McpServer {
     } = {};
     private _registeredTools: { [name: string]: RegisteredTool } = {};
     private _registeredPrompts: { [name: string]: RegisteredPrompt } = {};
+    private readonly _logger: SdkLogger;
+
     /** Per-tool JSON-converted `inputSchema`, filled on first use by `toolInputSchemaJson()`. */
     private _toolInputSchemaJson: { [name: string]: Record<string, unknown> } = {};
 
@@ -141,7 +144,7 @@ export class McpServer {
         if (tool.inputSchema === undefined) return EMPTY_OBJECT_JSON_SCHEMA;
         // A conversion failure returns `undefined` so it surfaces where it always has (`tools/list`).
         try {
-            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input');
+            const json = standardSchemaToJsonSchema(tool.inputSchema, 'input', this._logger);
             this._toolInputSchemaJson[name] = json;
             return json;
         } catch {
@@ -150,6 +153,7 @@ export class McpServer {
     }
 
     constructor(serverInfo: Implementation, options?: McpServerOptions) {
+        this._logger = options?.logger ?? console;
         this.server = new Server(serverInfo, options);
         this._maxToolInputElements = resolveMaxToolInputElements(options?.maxToolInputElements);
 
@@ -272,7 +276,7 @@ export class McpServer {
                             title: tool.title,
                             description: tool.description,
                             inputSchema: tool.inputSchema
-                                ? (convertListedInputSchema(name, tool.inputSchema) as Tool['inputSchema'])
+                                ? (convertListedInputSchema(name, tool.inputSchema, this._logger) as Tool['inputSchema'])
                                 : EMPTY_OBJECT_JSON_SCHEMA,
                             annotations: tool.annotations,
                             icons: tool.icons,
@@ -285,7 +289,11 @@ export class McpServer {
                             // `{type:'object',properties:{result:<natural>},required:['result']}` toward
                             // 2025-era clients) lives in the 2025 wire codec's `encodeResult('tools/list', …)`
                             // — this handler is era-blind and emits the natural converted schema.
-                            toolDefinition.outputSchema = standardSchemaToJsonSchema(tool.outputSchema, 'output') as Tool['outputSchema'];
+                            toolDefinition.outputSchema = standardSchemaToJsonSchema(
+                                tool.outputSchema,
+                                'output',
+                                this._logger
+                            ) as Tool['outputSchema'];
                         }
 
                         return toolDefinition;
@@ -937,19 +945,20 @@ export class McpServer {
         handler: AnyToolHandler<StandardSchemaWithJSON | undefined>
     ): RegisteredTool {
         // Validate tool name according to SEP specification
-        validateAndWarnToolName(name);
+        validateAndWarnToolName(name, this._logger);
 
         // Track current handler for executor regeneration
         let currentHandler = handler;
 
         let outputSchemaJson: Record<string, unknown> | undefined;
+        const logger = this._logger;
         const registeredTool: RegisteredTool = {
             title,
             description,
             inputSchema,
             outputSchema,
             get outputSchemaJson() {
-                return (outputSchemaJson ??= convertOutputSchemaJson(registeredTool.outputSchema));
+                return (outputSchemaJson ??= convertOutputSchemaJson(registeredTool.outputSchema, logger));
             },
             set outputSchemaJson(value) {
                 outputSchemaJson = value;
@@ -972,7 +981,7 @@ export class McpServer {
                 // `_toolInputSchemaJson` slot rather than the original.
                 if (updates.name !== undefined && updates.name !== name) {
                     if (typeof updates.name === 'string') {
-                        validateAndWarnToolName(updates.name);
+                        validateAndWarnToolName(updates.name, this._logger);
                     }
                     delete this._registeredTools[name];
                     delete this._toolInputSchemaJson[name];
@@ -1009,7 +1018,7 @@ export class McpServer {
 
                 if (updates.outputSchema !== undefined) {
                     registeredTool.outputSchema = updates.outputSchema;
-                    registeredTool.outputSchemaJson = convertOutputSchemaJson(updates.outputSchema);
+                    registeredTool.outputSchemaJson = convertOutputSchemaJson(updates.outputSchema, this._logger);
                 }
                 if (updates.annotations !== undefined) registeredTool.annotations = updates.annotations;
                 if (updates.icons !== undefined) registeredTool.icons = updates.icons;
@@ -1456,11 +1465,11 @@ const EMPTY_OBJECT_JSON_SCHEMA = {
 };
 
 /** Converts a tool's `inputSchema` for `tools/list` and warns on an invalid SEP-2243 `x-mcp-header` declaration. */
-function convertListedInputSchema(name: string, inputSchema: StandardSchemaWithJSON): Record<string, unknown> {
-    const json = standardSchemaToJsonSchema(inputSchema, 'input');
+function convertListedInputSchema(name: string, inputSchema: StandardSchemaWithJSON, logger: SdkLogger): Record<string, unknown> {
+    const json = standardSchemaToJsonSchema(inputSchema, 'input', logger);
     const scan = scanXMcpHeaderDeclarations(json);
     if (!scan.valid) {
-        console.warn(
+        logger.warn(
             `[mcp-sdk] tool '${name}' carries an invalid x-mcp-header declaration and will be excluded by ` +
                 `conforming Streamable HTTP clients: ${scan.reason}`
         );
@@ -1474,10 +1483,13 @@ function convertListedInputSchema(name: string, inputSchema: StandardSchemaWithJ
  * `tools/list` emits (and that the 2025 codec's `encodeResult('tools/list', …)` may wrap). A conversion
  * failure yields `undefined` so the failure surfaces where it always has (`tools/list`).
  */
-function convertOutputSchemaJson(outputSchema: StandardSchemaWithJSON | undefined): Record<string, unknown> | undefined {
+function convertOutputSchemaJson(
+    outputSchema: StandardSchemaWithJSON | undefined,
+    logger: SdkLogger
+): Record<string, unknown> | undefined {
     if (outputSchema === undefined) return undefined;
     try {
-        return standardSchemaToJsonSchema(outputSchema, 'output');
+        return standardSchemaToJsonSchema(outputSchema, 'output', logger);
     } catch {
         return undefined;
     }
