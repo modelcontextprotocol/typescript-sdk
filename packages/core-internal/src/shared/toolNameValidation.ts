@@ -10,6 +10,8 @@
  * @see {@link https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986 | SEP-986: Specify Format for Tool Names}
  */
 
+import type { SdkLogger } from './logger';
+
 /**
  * Regular expression for valid tool names according to SEP-986 specification
  */
@@ -86,16 +88,17 @@ export function validateToolName(name: string): {
  * Issues warnings for non-conforming tool names
  * @param name - The tool name that triggered the warnings
  * @param warnings - Array of warning messages
+ * @param logger - Logger to emit warnings through
  */
-export function issueToolNameWarning(name: string, warnings: string[]): void {
+export function issueToolNameWarning(name: string, warnings: string[], logger: SdkLogger = console): void {
     if (warnings.length > 0) {
-        console.warn(`Tool name validation warning for "${name}":`);
+        logger.warn?.(`Tool name validation warning for "${name}":`);
         for (const warning of warnings) {
-            console.warn(`  - ${warning}`);
+            logger.warn?.(`  - ${warning}`);
         }
-        console.warn('Tool registration will proceed, but this may cause compatibility issues.');
-        console.warn('Consider updating the tool name to conform to the MCP tool naming standard.');
-        console.warn(
+        logger.warn?.('Tool registration will proceed, but this may cause compatibility issues.');
+        logger.warn?.('Consider updating the tool name to conform to the MCP tool naming standard.');
+        logger.warn?.(
             'See SEP: Specify Format for Tool Names (https://github.com/modelcontextprotocol/modelcontextprotocol/issues/986) for more details.'
         );
     }
@@ -104,13 +107,14 @@ export function issueToolNameWarning(name: string, warnings: string[]): void {
 /**
  * Validates a tool name and issues warnings for non-conforming names
  * @param name - The tool name to validate
+ * @param logger - Logger to emit warnings through
  * @returns `true` if the name is valid, `false` otherwise
  */
-export function validateAndWarnToolName(name: string): boolean {
+export function validateAndWarnToolName(name: string, logger?: SdkLogger): boolean {
     const result = validateToolName(name);
 
     // Always issue warnings for any validation issues (both invalid names and warnings)
-    issueToolNameWarning(name, result.warnings);
+    issueToolNameWarning(name, result.warnings, logger);
 
     return result.isValid;
 }

@@ -8,6 +8,8 @@
 
 import * as z from 'zod/v4';
 
+import type { SdkLogger } from '../shared/logger';
+
 // Standard Schema interfaces — vendored from https://standardschema.dev (spec v1, Jan 2025)
 
 export interface StandardTypedV1<Input = unknown, Output = Input> {
@@ -175,7 +177,11 @@ let warnedZodFallback = false;
  * `io: 'output'` a non-object root is returned as-is; the `"object"` default is
  * applied only when the root is provably object-shaped.
  */
-export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'input' | 'output' = 'input'): Record<string, unknown> {
+export function standardSchemaToJsonSchema(
+    schema: StandardJSONSchemaV1,
+    io: 'input' | 'output' = 'input',
+    logger: SdkLogger = console
+): Record<string, unknown> {
     const std = schema['~standard'];
     let result: Record<string, unknown>;
     if (std.jsonSchema) {
@@ -193,7 +199,7 @@ export function standardSchemaToJsonSchema(schema: StandardJSONSchemaV1, io: 'in
         }
         if (!warnedZodFallback) {
             warnedZodFallback = true;
-            console.warn(
+            logger.warn?.(
                 '[mcp-sdk] Your zod version does not implement `~standard.jsonSchema` (added in zod 4.2.0). ' +
                     'Falling back to z.toJSONSchema(). Upgrade to zod >=4.2.0 to silence this warning.'
             );
