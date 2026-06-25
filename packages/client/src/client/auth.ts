@@ -118,12 +118,22 @@ export async function handleOAuthUnauthorized(provider: OAuthClientProvider, ctx
  * transports consume. Called once at transport construction — the transport stores
  * the adapted provider for `_commonHeaders()` and 401 handling, while keeping the
  * original `OAuthClientProvider` for OAuth-specific paths (`finishAuth()`, 403 upscoping).
+ *
+ * The `token()` implementation checks `expires_in` and returns `undefined` for
+ * expired or near-expiry tokens (≤60s remaining), ensuring the transport omits
+ * the Authorization header and triggers a 401 -> `onUnauthorized` refresh flow
+ * rather than sending an expired token.
  */
 export function adaptOAuthProvider(provider: OAuthClientProvider): AuthProvider {
     return {
         token: async () => {
             const tokens = await provider.tokens();
-            return tokens?.access_token;
+            if (!tokens?.access_token) return;
+
+            if (tokens.expires_in !== undefined && tokens.expires_in <= 60) {
+                return;
+            }
+            return tokens.access_token;
         },
         onUnauthorized: async ctx => handleOAuthUnauthorized(provider, ctx)
     };
