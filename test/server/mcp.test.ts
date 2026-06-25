@@ -407,7 +407,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 callback: async () => ({
                     content: [
                         {
-                            type: 'text',
+                            type: 'text' as const,
                             text: 'Updated response'
                         }
                     ]
@@ -535,6 +535,72 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
         });
 
         /***
+         * Test: Updating Tool with a ZodObject paramsSchema (regression for #1960).
+         * The create path accepts both raw shapes and ZodObject instances, but the
+         * update path used to call `objectFromShape` directly which crashed on
+         * ZodObject inputs (e.g. `z.object({...}).passthrough()`).
+         */
+        test('should update tool with ZodObject paramsSchema', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            // Register the tool using a ZodObject (not a raw shape); this path
+            // already worked before the fix.
+            const initialSchema = z.object({ id: z.string() }).passthrough();
+            const tool = mcpServer.registerTool(
+                'test',
+                {
+                    description: 'test',
+                    inputSchema: initialSchema
+                },
+                async ({ id }) => ({
+                    content: [{ type: 'text', text: `Initial: ${id}` }]
+                })
+            );
+
+            // Update the tool with a fresh ZodObject. Before #1960's fix this
+            // threw `TypeError: Cannot read properties of null (reading '_zod')`.
+            const updatedSchema = z.object({ id: z.string(), value: z.number() }).passthrough();
+            expect(() =>
+                tool.update({
+                    paramsSchema: updatedSchema,
+                    callback: async ({ id, value }) => ({
+                        content: [{ type: 'text', text: `Updated: ${id}, ${value}` }]
+                    })
+                })
+            ).not.toThrow();
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+            await Promise.all([client.connect(clientTransport), mcpServer.connect(serverTransport)]);
+
+            const listResult = await client.request({ method: 'tools/list' }, ListToolsResultSchema);
+            expect(listResult.tools[0].inputSchema).toMatchObject({
+                properties: {
+                    id: { type: 'string' },
+                    value: { type: 'number' }
+                }
+            });
+
+            const callResult = await client.request(
+                {
+                    method: 'tools/call',
+                    params: {
+                        name: 'test',
+                        arguments: { id: 'abc', value: 42 }
+                    }
+                },
+                CallToolResultSchema
+            );
+            expect(callResult.content).toEqual([{ type: 'text', text: 'Updated: abc, 42' }]);
+        });
+
+        /***
          * Test: Updating Tool with outputSchema
          */
         test('should update tool with outputSchema', async () => {
@@ -574,7 +640,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                     sum: z.number()
                 },
                 callback: async () => ({
-                    content: [{ type: 'text', text: '' }],
+                    content: [{ type: 'text' as const, text: '' }],
                     structuredContent: {
                         result: 42,
                         sum: 100
@@ -661,7 +727,7 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
                 callback: async () => ({
                     content: [
                         {
-                            type: 'text',
+                            type: 'text' as const,
                             text: 'Updated response'
                         }
                     ]
