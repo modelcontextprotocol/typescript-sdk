@@ -3004,6 +3004,84 @@ describe('OAuth Authorization', () => {
             expect(authUrl.origin + authUrl.pathname).toBe('https://auth.example.com/oauth/authorize');
         });
 
+        it('keeps the fallback MCP origin when legacy no-PRM auth metadata has an invalid issuer', async () => {
+            const saveDiscoveryState = vi.fn();
+            const saveAuthorizationServerUrl = vi.fn();
+            const provider: OAuthClientProvider = {
+                ...mockProvider,
+                clientInformation: vi.fn().mockResolvedValue(undefined),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveClientInformation: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveDiscoveryState,
+                saveAuthorizationServerUrl
+            };
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString === 'https://resource.example.com/.well-known/oauth-authorization-server') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+                            token_endpoint: 'https://auth.example.com/oauth/token',
+                            registration_endpoint: 'https://auth.example.com/oauth/register',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString === 'https://auth.example.com/oauth/register') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            client_id: 'test-client-id',
+                            client_secret: 'test-client-secret',
+                            client_id_issued_at: 1_612_137_600,
+                            client_secret_expires_at: 1_612_224_000,
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            client_name: 'Test Client'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com'
+            });
+
+            expect(result).toBe('REDIRECT');
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: 'https://resource.example.com/',
+                    resourceMetadata: undefined,
+                    authorizationServerMetadata: expect.objectContaining({
+                        issuer: 'auth.example.com'
+                    })
+                })
+            );
+            expect(saveAuthorizationServerUrl).toHaveBeenCalledWith('https://resource.example.com/');
+
+            const redirectCall = (provider.redirectToAuthorization as Mock).mock.calls[0]!;
+            const authUrl: URL = redirectCall[0];
+            expect(authUrl.origin + authUrl.pathname).toBe('https://auth.example.com/oauth/authorize');
+        });
+
         it('uses base URL (with root path) as authorization server when protected-resource-metadata discovery fails', async () => {
             // Setup: First call to protected resource metadata fails (404)
             // When no authorization_servers are found in protected resource metadata,

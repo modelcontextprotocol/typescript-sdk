@@ -1152,7 +1152,29 @@ async function authInternal(
         });
         authorizationServerUrl = serverInfo.authorizationServerUrl;
         metadata = serverInfo.authorizationServerMetadata;
-        validateAuthorizationServerMetadataIssuer(metadata, authorizationServerUrl);
+        try {
+            validateAuthorizationServerMetadataIssuer(metadata, authorizationServerUrl);
+        } catch (error) {
+            if (serverInfo.resourceMetadata?.authorization_servers?.length) {
+                throw error;
+            }
+            if (!metadata) {
+                throw error;
+            }
+
+            let legacyIssuerIsMalformed = false;
+            try {
+                normalizeDiscoveredIssuerIdentifier(metadata.issuer, 'Authorization server metadata issuer');
+            } catch {
+                // Legacy no-PRM discovery intentionally disables issuer validation. Keep the
+                // fallback MCP origin when legacy metadata has an unparseable issuer value.
+                legacyIssuerIsMalformed = true;
+            }
+
+            if (!legacyIssuerIsMalformed) {
+                throw error;
+            }
+        }
         resourceMetadata = serverInfo.resourceMetadata;
 
         // Captured now, persisted only after the SEP-2352 callback-leg gate below — so a
