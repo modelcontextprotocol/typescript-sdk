@@ -345,7 +345,7 @@ export class StreamableHTTPClientTransport implements Transport {
 
         const reconnect = (): void => {
             this._cancelReconnection = undefined;
-            if (this._abortController?.signal.aborted) return;
+            if (!this._abortController || this._abortController.signal.aborted) return;
             this._startOrAuthSse(options).catch(error => {
                 this.onerror?.(new Error(`Failed to reconnect SSE stream: ${error instanceof Error ? error.message : String(error)}`));
                 try {
@@ -513,6 +513,7 @@ export class StreamableHTTPClientTransport implements Transport {
         } finally {
             this._cancelReconnection = undefined;
             this._abortController?.abort();
+            this._abortController = undefined;
             this.onclose?.();
         }
     }
