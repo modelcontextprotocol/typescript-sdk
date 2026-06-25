@@ -621,7 +621,13 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             };
 
             let rawMessage;
-            if (options?.parsedBody !== undefined) {
+            // Treat both `undefined` and `null` as "no pre-parsed body". Some
+            // body parsers (notably the synthetic req/res objects produced by
+            // serverless-express on AWS Lambda Function URLs) set `req.body`
+            // to `null` after draining the request stream. Without this guard
+            // the `null` would be passed straight to JSONRPCMessageSchema.parse
+            // and fail with an opaque Zod error. See issue #1417.
+            if (options?.parsedBody !== undefined && options.parsedBody !== null) {
                 rawMessage = options.parsedBody;
             } else {
                 try {
