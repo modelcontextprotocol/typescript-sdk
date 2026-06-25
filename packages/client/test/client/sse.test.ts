@@ -42,6 +42,7 @@ describe('SSEClientTransport', () => {
 
         authServer = createServer((req, res) => {
             if (req.url === '/.well-known/oauth-authorization-server') {
+                const issuer = authBaseUrl.origin;
                 res.writeHead(200, {
                     'Content-Type': 'application/json'
                 });

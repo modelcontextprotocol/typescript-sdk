@@ -954,6 +954,27 @@ export interface AuthOptions {
     forceReauthorization?: boolean;
 }
 
+function normalizeDiscoveredIssuerIdentifier(issuer: string | URL): string {
+    const normalized = new URL(issuer).toString();
+
+    return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
+}
+
+function validateAuthorizationServerMetadataIssuer(metadata: { issuer: string } | undefined, authorizationServerUrl: string | URL): void {
+    if (!metadata) {
+        return;
+    }
+
+    const expectedIssuer = normalizeDiscoveredIssuerIdentifier(authorizationServerUrl);
+    const actualIssuer = normalizeDiscoveredIssuerIdentifier(metadata.issuer);
+
+    if (actualIssuer !== expectedIssuer) {
+        throw new Error(
+            `Authorization server metadata issuer does not match the expected issuer: expected ${expectedIssuer}, got ${metadata.issuer} (RFC 8414 Section 3.3)`
+        );
+    }
+}
+
 /**
  * Orchestrates the full auth flow with a server.
  *
@@ -1097,6 +1118,7 @@ async function authInternal(
         });
         authorizationServerUrl = serverInfo.authorizationServerUrl;
         metadata = serverInfo.authorizationServerMetadata;
+        validateAuthorizationServerMetadataIssuer(metadata, authorizationServerUrl);
         resourceMetadata = serverInfo.resourceMetadata;
 
         // Captured now, persisted only after the SEP-2352 callback-leg gate below — so a

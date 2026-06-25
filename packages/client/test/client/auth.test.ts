@@ -977,6 +977,14 @@ describe('OAuth Authorization', () => {
             code_challenge_methods_supported: ['S256']
         };
 
+        const validOpenIdTenantMetadata = {
+            ...validOpenIdMetadata,
+            issuer: 'https://auth.example.com/tenant1',
+            authorization_endpoint: 'https://auth.example.com/tenant1/authorize',
+            token_endpoint: 'https://auth.example.com/tenant1/token',
+            jwks_uri: 'https://auth.example.com/tenant1/jwks'
+        };
+
         it('tries URLs in order and returns first successful metadata', async () => {
             const tenantOidcMetadata = { ...validOpenIdMetadata, issuer: 'https://auth.example.com/tenant1' };
             // First OAuth URL (path before well-known) fails with 404
@@ -5218,6 +5226,24 @@ describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
                     iss: 'https://attacker.example.com'
                 })
             ).rejects.toThrow(/does not match the expected issuer/);
+
+            expect(tokenEndpointCalls()).toHaveLength(0);
+            expect(provider.saveTokens).not.toHaveBeenCalled();
+        });
+
+        it('rejects cached AS metadata with a mismatched issuer before code exchange', async () => {
+            const provider = createMockProvider({
+                ...authServerMetadata,
+                issuer: 'https://attacker.example.com'
+            });
+
+            await expect(
+                auth(provider, {
+                    serverUrl: 'https://resource.example.com',
+                    authorizationCode: 'code123',
+                    iss: 'https://attacker.example.com'
+                })
+            ).rejects.toThrow(/Authorization server metadata issuer does not match the expected issuer/);
 
             expect(tokenEndpointCalls()).toHaveLength(0);
             expect(provider.saveTokens).not.toHaveBeenCalled();
