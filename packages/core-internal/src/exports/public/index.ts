@@ -42,6 +42,9 @@ export { checkResourceAllowed, resourceUrlFromServerUrl } from '../../shared/aut
 // Metadata utilities
 export { getDisplayName } from '../../shared/metadataUtils';
 
+// Logging
+export type { SdkLogger } from '../../shared/logger';
+
 // Protocol types (NOT the Protocol class itself or mergeCapabilities)
 export type {
     BaseContext,
