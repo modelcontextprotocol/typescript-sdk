@@ -95,6 +95,24 @@ describe('protocol tests', () => {
         }
     });
 
+    test('should throw RequestAborted (not RequestTimeout) when aborted via AbortSignal', async () => {
+        await protocol.connect(transport);
+        const mockSchema: ZodType<{ result: string }> = z.object({ result: z.string() });
+        const controller = new AbortController();
+
+        const requestPromise = testRequest(protocol, { method: 'example', params: {} }, mockSchema, {
+            signal: controller.signal,
+            timeout: 60_000
+        });
+
+        controller.abort(new DOMException('User cancelled', 'AbortError'));
+
+        const error = await requestPromise.catch((e: unknown) => e);
+        expect(error).toBeInstanceOf(SdkError);
+        expect((error as SdkError).code).toBe(SdkErrorCode.RequestAborted);
+        expect((error as SdkError).code).not.toBe(SdkErrorCode.RequestTimeout);
+    });
+
     test('should invoke onclose when the connection is closed', async () => {
         const oncloseMock = vi.fn();
         protocol.onclose = oncloseMock;

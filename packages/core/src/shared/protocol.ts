@@ -775,7 +775,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     .catch(error => this._onerror(new Error(`Failed to send cancellation: ${error}`)));
 
                 // Wrap the reason in an SdkError if it isn't already
-                const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+                let error: SdkError;
+                if (reason instanceof SdkError) {
+                    error = reason;
+                } else if (reason instanceof DOMException && reason.name === 'AbortError') {
+                    error = new SdkError(SdkErrorCode.RequestAborted, reason.message);
+                } else {
+                    error = new SdkError(SdkErrorCode.RequestAborted, String(reason));
+                }
                 reject(error);
             };
 
