@@ -211,6 +211,24 @@ describe('SSEClientTransport', () => {
             expect(JSON.parse((lastServerRequest as IncomingMessage & { body: string }).body)).toEqual(testMessage);
         });
 
+        it('does not pass the transport-wide AbortController signal to POST requests (issue #1231)', async () => {
+            // Sharing the SSE-stream AbortController with POST requests means a successful POST
+            // followed by transport.close() leaves Undici-based instrumentation reporting the
+            // request as aborted. The transport must not propagate its own signal to POSTs.
+            let capturedSignal: AbortSignal | undefined | null = null;
+            const captureFetch: typeof fetch = (url, init) => {
+                capturedSignal = init?.signal ?? undefined;
+                return fetch(url as string | URL, init);
+            };
+
+            transport = new SSEClientTransport(resourceBaseUrl, { fetch: captureFetch });
+            await transport.start();
+
+            await transport.send({ jsonrpc: '2.0', id: 'test-1', method: 'test', params: {} });
+
+            expect(capturedSignal).toBeUndefined();
+        });
+
         it('handles POST request failures', async () => {
             // Create a server that returns 500 for POST
             await resourceServer.close();
