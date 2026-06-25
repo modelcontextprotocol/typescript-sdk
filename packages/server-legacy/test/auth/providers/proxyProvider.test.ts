@@ -1,10 +1,10 @@
 import { Response } from 'express';
-import { ProxyOAuthServerProvider, ProxyOptions } from '../../../src/auth/providers/proxyProvider.js';
-import { AuthInfo } from '../../../src/auth/types.js';
-import { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/core';
-import { ServerError } from '../../../src/auth/errors.js';
-import { InvalidTokenError } from '../../../src/auth/errors.js';
-import { InsufficientScopeError } from '../../../src/auth/errors.js';
+import { ProxyOAuthServerProvider, ProxyOptions } from '../../../src/auth/providers/proxyProvider';
+import { AuthInfo } from '../../../src/auth/types';
+import { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/core-internal';
+import { ServerError } from '../../../src/auth/errors';
+import { InvalidTokenError } from '../../../src/auth/errors';
+import { InsufficientScopeError } from '../../../src/auth/errors';
 import { type Mock } from 'vitest';
 
 describe('Proxy OAuth Server Provider', () => {

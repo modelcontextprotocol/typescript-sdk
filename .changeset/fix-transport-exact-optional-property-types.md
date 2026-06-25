@@ -1,5 +1,5 @@
 ---
-'@modelcontextprotocol/core': patch
+'@modelcontextprotocol/core-internal': patch
 ---
 
 Add explicit `| undefined` to optional properties on the `Transport` interface and `TransportSendOptions` (`onclose`, `onerror`, `onmessage`, `sessionId`, `setProtocolVersion`, `setSupportedProtocolVersions`, `onresumptiontoken`).

@@ -5,7 +5,7 @@ import {
     ServerNotificationSchema,
     ServerRequestSchema,
     ServerResultSchema
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import type { Transport } from '@modelcontextprotocol/server';
 import {
     isJSONRPCErrorResponse,

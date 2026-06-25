@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/client';
-import { InMemoryTransport, ProtocolErrorCode } from '@modelcontextprotocol/core';
+import { InMemoryTransport, ProtocolErrorCode } from '@modelcontextprotocol/core-internal';
 import { McpServer } from '@modelcontextprotocol/server';
 import { describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';

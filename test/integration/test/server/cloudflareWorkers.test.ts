@@ -40,6 +40,63 @@ const WRANGLER_BIN = (() => {
     return path.resolve(path.dirname(pkgPath), bin);
 })();
 
+/**
+ * Create an installable tarball of `@modelcontextprotocol/server` without mutating the workspace.
+ *
+ * Running `pnpm pack` inside `packages/server` is not an option here: its `prepack` hook rebuilds
+ * the package in place (tsdown with `clean: true`), deleting and rewriting `packages/server/dist`
+ * while the rest of the test run is still going. Anything that node-resolves the workspace
+ * packages at that moment — most notably suites that spawn child processes importing
+ * `@modelcontextprotocol/server` — sees a half-written dist and fails. Instead, the bundle is
+ * built into a staging directory under the test's temp dir and the tarball is created from that
+ * staging copy, so shared, node-resolvable state never changes while tests are running.
+ *
+ * Returns the tarball's file name; the tarball itself is written into `tempDir`.
+ */
+function packServerPackage(tempDir: string): string {
+    const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
+    const stagingDir = path.join(tempDir, 'package-staging');
+    fs.mkdirSync(stagingDir, { recursive: true });
+
+    // Build the publishable bundle with its output redirected away from the workspace's
+    // packages/server/dist (the CLI flag overrides `outDir` from tsdown.config.ts).
+    execSync(`pnpm exec tsdown --out-dir "${path.join(stagingDir, 'dist')}"`, {
+        cwd: serverPkgPath,
+        stdio: 'pipe',
+        timeout: 60_000
+    });
+
+    // Write a publish-shaped manifest into the staging dir: drop lifecycle scripts and
+    // devDependencies, and resolve pnpm-only `catalog:`/`workspace:` specifiers to the versions
+    // installed in the workspace — the same substitution `pnpm pack` performs when publishing.
+    const manifest = JSON.parse(fs.readFileSync(path.join(serverPkgPath, 'package.json'), 'utf8')) as {
+        scripts?: unknown;
+        devDependencies?: unknown;
+        dependencies?: Record<string, string>;
+    };
+    delete manifest.scripts;
+    delete manifest.devDependencies;
+    const dependencies = manifest.dependencies ?? {};
+    for (const [name, spec] of Object.entries(dependencies)) {
+        if (spec.startsWith('catalog:') || spec.startsWith('workspace:')) {
+            const installed = JSON.parse(fs.readFileSync(path.join(serverPkgPath, 'node_modules', name, 'package.json'), 'utf8')) as {
+                version: string;
+            };
+            dependencies[name] = installed.version;
+        }
+    }
+    fs.writeFileSync(path.join(stagingDir, 'package.json'), JSON.stringify(manifest, null, 2));
+
+    // Pack the staging copy. The staged manifest carries no scripts, so this is a pure tar step;
+    // npm is used because the staging dir lives outside the pnpm workspace.
+    const packOutput = execSync(`npm pack --pack-destination "${tempDir}"`, {
+        cwd: stagingDir,
+        encoding: 'utf8',
+        timeout: 60_000
+    });
+    return path.basename(packOutput.trim().split('\n').pop()!);
+}
+
 /** Ask the kernel for a currently-free port instead of hardcoding one. */
 async function getFreePort(): Promise<number> {
     return new Promise((resolve, reject) => {
@@ -212,14 +269,9 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
         };
 
         try {
-            // Pack server package
-            const serverPkgPath = path.resolve(__dirname, '../../../../packages/server');
-            const packOutput = execSync(`pnpm pack --pack-destination "${tempDir}"`, {
-                cwd: serverPkgPath,
-                encoding: 'utf8',
-                timeout: 60_000
-            });
-            const tarballName = path.basename(packOutput.trim().split('\n').pop()!);
+            // Pack the server package into the temp dir without touching the workspace's own
+            // dist/ — see packServerPackage for why the plain `pnpm pack` route is unsafe here.
+            const tarballName = packServerPackage(tempDir);
 
             // Write package.json
             const pkgJson = {

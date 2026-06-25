@@ -1,5 +1,5 @@
 import { Client, getSupportedElicitationModes } from '@modelcontextprotocol/client';
-import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core';
+import type { Prompt, Resource, Tool, Transport } from '@modelcontextprotocol/core-internal';
 import {
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
@@ -7,7 +7,7 @@ import {
     SdkError,
     SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { McpServer, Server } from '@modelcontextprotocol/server';
 
 /***

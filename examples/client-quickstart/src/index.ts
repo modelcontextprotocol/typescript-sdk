@@ -116,7 +116,8 @@ class MCPClient {
           messages,
         });
 
-        finalText.push(followUp.content[0].type === 'text' ? followUp.content[0].text : '');
+        const firstBlock = followUp.content[0];
+        finalText.push(firstBlock?.type === 'text' ? firstBlock.text : '');
       }
     }
 
@@ -156,13 +157,14 @@ class MCPClient {
 
 //#region main
 async function main() {
-  if (process.argv.length < 3) {
+  const serverScriptPath = process.argv[2];
+  if (!serverScriptPath) {
     console.log('Usage: node build/index.js <path_to_server_script>');
     return;
   }
   const mcpClient = new MCPClient();
   try {
-    await mcpClient.connectToServer(process.argv[2]);
+    await mcpClient.connectToServer(serverScriptPath);
 
     // Check if we have a valid API key to continue
     const apiKey = process.env.ANTHROPIC_API_KEY;

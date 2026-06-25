@@ -148,6 +148,30 @@ function registerTool_annotations(server: McpServer) {
     //#endregion registerTool_annotations
 }
 
+/** Example: Advertising icons a client can render in its UI for a tool. */
+function registerTool_icons(server: McpServer) {
+    //#region registerTool_icons
+    server.registerTool(
+        'generate-chart',
+        {
+            title: 'Generate Chart',
+            description: 'Render a chart from a series of numbers',
+            inputSchema: z.object({ data: z.array(z.number()) }),
+            // Icons a client may render in its UI. `src` is required; `mimeType`,
+            // `sizes`, and `theme` ('light' | 'dark') are optional hints.
+            icons: [
+                { src: 'https://example.com/icons/chart.svg', mimeType: 'image/svg+xml', sizes: ['any'] },
+                { src: 'https://example.com/icons/chart-48.png', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' }
+            ]
+        },
+        async ({ data }): Promise<CallToolResult> => {
+            // ... render chart ...
+            return { content: [{ type: 'text', text: `Charted ${data.length} points` }] };
+        }
+    );
+    //#endregion registerTool_icons
+}
+
 /** Example: Registering a static resource at a fixed URI. */
 function registerResource_static(server: McpServer) {
     //#region registerResource_static
@@ -564,6 +588,7 @@ void registerTool_basic;
 void registerTool_resourceLink;
 void registerTool_errorHandling;
 void registerTool_annotations;
+void registerTool_icons;
 void registerTool_logging;
 void registerTool_progress;
 void registerTool_traceContext;

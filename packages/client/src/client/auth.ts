@@ -9,7 +9,7 @@ import type {
     OAuthMetadata,
     OAuthProtectedResourceMetadata,
     OAuthTokens
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     checkResourceAllowed,
     LATEST_PROTOCOL_VERSION,
@@ -22,7 +22,7 @@ import {
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     resourceUrlFromServerUrl
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
 /**

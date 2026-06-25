@@ -16,9 +16,9 @@ import { type } from 'arktype';
 import * as v from 'valibot';
 import { expect } from 'vitest';
 
-import { wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 /** Plain client with no extra capabilities declared. */
 const newClient = () => new Client({ name: 'c', version: '0' });
