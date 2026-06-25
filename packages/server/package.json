@@ -84,9 +84,7 @@
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "pnpm run typecheck && pnpm run lint",
         "test": "vitest run",
-        "test:watch": "vitest",
-        "server": "tsx watch --clear-screen=false scripts/cli.ts server",
-        "client": "tsx scripts/cli.ts client"
+        "test:watch": "vitest"
     },
     "dependencies": {
         "zod": "catalog:runtimeShared"
@@ -96,7 +94,7 @@
         "ajv": "catalog:runtimeShared",
         "ajv-formats": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
@@ -109,7 +107,6 @@
         "prettier": "catalog:devTools",
         "supertest": "catalog:devTools",
         "tsdown": "catalog:devTools",
-        "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"

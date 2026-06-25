@@ -6,6 +6,6 @@
 // subpath gives consumers a consistent shape across packages. Import from
 // `@modelcontextprotocol/server/stdio` only in process-stdio runtimes (Node.js, Bun, Deno).
 
-export type { ServeStdioOptions, StdioServerHandle } from './server/serveStdio.js';
-export { serveStdio } from './server/serveStdio.js';
-export { StdioServerTransport } from './server/stdio.js';
+export type { ServeStdioOptions, StdioServerHandle } from './server/serveStdio';
+export { serveStdio } from './server/serveStdio';
+export { StdioServerTransport } from './server/stdio';

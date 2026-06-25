@@ -51,7 +51,7 @@ import type {
     Transport,
     UnsubscribeRequest,
     XMcpHeaderScanResult
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     buildMcpParamHeaders,
     codecForVersion,
@@ -76,12 +76,12 @@ import {
     SdkErrorCode,
     SUBSCRIPTION_ID_META_KEY,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 
-import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache.js';
-import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache.js';
-import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation.js';
-import { detectProbeEnvironment, detectProbeTransportKind, negotiateEra, resolveVersionNegotiation } from './versionNegotiation.js';
+import type { CacheMode, CacheScope, ResponseCacheStore } from './responseCache';
+import { ClientResponseCache, InMemoryResponseCacheStore, MAX_CACHE_TTL_MS } from './responseCache';
+import type { ResolvedVersionNegotiation, VersionNegotiationOptions } from './versionNegotiation';
+import { detectProbeEnvironment, detectProbeTransportKind, negotiateEra, resolveVersionNegotiation } from './versionNegotiation';
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.

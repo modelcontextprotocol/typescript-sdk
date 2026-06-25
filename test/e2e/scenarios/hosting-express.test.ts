@@ -32,10 +32,10 @@ import express from 'express';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { startExpressMinimal, startExpressWithHostValidation } from '../helpers/express.js';
-import { defined } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { startExpressMinimal, startExpressWithHostValidation } from '../helpers/express';
+import { defined } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const RESOURCE_METADATA_URL = 'https://mcp.example.com/.well-known/oauth-protected-resource';
 const VALID_TOKEN = 'analytics-dashboard-token';

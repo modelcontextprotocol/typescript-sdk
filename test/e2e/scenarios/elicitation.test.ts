@@ -22,9 +22,9 @@ import {
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { tapWire, wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { tapWire, wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 /** Client with form-mode elicitation support. */
 const formClient = () => new Client({ name: 'c', version: '0' }, { capabilities: { elicitation: { form: {} } } });

@@ -9,7 +9,7 @@
 
 import type { FastifyInstance } from 'fastify';
 
-import { hostHeaderValidation, localhostHostValidation } from './hostHeaderValidation.js';
+import { hostHeaderValidation, localhostHostValidation } from './hostHeaderValidation';
 
 /**
  * Example: Using hostHeaderValidation hook with custom allowed hosts.

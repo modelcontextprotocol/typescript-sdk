@@ -1,5 +1,5 @@
 ---
-'@modelcontextprotocol/core': patch
+'@modelcontextprotocol/core-internal': patch
 '@modelcontextprotocol/codemod': patch
 ---
 

@@ -56,9 +56,9 @@ import { importSPKI, jwtVerify } from 'jose';
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { defined, hostPerSession } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { defined, hostPerSession } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const ISSUER = 'https://auth.example.com';
 const MCP_URL = 'http://in-process/mcp';

@@ -10,7 +10,8 @@ const PACKAGE_DIRS: Record<string, string> = {
     '@modelcontextprotocol/server': 'server',
     '@modelcontextprotocol/node': 'middleware/node',
     '@modelcontextprotocol/express': 'middleware/express',
-    '@modelcontextprotocol/server-legacy': 'server-legacy'
+    '@modelcontextprotocol/server-legacy': 'server-legacy',
+    '@modelcontextprotocol/core': 'core'
 };
 
 const versions: Record<string, string> = {};

@@ -1,4 +1,4 @@
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
     createFetchWithInit,
     JSONRPCMessageSchema,
@@ -6,11 +6,11 @@ import {
     SdkError,
     SdkErrorCode,
     SdkHttpError
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
-import type { AuthProvider, OAuthClientProvider } from './auth.js';
+import type { AuthProvider, OAuthClientProvider } from './auth';
 import {
     adaptOAuthProvider,
     auth,
@@ -18,9 +18,9 @@ import {
     isOAuthClientProvider,
     resolveAuthorizationCallbackParams,
     UnauthorizedError
-} from './auth.js';
+} from './auth';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
-import type { IssuerMismatchError } from './authErrors.js';
+import type { IssuerMismatchError } from './authErrors';
 
 export class SseError extends Error {
     constructor(

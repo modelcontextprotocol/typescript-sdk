@@ -13,9 +13,9 @@ import type { RegisteredResource } from '@modelcontextprotocol/server';
 import { McpServer, ProtocolError, ProtocolErrorCode, ResourceTemplate, Server } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';
 
-import { wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const TINY_PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=';
 const FIXTURE_LAST_MODIFIED = '2024-01-15T10:30:00.000Z';

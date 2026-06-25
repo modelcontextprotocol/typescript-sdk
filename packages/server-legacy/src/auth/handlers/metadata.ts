@@ -1,9 +1,9 @@
-import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/core';
+import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/core-internal';
 import cors from 'cors';
 import type { RequestHandler } from 'express';
 import express from 'express';
 
-import { allowedMethods } from '../middleware/allowedMethods.js';
+import { allowedMethods } from '../middleware/allowedMethods';
 
 export function metadataHandler(metadata: OAuthMetadata | OAuthProtectedResourceMetadata): RequestHandler {
     // Nested router so we can configure middleware and restrict HTTP method

@@ -1,7 +1,7 @@
-import type { FetchLike } from '@modelcontextprotocol/core';
+import type { FetchLike } from '@modelcontextprotocol/core-internal';
 
-import type { OAuthClientProvider } from './auth.js';
-import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth.js';
+import type { OAuthClientProvider } from './auth';
+import { auth, extractWWWAuthenticateParams, UnauthorizedError } from './auth';
 
 /**
  * Middleware function that wraps and enhances fetch functionality.

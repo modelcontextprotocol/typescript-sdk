@@ -1,7 +1,7 @@
 import { LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
 import { describe, expect, it } from 'vitest';
 
-import { assertWireMessage } from './wire-sniffer.js';
+import { assertWireMessage } from './wire-sniffer';
 
 const req = (method: string, params?: unknown, id = 1) => ({
     jsonrpc: '2.0' as const,

@@ -6,13 +6,38 @@ import path from 'node:path';
 
 import { Command } from 'commander';
 
-import { listMigrations } from './migrations/index.js';
-import { run } from './runner.js';
-import { DiagnosticLevel } from './types.js';
-import { CODEMOD_ERROR_PREFIX, formatDiagnostic } from './utils/diagnostics.js';
+import { listMigrations } from './migrations/index';
+import { run } from './runner';
+import { DiagnosticLevel } from './types';
+import { detectFormatter } from './utils/detectFormatter';
+import { CODEMOD_ERROR_PREFIX, formatDiagnostic } from './utils/diagnostics';
 
 const require = createRequire(import.meta.url);
 const { version } = require('../package.json') as { version: string };
+
+function quoteArg(arg: string): string {
+    return /\s/.test(arg) ? `"${arg}"` : arg;
+}
+
+/**
+ * The codemod transforms the AST but does not reformat — wrapped schemas and
+ * generated string literals can violate a repo's lint/formatting rules. Point
+ * the user at their own formatter (which respects their config) for the exact
+ * files that changed.
+ */
+function printFormatGuidance(targetDir: string, changedFiles: string[]): void {
+    if (changedFiles.length === 0) return;
+
+    const formatter = detectFormatter(targetDir);
+    const fileArgs = changedFiles.map(file => quoteArg(path.relative(process.cwd(), file) || file));
+
+    console.log("This codemod doesn't reformat its output. Run your formatter on the changed file(s):");
+    if (formatter) {
+        console.log(`  ${formatter.bin} ${[...formatter.writeArgs, ...fileArgs].join(' ')}\n`);
+    } else {
+        console.log(`  e.g. prettier --write ${fileArgs.join(' ')}\n`);
+    }
+}
 
 const program = new Command();
 
@@ -150,6 +175,8 @@ for (const [name, migration] of listMigrations()) {
                 if (opts['dryRun']) {
                     console.log('Run without --dry-run to apply changes.\n');
                 } else {
+                    const changedFiles = result.fileResults.filter(fr => fr.changes > 0).map(fr => fr.filePath);
+                    printFormatGuidance(resolvedDir, changedFiles);
                     if (result.packageJsonChanges) {
                         console.log('Run your package manager to install the new packages.\n');
                     }

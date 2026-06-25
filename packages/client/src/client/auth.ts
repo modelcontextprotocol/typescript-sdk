@@ -11,7 +11,7 @@ import type {
     OAuthTokens,
     StoredOAuthClientInformation,
     StoredOAuthTokens
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     checkResourceAllowed,
     LATEST_PROTOCOL_VERSION,
@@ -24,7 +24,7 @@ import {
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     resourceUrlFromServerUrl
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
 import {
@@ -32,7 +32,7 @@ import {
     InsecureTokenEndpointError,
     IssuerMismatchError,
     RegistrationRejectedError
-} from './authErrors.js';
+} from './authErrors';
 
 // Re-exported for back-compat — the canonical home is ./authErrors.js.
 export {
@@ -40,7 +40,7 @@ export {
     InsecureTokenEndpointError,
     IssuerMismatchError,
     RegistrationRejectedError
-} from './authErrors.js';
+} from './authErrors';
 
 /**
  * Function type for adding client authentication to token requests.

@@ -7,7 +7,7 @@
  * the behavior).
  */
 
-import type { Requirement } from './types.js';
+import type { Requirement } from './types';
 
 /** Transports with a persistent server instance / standalone notification stream. */
 const STATEFUL_TRANSPORTS = ['inMemory', 'stdio', 'streamableHttp', 'sse'] as const;

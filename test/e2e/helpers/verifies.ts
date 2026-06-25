@@ -17,9 +17,9 @@
 
 import { describe, test } from 'vitest';
 
-import { REQUIREMENTS } from '../requirements.js';
-import type { Requirement, SpecVersion, TestArgs, Transport } from '../types.js';
-import { ALL_SPEC_VERSIONS, ALL_TRANSPORTS, ENTRY_TRANSPORTS, TRANSPORT_SPEC_VERSIONS } from '../types.js';
+import { REQUIREMENTS } from '../requirements';
+import type { Requirement, SpecVersion, TestArgs, Transport } from '../types';
+import { ALL_SPEC_VERSIONS, ALL_TRANSPORTS, ENTRY_TRANSPORTS, TRANSPORT_SPEC_VERSIONS } from '../types';
 
 type TestBody = (args: TestArgs) => Promise<void>;
 

@@ -13,7 +13,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, StandardSchemaWithJSON } from '@modelcontextprotocol/core';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
 import type { Tool } from '@modelcontextprotocol/server';
 import {
     fromJsonSchema,
@@ -29,9 +29,9 @@ import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/server/valida
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs, Transport } from '../types.js';
+import { wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs, Transport } from '../types';
 
 const FORECAST_OUTPUT_SCHEMA: Tool['outputSchema'] = {
     type: 'object',

@@ -27,7 +27,10 @@ If you are already on v2 and want to adopt the **2026-07-28 protocol revision**,
    ```
 4. **Type-check.** `tsc --noEmit` (or your build). Remaining errors map to the
    [manual sections](#manual-changes-what-the-codemod-does-not-handle) below.
-5. **Run your tests.**
+5. **Format.** The codemod rewrites the AST without reformatting — run your formatter on
+   the changed files (`prettier --write` / `eslint --fix` / `biome format --write`); the
+   codemod prints the exact command after it runs.
+6. **Run your tests.**
 
 ## Contents
 
@@ -71,11 +74,11 @@ In addition the codemod:
   `uriSchema` raw Zod shapes with `z.object()`.
 - Drops the result-schema argument from `client.request()` / `client.callTool()` for
   spec methods.
-- Rewrites standalone Zod-spec-schema usages: `XSchema.safeParse(v).success` →
-  `isSpecType.X(v)`; captured `const r = XSchema.safeParse(v)` →
-  `specTypeSchemas.X['~standard'].validate(v)` with `.success`/`.data`/`.error`
-  remapped; bare `XSchema` value uses → `specTypeSchemas.X`; `XSchema.parse()` is
-  rewritten and marked `@mcp-codemod-error` (the throw-on-invalid semantics differ).
+- Routes the spec Zod `*Schema` constants imported from `sdk/types.js` to
+  `@modelcontextprotocol/core` (mixed imports are split; `.parse()` / `.safeParse()`
+  calls are left untouched). The task-handler schema constants
+  (`GetTaskRequestSchema` etc.) used as `setRequestHandler` args are mapped to their
+  method strings (`'tasks/get'` etc.) like every other handler schema.
 - Renames `ErrorCode` → `ProtocolErrorCode` and routes the local-only members
   (`RequestTimeout`, `ConnectionClosed`) to `SdkErrorCode`.
 - Renames every `StreamableHTTPError` reference to `SdkHttpError` and adds the import
@@ -109,9 +112,10 @@ recognized but could not safely rewrite with an `@mcp-codemod-error` comment.
 - **`SdkErrorCode` branch selection** — the codemod renames `StreamableHTTPError` →
   `SdkHttpError`; deciding which `SdkErrorCode` branch a given catch should match is
   judgment. → [Errors](#errors)
-- **`.parse()` throw semantics** — the codemod rewrites `XSchema.parse()` to
-  `specTypeSchemas.X['~standard'].validate()` but `validate()` does not throw on
-  invalid input; the site is marked `@mcp-codemod-error`. → [Types & schemas](#types--schemas)
+- **Namespace schema access** — `import * as t from '…/types.js'` +
+  `t.CallToolResultSchema.parse(…)` can't be split per-symbol; the codemod flags it
+  action-required — re-import the schema from `@modelcontextprotocol/core` by hand.
+  → [Types & schemas](#types--schemas)
 - **Behavioral adaptation** — list auto-aggregation, capability empties, lazy validator
   compilation, output-schema validation rules. → [Behavioral changes](#behavioral-changes)
 
@@ -166,6 +170,9 @@ A few transports need a decision the codemod can't make:
   these (the root entries are runtime-neutral so browser/Workers bundlers can consume
   them). The stdio utilities `ReadBuffer`, `serializeMessage`, `deserializeMessage`
   stay in the root barrel.
+- **Zod `*Schema` constants → `@modelcontextprotocol/core`.** A mixed
+  `import { CallToolResult, CallToolResultSchema } from '…/types.js'` is split by the
+  codemod — see [Types & schemas](#types--schemas).
 
   ```typescript
   // v1
@@ -710,28 +717,38 @@ The SDK enforces every authorization MUST that lands in SDK code. The following 
 
 ### Types & schemas
 
-#### Zod `*Schema` constants are no longer public API
+#### Zod `*Schema` constants moved to `@modelcontextprotocol/core`
 
 The Zod schemas (`CallToolResultSchema`, `ListToolsResultSchema`, …) that v1 exported
-from `types.js` are **not** part of the v2 public surface. They live in the internal
-core barrel only; `@modelcontextprotocol/client` and `@modelcontextprotocol/server` do
-not re-export them.
+from `types.js` now live in a separate **`@modelcontextprotocol/core`** package. Neither
+`@modelcontextprotocol/client` nor `@modelcontextprotocol/server` re-exports them — both
+packages stay Zod-free in their public surface.
 
-If you used a `*Schema` constant for **runtime validation** (not just as a `request()`
-argument), replace with `isSpecType` / `specTypeSchemas`:
+The v1→v2 change is just an import-path swap — `.parse()` / `.safeParse()` keep working
+unchanged:
 
 ```typescript
 // v1
 import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';
 if (CallToolResultSchema.safeParse(value).success) { ... }
 
-// v2: keyed type predicate
-import { isSpecType } from '@modelcontextprotocol/client';
+// v2 — same Zod schema, new package
+import { CallToolResultSchema } from '@modelcontextprotocol/core';
+if (CallToolResultSchema.safeParse(value).success) { ... }
+```
+
+`@modelcontextprotocol/core` is the canonical home for the spec's Zod schema constants
+(and the OAuth/OpenID metadata schemas). It is runtime-neutral (its only dependency is
+`zod`) and is **not** required by `client` / `server` — install it only if you import the
+raw schemas directly.
+
+If you would rather keep your project Zod-free, the **`isSpecType` / `specTypeSchemas`**
+alternatives are exported from `@modelcontextprotocol/client` and `…/server`:
+
+```typescript
+import { isSpecType, specTypeSchemas } from '@modelcontextprotocol/client';
 if (isSpecType.CallToolResult(value)) { ... }
 const blocks = mixed.filter(isSpecType.ContentBlock);
-
-// v2: or get the StandardSchemaV1Sync validator object directly
-import { specTypeSchemas } from '@modelcontextprotocol/client';
 const result = specTypeSchemas.CallToolResult['~standard'].validate(value);
 ```
 
@@ -741,12 +758,14 @@ every named type in the MCP spec — so you get autocomplete and a compile error
 The pre-existing `isCallToolResult(value)` guard still works.
 
 **`specTypeSchemas.X` is `StandardSchemaV1`, not `ZodType`.** Zod-specific composition
-methods — `.extend()`, `.pick()`, `.omit()`, `.merge()`, `.shape`, `.passthrough()`,
-`.parseAsync()` — will not compile on a `specTypeSchemas` entry. The codemod emits an
-`@mcp-codemod-error` warning at every such site; define your own schema (Zod, ArkType,
-…) instead of extending the SDK's. The Zod-specific `AnySchema` / `SchemaOutput` types
-from `…/zod-compat.js` are removed — replace with `StandardSchemaV1` /
-`StandardSchemaV1.InferOutput<T>` (the codemod's removal message says the same).
+— `.extend()`, `.pick()`, `.omit()`, `.merge()`, `.shape`, `.passthrough()`,
+`.parseAsync()` — does **not** compile on a `specTypeSchemas` entry; reach for the real
+Zod schema from `@modelcontextprotocol/core` when you need to derive a tolerant variant
+of a spec schema (e.g.
+`ListToolsResultSchema.extend({ tools: ToolSchema.omit({ outputSchema: true }).array() })`).
+The Zod-specific `AnySchema` / `SchemaOutput` types from `…/zod-compat.js` are removed —
+replace with `StandardSchemaV1` / `StandardSchemaV1.InferOutput<T>` (the codemod's
+removal message says the same).
 
 The role-aggregate unions (`ClientRequest`, `ServerResult`, `ServerRequest`,
 `ClientResult`, `ClientNotification`, `ServerNotification`) and the typed-method maps
@@ -775,9 +794,10 @@ preserve v1 behavior, rename to `isJSONRPCResultResponse` (the codemod does this
 type from `types.js` was renamed to `ResourceTemplateType` to resolve the v1 collision;
 the codemod scopes the rename to imports from `sdk/types.js` only.
 
-All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their
-original names — import them from `@modelcontextprotocol/client` or
-`@modelcontextprotocol/server`.
+All other symbols from `@modelcontextprotocol/sdk/types.js` retain their original
+names — import the TypeScript types, error classes, enums, and type guards from
+`@modelcontextprotocol/client` or `@modelcontextprotocol/server`, and the Zod
+`*Schema` constants from `@modelcontextprotocol/core`.
 
 #### JSON Schema 2020-12 posture (SEP-1613, SEP-2106)
 

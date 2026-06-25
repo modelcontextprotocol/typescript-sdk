@@ -8,11 +8,11 @@
  * @module
  */
 
-import type { FetchLike } from '@modelcontextprotocol/core';
-import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core';
+import type { FetchLike } from '@modelcontextprotocol/core-internal';
+import { IdJagTokenExchangeResponseSchema, OAuthErrorResponseSchema, OAuthTokensSchema } from '@modelcontextprotocol/core-internal';
 
-import type { ClientAuthMethod } from './auth.js';
-import { applyClientAuthentication, assertSecureTokenEndpoint, discoverAuthorizationServerMetadata } from './auth.js';
+import type { ClientAuthMethod } from './auth';
+import { applyClientAuthentication, assertSecureTokenEndpoint, discoverAuthorizationServerMetadata } from './auth';
 
 /**
  * Options for requesting a JWT Authorization Grant via RFC 8693 Token Exchange.

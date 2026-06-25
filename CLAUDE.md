@@ -16,10 +16,10 @@ pnpm check:all       # typecheck + lint across all packages
 
 # Run a single package script (examples)
 # Run a single package script from the repo root with pnpm filter
-pnpm --filter @modelcontextprotocol/core test                # vitest run (core)
-pnpm --filter @modelcontextprotocol/core test:watch          # vitest (watch)
-pnpm --filter @modelcontextprotocol/core test -- path/to/file.test.ts
-pnpm --filter @modelcontextprotocol/core test -- -t "test name"
+pnpm --filter @modelcontextprotocol/core-internal test                # vitest run (core)
+pnpm --filter @modelcontextprotocol/core-internal test:watch          # vitest (watch)
+pnpm --filter @modelcontextprotocol/core-internal test -- path/to/file.test.ts
+pnpm --filter @modelcontextprotocol/core-internal test -- -t "test name"
 ```
 
 ## Breaking Changes
@@ -37,7 +37,7 @@ Include what changed, why, and how to migrate. Search for related sections and g
 - **TypeScript**: Strict type checking, ES modules, explicit return types
 - **Naming**: PascalCase for classes/types, camelCase for functions/variables
 - **Files**: Lowercase with hyphens, test files with `.test.ts` suffix
-- **Imports**: ES module style, include `.js` extension, group imports logically
+- **Imports**: ES module style, no `.js` extension on relative imports (project uses `moduleResolution: bundler`), group imports logically
 - **Formatting**: 2-space indentation, semicolons required, single quotes preferred
 - **Testing**: Place tests under each package's `test/` directory (vitest only includes `test/**/*.test.ts`), use descriptive test names
 - **Comments**: JSDoc for public APIs, inline comments for complex logic
@@ -54,9 +54,9 @@ Run `pnpm sync:snippets` to sync example content into JSDoc comments and markdow
 
 The SDK is organized into three main layers:
 
-1. **Types Layer** (`packages/core/src/types/types.ts`) - Protocol types generated from the MCP specification. All JSON-RPC message types, schemas, and protocol constants are defined here using Zod v4.
+1. **Types Layer** (`packages/core-internal/src/types/types.ts`) - Protocol types generated from the MCP specification. All JSON-RPC message types, schemas, and protocol constants are defined here using Zod v4.
 
-2. **Protocol Layer** (`packages/core/src/shared/protocol.ts`) - The abstract `Protocol` class that handles JSON-RPC message routing, request/response correlation, capability negotiation, and transport management. Both `Client` and `Server` extend this class.
+2. **Protocol Layer** (`packages/core-internal/src/shared/protocol.ts`) - The abstract `Protocol` class that handles JSON-RPC message routing, request/response correlation, capability negotiation, and transport management. Both `Client` and `Server` extend this class.
 
 3. **High-Level APIs**:
     - `Client` (`packages/client/src/client/client.ts`) - Client implementation extending Protocol with typed methods for MCP operations
@@ -65,21 +65,22 @@ The SDK is organized into three main layers:
 
 ### Public API Exports
 
-The SDK has a two-layer export structure to separate internal code from the public API:
+The SDK separates internal code from the public API surface:
 
-- **`@modelcontextprotocol/core`** (main entry, `packages/core/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
-- **`@modelcontextprotocol/core/public`** (`packages/core/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
-- **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core/public`.
+- **`@modelcontextprotocol/core-internal`** (main entry, `packages/core-internal/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
+- **`@modelcontextprotocol/core-internal/public`** (`packages/core-internal/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
+- **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core-internal/public`.
+- **`@modelcontextprotocol/core`** (`packages/core/src/index.ts`) — Public Zod-schema package. Re-exports **only** the `*Schema` Zod constants (MCP spec + OAuth/OpenID), bundled from `core-internal` at build time. The published home for raw runtime validation (`CallToolResultSchema.parse(...)`); runtime-neutral (`zod` is its only dependency). Not consumed by the sibling packages — `client`/`server` keep their own bundled schema copies and stay Zod-free in their public surface.
 
 When modifying exports:
-- Use explicit named exports, not `export *`, in package `index.ts` files and `core/public`.
+- Use explicit named exports, not `export *`, in package `index.ts` files and `core-internal/public`.
 - Adding a symbol to a package `index.ts` makes it public API — do so intentionally.
-- Internal helpers should stay in the core internal barrel and not be added to `core/public` or package index files.
+- Internal helpers should stay in the core internal barrel and not be added to `core-internal/public` or package index files.
 - The package root entry must stay runtime-neutral so browser and Cloudflare Workers bundlers can consume it. Exports whose module graph transitively touches unpolyfillable Node builtins (`node:child_process`, `node:net`, `cross-spawn`, etc.) must live at a named subpath export (e.g. `./stdio`) and be covered by a `barrelClean` test in that package.
 
 ### Transport System
 
-Transports (`packages/core/src/shared/transport.ts`) provide the communication layer:
+Transports (`packages/core-internal/src/shared/transport.ts`) provide the communication layer:
 
 - **Streamable HTTP** (`packages/server/src/server/streamableHttp.ts`, `packages/client/src/client/streamableHttp.ts`) - Recommended transport for remote servers, supports SSE for streaming
 - **SSE** (`packages/server/src/server/sse.ts`, `packages/client/src/client/sse.ts`) - Legacy HTTP+SSE transport for backwards compatibility
@@ -111,11 +112,11 @@ Located in `packages/*/src/experimental/`. Currently empty.
 
 The SDK uses `zod/v4` internally. Schema utilities live in:
 
-- `packages/core/src/util/schema.ts` - AnySchema alias and helpers for inspecting Zod objects
+- `packages/core-internal/src/util/schema.ts` - AnySchema alias and helpers for inspecting Zod objects
 
 ### Validation
 
-Pluggable JSON Schema validation (`packages/core/src/validators/`):
+Pluggable JSON Schema validation (`packages/core-internal/src/validators/`):
 
 - `ajvProvider.ts` - Default Ajv-based validator
 - `cfWorkerProvider.ts` - Cloudflare Workers-compatible alternative

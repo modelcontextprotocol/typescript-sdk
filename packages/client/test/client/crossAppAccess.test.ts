@@ -1,8 +1,8 @@
-import type { FetchLike } from '@modelcontextprotocol/core';
+import type { FetchLike } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
-import { InsecureTokenEndpointError } from '../../src/client/authErrors.js';
-import { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from '../../src/client/crossAppAccess.js';
+import { InsecureTokenEndpointError } from '../../src/client/authErrors';
+import { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from '../../src/client/crossAppAccess';
 
 describe('crossAppAccess', () => {
     describe('requestJwtAuthorizationGrant', () => {

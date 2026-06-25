@@ -32,7 +32,7 @@
     "devDependencies": {
         "@hono/node-server": "catalog:runtimeServerOnly",
         "@modelcontextprotocol/client": "workspace:^",
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/server-legacy": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
