@@ -7,7 +7,7 @@
  * - falsy structured values (`0`, `false`, `""`) are not mistaken for "no structured content"
  * - the server auto-emits a serialized `TextContent` fallback for non-object `structuredContent`
  *   (pre-SEP client interop) but not for object `structuredContent` or when text already exists
- * - the typed `client.callTool<T>()` generic surfaces a precise `structuredContent` type
+ * - clients narrow `structuredContent` at runtime before reading properties
  */
 
 import { Client } from '@modelcontextprotocol/client';
@@ -47,15 +47,16 @@ describe('SEP-2106: JSON Schema 2020-12 tool output', () => {
         }));
         await connect();
 
-        const result = await client.callTool<Array<{ hour: string; temp: number }>>({ name: 'hourly', arguments: {} });
+        const result = await client.callTool({ name: 'hourly', arguments: {} });
 
         expect(result.isError).toBeFalsy();
         expect(result.structuredContent).toEqual([
             { hour: '09:00', temp: 68 },
             { hour: '10:00', temp: 72 }
         ]);
-        // The typed generic lets us index without a narrowing guard.
-        expect(result.structuredContent?.[0].hour).toBe('09:00');
+        expect(Array.isArray(result.structuredContent)).toBe(true);
+        const structuredContent = result.structuredContent as Array<{ hour: string; temp: number }>;
+        expect(structuredContent[0]?.hour).toBe('09:00');
     });
 
     test('auto-injects a serialized TextContent fallback for array structuredContent', async () => {
@@ -73,7 +74,7 @@ describe('SEP-2106: JSON Schema 2020-12 tool output', () => {
         mcpServer.registerTool('count', { outputSchema: z.number() }, () => ({ content: [], structuredContent: 0 }));
         await connect();
 
-        const result = await client.callTool<number>({ name: 'count', arguments: {} });
+        const result = await client.callTool({ name: 'count', arguments: {} });
 
         expect(result.isError).toBeFalsy();
         expect(result.structuredContent).toBe(0);
@@ -136,7 +137,7 @@ describe('SEP-2106: JSON Schema 2020-12 tool output', () => {
         }));
         await connect();
 
-        const result = await client.callTool<{ ok: boolean }>({ name: 'obj', arguments: {} });
+        const result = await client.callTool({ name: 'obj', arguments: {} });
 
         expect(result.structuredContent).toEqual({ ok: true });
         expect(textBlocks(result.content)).toHaveLength(0);

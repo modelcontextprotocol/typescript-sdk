@@ -100,7 +100,7 @@ async function Client_callTool_basic(client: Client) {
  */
 async function Client_callTool_structuredOutput(client: Client) {
     //#region Client_callTool_structuredOutput
-    const result = await client.callTool<{ bmi: number }>({
+    const result = await client.callTool({
         name: 'calculate-bmi',
         arguments: { weightKg: 70, heightM: 1.75 }
     });
