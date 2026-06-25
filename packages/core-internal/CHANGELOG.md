@@ -1,0 +1,180 @@
+# @modelcontextprotocol/core-internal
+
+## 2.0.0-alpha.2
+
+### Major Changes
+
+- [#2128](https://github.com/modelcontextprotocol/typescript-sdk/pull/2128) [`c8d7401`](https://github.com/modelcontextprotocol/typescript-sdk/commit/c8d7401b46f34b6c49b7cfb7b321714d0d4048f6) Thanks [@felixweinberger](https://github.com/felixweinberger)! - SEP-2663: remove
+  2025-11 experimental tasks (TaskManager, experimental.tasks.\* accessors). Tasks are now Extensions Track.
+
+### Minor Changes
+
+- [#2049](https://github.com/modelcontextprotocol/typescript-sdk/pull/2049) [`4f226c1`](https://github.com/modelcontextprotocol/typescript-sdk/commit/4f226c1e35200616d62f1d7e46a2daa33d91172a) Thanks [@KKonstantinov](https://github.com/KKonstantinov)! - Add `SdkHttpError` subclass
+  with typed `.status` / `.statusText` accessors for HTTP transport failures. `StreamableHTTPClientTransport` now throws `SdkHttpError` (which extends `SdkError`) for non-OK HTTP responses; `SSEClientTransport` throws `SdkHttpError` for 401-after-reauth (circuit breaker).
+
+- [#1974](https://github.com/modelcontextprotocol/typescript-sdk/pull/1974) [`db83829`](https://github.com/modelcontextprotocol/typescript-sdk/commit/db83829c5bd5d6659c5e7b96638b11953b0e262d) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Add custom (non-spec)
+  method support: a 3-arg `setRequestHandler(method, schemas, handler)` / `setNotificationHandler(method, schemas, handler)` form for vendor-prefixed methods, and a `request(req, resultSchema)` overload (also on `ctx.mcpReq.send`) for typed custom-method results. Spec-method
+  calls are unchanged.
+
+    Response result-schema validation failure now rejects with `SdkError(InvalidResult)` instead of a raw `ZodError`. Adds `SdkErrorCode.InvalidResult`.
+
+- [#2248](https://github.com/modelcontextprotocol/typescript-sdk/pull/2248) [`db28156`](https://github.com/modelcontextprotocol/typescript-sdk/commit/db28156a23032290b3ce3bae00a17544c4807b8f) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Restore the 2025-11-25
+  task wire types that were removed together with the task feature: the task schemas and inferred types, task members of the request/result/notification unions, the `task` request-params augmentation, the `tasks` capability key, the `isTaskAugmentedRequestParams` guard, and
+  `RELATED_TASK_META_KEY`. The task feature itself remains removed — servers do not advertise the `tasks` capability and inbound `tasks/*` requests receive `-32601` — but the wire surface stays so SDKs interoperate cleanly with peers on the 2025-11-25 revision.
+
+- [#2088](https://github.com/modelcontextprotocol/typescript-sdk/pull/2088) [`16d13ab`](https://github.com/modelcontextprotocol/typescript-sdk/commit/16d13abf78b5dba5de73dfa284325b13d4219bb2) Thanks [@mattzcarey](https://github.com/mattzcarey)! - Bundle automatic JSON Schema
+  validator defaults in `@modelcontextprotocol/client` and `@modelcontextprotocol/server` runtime shims.
+
+    Client and server pick the right validator automatically based on the runtime: the Node shim uses AJV, the browser/workerd shim uses `@cfworker/json-schema`. Both backends are bundled into the shim chunks that select them, so the default code path needs no extra installs —
+    `import { McpServer } from '@modelcontextprotocol/server'` does not pull `ajv` or `@cfworker/json-schema` into the root entry chunk.
+
+    The named validator classes remain part of the public surface for consumers who want to customize the built-in backend (pre-register schemas by `$id`, register custom AJV formats, switch dialects, change `@cfworker/json-schema` draft). They are exposed through explicit
+    subpaths so they do not bloat the root index chunk:
+    - `import { AjvJsonSchemaValidator } from '@modelcontextprotocol/{client,server}/validators/ajv'`
+    - `import { CfWorkerJsonSchemaValidator } from '@modelcontextprotocol/{client,server}/validators/cf-worker'`
+
+    Importing from one of these subpaths means the corresponding peer dep (`ajv` + `ajv-formats`, or `@cfworker/json-schema`) must be in your `package.json`. The shim keeps its own vendored copy for the default path, so a project can use the subpath in some files and rely on the
+    default in others.
+
+    The `jsonSchemaValidator` interface remains the public extension point for replacing validation entirely with a custom implementation.
+
+### Patch Changes
+
+- [#1901](https://github.com/modelcontextprotocol/typescript-sdk/pull/1901) [`e15a8ef`](https://github.com/modelcontextprotocol/typescript-sdk/commit/e15a8ef3be19520d8159ae9f5b464ba3ac80a5ab) Thanks [@felixweinberger](https://github.com/felixweinberger)! -
+  `registerTool`/`registerPrompt` accept a raw Zod shape (`{ field: z.string() }`) for `inputSchema`/`outputSchema`/`argsSchema` in addition to a wrapped Standard Schema. Raw shapes are auto-wrapped with `z.object()`. The raw-shape overloads are `@deprecated`; prefer wrapping
+  with `z.object()`.
+
+    Also widens the `completable()` constraint from `StandardSchemaWithJSON` to `StandardSchemaV1` so v1's `completable(z.string(), fn)` continues to work.
+
+- [#2268](https://github.com/modelcontextprotocol/typescript-sdk/pull/2268) [`49c0a71`](https://github.com/modelcontextprotocol/typescript-sdk/commit/49c0a711c8bf2d385f9e03b4f28ba0ff0d0db0bd) Thanks [@mattzcarey](https://github.com/mattzcarey)! - Mark the roots, sampling, and
+  logging runtime APIs as `@deprecated` per SEP-2577 (deprecated as of protocol version 2026-07-28; functional for at least twelve months). Annotates `Server.createMessage`/`listRoots`/`sendLoggingMessage`, `McpServer.sendLoggingMessage`,
+  `Client.setLoggingLevel`/`sendRootsListChanged`, the `ServerContext.mcpReq.log`/`requestSampling` helpers, and the `roots`/`sampling`/`logging` capability schema fields. JSDoc/docs only — no behavior change.
+
+- [#2270](https://github.com/modelcontextprotocol/typescript-sdk/pull/2270) [`78fbe27`](https://github.com/modelcontextprotocol/typescript-sdk/commit/78fbe2736d72be4841072b359b3a2b8c6f97cd5c) Thanks [@mattzcarey](https://github.com/mattzcarey)! - Add reserved trace context
+  `_meta` key constants (`TRACEPARENT_META_KEY`, `TRACESTATE_META_KEY`, `BAGGAGE_META_KEY`) per SEP-414, plus docs and a passthrough regression test. The spec reserves the unprefixed `_meta` keys `traceparent`, `tracestate`, and `baggage` (W3C Trace Context / W3C Baggage formats)
+  for distributed tracing; the SDK passes them through untouched.
+
+- [#2252](https://github.com/modelcontextprotocol/typescript-sdk/pull/2252) [`8d55531`](https://github.com/modelcontextprotocol/typescript-sdk/commit/8d55531dabd5aa2de8864d691520cd6c6fe77541) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Add per-revision spec
+  reference types (2025-11-25 and 2026-07-28) with split comparison tests, and the 2026-07-28 wire contract surface: request-meta key constants, `RequestMetaEnvelopeSchema`, `server/discover` shapes, the typed `-32004` error, the `-32003` code constant, and a `resultType`
+  passthrough on the base result. Types and constants only — no behavior changes.
+
+- [#2275](https://github.com/modelcontextprotocol/typescript-sdk/pull/2275) [`1b53a41`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1b53a415ea2c33aa11ac413fc9c2d68ccffde784) Thanks [@KKonstantinov](https://github.com/KKonstantinov)! - Add a configurable
+  `maxBufferSize` (default 10 MB) to the stdio transports. When a single message would push the read buffer past the limit, the transport now emits an `onerror` and closes instead of growing the buffer unbounded. Configure via `new StdioClientTransport({ ..., maxBufferSize })` or
+  `new StdioServerTransport(stdin, stdout, { maxBufferSize })`. The default is exported from `@modelcontextprotocol/core-internal` as `STDIO_DEFAULT_MAX_BUFFER_SIZE`.
+
+- [#1976](https://github.com/modelcontextprotocol/typescript-sdk/pull/1976) [`55b1f06`](https://github.com/modelcontextprotocol/typescript-sdk/commit/55b1f06cd4569e334f3435b7971f0446f1ef9be9) Thanks [@felixweinberger](https://github.com/felixweinberger)! - refactor: subclasses
+  override `_wrapHandler` hook instead of redeclaring `setRequestHandler`.
+
+- [#1768](https://github.com/modelcontextprotocol/typescript-sdk/pull/1768) [`866c08d`](https://github.com/modelcontextprotocol/typescript-sdk/commit/866c08d3640c5213f80c3b4220e24c42acfc2db8) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Allow additional JSON
+  Schema properties in elicitInput's requestedSchema type by adding .catchall(z.unknown()), matching the pattern used by inputSchema. This fixes type incompatibility when using Zod v4's .toJSONSchema() output which includes extra properties like $schema and additionalProperties.
+
+- [#1895](https://github.com/modelcontextprotocol/typescript-sdk/pull/1895) [`b256546`](https://github.com/modelcontextprotocol/typescript-sdk/commit/b256546750277faeb7c886792aae5ed26e6904d5) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Fix runtime crash on
+  `tools/list` when a tool's `inputSchema` comes from zod 4.0–4.1. The SDK requires `~standard.jsonSchema` (StandardJSONSchemaV1, added in zod 4.2.0); previously a missing `jsonSchema` crashed at `undefined[io]`. `standardSchemaToJsonSchema` now detects zod 4 schemas lacking
+  `jsonSchema` and falls back to the SDK-bundled `z.toJSONSchema()`, emitting a one-time console warning. zod 3 schemas (which the bundled zod 4 converter cannot introspect) and non-zod schema libraries without `jsonSchema` get a clear error pointing to `fromJsonSchema()`. The
+  workspace zod catalog is also bumped to `^4.2.0`.
+
+## 2.0.0-alpha.1
+
+### Minor Changes
+
+- [#1673](https://github.com/modelcontextprotocol/typescript-sdk/pull/1673) [`462c3fc`](https://github.com/modelcontextprotocol/typescript-sdk/commit/462c3fc47dffac908d2ba27784d47ff010fa065e) Thanks [@KKonstantinov](https://github.com/KKonstantinov)! - refactor: extract task
+  orchestration from Protocol into TaskManager
+
+    **Breaking changes:**
+    - `taskStore`, `taskMessageQueue`, `defaultTaskPollInterval`, and `maxTaskQueueSize` moved from `ProtocolOptions` to `capabilities.tasks` on `ClientOptions`/`ServerOptions`
+
+- [#1389](https://github.com/modelcontextprotocol/typescript-sdk/pull/1389) [`108f2f3`](https://github.com/modelcontextprotocol/typescript-sdk/commit/108f2f3ab6a1267587c7c4f900b6eca3cc2dae51) Thanks [@DePasqualeOrg](https://github.com/DePasqualeOrg)! - Fix error handling for
+  unknown tools and resources per MCP spec.
+
+    **Tools:** Unknown or disabled tool calls now return JSON-RPC protocol errors with code `-32602` (InvalidParams) instead of `CallToolResult` with `isError: true`. Callers who checked `result.isError` for unknown tools should catch rejected promises instead.
+
+    **Resources:** Unknown resource reads now return error code `-32002` (ResourceNotFound) instead of `-32602` (InvalidParams).
+
+    Added `ProtocolErrorCode.ResourceNotFound`.
+
+- [#1689](https://github.com/modelcontextprotocol/typescript-sdk/pull/1689) [`0784be1`](https://github.com/modelcontextprotocol/typescript-sdk/commit/0784be1a67fb3cc2aba0182d88151264f4ea73c8) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Support Standard Schema
+  for tool and prompt schemas
+
+    Tool and prompt registration now accepts any schema library that implements the [Standard Schema spec](https://standardschema.dev/): Zod v4, Valibot, ArkType, and others. `RegisteredTool.inputSchema`, `RegisteredTool.outputSchema`, and `RegisteredPrompt.argsSchema` now use
+    `StandardSchemaWithJSON` (requires both `~standard.validate` and `~standard.jsonSchema`) instead of the Zod-specific `AnySchema` type.
+
+    **Zod v4 schemas continue to work unchanged** — Zod v4 implements the required interfaces natively.
+
+    ```typescript
+    import { type } from 'arktype';
+
+    server.registerTool(
+        'greet',
+        {
+            inputSchema: type({ name: 'string' })
+        },
+        async ({ name }) => ({ content: [{ type: 'text', text: `Hello, ${name}!` }] })
+    );
+    ```
+
+    For raw JSON Schema (e.g. TypeBox output), use the new `fromJsonSchema` adapter:
+
+    ```typescript
+    import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/core-internal';
+
+    server.registerTool(
+        'greet',
+        {
+            inputSchema: fromJsonSchema({ type: 'object', properties: { name: { type: 'string' } } }, new AjvJsonSchemaValidator())
+        },
+        handler
+    );
+    ```
+
+    **Breaking changes:**
+    - `experimental.tasks.getTaskResult()` no longer accepts a `resultSchema` parameter. Returns `GetTaskPayloadResult` (a loose `Result`); cast to the expected type at the call site.
+    - Removed unused exports from `@modelcontextprotocol/core-internal`: `SchemaInput`, `schemaToJson`, `parseSchemaAsync`, `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema`. Use the new `standardSchemaToJsonSchema` and `validateStandardSchema`
+      instead.
+    - `completable()` remains Zod-specific (it relies on Zod's `.shape` introspection).
+
+### Patch Changes
+
+- [#1735](https://github.com/modelcontextprotocol/typescript-sdk/pull/1735) [`a2e5037`](https://github.com/modelcontextprotocol/typescript-sdk/commit/a2e503733f6f3eea3a79a80bdc1b3cdd743f8bb3) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Abort in-flight request
+  handlers when the connection closes. Previously, request handlers would continue running after the transport disconnected, wasting resources and preventing proper cleanup. Also fixes `InMemoryTransport.close()` firing `onclose` twice on the initiating side.
+
+- [#1574](https://github.com/modelcontextprotocol/typescript-sdk/pull/1574) [`379392d`](https://github.com/modelcontextprotocol/typescript-sdk/commit/379392d04460ee2cbeecae374901fae21e525031) Thanks [@olaservo](https://github.com/olaservo)! - Add missing `size` field to
+  `ResourceSchema` to match the MCP specification
+
+- [#1363](https://github.com/modelcontextprotocol/typescript-sdk/pull/1363) [`0a75810`](https://github.com/modelcontextprotocol/typescript-sdk/commit/0a75810b26e24bae6b9cfb41e12ac770aeaa1da4) Thanks [@DevJanderson](https://github.com/DevJanderson)! - Fix ReDoS vulnerability in
+  UriTemplate regex patterns (CVE-2026-0621)
+
+- [#1761](https://github.com/modelcontextprotocol/typescript-sdk/pull/1761) [`01954e6`](https://github.com/modelcontextprotocol/typescript-sdk/commit/01954e621afe525cc3c1bbe8d781e44734cf81c2) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Convert remaining
+  capability-assertion throws to `SdkError(SdkErrorCode.CapabilityNotSupported, ...)`. Follow-up to #1454 which missed `Client.assertCapability()`, the task capability helpers in `experimental/tasks/helpers.ts`, and the sampling/elicitation capability checks in
+  `experimental/tasks/server.ts`.
+
+- [#1790](https://github.com/modelcontextprotocol/typescript-sdk/pull/1790) [`89fb094`](https://github.com/modelcontextprotocol/typescript-sdk/commit/89fb0947b487b37f9bfcc2a2486dcd33d3922f8e) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Consolidate per-request
+  cleanup in `_requestWithSchema` into a single `.finally()` block. This fixes an abort signal listener leak (listeners accumulated when a caller reused one `AbortSignal` across requests) and two cases where `_responseHandlers` entries leaked on send-failure paths.
+
+- [#1486](https://github.com/modelcontextprotocol/typescript-sdk/pull/1486) [`65bbcea`](https://github.com/modelcontextprotocol/typescript-sdk/commit/65bbceab773277f056a9d3e385e7e7d8cef54f9b) Thanks [@localden](https://github.com/localden)! - Fix InMemoryTaskStore to enforce
+  session isolation. Previously, sessionId was accepted but ignored on all TaskStore methods, allowing any session to enumerate, read, and mutate tasks created by other sessions. The store now persists sessionId at creation time and enforces ownership on all reads and writes.
+
+- [#1766](https://github.com/modelcontextprotocol/typescript-sdk/pull/1766) [`48aba0d`](https://github.com/modelcontextprotocol/typescript-sdk/commit/48aba0d3c3b2ee04c442934095b663d19e07a3b3) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Add explicit
+  `| undefined` to optional properties on the `Transport` interface and `TransportSendOptions` (`onclose`, `onerror`, `onmessage`, `sessionId`, `setProtocolVersion`, `setSupportedProtocolVersions`, `onresumptiontoken`).
+
+    This fixes TS2420 errors for consumers using `exactOptionalPropertyTypes: true` without `skipLibCheck`, where the emitted `.d.ts` for implementing classes included `| undefined` but the interface did not.
+
+    Workaround for older SDK versions: enable `skipLibCheck: true` in your tsconfig.
+
+- [#1419](https://github.com/modelcontextprotocol/typescript-sdk/pull/1419) [`dcf708d`](https://github.com/modelcontextprotocol/typescript-sdk/commit/dcf708d892b7ca5f137c74109d42cdeb05e2ee3a) Thanks [@KKonstantinov](https://github.com/KKonstantinov)! - remove deprecated .tool,
+  .prompt, .resource method signatures
+
+- [#1534](https://github.com/modelcontextprotocol/typescript-sdk/pull/1534) [`69a0626`](https://github.com/modelcontextprotocol/typescript-sdk/commit/69a062693f61e024d7a366db0c3e3ba74ff59d8e) Thanks [@josefaidt](https://github.com/josefaidt)! - remove npm references, use pnpm
+
+- [#1534](https://github.com/modelcontextprotocol/typescript-sdk/pull/1534) [`69a0626`](https://github.com/modelcontextprotocol/typescript-sdk/commit/69a062693f61e024d7a366db0c3e3ba74ff59d8e) Thanks [@josefaidt](https://github.com/josefaidt)! - clean up package manager usage, all
+  pnpm
+
+- [#1796](https://github.com/modelcontextprotocol/typescript-sdk/pull/1796) [`d6a02c8`](https://github.com/modelcontextprotocol/typescript-sdk/commit/d6a02c85c0514658c27615398a3003aadce80fb0) Thanks [@felixweinberger](https://github.com/felixweinberger)! - Ensure
+  `standardSchemaToJsonSchema` emits `type: "object"` at the root, fixing discriminated-union tool/prompt schemas that previously produced `{oneOf: [...]}` without the MCP-required top-level type. Also throws a clear error when given an explicitly non-object schema (e.g.
+  `z.string()`). Fixes #1643.
+
+- [#1419](https://github.com/modelcontextprotocol/typescript-sdk/pull/1419) [`dcf708d`](https://github.com/modelcontextprotocol/typescript-sdk/commit/dcf708d892b7ca5f137c74109d42cdeb05e2ee3a) Thanks [@KKonstantinov](https://github.com/KKonstantinov)! - deprecated .tool, .prompt,
+  .resource method removal
+
+- [#1762](https://github.com/modelcontextprotocol/typescript-sdk/pull/1762) [`64897f7`](https://github.com/modelcontextprotocol/typescript-sdk/commit/64897f78ce78f736b027dfecd1b4326c8c6678c7) Thanks [@felixweinberger](https://github.com/felixweinberger)! -
+  `ReadBuffer.readMessage()` now silently skips non-JSON lines instead of throwing `SyntaxError`. This prevents noisy `onerror` callbacks when hot-reload tools (tsx, nodemon) write debug output like "Gracefully restarting..." to stdout. Lines that parse as JSON but fail JSONRPC
+  schema validation still throw.

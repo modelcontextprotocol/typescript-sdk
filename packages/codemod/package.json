@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/codemod",
-    "version": "2.0.0-alpha.0",
+    "version": "2.0.0-alpha.1",
     "description": "Codemod to migrate MCP TypeScript SDK code from v1 to v2",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -35,8 +35,7 @@
     "scripts": {
         "typecheck": "tsgo -p tsconfig.json --noEmit",
         "generate:versions": "tsx scripts/generateVersions.ts",
-        "generate:spec-schemas": "tsx scripts/generateSpecSchemaMap.ts",
-        "prebuild": "pnpm run generate:versions && pnpm run generate:spec-schemas",
+        "prebuild": "pnpm run generate:versions",
         "build": "tsdown",
         "build:watch": "tsdown --watch",
         "prepack": "pnpm run build",

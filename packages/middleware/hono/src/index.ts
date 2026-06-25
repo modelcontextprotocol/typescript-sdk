@@ -1,2 +1,2 @@
-export * from './hono.js';
-export * from './middleware/hostHeaderValidation.js';
+export * from './hono';
+export * from './middleware/hostHeaderValidation';

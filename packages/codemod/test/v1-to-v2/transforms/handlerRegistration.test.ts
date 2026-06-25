@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { handlerRegistrationTransform } from '../../../src/migrations/v1-to-v2/transforms/handlerRegistration.js';
-import type { TransformContext } from '../../../src/types.js';
+import { handlerRegistrationTransform } from '../../../src/migrations/v1-to-v2/transforms/handlerRegistration';
+import type { TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 
@@ -217,6 +217,28 @@ describe('handler-registration transform', () => {
         const result = applyTransform(input);
         expect(result).toContain("setNotificationHandler('notifications/elicitation/complete'");
         expect(result).not.toContain('ElicitationCompleteNotificationSchema');
+    });
+
+    it('replaces TaskStatusNotificationSchema with the tasks/status method string', () => {
+        const input = [
+            `import { TaskStatusNotificationSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `client.setNotificationHandler(TaskStatusNotificationSchema, async () => {});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("setNotificationHandler('notifications/tasks/status'");
+        expect(result).not.toContain('TaskStatusNotificationSchema');
+    });
+
+    it('replaces task request schemas (GetTaskRequestSchema → tasks/get)', () => {
+        const input = [
+            `import { GetTaskRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `server.setRequestHandler(GetTaskRequestSchema, async () => ({}));`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("setRequestHandler('tasks/get'");
+        expect(result).not.toContain('GetTaskRequestSchema');
     });
 
     it('does not emit diagnostic when first arg is a string literal (v2 style)', () => {

@@ -27,7 +27,7 @@ import {
 } from '@modelcontextprotocol/client';
 import open from 'open';
 
-import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
+import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider';
 
 // Set up OAuth (required for this example)
 const OAUTH_CALLBACK_PORT = 8090; // Use different port than auth server (3001)

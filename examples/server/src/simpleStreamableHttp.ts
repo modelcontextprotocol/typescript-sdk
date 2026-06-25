@@ -15,7 +15,7 @@ import cors from 'cors';
 import type { Request, Response } from 'express';
 import * as z from 'zod/v4';
 
-import { InMemoryEventStore } from './inMemoryEventStore.js';
+import { InMemoryEventStore } from './inMemoryEventStore';
 
 // Check for OAuth flag
 const useOAuth = process.argv.includes('--oauth');
@@ -43,6 +43,8 @@ const getServer = () => {
         {
             title: 'Greeting Tool', // Display name for UI
             description: 'A simple greeting tool',
+            // Optional icons a client can render in its UI for this tool.
+            icons: [{ src: './greet.svg', sizes: ['48x48'], mimeType: 'image/svg+xml' }],
             inputSchema: z.object({
                 name: z.string().describe('Name to greet')
             })

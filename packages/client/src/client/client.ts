@@ -32,7 +32,7 @@ import type {
     Tool,
     Transport,
     UnsubscribeRequest
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     CallToolResultSchema,
     CompleteResultSchema,
@@ -58,7 +58,7 @@ import {
     ReadResourceResultSchema,
     SdkError,
     SdkErrorCode
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.

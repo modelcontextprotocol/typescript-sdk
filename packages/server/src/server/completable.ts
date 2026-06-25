@@ -1,4 +1,4 @@
-import type { StandardSchemaV1 } from '@modelcontextprotocol/core';
+import type { StandardSchemaV1 } from '@modelcontextprotocol/core-internal';
 
 export const COMPLETABLE_SYMBOL: unique symbol = Symbol.for('mcp.completable');
 

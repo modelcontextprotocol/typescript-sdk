@@ -4,9 +4,9 @@ import type { Options as RateLimitOptions } from 'express-rate-limit';
 import { rateLimit } from 'express-rate-limit';
 import * as z from 'zod/v4';
 
-import { InvalidClientError, InvalidRequestError, OAuthError, ServerError, TooManyRequestsError } from '../errors.js';
-import { allowedMethods } from '../middleware/allowedMethods.js';
-import type { OAuthServerProvider } from '../provider.js';
+import { InvalidClientError, InvalidRequestError, OAuthError, ServerError, TooManyRequestsError } from '../errors';
+import { allowedMethods } from '../middleware/allowedMethods';
+import type { OAuthServerProvider } from '../provider';
 
 export type AuthorizationHandlerOptions = {
     provider: OAuthServerProvider;
