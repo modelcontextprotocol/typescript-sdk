@@ -7,6 +7,7 @@ import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics
 import type { NamedImportSpec } from '../../../utils/importUtils.js';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
+import { AUTH_SCHEMA_NAMES } from '../mappings/authSchemaNames.js';
 import type { ImportMapping } from '../mappings/importMap.js';
 import { isAuthImport, lookupImportMapping } from '../mappings/importMap.js';
 import { SPEC_SCHEMA_NAMES } from '../mappings/specSchemaNames.js';
@@ -27,17 +28,27 @@ function resolveRenamedName(name: string, mapping: ImportMapping): string {
 }
 
 /**
+ * True when `name` (after renames) is a Zod schema CONSTANT that sdk-shared re-exports — either a spec
+ * schema (`SPEC_SCHEMA_NAMES`) or an OAuth/OpenID schema (`AUTH_SCHEMA_NAMES`). Membership (not a
+ * `*Schema` suffix) is what keeps TYPES whose name ends in `Schema` — e.g. `BooleanSchema` — out.
+ */
+function isSharedSchemaConst(name: string, mapping: ImportMapping): boolean {
+    const resolved = resolveRenamedName(name, mapping);
+    return SPEC_SCHEMA_NAMES.has(resolved) || AUTH_SCHEMA_NAMES.has(resolved);
+}
+
+/**
  * The per-symbol target package for a symbol imported/re-exported from `mapping`'s module, or
  * `undefined` when the symbol should use the mapping's resolved `target`. Exact-name
  * `symbolTargetOverrides` win over `schemaSymbolTarget`, which routes a symbol to the shared-schemas
- * package only when its rename-resolved name is an actual spec schema constant (`SPEC_SCHEMA_NAMES`) —
- * not merely any name ending in `Schema`, so spec TYPES such as `BooleanSchema` resolve by context.
+ * package only when its rename-resolved name is a schema constant re-exported by sdk-shared (see
+ * `isSharedSchemaConst`).
  */
 function symbolTargetOverride(name: string, mapping: ImportMapping): string | undefined {
     if (mapping.symbolTargetOverrides && name in mapping.symbolTargetOverrides) {
         return mapping.symbolTargetOverrides[name];
     }
-    if (mapping.schemaSymbolTarget && SPEC_SCHEMA_NAMES.has(resolveRenamedName(name, mapping))) {
+    if (mapping.schemaSymbolTarget && isSharedSchemaConst(name, mapping)) {
         return mapping.schemaSymbolTarget;
     }
     return undefined;
@@ -159,25 +170,29 @@ export const importPathsTransform: Transform = {
                 // any `ns.<Name>Schema` accesses would silently resolve against the wrong package. Flag them.
                 if (namespaceImport && mapping.schemaSymbolTarget) {
                     const nsName = namespaceImport.getText();
-                    const schemaNames = [
-                        ...new Set(
+                    // Map each accessed v1 name to the v2 name sdk-shared actually exports — some are
+                    // renamed (e.g. JSONRPCErrorSchema → JSONRPCErrorResponseSchema), and sdk-shared only
+                    // exports the v2 name. Dedupe by the accessed (v1) name.
+                    const schemaAccesses = [
+                        ...new Map(
                             sourceFile
                                 .getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)
-                                .filter(
-                                    pa =>
-                                        pa.getExpression().getText() === nsName &&
-                                        SPEC_SCHEMA_NAMES.has(resolveRenamedName(pa.getName(), mapping))
-                                )
-                                .map(pa => pa.getName())
+                                .filter(pa => pa.getExpression().getText() === nsName && isSharedSchemaConst(pa.getName(), mapping))
+                                .map(pa => [pa.getName(), resolveRenamedName(pa.getName(), mapping)] as const)
                         )
                     ];
-                    if (schemaNames.length > 0) {
+                    if (schemaAccesses.length > 0) {
+                        const accessed = schemaAccesses.map(([v1]) => v1).join(', ');
+                        const importName = schemaAccesses[0]![1];
+                        const renamed = schemaAccesses.filter(([v1, v2]) => v1 !== v2);
+                        const renameNote =
+                            renamed.length > 0 ? ` Renamed in v2: ${renamed.map(([v1, v2]) => `${v1} → ${v2}`).join(', ')}.` : '';
                         diagnostics.push(
                             actionRequired(
                                 filePath,
                                 imp,
-                                `Namespace import of ${specifier} is used to access Zod schema(s) (${schemaNames.join(', ')}) that moved to ${mapping.schemaSymbolTarget}. ` +
-                                    `Import them with a named import (e.g. \`import { ${schemaNames[0]} } from '${mapping.schemaSymbolTarget}'\`) and update the qualified usages.`
+                                `Namespace import of ${specifier} is used to access Zod schema(s) (${accessed}) that moved to ${mapping.schemaSymbolTarget}.${renameNote} ` +
+                                    `Import them with a named import (e.g. \`import { ${importName} } from '${mapping.schemaSymbolTarget}'\`) and update the qualified usages.`
                             )
                         );
                     }

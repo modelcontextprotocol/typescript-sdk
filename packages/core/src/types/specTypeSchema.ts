@@ -1,6 +1,7 @@
 import type * as z from 'zod/v4';
 
 import {
+    IdJagTokenExchangeResponseSchema,
     OAuthClientInformationFullSchema,
     OAuthClientInformationSchema,
     OAuthClientMetadataSchema,
@@ -188,6 +189,7 @@ const SPEC_SCHEMA_KEYS = [
 ] as const satisfies readonly (keyof typeof schemas)[];
 
 const authSchemas = {
+    IdJagTokenExchangeResponseSchema,
     OAuthClientInformationFullSchema,
     OAuthClientInformationSchema,
     OAuthClientMetadataSchema,

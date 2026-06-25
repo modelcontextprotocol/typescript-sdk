@@ -19,6 +19,7 @@ export { SdkError, SdkErrorCode, SdkHttpError } from '../../errors/sdkErrors.js'
 // Auth TypeScript types (NOT Zod schemas like OAuthMetadataSchema)
 export type {
     AuthorizationServerMetadata,
+    IdJagTokenExchangeResponse,
     OAuthClientInformation,
     OAuthClientInformationFull,
     OAuthClientInformationMixed,

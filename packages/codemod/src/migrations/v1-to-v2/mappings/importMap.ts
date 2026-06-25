@@ -6,12 +6,13 @@ export interface ImportMapping {
     symbolTargetOverrides?: Record<string, string>;
     /**
      * Route an imported symbol to this package (instead of `target`) when its rename-resolved name is
-     * an actual spec schema constant — a member of `SPEC_SCHEMA_NAMES`. Used for `sdk/types.js`: the
-     * spec Zod schemas now live in `@modelcontextprotocol/sdk-shared` (so `<Name>Schema.parse(...)`
-     * keeps working), while spec types/constants/guards resolve by context. Matching on membership
-     * (not a `*Schema` suffix) keeps spec TYPES whose name ends in `Schema` — e.g. the elicitation
-     * primitives `BooleanSchema`/`StringSchema`/`EnumSchema` — routed by context, where their types
-     * live. `symbolTargetOverrides` (exact-name) takes precedence.
+     * a Zod schema constant re-exported by sdk-shared — a member of `SPEC_SCHEMA_NAMES` (spec schemas,
+     * for `sdk/types.js`) or `AUTH_SCHEMA_NAMES` (OAuth/OpenID schemas, for `sdk/shared/auth.js`). The
+     * schemas now live in `@modelcontextprotocol/sdk-shared` (so `<Name>Schema.parse(...)` keeps
+     * working), while the corresponding types/constants/guards resolve by context. Matching on
+     * membership (not a `*Schema` suffix) keeps TYPES whose name ends in `Schema` — e.g. the
+     * elicitation primitives `BooleanSchema`/`StringSchema`/`EnumSchema` — routed by context, where
+     * their types live. `symbolTargetOverrides` (exact-name) takes precedence.
      */
     schemaSymbolTarget?: string;
     removalMessage?: string;
@@ -148,7 +149,12 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
     '@modelcontextprotocol/sdk/shared/auth.js': {
         target: 'RESOLVE_BY_CONTEXT',
-        status: 'moved'
+        status: 'moved',
+        // OAuth/OpenID Zod schema constants (AUTH_SCHEMA_NAMES) are re-exported by sdk-shared as a
+        // separate group, so route them there (keeping `OAuthTokensSchema.parse(...)` working). The
+        // OAuth/OpenID TYPES (OAuthTokens, etc.) carry no `schemaSymbolTarget` match and resolve by
+        // context to @modelcontextprotocol/client | /server.
+        schemaSymbolTarget: '@modelcontextprotocol/sdk-shared'
     },
     '@modelcontextprotocol/sdk/shared/stdio.js': {
         target: 'RESOLVE_BY_CONTEXT',

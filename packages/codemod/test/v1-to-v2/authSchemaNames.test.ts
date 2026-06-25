@@ -1,0 +1,27 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
+import { describe, expect, it } from 'vitest';
+
+import { AUTH_SCHEMA_NAMES } from '../../src/migrations/v1-to-v2/mappings/authSchemaNames.js';
+
+describe('AUTH_SCHEMA_NAMES (codemod auth schema-routing allowlist)', () => {
+    it('routes only auth schemas that @modelcontextprotocol/sdk-shared exports (drift guard)', () => {
+        // The import transform routes a `*Schema` symbol from sdk/shared/auth.js to sdk-shared only when
+        // its name is in AUTH_SCHEMA_NAMES, so EVERY name here MUST be exported by sdk-shared — otherwise
+        // the rewritten import would have no exported member. AUTH_SCHEMA_NAMES is the v1 auth-schema set,
+        // a SUBSET of sdk-shared's auth exports: sdk-shared may export more (v2-only schemas such as
+        // IdJagTokenExchangeResponseSchema) that v1 never had and the codemod never encounters. Read
+        // sdk-shared's barrel directly (the `export { … } from '…/core/auth'` block) so they cannot drift.
+        const src = readFileSync(fileURLToPath(new URL('../../../sdk-shared/src/index.ts', import.meta.url)), 'utf8');
+        const closeIdx = src.indexOf("} from '@modelcontextprotocol/core/auth'");
+        const openIdx = src.lastIndexOf('export {', closeIdx);
+        const block = src.slice(openIdx + 'export {'.length, closeIdx);
+        const sdkSharedAuthExports = new Set([...block.matchAll(/\b(\w+Schema)\b/g)].map(m => m[1]));
+
+        const notExportedBySdkShared = [...AUTH_SCHEMA_NAMES].filter(name => !sdkSharedAuthExports.has(name));
+        expect(notExportedBySdkShared).toEqual([]);
+        // The v1 auth-schema set is frozen; pin its size so an accidental add/remove is caught.
+        expect(AUTH_SCHEMA_NAMES.size).toBe(11);
+    });
+});

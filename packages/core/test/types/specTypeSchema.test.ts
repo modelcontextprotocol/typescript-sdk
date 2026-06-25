@@ -166,10 +166,11 @@ describe('SPEC_SCHEMA_KEYS allowlist', () => {
             .filter(k => !INTERNAL_HELPER_SCHEMAS.includes(k))
             .map(k => k.slice(0, -'Schema'.length))
             .sort();
-        // Auth schemas are sourced from shared/auth.ts, not schemas.ts, so filter them out of the
-        // observed side before comparing.
+        // Auth schemas are sourced from shared/auth.ts, not schemas.ts. Keep only the protocol entries
+        // (whose `*Schema` const lives in schemas.ts) so the comparison stays against schemas.ts —
+        // robust to new auth schemas (e.g. IdJagTokenExchangeResponse) without a name-prefix heuristic.
         const actual = Object.keys(isSpecType)
-            .filter(k => !k.startsWith('OAuth') && !k.startsWith('OpenId'))
+            .filter(k => `${k}Schema` in schemas)
             .sort();
         expect(actual).toEqual(expected);
     });

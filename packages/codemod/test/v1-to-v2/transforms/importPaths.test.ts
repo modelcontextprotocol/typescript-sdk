@@ -170,6 +170,23 @@ describe('import-paths transform', () => {
         expect(result).not.toContain('@modelcontextprotocol/sdk/');
     });
 
+    it('routes OAuth *Schema from sdk/shared/auth.js to sdk-shared; the TYPE resolves by context', () => {
+        // OAuthTokensSchema is a Zod schema re-exported by sdk-shared (AUTH_SCHEMA_NAMES), so route it
+        // there — `OAuthTokensSchema.parse(...)` keeps working. OAuthTokens (the type) has no schema-name
+        // match and resolves by context to @modelcontextprotocol/client.
+        const input = [
+            `import { OAuthTokensSchema, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';`,
+            `const t = OAuthTokensSchema.parse(raw);`,
+            `let x: OAuthTokens;`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'client' });
+        expect(result).toMatch(/import\s*\{[^}]*\bOAuthTokensSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/sdk-shared["']/);
+        expect(result).toMatch(/import\s*\{[^}]*\bOAuthTokens\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/client["']/);
+        expect(result).toContain('OAuthTokensSchema.parse(raw)');
+        expect(result).not.toContain('@modelcontextprotocol/sdk/shared/auth');
+    });
+
     it('does not rewrite schema .parse() usages (migrates as an import-path swap)', () => {
         const input = [
             `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
@@ -256,6 +273,23 @@ describe('import-paths transform', () => {
         // The namespace import itself still moves to the context package (its types live there).
         // (setModuleSpecifier preserves the original quote style, so match quote-agnostically.)
         expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/server');
+    });
+
+    it('suggests the v2 (rename-resolved) name in the namespace schema-access diagnostic', () => {
+        // JSONRPCErrorSchema is re-exported by sdk-shared as JSONRPCErrorResponseSchema; the suggested
+        // import must use the v2 name (the v1 name has no exported member), and mention the rename.
+        const input = [
+            `import * as types from '@modelcontextprotocol/sdk/types.js';`,
+            `const r = types.JSONRPCErrorSchema.safeParse(value);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const msg = result.diagnostics.map(d => d.message).join('\n');
+        expect(msg).toContain("import { JSONRPCErrorResponseSchema } from '@modelcontextprotocol/sdk-shared'");
+        expect(msg).toContain('JSONRPCErrorSchema → JSONRPCErrorResponseSchema');
+        expect(msg).not.toContain('import { JSONRPCErrorSchema } from');
     });
 
     it('does not flag a namespace import of sdk/types.js that only accesses types', () => {

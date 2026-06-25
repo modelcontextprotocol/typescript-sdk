@@ -65,7 +65,7 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 | `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
 | `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
 | `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
-| `@modelcontextprotocol/sdk/shared/auth.js`        | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
+| `@modelcontextprotocol/sdk/shared/auth.js`        | Types / classes → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; OAuth/OpenID Zod `*Schema` constants (e.g. `OAuthTokensSchema`, `OAuthMetadataSchema`) → `@modelcontextprotocol/sdk-shared` |
 | `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` (`ReadBuffer`, `serializeMessage`, `deserializeMessage` are in the root barrel; the `./stdio` subpath only has the transport class) |
 
 Notes:

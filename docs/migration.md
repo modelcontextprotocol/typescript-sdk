@@ -532,7 +532,7 @@ if (CallToolResultSchema.safeParse(value).success) {
 }
 ```
 
-`@modelcontextprotocol/sdk-shared` is the canonical home for the spec Zod schemas. `@modelcontextprotocol/server` and `@modelcontextprotocol/client` keep a Zod-free public surface, so the raw `*Schema` constants live in `sdk-shared`. (The codemod rewrites these imports for you.)
+`@modelcontextprotocol/sdk-shared` is the canonical home for the Zod schema constants — both the spec schemas and the OAuth/OpenID schemas (e.g. `OAuthTokensSchema`, `OAuthMetadataSchema`) that v1 exported from `@modelcontextprotocol/sdk/shared/auth.js`. `@modelcontextprotocol/server` and `@modelcontextprotocol/client` keep a Zod-free public surface (they export the corresponding TypeScript types, e.g. `OAuthTokens`), so the raw `*Schema` constants live in `sdk-shared`. (The codemod rewrites these imports for you.)
 
 If you'd rather **not** depend on Zod, `@modelcontextprotocol/client` and `@modelcontextprotocol/server` also expose Zod-free validators keyed by `SpecTypeName` — a literal union of every named spec type, so you get autocomplete and a compile error on typos:
 
