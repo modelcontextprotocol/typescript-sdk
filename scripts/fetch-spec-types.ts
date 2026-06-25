@@ -90,7 +90,7 @@ async function updateSpecTypes(version: SpecVersion, providedSHA?: string): Prom
     const fullContent = header + specContent;
 
     // Format with prettier using the project's config so the output passes lint
-    const outputPath = join(PROJECT_ROOT, 'packages', 'core', 'src', 'types', `spec.types.${version}.ts`);
+    const outputPath = join(PROJECT_ROOT, 'packages', 'core-internal', 'src', 'types', `spec.types.${version}.ts`);
     const prettierConfig = await prettier.resolveConfig(outputPath);
     const formatted = await prettier.format(fullContent, { ...prettierConfig, filepath: outputPath });
 

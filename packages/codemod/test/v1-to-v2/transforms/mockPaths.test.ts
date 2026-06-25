@@ -402,6 +402,95 @@ describe('mock-paths transform', () => {
         });
     });
 
+    describe('lazy context resolution (no spurious project-type diagnostic)', () => {
+        it('does not warn about project type for a schema-only vi.mock factory (unknown project)', () => {
+            // The factory routes entirely to core, so the context package is never used — resolveTypesPackage
+            // must not emit a "could not determine project type" warning.
+            const input = [`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`, `    CallToolResultSchema: vi.fn()`, `}));`, ''].join(
+                '\n'
+            );
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, { projectType: 'unknown' });
+            expect(result.diagnostics.some(d => /determine project type/i.test(d.message))).toBe(false);
+            expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/core');
+        });
+
+        it('does not emit a both-project note for a schema-only destructured dynamic import (both project)', () => {
+            const input = [`const { OAuthTokensSchema } = await import('@modelcontextprotocol/sdk/shared/auth.js');`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, { projectType: 'both' });
+            expect(result.diagnostics.some(d => /both client and server|determine project type/i.test(d.message))).toBe(false);
+            expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/core');
+        });
+
+        it('still warns about project type for a non-schema vi.mock factory (unknown project)', () => {
+            // Control: isInitializeRequest is a guard (not a schema constant), so the factory falls through to
+            // context resolution — the warning must still fire (lazy resolution must not suppress real fall-throughs).
+            const input = [`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`, `    isInitializeRequest: vi.fn()`, `}));`, ''].join(
+                '\n'
+            );
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, { projectType: 'unknown' });
+            expect(result.diagnostics.some(d => /determine project type/i.test(d.message))).toBe(true);
+        });
+    });
+
+    describe('non-destructured / .then dynamic import schema access (schemaSymbolTarget)', () => {
+        it('flags schema access on a non-destructured awaited dynamic import (types.js)', () => {
+            const input = [
+                `const mod = await import('@modelcontextprotocol/sdk/types.js');`,
+                `const r = mod.CallToolResultSchema.parse(value);`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(
+                result.diagnostics.some(d => d.message.includes('@modelcontextprotocol/core') && d.message.includes('CallToolResultSchema'))
+            ).toBe(true);
+        });
+
+        it('flags schema access in a .then() chain (shared/auth.js)', () => {
+            const input = [`import('@modelcontextprotocol/sdk/shared/auth.js').then(m => m.OAuthTokensSchema.parse(value));`, ''].join(
+                '\n'
+            );
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(
+                result.diagnostics.some(d => d.message.includes('@modelcontextprotocol/core') && d.message.includes('OAuthTokensSchema'))
+            ).toBe(true);
+        });
+
+        it('notes the rename for a renamed schema accessed in a .then() chain', () => {
+            const input = [`import('@modelcontextprotocol/sdk/types.js').then(m => m.JSONRPCResponseSchema.parse(value));`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(
+                result.diagnostics.some(
+                    d => d.message.includes('JSONRPCResponseSchema') && d.message.includes('JSONRPCResultResponseSchema')
+                )
+            ).toBe(true);
+        });
+
+        it('does not flag a non-destructured dynamic import with no schema access', () => {
+            // Control: `mod` is only used for a guard (not a schema constant), so no schema-moved-to-core note.
+            const input = [
+                `const mod = await import('@modelcontextprotocol/sdk/types.js');`,
+                `const ok = mod.isInitializeRequest(value);`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.some(d => d.message.includes('moved to @modelcontextprotocol/core'))).toBe(false);
+        });
+    });
+
     describe('validator subpath rewrites', () => {
         it('rewrites vi.mock of validator provider to the subpath', () => {
             const input = [

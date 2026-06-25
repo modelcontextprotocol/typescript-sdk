@@ -610,6 +610,9 @@ All other symbols exported from `@modelcontextprotocol/sdk/types.js` retain thei
 > **Note on `JSONRPCResponseSchema`:** the Zod schema follows the same pattern. v1's `JSONRPCResponseSchema` validated only _result_ responses; v2 reuses the name for a `z.union([JSONRPCResultResponseSchema, JSONRPCErrorResponseSchema])` that also accepts error responses. If you
 > are migrating v1 code that called `JSONRPCResponseSchema.parse()`/`.safeParse()`, rename it to `JSONRPCResultResponseSchema` (re-exported by `@modelcontextprotocol/core`) to preserve the original validation. The codemod performs this rename automatically.
 
+> **Note on the `JSONRPCResponse` type:** the TypeScript type follows the same pattern. v1's `JSONRPCResponse` was the _result-only_ response type; v2 reuses the name for the result\|error union (`Infer<typeof JSONRPCResponseSchema>`). If you are migrating v1 code that annotated values with
+> `JSONRPCResponse`, rename it to `JSONRPCResultResponse` (re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) to preserve the original narrower type. The codemod performs this rename automatically.
+
 **Before (v1):**
 
 ```typescript

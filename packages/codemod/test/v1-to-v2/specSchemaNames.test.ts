@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { SPEC_SCHEMA_NAMES } from '../../src/migrations/v1-to-v2/mappings/specSchemaNames.js';
+import { SPEC_SCHEMA_NAMES } from '../../src/migrations/v1-to-v2/mappings/specSchemaNames';
 
 describe('SPEC_SCHEMA_NAMES (codemod schema-routing allowlist)', () => {
     it("matches @modelcontextprotocol/core's exported schema set exactly (drift guard)", () => {

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 
-import { detectFormatter } from '../src/utils/detectFormatter.js';
+import { detectFormatter } from '../src/utils/detectFormatter';
 
 let tempDir: string;
 

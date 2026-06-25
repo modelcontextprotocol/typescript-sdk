@@ -90,6 +90,7 @@ Notes:
 | `isJSONRPCError`                            | `isJSONRPCErrorResponse`                                                                                                                                         |
 | `isJSONRPCResponse` (deprecated in v1)      | `isJSONRPCResultResponse` (**not** v2's new `isJSONRPCResponse`, which correctly matches both result and error)                                                  |
 | `JSONRPCResponseSchema` (result-only in v1) | `JSONRPCResultResponseSchema` (from `@modelcontextprotocol/core`; **not** v2's new `JSONRPCResponseSchema`, a `z.union` that also accepts error responses) |
+| `JSONRPCResponse` (type, result-only in v1) | `JSONRPCResultResponse` (**not** v2's new `JSONRPCResponse` type, which is the result\|error union)                                                              |
 | `ResourceReference`                         | `ResourceTemplateReference`                                                                                                                                      |
 | `ResourceReferenceSchema`                   | `ResourceTemplateReferenceSchema`                                                                                                                                |
 | `IsomorphicHeaders`                         | REMOVED (use Web Standard `Headers`)                                                                                                                             |

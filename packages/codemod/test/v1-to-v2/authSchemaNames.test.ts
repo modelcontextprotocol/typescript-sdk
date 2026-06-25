@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { AUTH_SCHEMA_NAMES, AUTH_SCHEMA_NAMES_NO_V2_PUBLIC_EXPORT } from '../../src/migrations/v1-to-v2/mappings/authSchemaNames.js';
+import { AUTH_SCHEMA_NAMES, AUTH_SCHEMA_NAMES_NO_V2_PUBLIC_EXPORT } from '../../src/migrations/v1-to-v2/mappings/authSchemaNames';
 
 describe('AUTH_SCHEMA_NAMES (codemod auth schema-routing allowlist)', () => {
     it('routes only auth schemas that @modelcontextprotocol/core exports (drift guard)', () => {

@@ -202,7 +202,7 @@ describe('analyzeProject', () => {
 
 describe('resolveTypesPackage', () => {
     it('emits an info note (not a warning) for a both-project ambiguous file', () => {
-        const sink = { filePath: 'f.ts', line: 1, diagnostics: [] as import('../src/types.js').Diagnostic[] };
+        const sink = { filePath: 'f.ts', line: 1, diagnostics: [] as import('../src/types').Diagnostic[] };
         const target = resolveTypesPackage({ projectType: 'both' }, false, false, sink);
         expect(target).toBe('@modelcontextprotocol/server');
         expect(sink.diagnostics).toHaveLength(1);
@@ -210,7 +210,7 @@ describe('resolveTypesPackage', () => {
     });
 
     it('emits an action-required warning for a genuinely unknown project', () => {
-        const sink = { filePath: 'f.ts', line: 1, diagnostics: [] as import('../src/types.js').Diagnostic[] };
+        const sink = { filePath: 'f.ts', line: 1, diagnostics: [] as import('../src/types').Diagnostic[] };
         resolveTypesPackage({ projectType: 'unknown' }, false, false, sink);
         expect(sink.diagnostics).toHaveLength(1);
         expect(sink.diagnostics[0]!.level).toBe('warning');

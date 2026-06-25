@@ -57,6 +57,21 @@ describe('symbol-renames transform', () => {
         expect(result).not.toMatch(/(?<!Result)JSONRPCResponseSchema/);
     });
 
+    it('renames JSONRPCResponse type to JSONRPCResultResponse (result-only in v1)', () => {
+        // v1's JSONRPCResponse type was the result-only response; v2 reuses the name for a
+        // result|error union (Infer<typeof JSONRPCResponseSchema>). Leaving the type unrenamed would
+        // silently widen a migrated v1 type import — mirror the schema/guard renames.
+        const input = [
+            `import type { JSONRPCResponse } from '@modelcontextprotocol/server';`,
+            `function handle(r: JSONRPCResponse) { return r; }`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('import type { JSONRPCResultResponse }');
+        expect(result).toContain('r: JSONRPCResultResponse');
+        expect(result).not.toMatch(/(?<!Result)JSONRPCResponse(?!Schema)/);
+    });
+
     it('renames ResourceReference to ResourceTemplateReference', () => {
         const input = [
             `import { ResourceReference } from '@modelcontextprotocol/sdk/types.js';`,

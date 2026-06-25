@@ -3,8 +3,8 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import * as sdkShared from '../src/index.js';
-import { CursorSchema, InitializeRequestSchema, OAuthTokensSchema } from '../src/index.js';
+import * as sdkShared from '../src/index';
+import { CursorSchema, InitializeRequestSchema, OAuthTokensSchema } from '../src/index';
 
 function readCore(relativePath: string): string {
     return readFileSync(fileURLToPath(new URL(relativePath, import.meta.url)), 'utf8');
