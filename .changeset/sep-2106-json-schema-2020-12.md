@@ -17,5 +17,7 @@ Implement SEP-2106: tool `inputSchema`/`outputSchema` conform to JSON Schema 202
   descriptive error instead of silently skipping output validation.
 - The default Node validator now uses `Ajv2020`, so the 2020-12 dialect is honored by default (previously `new Ajv()` ran draft-07 semantics and silently ignored keywords such as `prefixItems`). Both built-in validators now default to the `2020-12` dialect
   (`MCP_DEFAULT_SCHEMA_DIALECT`).
+- For compatibility with existing draft-07 tuple schemas, built-in validators using the default 2020-12 dialect normalize legacy `items: [...]` plus `additionalItems` syntax to the equivalent 2020-12 `prefixItems`/`items` form before compiling. New schemas should prefer
+  `prefixItems` directly.
 - New opt-in `resolveExternalSchemaRefs(schema, options)` helper (the SEP's optional external-`$ref` mode): fetches and inlines non-local `$ref`s ahead of time into a self-contained schema. Disabled by default, enforces a host allowlist (and rejects loopback/link-local/private
   targets otherwise), `https`-only by default, with fetch timeout / response-size / document-count limits, dereference logging, and fail-closed on unresolved references.

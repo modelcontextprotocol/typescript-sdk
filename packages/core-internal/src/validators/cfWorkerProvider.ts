@@ -11,6 +11,7 @@
 import { Validator } from '@cfworker/json-schema';
 
 import { assertSchemaSafeToCompile } from './schemaBounds';
+import { normalizeLegacyTupleSchema } from './schemaCompatibility';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 import { MCP_DEFAULT_SCHEMA_DIALECT } from './types';
 

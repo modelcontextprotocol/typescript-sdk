@@ -6,6 +6,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 import _addFormats from 'ajv-formats';
 
 import { assertSchemaSafeToCompile } from './schemaBounds';
+import { normalizeLegacyTupleSchema } from './schemaCompatibility';
 import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 
 /**
@@ -93,6 +94,7 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
     constructor(ajv?: AjvLike) {
         this._userAjv = ajv !== undefined;
         this._ajv = ajv ?? createDefaultAjvInstance();
+        this._normalizeLegacyTuples = ajv === undefined || ajv instanceof Ajv2020;
     }
 
     getValidator<T>(schema: JsonSchemaType): JsonSchemaValidator<T> {
@@ -113,9 +115,9 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
         }
 
         const ajvValidator =
-            '$id' in schema && typeof schema.$id === 'string'
-                ? (this._ajv.getSchema(schema.$id) ?? this._ajv.compile(schema))
-                : this._ajv.compile(schema);
+            '$id' in normalizedSchema && typeof normalizedSchema.$id === 'string'
+                ? (this._ajv.getSchema(normalizedSchema.$id) ?? this._ajv.compile(normalizedSchema))
+                : this._ajv.compile(normalizedSchema);
 
         return (input: unknown): JsonSchemaValidatorResult<T> => {
             const valid = ajvValidator(input);

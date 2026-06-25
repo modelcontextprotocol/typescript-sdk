@@ -407,6 +407,37 @@ describe('JSON Schema Validators', () => {
                 // draft-07 would (incorrectly) accept this because it ignores prefixItems.
                 expect(validator([1, 'a']).valid).toBe(false);
             });
+
+            it('normalizes draft-07 tuple items arrays on the default dialect', () => {
+                const schema = {
+                    type: 'object',
+                    properties: {
+                        value: {
+                            type: 'array',
+                            items: [{ type: 'string' }, { type: 'number' }]
+                        }
+                    },
+                    required: ['value']
+                } as unknown as JsonSchemaType;
+                const validator = provider.getValidator(schema);
+
+                expect(validator({ value: ['a', 1] }).valid).toBe(true);
+                expect(validator({ value: [1, 'a'] }).valid).toBe(false);
+                expect(validator({ value: ['a', 1, true] }).valid).toBe(true);
+            });
+
+            it('normalizes draft-07 additionalItems false to a closed tuple', () => {
+                const schema = {
+                    type: 'array',
+                    items: [{ type: 'string' }, { type: 'number' }],
+                    additionalItems: false
+                } as unknown as JsonSchemaType;
+                const validator = provider.getValidator(schema);
+
+                expect(validator(['a', 1]).valid).toBe(true);
+                expect(validator([1, 'a']).valid).toBe(false);
+                expect(validator(['a', 1, true]).valid).toBe(false);
+            });
         });
 
         describe('Complex real-world schemas', () => {
