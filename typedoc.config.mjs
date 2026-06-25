@@ -48,7 +48,7 @@ export default {
     },
     customJs: 'docs/v2-banner.js',
     // The spec-generated schema/type JSDoc uses `{@linkcode <SpecType> | method}` cross-references.
-    // With the data model split across packages (Zod schemas in @modelcontextprotocol/sdk-shared,
+    // With the data model split across packages (Zod schemas in @modelcontextprotocol/core,
     // their types in @modelcontextprotocol/server / -client), typedoc's per-package link resolution
     // can't resolve those bare cross-package references. Disable only the invalid-link check; every
     // other validation (notExported, etc.) stays on under treatWarningsAsErrors.
@@ -58,7 +58,7 @@ export default {
     treatWarningsAsErrors: true,
     out: 'tmp/docs/',
     externalSymbolLinkMappings: {
-        '@modelcontextprotocol/core': {
+        '@modelcontextprotocol/core-internal': {
             StandardSchemaV1: 'https://standardschema.dev/',
             StandardJSONSchemaV1: 'https://standardschema.dev/'
         }

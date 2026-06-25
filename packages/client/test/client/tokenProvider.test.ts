@@ -1,8 +1,8 @@
 import type { IncomingMessage, Server } from 'node:http';
 import { createServer } from 'node:http';
 
-import type { JSONRPCMessage, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
-import { SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core-internal';
+import { SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';
 import type { Mock } from 'vitest';
 

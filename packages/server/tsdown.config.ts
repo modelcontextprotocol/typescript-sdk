@@ -23,13 +23,13 @@ export default defineConfig({
         compilerOptions: {
             baseUrl: '.',
             paths: {
-                '@modelcontextprotocol/core': ['../core/src/index.ts'],
-                '@modelcontextprotocol/core/public': ['../core/src/exports/public/index.ts'],
-                '@modelcontextprotocol/core/validators/ajv': ['../core/src/validators/ajvProvider.ts'],
-                '@modelcontextprotocol/core/validators/cfWorker': ['../core/src/validators/cfWorkerProvider.ts']
+                '@modelcontextprotocol/core-internal': ['../core-internal/src/index.ts'],
+                '@modelcontextprotocol/core-internal/public': ['../core-internal/src/exports/public/index.ts'],
+                '@modelcontextprotocol/core-internal/validators/ajv': ['../core-internal/src/validators/ajvProvider.ts'],
+                '@modelcontextprotocol/core-internal/validators/cfWorker': ['../core-internal/src/validators/cfWorkerProvider.ts']
             }
         }
     },
-    noExternal: ['@modelcontextprotocol/core', 'ajv', 'ajv-formats', '@cfworker/json-schema'],
+    noExternal: ['@modelcontextprotocol/core-internal', 'ajv', 'ajv-formats', '@cfworker/json-schema'],
     external: ['@modelcontextprotocol/server/_shims']
 });

@@ -27,7 +27,7 @@
         "check": "npm run typecheck && npm run lint"
     },
     "devDependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "zod": "catalog:runtimeShared",
         "vitest": "catalog:devTools",
         "@modelcontextprotocol/tsconfig": "workspace:^",

@@ -10,7 +10,7 @@
 
 import type { ClientCapabilities } from '@modelcontextprotocol/client';
 import { Client } from '@modelcontextprotocol/client';
-import { CreateMessageRequestParamsSchema } from '@modelcontextprotocol/core';
+import { CreateMessageRequestParamsSchema } from '@modelcontextprotocol/core-internal';
 import type { CreateMessageRequest, CreateMessageResultWithTools, ServerOptions } from '@modelcontextprotocol/server';
 import { McpServer, ProtocolError, ProtocolErrorCode } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';

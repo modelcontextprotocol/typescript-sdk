@@ -6,8 +6,8 @@ const SDK_PREFIX = '@modelcontextprotocol/sdk';
 const V2_PACKAGES = new Set([
     '@modelcontextprotocol/client',
     '@modelcontextprotocol/server',
+    '@modelcontextprotocol/core-internal',
     '@modelcontextprotocol/core',
-    '@modelcontextprotocol/sdk-shared',
     '@modelcontextprotocol/node',
     '@modelcontextprotocol/express'
 ]);

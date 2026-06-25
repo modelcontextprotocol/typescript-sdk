@@ -4,7 +4,7 @@ This guide covers the breaking changes introduced in v2 of the MCP TypeScript SD
 
 ## Overview
 
-Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`,
+Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core-internal`,
 `@modelcontextprotocol/client`, and `@modelcontextprotocol/server` packages.
 
 > **Formatting:** The `@modelcontextprotocol/codemod` package automates most of the mechanical changes below, but it rewrites your code's AST without reformatting it — wrapped schemas and generated handler method strings may not match your project's style. After migrating (with
@@ -18,7 +18,7 @@ The single `@modelcontextprotocol/sdk` package has been split into three package
 
 | v1                          | v2                                                         |
 | --------------------------- | ---------------------------------------------------------- |
-| `@modelcontextprotocol/sdk` | `@modelcontextprotocol/core` (types, protocol, transports) |
+| `@modelcontextprotocol/sdk` | `@modelcontextprotocol/core-internal` (types, protocol, transports) |
 |                             | `@modelcontextprotocol/client` (client implementation)     |
 |                             | `@modelcontextprotocol/server` (server implementation)     |
 
@@ -33,7 +33,7 @@ npm install @modelcontextprotocol/client
 # If you only need a server
 npm install @modelcontextprotocol/server
 
-# Both packages depend on @modelcontextprotocol/core automatically
+# Both packages depend on @modelcontextprotocol/core-internal automatically
 ```
 
 Update your imports accordingly:
@@ -62,7 +62,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 ```
 
-Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so you can import types and error classes from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly
+Note: `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core-internal`, so you can import types and error classes from whichever package you already depend on. Do not import from `@modelcontextprotocol/core-internal` directly
 — it is an internal package.
 
 ### Dropped Node.js 18 and CommonJS
@@ -307,7 +307,7 @@ This applies to:
 - `outputSchema` in `registerTool()`
 - `argsSchema` in `registerPrompt()`
 
-**Removed Zod-specific helpers** from `@modelcontextprotocol/core` (use Standard Schema equivalents):
+**Removed Zod-specific helpers** from `@modelcontextprotocol/core-internal` (use Standard Schema equivalents):
 
 | Removed                                                                              | Replacement                                                       |
 | ------------------------------------------------------------------------------------ | ----------------------------------------------------------------- |
@@ -517,7 +517,7 @@ The return type is now inferred from the method name via `ResultTypeMap`. For ex
 
 For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
-If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), import the schema from `@modelcontextprotocol/sdk-shared`. Your `.parse()` / `.safeParse()` calls keep working unchanged — only the import
+If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), import the schema from `@modelcontextprotocol/core`. Your `.parse()` / `.safeParse()` calls keep working unchanged — only the import
 path changes:
 
 ```typescript
@@ -528,14 +528,14 @@ if (CallToolResultSchema.safeParse(value).success) {
 }
 
 // v2 — same code, new import path
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk-shared';
+import { CallToolResultSchema } from '@modelcontextprotocol/core';
 if (CallToolResultSchema.safeParse(value).success) {
     /* ... */
 }
 ```
 
-`@modelcontextprotocol/sdk-shared` is the canonical home for the Zod schema constants — both the spec schemas and the OAuth/OpenID schemas (e.g. `OAuthTokensSchema`, `OAuthMetadataSchema`) that v1 exported from `@modelcontextprotocol/sdk/shared/auth.js`.
-`@modelcontextprotocol/server` and `@modelcontextprotocol/client` keep a Zod-free public surface (they export the corresponding TypeScript types, e.g. `OAuthTokens`), so the raw `*Schema` constants live in `sdk-shared`. (The codemod rewrites these imports for you.)
+`@modelcontextprotocol/core` is the canonical home for the Zod schema constants — both the spec schemas and the OAuth/OpenID schemas (e.g. `OAuthTokensSchema`, `OAuthMetadataSchema`) that v1 exported from `@modelcontextprotocol/sdk/shared/auth.js`.
+`@modelcontextprotocol/server` and `@modelcontextprotocol/client` keep a Zod-free public surface (they export the corresponding TypeScript types, e.g. `OAuthTokens`), so the raw `*Schema` constants live in `core`. (The codemod rewrites these imports for you.)
 
 If you'd rather **not** depend on Zod, `@modelcontextprotocol/client` and `@modelcontextprotocol/server` also expose Zod-free validators keyed by `SpecTypeName` — a literal union of every named spec type, so you get autocomplete and a compile error on typos:
 
@@ -584,7 +584,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/client';
 
 ### Removed type aliases and deprecated exports
 
-The following deprecated type aliases have been removed from `@modelcontextprotocol/core`:
+The following deprecated type aliases have been removed from `@modelcontextprotocol/core-internal`:
 
 | Removed                                  | Replacement                                                                                       |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------- |
@@ -598,13 +598,13 @@ The following deprecated type aliases have been removed from `@modelcontextproto
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
 All other symbols exported from `@modelcontextprotocol/sdk/types.js` retain their original names. Import the **types**, error classes, enums, and guards from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`, and the **Zod schemas** (the `*Schema` constants) from
-`@modelcontextprotocol/sdk-shared`.
+`@modelcontextprotocol/core`.
 
 > **Note on `isJSONRPCResponse`:** v1's `isJSONRPCResponse` was a deprecated alias that only checked for _result_ responses (it was equivalent to `isJSONRPCResultResponse`). v2 removes the deprecated alias and introduces a **new** `isJSONRPCResponse` with corrected semantics — it
 > checks for _any_ response (either result or error). If you are migrating v1 code that used `isJSONRPCResponse`, rename it to `isJSONRPCResultResponse` to preserve the original behavior. Use the new `isJSONRPCResponse` only when you want to match both result and error responses.
 
 > **Note on `JSONRPCResponseSchema`:** the Zod schema follows the same pattern. v1's `JSONRPCResponseSchema` validated only _result_ responses; v2 reuses the name for a `z.union([JSONRPCResultResponseSchema, JSONRPCErrorResponseSchema])` that also accepts error responses. If you
-> are migrating v1 code that called `JSONRPCResponseSchema.parse()`/`.safeParse()`, rename it to `JSONRPCResultResponseSchema` (re-exported by `@modelcontextprotocol/sdk-shared`) to preserve the original validation. The codemod performs this rename automatically.
+> are migrating v1 code that called `JSONRPCResponseSchema.parse()`/`.safeParse()`, rename it to `JSONRPCResultResponseSchema` (re-exported by `@modelcontextprotocol/core`) to preserve the original validation. The codemod performs this rename automatically.
 
 **Before (v1):**
 

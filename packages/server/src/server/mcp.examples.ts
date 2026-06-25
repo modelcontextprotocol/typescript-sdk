@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { CallToolResult } from '@modelcontextprotocol/core';
+import type { CallToolResult } from '@modelcontextprotocol/core-internal';
 import * as z from 'zod/v4';
 
 import { McpServer } from './mcp';

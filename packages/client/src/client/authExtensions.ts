@@ -5,7 +5,7 @@
  * for common machine-to-machine authentication scenarios.
  */
 
-import type { FetchLike, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
+import type { FetchLike, OAuthClientInformation, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import type { CryptoKey, JWK } from 'jose';
 
 import type { AddClientAuthentication, OAuthClientProvider } from './auth';

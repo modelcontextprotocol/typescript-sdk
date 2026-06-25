@@ -1,5 +1,5 @@
-import type { FetchLike, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
-import { OAuthClientInformationFullSchema, OAuthTokensSchema } from '@modelcontextprotocol/core';
+import type { FetchLike, OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
+import { OAuthClientInformationFullSchema, OAuthTokensSchema } from '@modelcontextprotocol/core-internal';
 import type { Response } from 'express';
 
 import type { OAuthRegisteredClientsStore } from '../clients';

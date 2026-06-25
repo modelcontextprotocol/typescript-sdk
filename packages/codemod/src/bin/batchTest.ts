@@ -85,10 +85,10 @@ const BATCH_DIR = path.resolve(SDK_ROOT, 'packages/codemod/batch-test');
 
 const LOCAL_PACKAGE_DIRS: Record<string, string> = {
     '@modelcontextprotocol/client': path.join(SDK_ROOT, 'packages/client'),
-    '@modelcontextprotocol/core': path.join(SDK_ROOT, 'packages/core'),
+    '@modelcontextprotocol/core-internal': path.join(SDK_ROOT, 'packages/core-internal'),
     '@modelcontextprotocol/server': path.join(SDK_ROOT, 'packages/server'),
     '@modelcontextprotocol/server-legacy': path.join(SDK_ROOT, 'packages/server-legacy'),
-    '@modelcontextprotocol/sdk-shared': path.join(SDK_ROOT, 'packages/sdk-shared'),
+    '@modelcontextprotocol/core': path.join(SDK_ROOT, 'packages/core'),
     '@modelcontextprotocol/express': path.join(SDK_ROOT, 'packages/middleware/express'),
     '@modelcontextprotocol/fastify': path.join(SDK_ROOT, 'packages/middleware/fastify'),
     '@modelcontextprotocol/hono': path.join(SDK_ROOT, 'packages/middleware/hono'),

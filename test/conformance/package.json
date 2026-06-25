@@ -38,7 +38,7 @@
         "@modelcontextprotocol/conformance": "0.2.0-alpha.3",
         "@modelcontextprotocol/client": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",

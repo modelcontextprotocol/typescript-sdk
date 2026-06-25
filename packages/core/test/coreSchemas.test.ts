@@ -14,7 +14,7 @@ function exportedSchemaConsts(src: string, re: RegExp): string[] {
     return [...src.matchAll(re)].map(m => m[1]).filter((name): name is string => name !== undefined && /^[A-Z]/.test(name));
 }
 
-describe('@modelcontextprotocol/sdk-shared', () => {
+describe('@modelcontextprotocol/core', () => {
     it('re-exports spec + OAuth schemas as working Zod objects', () => {
         // Round-trips valid/invalid values — proves the re-exports are real Zod schemas (not type-only
         // aliases) and that `.parse`/`.safeParse` work, for both the spec and the OAuth group.
@@ -25,7 +25,7 @@ describe('@modelcontextprotocol/sdk-shared', () => {
     });
 
     it('re-exports exactly core’s spec + OAuth schemas — no internal helpers (drift guard)', () => {
-        // sdk-shared's public surface is two SEPARATE groups, mirroring core's own spec-vs-auth split:
+        // core's public surface is two SEPARATE groups, mirroring core's own spec-vs-auth split:
         //   1. spec `*Schema` constants from core/src/types/schemas.ts (minus internal helpers with no
         //      public spec type — they must NOT leak), mirroring core's SPEC_SCHEMA_KEYS allowlist; and
         //   2. the auth `*Schema` constants registered in core's `authSchemas` object (specTypeSchema.ts)
@@ -41,10 +41,11 @@ describe('@modelcontextprotocol/sdk-shared', () => {
             'NotificationsParamsSchema',
             'ServerTasksCapabilitySchema'
         ];
-        const specSchemas = exportedSchemaConsts(readCore('../../core/src/types/schemas.ts'), /^export const (\w+Schema)\b/gm).filter(
-            name => !SPEC_INTERNAL_HELPERS.includes(name)
-        );
-        const specTypeSrc = readCore('../../core/src/types/specTypeSchema.ts');
+        const specSchemas = exportedSchemaConsts(
+            readCore('../../core-internal/src/types/schemas.ts'),
+            /^export const (\w+Schema)\b/gm
+        ).filter(name => !SPEC_INTERNAL_HELPERS.includes(name));
+        const specTypeSrc = readCore('../../core-internal/src/types/specTypeSchema.ts');
         const authStart = specTypeSrc.indexOf('const authSchemas = {');
         const authObj = specTypeSrc.slice(authStart, specTypeSrc.indexOf('} as const', authStart));
         const authSchemas = exportedSchemaConsts(authObj, /\b(\w+Schema)\b/g);

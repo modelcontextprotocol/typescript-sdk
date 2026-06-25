@@ -1,22 +1,198 @@
-export * from './auth/errors';
-export * from './errors/sdkErrors';
-export * from './shared/auth';
-export * from './shared/authUtils';
-export * from './shared/metadataUtils';
-export * from './shared/protocol';
-export * from './shared/stdio';
-export * from './shared/toolNameValidation';
-export * from './shared/transport';
-export * from './shared/uriTemplate';
-export * from './types/index';
-export * from './util/inMemory';
-export * from './util/schema';
-export * from './util/standardSchema';
-export * from './util/zodCompat';
+// @modelcontextprotocol/core
+//
+// Canonical public home for the Model Context Protocol specification + OAuth/OpenID Zod schemas.
+//
+// These are the exact schema constants the SDK validates against internally (defined in the
+// private @modelcontextprotocol/core-internal package). This package bundles core and re-exports ONLY the
+// `*Schema` Zod values, so consumers can validate protocol/OAuth payloads directly — e.g.
+// `CallToolResultSchema.parse(value)` / `.safeParse(value)` — without depending on core's
+// internal barrel.
+//
+// Scope: Zod schemas ONLY. The corresponding spec TypeScript types, error classes, enums, and
+// type guards are part of the public API of @modelcontextprotocol/server and /client.
+//
+// Two groups, kept separate to mirror core's own spec-vs-auth split, each bundled from a build-only
+// subpath alias of core (tsconfig.json + tsdown.config.ts):
+//   - SPEC schemas, from @modelcontextprotocol/core-internal/schemas (core/src/types/schemas.ts): every
+//     `export const *Schema` EXCEPT internal helpers with no public spec type (e.g.
+//     BaseRequestParamsSchema). Mirrors core's SPEC_SCHEMA_KEYS allowlist.
+//   - OAUTH/OPENID schemas, from @modelcontextprotocol/core-internal/auth (core/src/shared/auth.ts).
+// The sdkSharedSchemas test asserts both groups stay in sync with their core source modules.
+export {
+    AnnotationsSchema,
+    AudioContentSchema,
+    BaseMetadataSchema,
+    BlobResourceContentsSchema,
+    BooleanSchemaSchema,
+    CallToolRequestParamsSchema,
+    CallToolRequestSchema,
+    CallToolResultSchema,
+    CancelledNotificationParamsSchema,
+    CancelledNotificationSchema,
+    CancelTaskRequestSchema,
+    CancelTaskResultSchema,
+    ClientCapabilitiesSchema,
+    ClientNotificationSchema,
+    ClientRequestSchema,
+    ClientResultSchema,
+    CompatibilityCallToolResultSchema,
+    CompleteRequestParamsSchema,
+    CompleteRequestSchema,
+    CompleteResultSchema,
+    ContentBlockSchema,
+    CreateMessageRequestParamsSchema,
+    CreateMessageRequestSchema,
+    CreateMessageResultSchema,
+    CreateMessageResultWithToolsSchema,
+    CreateTaskResultSchema,
+    CursorSchema,
+    DiscoverRequestSchema,
+    DiscoverResultSchema,
+    ElicitationCompleteNotificationParamsSchema,
+    ElicitationCompleteNotificationSchema,
+    ElicitRequestFormParamsSchema,
+    ElicitRequestParamsSchema,
+    ElicitRequestSchema,
+    ElicitRequestURLParamsSchema,
+    ElicitResultSchema,
+    EmbeddedResourceSchema,
+    EmptyResultSchema,
+    EnumSchemaSchema,
+    GetPromptRequestParamsSchema,
+    GetPromptRequestSchema,
+    GetPromptResultSchema,
+    GetTaskPayloadRequestSchema,
+    GetTaskPayloadResultSchema,
+    GetTaskRequestSchema,
+    GetTaskResultSchema,
+    IconSchema,
+    IconsSchema,
+    ImageContentSchema,
+    ImplementationSchema,
+    InitializedNotificationSchema,
+    InitializeRequestParamsSchema,
+    InitializeRequestSchema,
+    InitializeResultSchema,
+    JSONArraySchema,
+    JSONObjectSchema,
+    JSONRPCErrorResponseSchema,
+    JSONRPCMessageSchema,
+    JSONRPCNotificationSchema,
+    JSONRPCRequestSchema,
+    JSONRPCResponseSchema,
+    JSONRPCResultResponseSchema,
+    JSONValueSchema,
+    LegacyTitledEnumSchemaSchema,
+    ListPromptsRequestSchema,
+    ListPromptsResultSchema,
+    ListResourcesRequestSchema,
+    ListResourcesResultSchema,
+    ListResourceTemplatesRequestSchema,
+    ListResourceTemplatesResultSchema,
+    ListRootsRequestSchema,
+    ListRootsResultSchema,
+    ListTasksRequestSchema,
+    ListTasksResultSchema,
+    ListToolsRequestSchema,
+    ListToolsResultSchema,
+    LoggingLevelSchema,
+    LoggingMessageNotificationParamsSchema,
+    LoggingMessageNotificationSchema,
+    ModelHintSchema,
+    ModelPreferencesSchema,
+    MultiSelectEnumSchemaSchema,
+    NotificationSchema,
+    NumberSchemaSchema,
+    PaginatedRequestParamsSchema,
+    PaginatedRequestSchema,
+    PaginatedResultSchema,
+    PingRequestSchema,
+    PrimitiveSchemaDefinitionSchema,
+    ProgressNotificationParamsSchema,
+    ProgressNotificationSchema,
+    ProgressSchema,
+    ProgressTokenSchema,
+    PromptArgumentSchema,
+    PromptListChangedNotificationSchema,
+    PromptMessageSchema,
+    PromptReferenceSchema,
+    PromptSchema,
+    ReadResourceRequestParamsSchema,
+    ReadResourceRequestSchema,
+    ReadResourceResultSchema,
+    RelatedTaskMetadataSchema,
+    RequestIdSchema,
+    RequestMetaEnvelopeSchema,
+    RequestMetaSchema,
+    RequestSchema,
+    ResourceContentsSchema,
+    ResourceLinkSchema,
+    ResourceListChangedNotificationSchema,
+    ResourceRequestParamsSchema,
+    ResourceSchema,
+    ResourceTemplateReferenceSchema,
+    ResourceTemplateSchema,
+    ResourceUpdatedNotificationParamsSchema,
+    ResourceUpdatedNotificationSchema,
+    ResultSchema,
+    RoleSchema,
+    RootSchema,
+    RootsListChangedNotificationSchema,
+    SamplingContentSchema,
+    SamplingMessageContentBlockSchema,
+    SamplingMessageSchema,
+    ServerCapabilitiesSchema,
+    ServerNotificationSchema,
+    ServerRequestSchema,
+    ServerResultSchema,
+    SetLevelRequestParamsSchema,
+    SetLevelRequestSchema,
+    SingleSelectEnumSchemaSchema,
+    StringSchemaSchema,
+    SubscribeRequestParamsSchema,
+    SubscribeRequestSchema,
+    TaskAugmentedRequestParamsSchema,
+    TaskCreationParamsSchema,
+    TaskMetadataSchema,
+    TaskSchema,
+    TaskStatusNotificationParamsSchema,
+    TaskStatusNotificationSchema,
+    TaskStatusSchema,
+    TextContentSchema,
+    TextResourceContentsSchema,
+    TitledMultiSelectEnumSchemaSchema,
+    TitledSingleSelectEnumSchemaSchema,
+    ToolAnnotationsSchema,
+    ToolChoiceSchema,
+    ToolExecutionSchema,
+    ToolListChangedNotificationSchema,
+    ToolResultContentSchema,
+    ToolSchema,
+    ToolUseContentSchema,
+    UnsubscribeRequestParamsSchema,
+    UnsubscribeRequestSchema,
+    UntitledMultiSelectEnumSchemaSchema,
+    UntitledSingleSelectEnumSchemaSchema
+} from '@modelcontextprotocol/core-internal/schemas';
 
-// Validator providers are type-only here — import the runtime classes from the explicit
-// `@modelcontextprotocol/{core,client,server}/validators/{ajv,cf-worker}` subpaths to customise.
-export type { AjvJsonSchemaValidator } from './validators/ajvProvider';
-export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from './validators/cfWorkerProvider';
-export * from './validators/fromJsonSchema';
-export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types';
+// Auth schemas (OAuth / OpenID / IdJag) — kept as a SEPARATE group from the MCP spec schemas above,
+// mirroring core's own spec-vs-auth split (these live in core/src/shared/auth.ts, not types/schemas.ts,
+// and are registered as `authSchemas` in core's specTypeSchema.ts). This group is EXACTLY core's
+// `authSchemas` set — every auth schema that has a public spec type (so `isSpecType.OAuthTokens`,
+// `isSpecType.IdJagTokenExchangeResponse`, etc. exist). The typeless internal URL field-validators
+// (SafeUrlSchema, OptionalSafeUrlSchema) are not auth schemas and stay out. The sdkSharedSchemas test
+// asserts this group stays in sync with core's `authSchemas`.
+export {
+    IdJagTokenExchangeResponseSchema,
+    OAuthClientInformationFullSchema,
+    OAuthClientInformationSchema,
+    OAuthClientMetadataSchema,
+    OAuthClientRegistrationErrorSchema,
+    OAuthErrorResponseSchema,
+    OAuthMetadataSchema,
+    OAuthProtectedResourceMetadataSchema,
+    OAuthTokenRevocationRequestSchema,
+    OAuthTokensSchema,
+    OpenIdProviderDiscoveryMetadataSchema,
+    OpenIdProviderMetadataSchema
+} from '@modelcontextprotocol/core-internal/auth';

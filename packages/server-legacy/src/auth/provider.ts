@@ -1,4 +1,4 @@
-import type { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
+import type { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import type { Response } from 'express';
 
 import type { OAuthRegisteredClientsStore } from './clients';

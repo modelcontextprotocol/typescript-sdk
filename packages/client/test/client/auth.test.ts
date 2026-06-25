@@ -1,5 +1,5 @@
-import type { AuthorizationServerMetadata, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core';
-import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+import type { AuthorizationServerMetadata, OAuthClientMetadata, OAuthTokens } from '@modelcontextprotocol/core-internal';
+import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
 import type { Mock } from 'vitest';
 import { expect, vi } from 'vitest';
 
@@ -3425,7 +3425,7 @@ describe('OAuth Authorization', () => {
 
     describe('RequestInit headers passthrough', () => {
         it('custom headers from RequestInit are passed to auth discovery requests', async () => {
-            const { createFetchWithInit } = await import('@modelcontextprotocol/core');
+            const { createFetchWithInit } = await import('@modelcontextprotocol/core-internal');
 
             const customFetch = vi.fn().mockResolvedValue({
                 ok: true,
@@ -3458,7 +3458,7 @@ describe('OAuth Authorization', () => {
         });
 
         it('auth-specific headers override base headers from RequestInit', async () => {
-            const { createFetchWithInit } = await import('@modelcontextprotocol/core');
+            const { createFetchWithInit } = await import('@modelcontextprotocol/core-internal');
 
             const customFetch = vi.fn().mockResolvedValue({
                 ok: true,
@@ -3496,7 +3496,7 @@ describe('OAuth Authorization', () => {
         });
 
         it('other RequestInit options are passed through', async () => {
-            const { createFetchWithInit } = await import('@modelcontextprotocol/core');
+            const { createFetchWithInit } = await import('@modelcontextprotocol/core-internal');
 
             const customFetch = vi.fn().mockResolvedValue({
                 ok: true,

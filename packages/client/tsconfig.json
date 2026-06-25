@@ -5,11 +5,15 @@
     "compilerOptions": {
         "paths": {
             "*": ["./*"],
-            "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/index.ts"],
-            "@modelcontextprotocol/core/public": ["./node_modules/@modelcontextprotocol/core/src/exports/public/index.ts"],
-            "@modelcontextprotocol/core/validators/ajv": ["./node_modules/@modelcontextprotocol/core/src/validators/ajvProvider.ts"],
-            "@modelcontextprotocol/core/validators/cfWorker": [
-                "./node_modules/@modelcontextprotocol/core/src/validators/cfWorkerProvider.ts"
+            "@modelcontextprotocol/core-internal": ["./node_modules/@modelcontextprotocol/core-internal/src/index.ts"],
+            "@modelcontextprotocol/core-internal/public": [
+                "./node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
+            ],
+            "@modelcontextprotocol/core-internal/validators/ajv": [
+                "./node_modules/@modelcontextprotocol/core-internal/src/validators/ajvProvider.ts"
+            ],
+            "@modelcontextprotocol/core-internal/validators/cfWorker": [
+                "./node_modules/@modelcontextprotocol/core-internal/src/validators/cfWorkerProvider.ts"
             ],
             "@modelcontextprotocol/test-helpers": ["./node_modules/@modelcontextprotocol/test-helpers/src/index.ts"],
             "@modelcontextprotocol/client/_shims": ["./src/shimsNode.ts"]

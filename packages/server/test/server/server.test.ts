@@ -1,11 +1,11 @@
-import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
 import {
     InitializeResultSchema,
     InMemoryTransport,
     isJSONRPCResultResponse,
     LATEST_PROTOCOL_VERSION,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { Server } from '../../src/server/server';
 
 /** An older protocol version the server supports out of the box. */

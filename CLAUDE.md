@@ -16,10 +16,10 @@ pnpm check:all       # typecheck + lint across all packages
 
 # Run a single package script (examples)
 # Run a single package script from the repo root with pnpm filter
-pnpm --filter @modelcontextprotocol/core test                # vitest run (core)
-pnpm --filter @modelcontextprotocol/core test:watch          # vitest (watch)
-pnpm --filter @modelcontextprotocol/core test -- path/to/file.test.ts
-pnpm --filter @modelcontextprotocol/core test -- -t "test name"
+pnpm --filter @modelcontextprotocol/core-internal test                # vitest run (core)
+pnpm --filter @modelcontextprotocol/core-internal test:watch          # vitest (watch)
+pnpm --filter @modelcontextprotocol/core-internal test -- path/to/file.test.ts
+pnpm --filter @modelcontextprotocol/core-internal test -- -t "test name"
 ```
 
 ## Breaking Changes
@@ -53,9 +53,9 @@ Run `pnpm sync:snippets` to sync example content into JSDoc comments and markdow
 
 The SDK is organized into three main layers:
 
-1. **Types Layer** (`packages/core/src/types/types.ts`) - Protocol types generated from the MCP specification. All JSON-RPC message types, schemas, and protocol constants are defined here using Zod v4.
+1. **Types Layer** (`packages/core-internal/src/types/types.ts`) - Protocol types generated from the MCP specification. All JSON-RPC message types, schemas, and protocol constants are defined here using Zod v4.
 
-2. **Protocol Layer** (`packages/core/src/shared/protocol.ts`) - The abstract `Protocol` class that handles JSON-RPC message routing, request/response correlation, capability negotiation, and transport management. Both `Client` and `Server` extend this class.
+2. **Protocol Layer** (`packages/core-internal/src/shared/protocol.ts`) - The abstract `Protocol` class that handles JSON-RPC message routing, request/response correlation, capability negotiation, and transport management. Both `Client` and `Server` extend this class.
 
 3. **High-Level APIs**:
     - `Client` (`packages/client/src/client/client.ts`) - Client implementation extending Protocol with typed methods for MCP operations
@@ -66,8 +66,8 @@ The SDK is organized into three main layers:
 
 The SDK has a two-layer export structure to separate internal code from the public API:
 
-- **`@modelcontextprotocol/core`** (main entry, `packages/core/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
-- **`@modelcontextprotocol/core/public`** (`packages/core/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
+- **`@modelcontextprotocol/core-internal`** (main entry, `packages/core-internal/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
+- **`@modelcontextprotocol/core-internal/public`** (`packages/core-internal/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
 - **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core/public`.
 
 When modifying exports:
@@ -78,7 +78,7 @@ When modifying exports:
 
 ### Transport System
 
-Transports (`packages/core/src/shared/transport.ts`) provide the communication layer:
+Transports (`packages/core-internal/src/shared/transport.ts`) provide the communication layer:
 
 - **Streamable HTTP** (`packages/server/src/server/streamableHttp.ts`, `packages/client/src/client/streamableHttp.ts`) - Recommended transport for remote servers, supports SSE for streaming
 - **SSE** (`packages/server/src/server/sse.ts`, `packages/client/src/client/sse.ts`) - Legacy HTTP+SSE transport for backwards compatibility
@@ -110,11 +110,11 @@ Located in `packages/*/src/experimental/`. Currently empty.
 
 The SDK uses `zod/v4` internally. Schema utilities live in:
 
-- `packages/core/src/util/schema.ts` - AnySchema alias and helpers for inspecting Zod objects
+- `packages/core-internal/src/util/schema.ts` - AnySchema alias and helpers for inspecting Zod objects
 
 ### Validation
 
-Pluggable JSON Schema validation (`packages/core/src/validators/`):
+Pluggable JSON Schema validation (`packages/core-internal/src/validators/`):
 
 - `ajvProvider.ts` - Default Ajv-based validator
 - `cfWorkerProvider.ts` - Cloudflare Workers-compatible alternative

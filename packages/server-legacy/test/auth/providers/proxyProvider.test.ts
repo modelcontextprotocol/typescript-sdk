@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import { ProxyOAuthServerProvider, ProxyOptions } from '../../../src/auth/providers/proxyProvider';
 import { AuthInfo } from '../../../src/auth/types';
-import { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/core';
+import { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import { ServerError } from '../../../src/auth/errors';
 import { InvalidTokenError } from '../../../src/auth/errors';
 import { InsufficientScopeError } from '../../../src/auth/errors';

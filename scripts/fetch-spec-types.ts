@@ -12,7 +12,7 @@ const PROJECT_ROOT = join(__dirname, '..');
  * - `2025-11-25`: the frozen, released schema.
  * - `2026-07-28`: the upcoming protocol revision.
  *
- * Each is written to `packages/core/src/types/spec.types.<version>.ts`.
+ * Each is written to `packages/core-internal/src/types/spec.types.<version>.ts`.
  */
 const SUPPORTED_VERSIONS = ['2025-11-25', '2026-07-28'] as const;
 type SpecVersion = (typeof SUPPORTED_VERSIONS)[number];
@@ -96,7 +96,7 @@ async function updateSpecTypes(version: SpecVersion, providedSHA?: string): Prom
 
     writeFileSync(outputPath, formatted, 'utf-8');
 
-    console.log(`[${version}] Successfully updated packages/core/src/types/spec.types.${version}.ts`);
+    console.log(`[${version}] Successfully updated packages/core-internal/src/types/spec.types.${version}.ts`);
 }
 
 function isSupportedVersion(value: string): value is SpecVersion {

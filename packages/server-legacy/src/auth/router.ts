@@ -1,4 +1,4 @@
-import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/core';
+import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/core-internal';
 import type { RequestHandler } from 'express';
 import express from 'express';
 

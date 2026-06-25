@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { CallToolResultSchema, InitializeResultSchema, JSONRPCResultResponseSchema } from '@modelcontextprotocol/core';
+import { CallToolResultSchema, InitializeResultSchema, JSONRPCResultResponseSchema } from '@modelcontextprotocol/core-internal';
 import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/server';
 import { InMemoryTransport, McpServer } from '@modelcontextprotocol/server';
 import { expect, vi } from 'vitest';

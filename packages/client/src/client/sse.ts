@@ -1,4 +1,4 @@
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
     createFetchWithInit,
     JSONRPCMessageSchema,
@@ -6,7 +6,7 @@ import {
     SdkError,
     SdkErrorCode,
     SdkHttpError
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 

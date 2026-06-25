@@ -1,5 +1,5 @@
-import type { JSONRPCMessage, JsonSchemaType, JsonSchemaValidatorResult, jsonSchemaValidator } from '@modelcontextprotocol/core';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JsonSchemaType, JsonSchemaValidatorResult, jsonSchemaValidator } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { Client } from '../../src/client/client';
 import { fromJsonSchema } from '../../src/fromJsonSchema';
 

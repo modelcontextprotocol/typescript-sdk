@@ -9,14 +9,14 @@ import type {
     jsonSchemaValidator,
     LoggingMessageNotification,
     Transport
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
     SdkError,
     SdkErrorCode,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { createMcpExpressApp } from '@modelcontextprotocol/express';
 import { McpServer, Server } from '@modelcontextprotocol/server';
 import type { Request, Response } from 'express';

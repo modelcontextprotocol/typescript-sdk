@@ -24,7 +24,7 @@ import type {
     ToolExecution,
     Transport,
     Variables
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
@@ -36,7 +36,7 @@ import {
     UriTemplate,
     validateAndWarnToolName,
     validateStandardSchema
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import type * as z from 'zod/v4';
 
 import { getCompleter, isCompletable } from './completable';

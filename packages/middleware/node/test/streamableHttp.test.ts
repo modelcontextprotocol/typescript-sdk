@@ -11,7 +11,7 @@ import type {
     JSONRPCMessage,
     JSONRPCResultResponse,
     RequestId
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import type { EventId, EventStore, StreamId } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';

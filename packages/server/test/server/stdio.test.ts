@@ -1,7 +1,7 @@
 import { Readable, Writable } from 'node:stream';
 
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core-internal';
 
 import { StdioServerTransport } from '../../src/server/stdio';
 

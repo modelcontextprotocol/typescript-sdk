@@ -1,4 +1,4 @@
-# @modelcontextprotocol/sdk-shared
+# @modelcontextprotocol/core
 
 Canonical public home for the [Model Context Protocol](https://modelcontextprotocol.io) specification and OAuth/OpenID **Zod schemas**.
 
@@ -8,13 +8,13 @@ raw schemas when you need to validate or parse MCP messages yourself.
 ## Install
 
 ```sh
-npm install @modelcontextprotocol/sdk-shared
+npm install @modelcontextprotocol/core
 ```
 
 ## Usage
 
 ```ts
-import { CallToolResultSchema } from '@modelcontextprotocol/sdk-shared';
+import { CallToolResultSchema } from '@modelcontextprotocol/core';
 
 // Throws on invalid input; returns the typed result on success.
 const result = CallToolResultSchema.parse(payload);
@@ -36,5 +36,5 @@ This package exports **only** Zod schema constants (`*Schema`), in two groups:
 The corresponding TypeScript types, error classes, enums, and type guards are part of the public API of [`@modelcontextprotocol/server`](https://www.npmjs.com/package/@modelcontextprotocol/server) and
 [`@modelcontextprotocol/client`](https://www.npmjs.com/package/@modelcontextprotocol/client).
 
-> **Migrating from v1?** In v1 these schemas were imported from `@modelcontextprotocol/sdk/types.js` (spec schemas) and `@modelcontextprotocol/sdk/shared/auth.js` (OAuth/OpenID schemas). Point those `*Schema` imports at `@modelcontextprotocol/sdk-shared` and your existing
-> `.parse()` / `.safeParse()` calls keep working unchanged.
+> **Migrating from v1?** In v1 these schemas were imported from `@modelcontextprotocol/sdk/types.js` (spec schemas) and `@modelcontextprotocol/sdk/shared/auth.js` (OAuth/OpenID schemas). Point those `*Schema` imports at `@modelcontextprotocol/core` and your existing `.parse()` /
+> `.safeParse()` calls keep working unchanged.

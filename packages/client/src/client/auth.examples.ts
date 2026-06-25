@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { AuthorizationServerMetadata } from '@modelcontextprotocol/core';
+import type { AuthorizationServerMetadata } from '@modelcontextprotocol/core-internal';
 
 import type { OAuthClientProvider } from './auth';
 import { fetchToken } from './auth';

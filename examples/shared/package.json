@@ -29,7 +29,7 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "better-auth": "^1.4.17",

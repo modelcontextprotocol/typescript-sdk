@@ -1,6 +1,6 @@
 import type { ReadableWritablePair } from 'node:stream/web';
 
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
     createFetchWithInit,
     isInitializedNotification,
@@ -12,7 +12,7 @@ import {
     SdkError,
     SdkErrorCode,
     SdkHttpError
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
 import type { AuthProvider, OAuthClientProvider } from './auth';

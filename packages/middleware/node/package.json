@@ -62,7 +62,7 @@
     },
     "devDependencies": {
         "@modelcontextprotocol/server": "workspace:^",
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",

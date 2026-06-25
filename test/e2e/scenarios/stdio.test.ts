@@ -17,7 +17,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { JSONRPCMessageSchema } from '@modelcontextprotocol/core';
+import { JSONRPCMessageSchema } from '@modelcontextprotocol/core-internal';
 import { expect, vi } from 'vitest';
 
 import { verifies } from '../helpers/verifies';

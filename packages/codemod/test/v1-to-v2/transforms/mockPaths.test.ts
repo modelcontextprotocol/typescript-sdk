@@ -339,18 +339,18 @@ describe('mock-paths transform', () => {
     });
 
     describe('schema constant routing (schemaSymbolTarget)', () => {
-        it('routes a vi.mock factory of only spec *Schema constants to sdk-shared', () => {
+        it('routes a vi.mock factory of only spec *Schema constants to core', () => {
             const input = [`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`, `    CallToolResultSchema: vi.fn()`, `}));`, ''].join(
                 '\n'
             );
             const result = applyTransform(input);
-            expect(result).toContain(`'@modelcontextprotocol/sdk-shared'`);
+            expect(result).toContain(`'@modelcontextprotocol/core'`);
             expect(result).not.toContain('@modelcontextprotocol/sdk/types');
-            // The schema constant lives in sdk-shared, never the context (server) package.
+            // The schema constant lives in core, never the context (server) package.
             expect(result).not.toContain(`'@modelcontextprotocol/server'`);
         });
 
-        it('routes a vi.mock factory of only auth *Schema constants to sdk-shared', () => {
+        it('routes a vi.mock factory of only auth *Schema constants to core', () => {
             const input = [
                 `vi.mock('@modelcontextprotocol/sdk/shared/auth.js', () => ({`,
                 `    OAuthTokensSchema: vi.fn()`,
@@ -358,23 +358,23 @@ describe('mock-paths transform', () => {
                 ''
             ].join('\n');
             const result = applyTransform(input);
-            expect(result).toContain(`'@modelcontextprotocol/sdk-shared'`);
+            expect(result).toContain(`'@modelcontextprotocol/core'`);
             expect(result).not.toContain('@modelcontextprotocol/sdk/shared/auth');
         });
 
-        it('routes a destructured dynamic import of only *Schema constants to sdk-shared', () => {
+        it('routes a destructured dynamic import of only *Schema constants to core', () => {
             const input = [`const { CallToolResultSchema } = await import('@modelcontextprotocol/sdk/types.js');`, ''].join('\n');
             const result = applyTransform(input);
-            expect(result).toContain(`import('@modelcontextprotocol/sdk-shared')`);
+            expect(result).toContain(`import('@modelcontextprotocol/core')`);
             expect(result).not.toContain('@modelcontextprotocol/sdk/types');
         });
 
-        it('renames JSONRPCResponseSchema and routes it to sdk-shared in a mock factory', () => {
+        it('renames JSONRPCResponseSchema and routes it to core in a mock factory', () => {
             const input = [`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`, `    JSONRPCResponseSchema: vi.fn()`, `}));`, ''].join(
                 '\n'
             );
             const result = applyTransform(input);
-            expect(result).toContain(`'@modelcontextprotocol/sdk-shared'`);
+            expect(result).toContain(`'@modelcontextprotocol/core'`);
             expect(result).toContain('JSONRPCResultResponseSchema');
             expect(result).not.toMatch(/(?<!Result)JSONRPCResponseSchema/);
         });

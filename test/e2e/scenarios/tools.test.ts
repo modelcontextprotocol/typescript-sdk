@@ -21,7 +21,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { JsonSchemaType } from '@modelcontextprotocol/core';
+import type { JsonSchemaType } from '@modelcontextprotocol/core-internal';
 import type {
     CreateMessageRequest,
     CreateMessageResult,

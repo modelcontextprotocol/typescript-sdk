@@ -2,7 +2,7 @@
 //
 // This file defines the complete public surface. It consists of:
 //   - Package-specific exports: listed explicitly below (named imports)
-//   - Protocol-level types: re-exported from @modelcontextprotocol/core/public
+//   - Protocol-level types: re-exported from @modelcontextprotocol/core-internal/public
 //
 // Any new export added here becomes public API. Use named exports, not wildcards.
 
@@ -44,4 +44,4 @@ export { WebStandardStreamableHTTPServerTransport } from './server/streamableHtt
 export { fromJsonSchema } from './fromJsonSchema';
 
 // re-export curated public API from core
-export * from '@modelcontextprotocol/core/public';
+export * from '@modelcontextprotocol/core-internal/public';

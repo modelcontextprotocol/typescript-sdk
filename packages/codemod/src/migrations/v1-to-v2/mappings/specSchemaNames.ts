@@ -1,7 +1,7 @@
-// AUTO-VERIFIED against @modelcontextprotocol/sdk-shared's public exports by
+// AUTO-VERIFIED against @modelcontextprotocol/core's public exports by
 // test/v1-to-v2/specSchemaNames.test.ts (drift guard). These are the spec Zod schema CONSTANTS that
-// sdk-shared re-exports as standalone values; the v1->v2 import transform routes a `*Schema` symbol
-// imported from `@modelcontextprotocol/sdk/types.js` to sdk-shared ONLY when its (rename-resolved)
+// core re-exports as standalone values; the v1->v2 import transform routes a `*Schema` symbol
+// imported from `@modelcontextprotocol/sdk/types.js` to core ONLY when its (rename-resolved)
 // name is in this set. Names that merely END in `Schema` but are NOT here — e.g. the elicitation
 // primitive TYPES `BooleanSchema`/`StringSchema`/`EnumSchema` (whose Zod const is `<Name>SchemaSchema`)
 // — fall through to context resolution (@modelcontextprotocol/client | /server), where their TYPES

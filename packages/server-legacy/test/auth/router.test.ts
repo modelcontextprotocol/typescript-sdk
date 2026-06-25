@@ -1,7 +1,7 @@
 import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions } from '../../src/auth/router';
 import { OAuthServerProvider, AuthorizationParams } from '../../src/auth/provider';
 import { OAuthRegisteredClientsStore } from '../../src/auth/clients';
-import { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
+import { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import express, { Response } from 'express';
 import supertest from 'supertest';
 import { AuthInfo } from '../../src/auth/types';

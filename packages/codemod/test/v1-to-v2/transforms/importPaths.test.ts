@@ -83,7 +83,7 @@ describe('import-paths transform', () => {
         const result = applyTransform(input, { projectType: 'both' });
         expect(result).toContain(`from "@modelcontextprotocol/client"`);
         expect(result).toContain('CallToolResult');
-        expect(result).not.toContain('@modelcontextprotocol/sdk-shared');
+        expect(result).not.toContain('@modelcontextprotocol/core');
     });
 
     it('resolves a sdk/types.js TYPE import based on sibling server imports', () => {
@@ -97,41 +97,41 @@ describe('import-paths transform', () => {
         expect(result).toContain('CallToolResult');
     });
 
-    it('routes *Schema imports from sdk/types.js to @modelcontextprotocol/sdk-shared', () => {
+    it('routes *Schema imports from sdk/types.js to @modelcontextprotocol/core', () => {
         const input = `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
         const result = applyTransform(input, { projectType: 'server' });
-        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
         expect(result).toContain('CallToolResultSchema');
         expect(result).not.toContain('@modelcontextprotocol/sdk/types');
     });
 
-    it('routes schemas to sdk-shared regardless of client/server sibling context', () => {
-        // The only sibling is a client import, but the schema must still go to sdk-shared.
+    it('routes schemas to core regardless of client/server sibling context', () => {
+        // The only sibling is a client import, but the schema must still go to core.
         const input = [
             `import { Client } from '@modelcontextprotocol/sdk/client/index.js';`,
             `import { ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
             ''
         ].join('\n');
         const result = applyTransform(input, { projectType: 'both' });
-        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
         expect(result).toContain('ListToolsResultSchema');
     });
 
-    it('splits a mixed type + schema import: type resolves by context, schema to sdk-shared', () => {
+    it('splits a mixed type + schema import: type resolves by context, schema to core', () => {
         const input = [
             `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
             `import { CallToolResult, CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
             ''
         ].join('\n');
         const result = applyTransform(input, { projectType: 'both' });
-        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
         expect(result).toContain(`from "@modelcontextprotocol/server"`);
         expect(result).toContain('CallToolResult');
         expect(result).toContain('CallToolResultSchema');
         expect(result).not.toContain('@modelcontextprotocol/sdk/types');
     });
 
-    it('splits an aliased types.js import: schema constant to sdk-shared, aliased type to server', () => {
+    it('splits an aliased types.js import: schema constant to core, aliased type to server', () => {
         // The presence of an alias (`Tool as SDKTool`) must not force the whole import into one package;
         // each symbol still routes to its correct v2 target, with the alias preserved.
         const input = [
@@ -139,7 +139,7 @@ describe('import-paths transform', () => {
             ''
         ].join('\n');
         const result = applyTransform(input, { projectType: 'server' });
-        expect(result).toMatch(/import\s*\{[^}]*\bCreateMessageRequestSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/sdk-shared["']/);
+        expect(result).toMatch(/import\s*\{[^}]*\bCreateMessageRequestSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/core["']/);
         expect(result).toMatch(/import\s*\{[^}]*\bClientCapabilities\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/server["']/);
         expect(result).toContain('Tool as SDKTool');
         // the schema constant must NOT end up imported from @modelcontextprotocol/server
@@ -196,8 +196,8 @@ describe('import-paths transform', () => {
         expect(result).toContain('@modelcontextprotocol/server');
     });
 
-    it('routes OAuth *Schema from sdk/shared/auth.js to sdk-shared; the TYPE resolves by context', () => {
-        // OAuthTokensSchema is a Zod schema re-exported by sdk-shared (AUTH_SCHEMA_NAMES), so route it
+    it('routes OAuth *Schema from sdk/shared/auth.js to core; the TYPE resolves by context', () => {
+        // OAuthTokensSchema is a Zod schema re-exported by core (AUTH_SCHEMA_NAMES), so route it
         // there — `OAuthTokensSchema.parse(...)` keeps working. OAuthTokens (the type) has no schema-name
         // match and resolves by context to @modelcontextprotocol/client.
         const input = [
@@ -207,14 +207,14 @@ describe('import-paths transform', () => {
             ''
         ].join('\n');
         const result = applyTransform(input, { projectType: 'client' });
-        expect(result).toMatch(/import\s*\{[^}]*\bOAuthTokensSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/sdk-shared["']/);
+        expect(result).toMatch(/import\s*\{[^}]*\bOAuthTokensSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/core["']/);
         expect(result).toMatch(/import\s*\{[^}]*\bOAuthTokens\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/client["']/);
         expect(result).toContain('OAuthTokensSchema.parse(raw)');
         expect(result).not.toContain('@modelcontextprotocol/sdk/shared/auth');
     });
 
-    it('does not emit a project-type note when every symbol routes to sdk-shared (both project)', () => {
-        // A types.js import of nothing but `*Schema` constants routes entirely to sdk-shared, so the
+    it('does not emit a project-type note when every symbol routes to core (both project)', () => {
+        // A types.js import of nothing but `*Schema` constants routes entirely to core, so the
         // context package is never used — resolveTypesPackage must not be called, and no "both"-project
         // info note should be emitted.
         const project = new Project({ useInMemoryFileSystem: true });
@@ -224,11 +224,11 @@ describe('import-paths transform', () => {
         );
         const result = importPathsTransform.apply(sourceFile, { projectType: 'both' });
         expect(result.diagnostics.some(d => /both client and server|determine project type/i.test(d.message))).toBe(false);
-        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/sdk-shared');
+        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/core');
         expect(sourceFile.getFullText()).not.toContain('@modelcontextprotocol/sdk/types');
     });
 
-    it('does not warn about project type when an auth-schema-only import routes entirely to sdk-shared (unknown project)', () => {
+    it('does not warn about project type when an auth-schema-only import routes entirely to core (unknown project)', () => {
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile(
             'test.ts',
@@ -236,7 +236,7 @@ describe('import-paths transform', () => {
         );
         const result = importPathsTransform.apply(sourceFile, { projectType: 'unknown' });
         expect(result.diagnostics.some(d => /determine project type/i.test(d.message))).toBe(false);
-        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/sdk-shared');
+        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/core');
     });
 
     it('still warns about project type when a non-schema symbol falls through to context (unknown project)', () => {
@@ -251,14 +251,14 @@ describe('import-paths transform', () => {
         expect(result.diagnostics.some(d => /determine project type/i.test(d.message))).toBe(true);
     });
 
-    it('splits a mixed default + named schema import — schema to sdk-shared, default to context', () => {
-        // The named `CallToolResultSchema` must route to sdk-shared even though a default import is present;
+    it('splits a mixed default + named schema import — schema to core, default to context', () => {
+        // The named `CallToolResultSchema` must route to core even though a default import is present;
         // the default binding (which can't be split) moves to the context package. Pre-fix the whole import
         // moved to context and the schema silently became a "no exported member" error.
         const result = applyTransform(`import sdk, { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';\n`, {
             projectType: 'server'
         });
-        expect(result).toMatch(/import\s*\{[^}]*\bCallToolResultSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/sdk-shared["']/);
+        expect(result).toMatch(/import\s*\{[^}]*\bCallToolResultSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/core["']/);
         expect(result).toMatch(/import\s+sdk\s+from\s*["']@modelcontextprotocol\/server["']/);
         expect(result).not.toContain('@modelcontextprotocol/sdk/types');
     });
@@ -271,12 +271,12 @@ describe('import-paths transform', () => {
         ].join('\n');
         const result = applyTransform(input, { projectType: 'server' });
         expect(result).toContain('CallToolResultSchema.parse(value)');
-        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
     });
 
-    it('routes elicitation primitive *Schema TYPE names from sdk/types.js by context, not to sdk-shared', () => {
+    it('routes elicitation primitive *Schema TYPE names from sdk/types.js by context, not to core', () => {
         // These names END in `Schema` but are TYPES; their Zod constant is `<Name>SchemaSchema`. They
-        // must resolve to the context package (where the types live), never to sdk-shared (which only
+        // must resolve to the context package (where the types live), never to core (which only
         // exports the `*SchemaSchema` constants) — otherwise the codemod emits a broken import.
         const elicitationTypeNames = [
             'BooleanSchema',
@@ -295,47 +295,47 @@ describe('import-paths transform', () => {
             const input = `import { ${typeName} } from '@modelcontextprotocol/sdk/types.js';\n`;
             const result = applyTransform(input, { projectType: 'server' });
             expect(result, typeName).toContain(`from "@modelcontextprotocol/server"`);
-            expect(result, typeName).not.toContain('@modelcontextprotocol/sdk-shared');
+            expect(result, typeName).not.toContain('@modelcontextprotocol/core');
             expect(result, typeName).toContain(typeName);
         }
     });
 
     it('splits a primitive-schema TYPE from its matching schema CONSTANT (BooleanSchema vs BooleanSchemaSchema)', () => {
         // They differ only by a trailing `Schema`, which the suffix heuristic could not distinguish.
-        // The constant goes to sdk-shared; the type resolves by context.
+        // The constant goes to core; the type resolves by context.
         const input = `import { BooleanSchema, BooleanSchemaSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
         const result = applyTransform(input, { projectType: 'server' });
-        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
         expect(result).toContain('BooleanSchemaSchema');
         expect(result).toContain(`from "@modelcontextprotocol/server"`);
         expect(result).toMatch(/BooleanSchema\b/);
         expect(result).not.toContain('@modelcontextprotocol/sdk/types');
     });
 
-    it('routes a renamed spec schema (JSONRPCErrorSchema) from sdk/types.js to sdk-shared', () => {
-        // JSONRPCErrorSchema → JSONRPCErrorResponseSchema, a sdk-shared export. Membership is checked
+    it('routes a renamed spec schema (JSONRPCErrorSchema) from sdk/types.js to core', () => {
+        // JSONRPCErrorSchema → JSONRPCErrorResponseSchema, a core export. Membership is checked
         // against the rename-resolved name; the symbolRenames transform applies the rename afterward,
-        // so importPaths alone leaves the name unchanged but routes it to sdk-shared.
+        // so importPaths alone leaves the name unchanged but routes it to core.
         const input = `import { JSONRPCErrorSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
         const result = applyTransform(input, { projectType: 'server' });
-        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
         expect(result).toContain('JSONRPCErrorSchema');
         expect(result).not.toContain('@modelcontextprotocol/sdk/types');
     });
 
-    it('routes JSONRPCResponseSchema (result-only in v1) from sdk/types.js to sdk-shared', () => {
+    it('routes JSONRPCResponseSchema (result-only in v1) from sdk/types.js to core', () => {
         // v1's JSONRPCResponseSchema validated only result responses; v2 reuses the name for a union.
-        // The rename to JSONRPCResultResponseSchema (a sdk-shared export) preserves v1 behavior; importPaths
-        // routes it to sdk-shared against the rename-resolved name (symbolRenames applies the rename after).
+        // The rename to JSONRPCResultResponseSchema (a core export) preserves v1 behavior; importPaths
+        // routes it to core against the rename-resolved name (symbolRenames applies the rename after).
         const input = `import { JSONRPCResponseSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
         const result = applyTransform(input, { projectType: 'server' });
-        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).toContain(`from "@modelcontextprotocol/core"`);
         expect(result).not.toContain('@modelcontextprotocol/sdk/types');
         expect(result).not.toContain(`from "@modelcontextprotocol/server"`);
     });
 
     it('flags a SafeUrlSchema import from sdk/shared/auth.js (no public v2 equivalent)', () => {
-        // SafeUrlSchema/OptionalSafeUrlSchema were internal URL field-validators in v1; v2's sdk-shared
+        // SafeUrlSchema/OptionalSafeUrlSchema were internal URL field-validators in v1; v2's core
         // deliberately does not re-export them, so there is no v2 home — emit guidance instead of silently
         // routing to a package that has no such export.
         const input = `import { SafeUrlSchema, OptionalSafeUrlSchema } from '@modelcontextprotocol/sdk/shared/auth.js';\n`;
@@ -349,26 +349,26 @@ describe('import-paths transform', () => {
 
     it('flags a star re-export of sdk/types.js that drops the moved schema constants', () => {
         // `export * from '…/types.js'` cannot be routed per-symbol, so the Zod *Schema constants (now in
-        // sdk-shared) silently disappear from the re-exporting barrel. Surface that for the user.
+        // core) silently disappear from the re-exporting barrel. Surface that for the user.
         const input = `export * from '@modelcontextprotocol/sdk/types.js';\n`;
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
         const messages = result.diagnostics.map(d => d.message).join('\n');
-        expect(messages).toContain('@modelcontextprotocol/sdk-shared');
+        expect(messages).toContain('@modelcontextprotocol/core');
         expect(messages).toMatch(/Star re-export/i);
     });
 
-    it('flags a star re-export of sdk/shared/auth.js (schema constants move to sdk-shared)', () => {
+    it('flags a star re-export of sdk/shared/auth.js (schema constants move to core)', () => {
         const input = `export * from '@modelcontextprotocol/sdk/shared/auth.js';\n`;
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
-        expect(result.diagnostics.map(d => d.message).join('\n')).toContain('@modelcontextprotocol/sdk-shared');
+        expect(result.diagnostics.map(d => d.message).join('\n')).toContain('@modelcontextprotocol/core');
     });
 
     it('emits a split diagnostic for a re-export mixing a spec schema and a *Schema type (no silent breakage)', () => {
-        // The `*Schema` suffix would have routed BooleanSchema to sdk-shared silently (no such export);
+        // The `*Schema` suffix would have routed BooleanSchema to core silently (no such export);
         // membership routing instead surfaces the mismatch so the user splits the re-export manually.
         const input = `export { CallToolResultSchema, BooleanSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
         const project = new Project({ useInMemoryFileSystem: true });
@@ -388,7 +388,7 @@ describe('import-paths transform', () => {
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
         const messages = result.diagnostics.map(d => d.message).join('\n');
         // The namespace can't be split, so the schema can't be auto-routed — but the user must be told.
-        expect(messages).toContain('@modelcontextprotocol/sdk-shared');
+        expect(messages).toContain('@modelcontextprotocol/core');
         expect(messages).toContain('CallToolResultSchema');
         // The namespace import itself still moves to the context package (its types live there).
         // (setModuleSpecifier preserves the original quote style, so match quote-agnostically.)
@@ -396,7 +396,7 @@ describe('import-paths transform', () => {
     });
 
     it('suggests the v2 (rename-resolved) name in the namespace schema-access diagnostic', () => {
-        // JSONRPCErrorSchema is re-exported by sdk-shared as JSONRPCErrorResponseSchema; the suggested
+        // JSONRPCErrorSchema is re-exported by core as JSONRPCErrorResponseSchema; the suggested
         // import must use the v2 name (the v1 name has no exported member), and mention the rename.
         const input = [
             `import * as types from '@modelcontextprotocol/sdk/types.js';`,
@@ -407,7 +407,7 @@ describe('import-paths transform', () => {
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
         const msg = result.diagnostics.map(d => d.message).join('\n');
-        expect(msg).toContain("import { JSONRPCErrorResponseSchema } from '@modelcontextprotocol/sdk-shared'");
+        expect(msg).toContain("import { JSONRPCErrorResponseSchema } from '@modelcontextprotocol/core'");
         expect(msg).toContain('JSONRPCErrorSchema → JSONRPCErrorResponseSchema');
         expect(msg).not.toContain('import { JSONRPCErrorSchema } from');
     });
@@ -419,7 +419,7 @@ describe('import-paths transform', () => {
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
-        expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('@modelcontextprotocol/sdk-shared');
+        expect(result.diagnostics.map(d => d.message).join('\n')).not.toContain('@modelcontextprotocol/core');
     });
 
     it('resolves extensionless sdk/types (no .js suffix) the same as sdk/types.js', () => {

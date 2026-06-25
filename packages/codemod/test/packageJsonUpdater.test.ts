@@ -145,7 +145,7 @@ describe('updatePackageJson', () => {
         expect(deps['@modelcontextprotocol/server']).toBeUndefined();
     });
 
-    it('filters out @modelcontextprotocol/core (private package)', () => {
+    it('filters out @modelcontextprotocol/core-internal (private package)', () => {
         const dir = createTempDir();
         writePkgJson(dir, {
             dependencies: {
@@ -153,15 +153,15 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/core', '@modelcontextprotocol/server']), false);
+        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/core-internal', '@modelcontextprotocol/server']), false);
 
         expect(result).toBeDefined();
-        expect(result!.added).not.toContain('@modelcontextprotocol/core');
+        expect(result!.added).not.toContain('@modelcontextprotocol/core-internal');
         expect(result!.added).toContain('@modelcontextprotocol/server');
 
         const pkg = readPkgJson(dir);
         const deps = pkg.dependencies as Record<string, string>;
-        expect(deps['@modelcontextprotocol/core']).toBeUndefined();
+        expect(deps['@modelcontextprotocol/core-internal']).toBeUndefined();
     });
 
     it('preserves 4-space indentation', () => {

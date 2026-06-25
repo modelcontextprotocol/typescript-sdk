@@ -13,7 +13,7 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, StandardSchemaWithJSON } from '@modelcontextprotocol/core';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, StandardSchemaWithJSON } from '@modelcontextprotocol/core-internal';
 import type { Tool } from '@modelcontextprotocol/server';
 import {
     fromJsonSchema,

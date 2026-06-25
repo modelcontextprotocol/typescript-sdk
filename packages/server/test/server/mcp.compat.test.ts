@@ -1,5 +1,5 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 import { McpServer } from '../../src/index';

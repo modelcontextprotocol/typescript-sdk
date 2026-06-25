@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import type { JSONRPCMessage, MessageExtraInfo } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, MessageExtraInfo } from '@modelcontextprotocol/core-internal';
 
 import { McpServer } from '../../src/server/mcp';
 import type { EventId, EventStore, StreamId } from '../../src/server/streamableHttp';

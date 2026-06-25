@@ -16,7 +16,7 @@ import { SIMPLE_RENAMES } from '../mappings/symbolMap';
  * specifier is a single string and cannot be split, so a mix can only be flagged, not rewritten.
  * Returns `target: undefined` when no symbol carries a per-symbol override (the caller keeps the
  * mapping's resolved context/`target` package). Mirrors `symbolTargetOverride` routing used by the
- * static import/export transform so e.g. a factory of only `*Schema` constants routes to sdk-shared.
+ * static import/export transform so e.g. a factory of only `*Schema` constants routes to core.
  */
 function routeSymbols(symbols: string[], mapping: ImportMapping): { target?: string; mixed: boolean } {
     if (symbols.length === 0) return { mixed: false };
@@ -101,7 +101,7 @@ function resolveTarget(
 
     // Return the original mapping (not just `renamedSymbols`/`symbolTargetOverrides`) so per-symbol
     // routing can consult `schemaSymbolTarget` via the shared `symbolTargetOverride`/`routeSymbols`,
-    // matching how the static import transform routes `*Schema` constants to sdk-shared.
+    // matching how the static import transform routes `*Schema` constants to core.
     return { target, mapping };
 }
 
@@ -147,7 +147,7 @@ function rewriteMockCall(
     let effectiveTarget = resolved.target;
     if (args.length >= 2) {
         // Route the factory's mocked symbols the same way the static import transform would: a factory of
-        // only `*Schema` constants (from sdk/types.js or sdk/shared/auth.js) moves to sdk-shared; a factory
+        // only `*Schema` constants (from sdk/types.js or sdk/shared/auth.js) moves to core; a factory
         // of only `StreamableHTTPServerTransport` moves to @modelcontextprotocol/node. A single mock path
         // can't be split, so a mix of packages is flagged for manual migration.
         const { target: routedTarget, mixed } = routeSymbols(collectFactorySymbols(args[1]!), resolved.mapping);
@@ -292,7 +292,7 @@ function rewriteDynamicImports(
 
         // Route the destructured bindings the same way the static import transform would: a destructuring
         // of only `*Schema` constants (e.g. `const { CallToolResultSchema } = await import('…/types.js')`)
-        // moves to sdk-shared, and `StreamableHTTPServerTransport` moves to @modelcontextprotocol/node. A
+        // moves to core, and `StreamableHTTPServerTransport` moves to @modelcontextprotocol/node. A
         // single import() specifier can't be split, so a mix of packages is flagged for manual migration.
         const parentExpr = node.getParent();
         if (parentExpr && Node.isAwaitExpression(parentExpr)) {

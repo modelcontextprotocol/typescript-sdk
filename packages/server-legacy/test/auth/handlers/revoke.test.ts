@@ -1,7 +1,7 @@
 import { revocationHandler, RevocationHandlerOptions } from '../../../src/auth/handlers/revoke';
 import { OAuthServerProvider, AuthorizationParams } from '../../../src/auth/provider';
 import { OAuthRegisteredClientsStore } from '../../../src/auth/clients';
-import { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
+import { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import express, { Response } from 'express';
 import supertest from 'supertest';
 import { AuthInfo } from '../../../src/auth/types';

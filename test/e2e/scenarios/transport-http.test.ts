@@ -19,7 +19,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { Client, SdkHttpError, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { JSONRPCRequestSchema } from '@modelcontextprotocol/core';
+import { JSONRPCRequestSchema } from '@modelcontextprotocol/core-internal';
 import {
     LATEST_PROTOCOL_VERSION,
     McpServer,

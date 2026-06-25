@@ -114,9 +114,9 @@ export const importPathsTransform: Transform = {
             // actually routes to the context package. resolveTypesPackage's diagnostic sink emits a "could
             // not determine project type" warning (or, for a 'both' project, an info note), so resolving
             // eagerly would emit that note even for an import of nothing but `*Schema` constants — which
-            // routes entirely to sdk-shared and never uses the context package. A namespace or default
+            // routes entirely to core and never uses the context package. A namespace or default
             // binding always needs context; a named symbol needs it only when it has no per-symbol override
-            // (i.e. it is not a `*Schema` routed to sdk-shared).
+            // (i.e. it is not a `*Schema` routed to core).
             let targetPackage = mapping.target;
             if (targetPackage === 'RESOLVE_BY_CONTEXT') {
                 const needsContext =
@@ -142,9 +142,9 @@ export const importPathsTransform: Transform = {
             // A namespace import (`import * as ns from …`) cannot be split per-symbol — usages are
             // qualified (`ns.Foo`), so the whole binding moves to one package. Named imports (aliased or
             // not), including the named siblings of a default import, DO fall through to the per-symbol
-            // splitter below — so an all-`*Schema` import routes entirely to sdk-shared, a single aliased
+            // splitter below — so an all-`*Schema` import routes entirely to core, a single aliased
             // specifier no longer forces unrelated symbols into the wrong package, and a mixed
-            // `import sdk, { CallToolResultSchema }` routes the schema to sdk-shared while the default
+            // `import sdk, { CallToolResultSchema }` routes the schema to core while the default
             // binding (handled at the end of the per-symbol path) moves to the context package.
             if (namespaceImport) {
                 const effectiveTarget = targetPackage;
@@ -152,8 +152,8 @@ export const importPathsTransform: Transform = {
                 // namespace can't be split), so flag them.
                 if (mapping.schemaSymbolTarget) {
                     const nsName = namespaceImport.getText();
-                    // Map each accessed v1 name to the v2 name sdk-shared actually exports — some are
-                    // renamed (e.g. JSONRPCErrorSchema → JSONRPCErrorResponseSchema), and sdk-shared only
+                    // Map each accessed v1 name to the v2 name core actually exports — some are
+                    // renamed (e.g. JSONRPCErrorSchema → JSONRPCErrorResponseSchema), and core only
                     // exports the v2 name. Dedupe by the accessed (v1) name.
                     const schemaAccesses = [
                         ...new Map(
@@ -216,7 +216,7 @@ export const importPathsTransform: Transform = {
                             filePath,
                             imp,
                             `${name} was an internal URL field-validator in v1's ${specifier} with no public v2 equivalent ` +
-                                `(it is not re-exported by @modelcontextprotocol/sdk-shared). Remove this import and inline the ` +
+                                `(it is not re-exported by @modelcontextprotocol/core). Remove this import and inline the ` +
                                 `validation (e.g. validate the URL with the WHATWG \`URL\` constructor or your own Zod schema).`
                         )
                     );

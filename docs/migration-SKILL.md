@@ -1,6 +1,6 @@
 ---
 name: migrate-v1-to-v2
-description: Migrate MCP TypeScript SDK code from v1 (@modelcontextprotocol/sdk) to v2 (@modelcontextprotocol/core, /client, /server). Use when a user asks to migrate, upgrade, or port their MCP TypeScript code from v1 to v2.
+description: Migrate MCP TypeScript SDK code from v1 (@modelcontextprotocol/sdk) to v2 (@modelcontextprotocol/core-internal, /client, /server). Use when a user asks to migrate, upgrade, or port their MCP TypeScript code from v1 to v2.
 ---
 
 # MCP TypeScript SDK: v1 → v2 Migration
@@ -28,7 +28,7 @@ npm uninstall @modelcontextprotocol/sdk
 | Server + Express      | `npm install @modelcontextprotocol/server @modelcontextprotocol/express` |
 | Server + Hono         | `npm install @modelcontextprotocol/server @modelcontextprotocol/hono`    |
 
-`@modelcontextprotocol/core` is installed automatically as a dependency.
+`@modelcontextprotocol/core-internal` is installed automatically as a dependency.
 
 ## 3. Import Mapping
 
@@ -61,16 +61,16 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 | v1 import path                                    | v2 package                                                                                                                                                                                                      |
 | ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk/types.js`              | Types / error classes / enums / guards → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; Zod `*Schema` constants → `@modelcontextprotocol/sdk-shared`                                         |
+| `@modelcontextprotocol/sdk/types.js`              | Types / error classes / enums / guards → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; Zod `*Schema` constants → `@modelcontextprotocol/core`                                         |
 | `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                                |
 | `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                                |
 | `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                                |
-| `@modelcontextprotocol/sdk/shared/auth.js`        | Types / classes → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; OAuth/OpenID Zod `*Schema` constants (e.g. `OAuthTokensSchema`, `OAuthMetadataSchema`) → `@modelcontextprotocol/sdk-shared` |
+| `@modelcontextprotocol/sdk/shared/auth.js`        | Types / classes → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; OAuth/OpenID Zod `*Schema` constants (e.g. `OAuthTokensSchema`, `OAuthMetadataSchema`) → `@modelcontextprotocol/core` |
 | `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` (`ReadBuffer`, `serializeMessage`, `deserializeMessage` are in the root barrel; the `./stdio` subpath only has the transport class)            |
 
 Notes:
 
-- `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so import from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly — it is an internal package.
+- `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core-internal`, so import from whichever package you already depend on. Do not import from `@modelcontextprotocol/core-internal` directly — it is an internal package.
 - When multiple v1 imports map to the same v2 package, consolidate them into a single import statement.
 
 ## 4. Renamed Symbols
@@ -87,7 +87,7 @@ Notes:
 | `JSONRPCErrorSchema`                        | `JSONRPCErrorResponseSchema`                                                                                                                                     |
 | `isJSONRPCError`                            | `isJSONRPCErrorResponse`                                                                                                                                         |
 | `isJSONRPCResponse` (deprecated in v1)      | `isJSONRPCResultResponse` (**not** v2's new `isJSONRPCResponse`, which correctly matches both result and error)                                                  |
-| `JSONRPCResponseSchema` (result-only in v1) | `JSONRPCResultResponseSchema` (from `@modelcontextprotocol/sdk-shared`; **not** v2's new `JSONRPCResponseSchema`, a `z.union` that also accepts error responses) |
+| `JSONRPCResponseSchema` (result-only in v1) | `JSONRPCResultResponseSchema` (from `@modelcontextprotocol/core`; **not** v2's new `JSONRPCResponseSchema`, a `z.union` that also accepts error responses) |
 | `ResourceReference`                         | `ResourceTemplateReference`                                                                                                                                      |
 | `ResourceReferenceSchema`                   | `ResourceTemplateReferenceSchema`                                                                                                                                |
 | `IsomorphicHeaders`                         | REMOVED (use Web Standard `Headers`)                                                                                                                             |
@@ -100,7 +100,7 @@ Notes:
 | `WebSocketClientTransport`                  | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                                                                          |
 
 All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`. The **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) move to
-`@modelcontextprotocol/sdk-shared`; `<Name>Schema.parse(value)` / `.safeParse(value)` keep working unchanged (the codemod rewrites the import path). To validate **without** depending on Zod, use `isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or
+`@modelcontextprotocol/core`; `<Name>Schema.parse(value)` / `.safeParse(value)` keep working unchanged (the codemod rewrites the import path). To validate **without** depending on Zod, use `isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or
 `specTypeSchemas.TypeName` (a `StandardSchemaV1Sync` validator) from `@modelcontextprotocol/client` / `@modelcontextprotocol/server`; the keys are typed as `SpecTypeName`, a literal union of all spec type names.
 
 ### Error class changes
@@ -304,7 +304,7 @@ Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
 
 ### Removed core exports
 
-| Removed from `@modelcontextprotocol/core`                                            | Replacement                               |
+| Removed from `@modelcontextprotocol/core-internal`                                            | Replacement                               |
 | ------------------------------------------------------------------------------------ | ----------------------------------------- |
 | `schemaToJson(schema)`                                                               | `standardSchemaToJsonSchema(schema)`      |
 | `parseSchemaAsync(schema, data)`                                                     | `validateStandardSchema(schema, data)`    |

@@ -379,11 +379,11 @@ describe('integration', () => {
         expect(pkgJson.dependencies['express']).toBe('^4.0.0');
     });
 
-    it('package.json: does not add sdk-shared when every schema import is rewritten away', () => {
+    it('package.json: does not add core when every schema import is rewritten away', () => {
         // The dominant v1 pattern: a `*Schema` constant used ONLY as a setRequestHandler first arg.
-        // importPaths routes it to @modelcontextprotocol/sdk-shared (recording the package), but
+        // importPaths routes it to @modelcontextprotocol/core (recording the package), but
         // handlerRegistration then rewrites the call to a method string and deletes the now-unused
-        // import. No sdk-shared import survives, so package.json must NOT gain a sdk-shared dependency.
+        // import. No core import survives, so package.json must NOT gain a core dependency.
         const dir = createTempDir();
         writePkgJson(dir, { dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' } });
         writeFileSync(
@@ -402,21 +402,21 @@ describe('integration', () => {
         // The schema usage was rewritten and its import deleted.
         const output = readFileSync(path.join(dir, 'server.ts'), 'utf8');
         expect(output).toContain("setRequestHandler('tools/call'");
-        expect(output).not.toContain('sdk-shared');
+        expect(output).not.toContain('core');
 
-        // So sdk-shared must not be added; the package actually imported (server) still is.
+        // So core must not be added; the package actually imported (server) still is.
         expect(result.packageJsonChanges).toBeDefined();
         expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
-        expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/sdk-shared');
+        expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/core');
 
         const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
-        expect(pkgJson.dependencies['@modelcontextprotocol/sdk-shared']).toBeUndefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/core']).toBeUndefined();
         expect(pkgJson.dependencies['@modelcontextprotocol/server']).toBeDefined();
     });
 
-    it('package.json: still adds sdk-shared when a schema import survives as a value', () => {
+    it('package.json: still adds core when a schema import survives as a value', () => {
         // Guard against over-correcting: a schema used as a value (e.g. `.parse(...)`) keeps its import,
-        // so sdk-shared remains a real dependency and must still be added.
+        // so core remains a real dependency and must still be added.
         const dir = createTempDir();
         writePkgJson(dir, { dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' } });
         writeFileSync(
@@ -433,14 +433,14 @@ describe('integration', () => {
         const result = run(migration, { targetDir: dir });
 
         const output = readFileSync(path.join(dir, 'lib.ts'), 'utf8');
-        expect(output).toContain('@modelcontextprotocol/sdk-shared');
+        expect(output).toContain('@modelcontextprotocol/core');
         expect(output).toContain('CallToolResultSchema.parse');
 
         expect(result.packageJsonChanges).toBeDefined();
-        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/sdk-shared');
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/core');
 
         const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
-        expect(pkgJson.dependencies['@modelcontextprotocol/sdk-shared']).toBeDefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/core']).toBeDefined();
     });
 
     it('does not modify package.json in dry-run mode', () => {

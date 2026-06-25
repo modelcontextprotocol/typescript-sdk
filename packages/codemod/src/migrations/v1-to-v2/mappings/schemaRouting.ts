@@ -12,7 +12,7 @@ export function resolveRenamedName(name: string, mapping: ImportMapping): string
 }
 
 /**
- * True when `name` (after renames) is a Zod schema CONSTANT that sdk-shared re-exports — either a spec
+ * True when `name` (after renames) is a Zod schema CONSTANT that core re-exports — either a spec
  * schema (`SPEC_SCHEMA_NAMES`) or an OAuth/OpenID schema (`AUTH_SCHEMA_NAMES`). Membership (not a
  * `*Schema` suffix) is what keeps TYPES whose name ends in `Schema` — e.g. `BooleanSchema` — out.
  */
@@ -25,7 +25,7 @@ export function isSharedSchemaConst(name: string, mapping: ImportMapping): boole
  * The per-symbol target package for a symbol imported/re-exported/mocked from `mapping`'s module, or
  * `undefined` when the symbol should use the mapping's resolved `target`. Exact-name
  * `symbolTargetOverrides` win over `schemaSymbolTarget`, which routes a symbol to the shared-schemas
- * package only when its rename-resolved name is a schema constant re-exported by sdk-shared (see
+ * package only when its rename-resolved name is a schema constant re-exported by core (see
  * `isSharedSchemaConst`).
  */
 export function symbolTargetOverride(name: string, mapping: ImportMapping): string | undefined {

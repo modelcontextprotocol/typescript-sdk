@@ -33,7 +33,7 @@
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
         "@modelcontextprotocol/client": "workspace:^",
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "@modelcontextprotocol/node": "workspace:^",

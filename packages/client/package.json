@@ -92,7 +92,7 @@
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",

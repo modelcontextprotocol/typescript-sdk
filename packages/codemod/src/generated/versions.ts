@@ -5,5 +5,5 @@ export const V2_PACKAGE_VERSIONS: Record<string, string> = {
     '@modelcontextprotocol/node': '^2.0.0-alpha.2',
     '@modelcontextprotocol/express': '^2.0.0-alpha.2',
     '@modelcontextprotocol/server-legacy': '^2.0.0-alpha.2',
-    '@modelcontextprotocol/sdk-shared': '^2.0.0-alpha.0'
+    '@modelcontextprotocol/core': '^2.0.0-alpha.0'
 };

@@ -1,7 +1,7 @@
 import { tokenHandler, TokenHandlerOptions } from '../../../src/auth/handlers/token';
 import { OAuthServerProvider, AuthorizationParams } from '../../../src/auth/provider';
 import { OAuthRegisteredClientsStore } from '../../../src/auth/clients';
-import { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
+import { OAuthClientInformationFull, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
 import express, { Response } from 'express';
 import supertest from 'supertest';
 import * as pkceChallenge from 'pkce-challenge';

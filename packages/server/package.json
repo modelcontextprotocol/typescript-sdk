@@ -94,7 +94,7 @@
         "ajv": "catalog:runtimeShared",
         "ajv-formats": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@modelcontextprotocol/test-helpers": "workspace:^",
         "@modelcontextprotocol/tsconfig": "workspace:^",

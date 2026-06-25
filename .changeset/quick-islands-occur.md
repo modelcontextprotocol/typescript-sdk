@@ -4,7 +4,7 @@
 '@modelcontextprotocol/node': patch
 '@modelcontextprotocol/client': patch
 '@modelcontextprotocol/server': patch
-'@modelcontextprotocol/core': patch
+'@modelcontextprotocol/core-internal': patch
 ---
 
 remove npm references, use pnpm
