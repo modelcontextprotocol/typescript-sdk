@@ -1,4 +1,4 @@
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 import { Client } from '../../src/client/client';
 
