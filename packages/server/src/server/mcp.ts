@@ -1341,10 +1341,11 @@ function withStructuredContentTextFallback(result: CallToolResult): CallToolResu
     if (isPlainObject) {
         return result;
     }
-    if (result.content.some(block => block.type === 'text')) {
+    const content = Array.isArray(result.content) ? result.content : [];
+    if (content.some(block => block.type === 'text')) {
         return result;
     }
-    return { ...result, content: [...result.content, { type: 'text', text: JSON.stringify(structuredContent) }] };
+    return { ...result, content: [...content, { type: 'text', text: JSON.stringify(structuredContent) }] };
 }
 
 /**
