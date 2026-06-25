@@ -11,8 +11,8 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { TextContent } from '@modelcontextprotocol/core';
-import { InMemoryTransport } from '@modelcontextprotocol/core';
+import type { TextContent } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
