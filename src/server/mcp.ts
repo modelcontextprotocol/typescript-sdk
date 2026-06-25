@@ -131,7 +131,7 @@ export class McpServer {
 
         this.server.registerCapabilities({
             tools: {
-                listChanged: true
+                listChanged: this.server.getCapabilities().tools?.listChanged ?? true
             }
         });
 
@@ -493,7 +493,7 @@ export class McpServer {
 
         this.server.registerCapabilities({
             resources: {
-                listChanged: true
+                listChanged: this.server.getCapabilities().resources?.listChanged ?? true
             }
         });
 
@@ -573,7 +573,7 @@ export class McpServer {
 
         this.server.registerCapabilities({
             prompts: {
-                listChanged: true
+                listChanged: this.server.getCapabilities().prompts?.listChanged ?? true
             }
         });
 
