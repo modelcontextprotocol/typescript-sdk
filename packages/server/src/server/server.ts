@@ -1249,7 +1249,7 @@ export class Server extends Protocol<ServerContext> {
             if (!parsedParams.success) {
                 throw new ProtocolError(
                     ProtocolErrorCode.InvalidParams,
-                    'Elicitation requestedSchema only supports flat primitive properties (string, number, integer, boolean, and string enums).'
+                    `Elicitation requestedSchema only supports flat primitive properties (string, number, integer, boolean, and string enums): ${parsedParams.error.message}`
                 );
             }
             return { params: parsedParams.data, standardSchema };
