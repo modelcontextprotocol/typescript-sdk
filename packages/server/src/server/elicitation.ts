@@ -16,6 +16,10 @@ function isJsonObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+const ZOD_ISO_DATE_PATTERN = String.raw`(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))`;
+const ZOD_ISO_TIME_PREFIX = String.raw`(?:[01]\d|2[0-3]):[0-5]\d`;
+const ZOD_ISO_OFFSET_PATTERN = String.raw`([+-](?:[01]\d|2[0-3]):[0-5]\d)`;
+
 const ZOD_REDUNDANT_FORMAT_PATTERNS: ReadonlyMap<string, ReadonlySet<string>> = new Map([
     ['email', new Set([String.raw`^(?!\.)(?!.*\.\.)([A-Za-z0-9_'+\-\.]*)[A-Za-z0-9_+-]@([A-Za-z0-9][A-Za-z0-9\-]*\.)+[A-Za-z]{2,}$`])],
     [
@@ -23,14 +27,42 @@ const ZOD_REDUNDANT_FORMAT_PATTERNS: ReadonlyMap<string, ReadonlySet<string>> = 
         new Set([
             String.raw`^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))$`
         ])
-    ],
-    [
-        'date-time',
-        new Set([
-            String.raw`^(?:(?:\d\d[2468][048]|\d\d[13579][26]|\d\d0[48]|[02468][048]00|[13579][26]00)-02-29|\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\d|30)|(?:02)-(?:0[1-9]|1\d|2[0-8])))T(?:(?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?(?:Z))$`
-        ])
     ]
 ]);
+
+const ZOD_DATETIME_ZONE_SUFFIXES = [
+    String.raw`(?:Z)`,
+    String.raw`(?:Z|)`,
+    String.raw`(?:Z|${ZOD_ISO_OFFSET_PATTERN})`,
+    String.raw`(?:Z||${ZOD_ISO_OFFSET_PATTERN})`
+] as const;
+
+function escapeRegExpLiteral(value: string): string {
+    return value.replaceAll(/[.*+?^${}()|[\]\\]/g, match => `\\${match}`);
+}
+
+const ZOD_PRECISION_TIME_PATTERN = new RegExp(String.raw`^${escapeRegExpLiteral(String.raw`${ZOD_ISO_TIME_PREFIX}:[0-5]\d\.\d{`)}\d+\}$`);
+
+function isZodIsoDatetimePattern(pattern: string): boolean {
+    const prefix = `^${ZOD_ISO_DATE_PATTERN}T(?:`;
+    if (!pattern.startsWith(prefix) || !pattern.endsWith(')$')) {
+        return false;
+    }
+
+    const innerPattern = pattern.slice(prefix.length, -2);
+    const zoneSuffix = ZOD_DATETIME_ZONE_SUFFIXES.find(suffix => innerPattern.endsWith(suffix));
+    if (!zoneSuffix) {
+        return false;
+    }
+
+    const timePattern = innerPattern.slice(0, -zoneSuffix.length);
+    return (
+        timePattern === String.raw`${ZOD_ISO_TIME_PREFIX}` ||
+        timePattern === String.raw`${ZOD_ISO_TIME_PREFIX}:[0-5]\d` ||
+        timePattern === String.raw`${ZOD_ISO_TIME_PREFIX}(?::[0-5]\d(?:\.\d+)?)?` ||
+        ZOD_PRECISION_TIME_PATTERN.test(timePattern)
+    );
+}
 
 function isRedundantFormatPattern(original: Record<string, unknown>, parsed: Record<string, unknown>, key: string): boolean {
     if (
@@ -41,6 +73,10 @@ function isRedundantFormatPattern(original: Record<string, unknown>, parsed: Rec
         original.format !== parsed.format
     ) {
         return false;
+    }
+
+    if (parsed.format === 'date-time') {
+        return isZodIsoDatetimePattern(original.pattern);
     }
 
     return ZOD_REDUNDANT_FORMAT_PATTERNS.get(parsed.format)?.has(original.pattern) === true;

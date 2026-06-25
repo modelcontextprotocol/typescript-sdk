@@ -6,6 +6,7 @@ import type {
     ElicitInputResult,
     JsonSchemaType,
     JsonSchemaValidatorResult,
+    StandardSchemaWithJSON,
     jsonSchemaValidator
 } from '../../src/index';
 import { fromJsonSchema } from '../../src/fromJsonSchema';
@@ -124,7 +125,10 @@ describe('server JSON Schema validator overrides', () => {
                 await clientTransport.send({
                     jsonrpc: '2.0',
                     id: message.id,
-                    result: { action: 'accept', content: { count: '5', email: 'user@example.com' } }
+                    result: {
+                        action: 'accept',
+                        content: { count: '5', email: 'user@example.com', startsAt: '2026-01-02T03:04:05+01:00' }
+                    }
                 });
             }
         };
@@ -132,6 +136,7 @@ describe('server JSON Schema validator overrides', () => {
         const schema = z.object({
             count: z.coerce.number().min(1).meta({ title: 'Registration Count', description: 'Number of registrations to process' }),
             email: z.string().email().meta({ title: 'Email', description: 'Email address' }),
+            startsAt: z.iso.datetime({ offset: true }).meta({ title: 'Start Time' }),
             newsletter: z.boolean().default(false)
         });
 
@@ -143,8 +148,11 @@ describe('server JSON Schema validator overrides', () => {
         const result = await server.elicitInput(params);
 
         expectTypeOf(result).toMatchTypeOf<ElicitInputResult<typeof schema>>();
-        expectTypeOf(result.content).toEqualTypeOf<{ count: number; email: string; newsletter: boolean } | undefined>();
-        expect(result).toEqual({ action: 'accept', content: { count: 5, email: 'user@example.com', newsletter: false } });
+        expectTypeOf(result.content).toEqualTypeOf<{ count: number; email: string; startsAt: string; newsletter: boolean } | undefined>();
+        expect(result).toEqual({
+            action: 'accept',
+            content: { count: 5, email: 'user@example.com', startsAt: '2026-01-02T03:04:05+01:00', newsletter: false }
+        });
         expect(requestedSchema).toMatchObject({
             type: 'object',
             properties: {
@@ -160,12 +168,19 @@ describe('server JSON Schema validator overrides', () => {
                     title: 'Email',
                     description: 'Email address'
                 },
+                startsAt: {
+                    type: 'string',
+                    format: 'date-time',
+                    title: 'Start Time'
+                },
                 newsletter: { type: 'boolean', default: false }
             },
-            required: ['count', 'email']
+            required: ['count', 'email', 'startsAt']
         });
         const emailSchema = (requestedSchema!.properties as Record<string, Record<string, unknown>>).email!;
         expect(emailSchema.pattern).toBeUndefined();
+        const startsAtSchema = (requestedSchema!.properties as Record<string, Record<string, unknown>>).startsAt!;
+        expect(startsAtSchema.pattern).toBeUndefined();
         expect(validator.schemas).toEqual([]);
         expect(validator.values).toEqual([]);
 
@@ -247,6 +262,36 @@ describe('server JSON Schema validator overrides', () => {
                 })
             })
         ).rejects.toThrow(/properties\.email\.pattern/);
+        expect(sawElicitationRequest).toBe(false);
+
+        const customDateTimePatternSchema = {
+            '~standard': {
+                version: 1,
+                vendor: 'test',
+                validate: (value: unknown) => ({ value }),
+                jsonSchema: {
+                    input: () => ({
+                        type: 'object',
+                        properties: {
+                            startsAt: {
+                                type: 'string',
+                                format: 'date-time',
+                                pattern: '2026'
+                            }
+                        },
+                        required: ['startsAt']
+                    }),
+                    output: () => ({})
+                }
+            }
+        } satisfies StandardSchemaWithJSON;
+
+        await expect(
+            server.elicitInput({
+                message: 'When should we start?',
+                requestedSchema: customDateTimePatternSchema
+            })
+        ).rejects.toThrow(/properties\.startsAt\.pattern/);
         expect(sawElicitationRequest).toBe(false);
 
         await expect(
