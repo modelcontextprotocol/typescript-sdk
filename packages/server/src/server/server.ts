@@ -10,6 +10,8 @@ import type {
     CreateMessageResult,
     CreateMessageResultWithTools,
     DiscoverResult,
+    ElicitInputFormParams,
+    ElicitInputResult,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
     ElicitResult,
@@ -34,6 +36,7 @@ import type {
     Result,
     ServerCapabilities,
     ServerContext,
+    StandardSchemaWithJSON,
     ToolResultContent,
     ToolUseContent
 } from '@modelcontextprotocol/core-internal';
@@ -58,6 +61,7 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
+    standardSchemaToJsonSchema,
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
@@ -1127,7 +1131,15 @@ export class Server extends Protocol<ServerContext> {
      * results in the 2026-07-28 protocol. If your factory serves both eras, this only works on the
      * legacy path.
      */
-    async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult> {
+    async elicitInput<Schema extends StandardSchemaWithJSON>(
+        params: ElicitInputFormParams<Schema>,
+        options?: RequestOptions
+    ): Promise<ElicitInputResult<Schema>>;
+    async elicitInput(params: ElicitRequestFormParams | ElicitRequestURLParams, options?: RequestOptions): Promise<ElicitResult>;
+    async elicitInput(
+        params: ElicitRequestFormParams | ElicitRequestURLParams | ElicitInputFormParams<StandardSchemaWithJSON>,
+        options?: RequestOptions
+    ): Promise<ElicitResult | ElicitInputResult<StandardSchemaWithJSON>> {
         this._assertPushApiInServedEra('elicitation/create');
         const mode = (params.mode ?? 'form') as 'form' | 'url';
 
@@ -1158,7 +1170,7 @@ export class Server extends Protocol<ServerContext> {
      * `acceptedContent` overload and can re-ask).
      */
     private async _sendElicitationLeg(
-        params: ElicitRequestFormParams | ElicitRequestURLParams,
+        params: ElicitRequestFormParams | ElicitRequestURLParams | ElicitInputFormParams<StandardSchemaWithJSON>,
         options?: RequestOptions,
         behavior?: { validateAcceptedContent: boolean }
     ): Promise<ElicitResult> {
@@ -1173,8 +1185,9 @@ export class Server extends Protocol<ServerContext> {
                 return this.request({ method: 'elicitation/create', params: urlParams }, options);
             }
             case 'form': {
-                const formParams: ElicitRequestFormParams =
-                    params.mode === 'form' ? (params as ElicitRequestFormParams) : { ...(params as ElicitRequestFormParams), mode: 'form' };
+                const formParams = this.normalizeElicitInputFormParams(
+                    params as ElicitRequestFormParams | ElicitInputFormParams<StandardSchemaWithJSON>
+                );
 
                 const result = await this.request({ method: 'elicitation/create', params: formParams }, options);
 
@@ -1202,6 +1215,33 @@ export class Server extends Protocol<ServerContext> {
                 return result;
             }
         }
+    }
+
+    private normalizeElicitInputFormParams(
+        params: ElicitRequestFormParams | ElicitInputFormParams<StandardSchemaWithJSON>
+    ): ElicitRequestFormParams {
+        const formParams =
+            params.mode === 'form'
+                ? (params as ElicitRequestFormParams)
+                : { ...(params as ElicitRequestFormParams), mode: 'form' as const };
+
+        if (this.isElicitInputSchema(formParams.requestedSchema)) {
+            return {
+                ...formParams,
+                requestedSchema: standardSchemaToJsonSchema(
+                    formParams.requestedSchema,
+                    'input'
+                ) as ElicitRequestFormParams['requestedSchema']
+            };
+        }
+
+        return formParams;
+    }
+
+    private isElicitInputSchema(
+        schema: ElicitRequestFormParams['requestedSchema'] | StandardSchemaWithJSON
+    ): schema is StandardSchemaWithJSON {
+        return typeof schema === 'object' && schema !== null && '~standard' in schema;
     }
 
     /**
