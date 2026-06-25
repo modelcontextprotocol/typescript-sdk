@@ -533,7 +533,9 @@ export type ElicitRequestParams = Infer<typeof ElicitRequestParamsSchema>;
 export type ElicitRequestFormParams = Infer<typeof ElicitRequestFormParamsSchema>;
 export type ElicitRequestURLParams = Infer<typeof ElicitRequestURLParamsSchema>;
 export type ElicitRequest = Infer<typeof ElicitRequestSchema>;
+/** @deprecated Removed from the spec by #2891 (2026-07-28). 2025-era only; the 2026-07-28 wire codec excludes this notification. */
 export type ElicitationCompleteNotificationParams = Infer<typeof ElicitationCompleteNotificationParamsSchema>;
+/** @deprecated Removed from the spec by #2891 (2026-07-28). 2025-era only; the 2026-07-28 wire codec excludes this notification. */
 export type ElicitationCompleteNotification = Infer<typeof ElicitationCompleteNotificationSchema>;
 export type ElicitResult = StripWireOnly<Infer<typeof ElicitResultSchema>>;
 
