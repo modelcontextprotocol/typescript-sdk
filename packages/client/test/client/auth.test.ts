@@ -1690,6 +1690,80 @@ describe('OAuth Authorization', () => {
             );
         });
 
+        it('rediscovers stale legacy fallback state whose cached URL differs from the metadata issuer', async () => {
+            const legacyAuthMetadata = {
+                ...validAuthMetadata,
+                issuer: 'https://idp.example.com/oauth',
+                authorization_endpoint: 'https://idp.example.com/oauth/authorize',
+                token_endpoint: 'https://idp.example.com/oauth/token'
+            };
+            const invalidateCredentials = vi.fn();
+            const saveDiscoveryState = vi.fn();
+            const provider = createMockProvider({
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://resource.example.com/',
+                    authorizationServerMetadata: legacyAuthMetadata
+                }),
+                invalidateCredentials,
+                saveDiscoveryState,
+                tokens: vi.fn().mockResolvedValue({
+                    access_token: 'valid-token',
+                    refresh_token: 'refresh-token',
+                    token_type: 'bearer'
+                })
+            });
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404,
+                        text: async () => ''
+                    });
+                }
+
+                if (urlString === 'https://resource.example.com/.well-known/oauth-authorization-server') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => legacyAuthMetadata
+                    });
+                }
+
+                if (urlString === legacyAuthMetadata.token_endpoint) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-token',
+                            token_type: 'bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh-token'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(invalidateCredentials).toHaveBeenCalledWith('discovery');
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: legacyAuthMetadata.issuer,
+                    resourceMetadata: undefined,
+                    authorizationServerMetadata: legacyAuthMetadata
+                })
+            );
+
+            const tokenCall = mockFetch.mock.calls.find(call => call[0].toString() === legacyAuthMetadata.token_endpoint);
+            expect(tokenCall).toBeDefined();
+        });
+
         it('uses resourceMetadataUrl from cached discovery state for PRM discovery', async () => {
             const cachedPrmUrl = 'https://custom.example.com/.well-known/oauth-protected-resource';
             const provider = createMockProvider({
