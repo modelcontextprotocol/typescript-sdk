@@ -53,6 +53,10 @@ export interface UnauthorizedContext {
     serverUrl: URL;
     /** Fetch function configured with the transport's `requestInit`, for making auth requests. */
     fetchFn: FetchLike;
+    /** Accumulated OAuth scope from previous challenges, if the transport has one. */
+    scope?: string;
+    /** Resource metadata URL from previous challenges, if the transport has one. */
+    resourceMetadataUrl?: URL;
 }
 
 /**
