@@ -205,6 +205,7 @@ export interface HandleRequestOptions {
  * In stateless mode:
  * - No Session ID is included in any responses
  * - No session validation is performed
+ * - Each transport instance handles one request; create a fresh transport for each request
  */
 export class WebStandardStreamableHTTPServerTransport implements Transport {
     // when sessionId is not set (undefined), it means the transport is in stateless mode
@@ -323,7 +324,9 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         // In stateless mode (no sessionIdGenerator), each request must use a fresh transport.
         // Reusing a stateless transport causes message ID collisions between clients.
         if (!this.sessionIdGenerator && this._hasHandledRequest) {
-            throw new Error('Stateless transport cannot be reused across requests. Create a new transport per request.');
+            const error = 'Stateless transport cannot be reused across requests. Create a new transport per request.';
+            this.onerror?.(new Error(error));
+            return this.createJsonErrorResponse(500, -32000, error);
         }
         this._hasHandledRequest = true;
 
