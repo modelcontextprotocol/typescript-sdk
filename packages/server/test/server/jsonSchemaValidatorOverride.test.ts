@@ -130,7 +130,7 @@ describe('server JSON Schema validator overrides', () => {
         };
 
         const schema = z.object({
-            count: z.coerce.number().min(1),
+            count: z.coerce.number().min(1).meta({ title: 'Registration Count', description: 'Number of registrations to process' }),
             newsletter: z.boolean().default(false)
         });
 
@@ -147,7 +147,12 @@ describe('server JSON Schema validator overrides', () => {
         expect(requestedSchema).toMatchObject({
             type: 'object',
             properties: {
-                count: { type: 'number', minimum: 1 },
+                count: {
+                    type: 'number',
+                    minimum: 1,
+                    title: 'Registration Count',
+                    description: 'Number of registrations to process'
+                },
                 newsletter: { type: 'boolean', default: false }
             },
             required: ['count']
