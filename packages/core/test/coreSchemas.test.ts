@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import * as sdkShared from '../src/index';
+import * as core from '../src/index';
 import { CursorSchema, InitializeRequestSchema, OAuthTokensSchema } from '../src/index';
 
 function readCore(relativePath: string): string {
@@ -25,15 +25,15 @@ describe('@modelcontextprotocol/core', () => {
     });
 
     it('re-exports exactly core’s spec + OAuth schemas — no internal helpers (drift guard)', () => {
-        // core's public surface is two SEPARATE groups, mirroring core's own spec-vs-auth split:
-        //   1. spec `*Schema` constants from core/src/types/schemas.ts (minus internal helpers with no
-        //      public spec type — they must NOT leak), mirroring core's SPEC_SCHEMA_KEYS allowlist; and
-        //   2. the auth `*Schema` constants registered in core's `authSchemas` object (specTypeSchema.ts)
+        // core's public surface is two SEPARATE groups, mirroring core-internal's own spec-vs-auth split:
+        //   1. spec `*Schema` constants from core-internal/src/types/schemas.ts (minus internal helpers with no
+        //      public spec type — they must NOT leak), mirroring core-internal's SPEC_SCHEMA_KEYS allowlist; and
+        //   2. the auth `*Schema` constants registered in core-internal's `authSchemas` object (specTypeSchema.ts)
         //      — i.e. the auth schemas that have a public spec type. Reading that object directly (not a
-        //      name prefix) is the source of truth, so a new auth schema added to core is required here
+        //      name prefix) is the source of truth, so a new auth schema added to core-internal is required here
         //      automatically; typeless internal helpers (SafeUrlSchema, OptionalSafeUrlSchema) stay out
         //      because they are not in `authSchemas`.
-        // Read the core sources directly so the groups cannot silently drift.
+        // Read the core-internal sources directly so the groups cannot silently drift.
         const SPEC_INTERNAL_HELPERS = [
             'BaseRequestParamsSchema',
             'ClientTasksCapabilitySchema',
@@ -51,7 +51,7 @@ describe('@modelcontextprotocol/core', () => {
         const authSchemas = exportedSchemaConsts(authObj, /\b(\w+Schema)\b/g);
 
         const expected = [...specSchemas, ...authSchemas].sort();
-        const exported = Object.keys(sdkShared).sort();
+        const exported = Object.keys(core).sort();
         // Exact match, both directions: a new core spec/auth schema missing here fails (we forgot to
         // re-export it), and any internal helper / non-spec symbol that leaks here also fails.
         expect(exported).toEqual(expected);

@@ -14,8 +14,8 @@ describe('SPEC_SCHEMA_NAMES (codemod schema-routing allowlist)', () => {
         // Read core's barrel directly so the two cannot silently drift.
         const src = readFileSync(fileURLToPath(new URL('../../../core/src/index.ts', import.meta.url)), 'utf8');
         const block = src.slice(src.indexOf('export {') + 'export {'.length, src.indexOf('} from'));
-        const sdkSharedExports = [...new Set([...block.matchAll(/\b(\w+Schema)\b/g)].map(m => m[1]))].sort();
-        expect([...SPEC_SCHEMA_NAMES].sort()).toEqual(sdkSharedExports);
-        expect(sdkSharedExports.length).toBeGreaterThanOrEqual(154);
+        const coreExports = [...new Set([...block.matchAll(/\b(\w+Schema)\b/g)].map(m => m[1]))].sort();
+        expect([...SPEC_SCHEMA_NAMES].sort()).toEqual(coreExports);
+        expect(coreExports.length).toBeGreaterThanOrEqual(154);
     });
 });

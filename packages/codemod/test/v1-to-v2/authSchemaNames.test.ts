@@ -12,15 +12,15 @@ describe('AUTH_SCHEMA_NAMES (codemod auth schema-routing allowlist)', () => {
         // the rewritten import would have no exported member. AUTH_SCHEMA_NAMES is the v1 auth-schema set,
         // a SUBSET of core's auth exports: core may export more (v2-only schemas such as
         // IdJagTokenExchangeResponseSchema) that v1 never had and the codemod never encounters. Read
-        // core's barrel directly (the `export { … } from '…/core/auth'` block) so they cannot drift.
+        // core's barrel directly (the `export { … } from '…/core-internal/auth'` block) so they cannot drift.
         const src = readFileSync(fileURLToPath(new URL('../../../core/src/index.ts', import.meta.url)), 'utf8');
         const closeIdx = src.indexOf("} from '@modelcontextprotocol/core-internal/auth'");
         const openIdx = src.lastIndexOf('export {', closeIdx);
         const block = src.slice(openIdx + 'export {'.length, closeIdx);
-        const sdkSharedAuthExports = new Set([...block.matchAll(/\b(\w+Schema)\b/g)].map(m => m[1]));
+        const coreAuthExports = new Set([...block.matchAll(/\b(\w+Schema)\b/g)].map(m => m[1]));
 
-        const notExportedBySdkShared = [...AUTH_SCHEMA_NAMES].filter(name => !sdkSharedAuthExports.has(name));
-        expect(notExportedBySdkShared).toEqual([]);
+        const notExportedByCore = [...AUTH_SCHEMA_NAMES].filter(name => !coreAuthExports.has(name));
+        expect(notExportedByCore).toEqual([]);
         // The v1 auth-schema set is frozen; pin its size so an accidental add/remove is caught.
         expect(AUTH_SCHEMA_NAMES.size).toBe(11);
     });

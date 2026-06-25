@@ -3,21 +3,21 @@
 // Canonical public home for the Model Context Protocol specification + OAuth/OpenID Zod schemas.
 //
 // These are the exact schema constants the SDK validates against internally (defined in the
-// private @modelcontextprotocol/core-internal package). This package bundles core and re-exports ONLY the
+// private @modelcontextprotocol/core-internal package). This package bundles core-internal and re-exports ONLY the
 // `*Schema` Zod values, so consumers can validate protocol/OAuth payloads directly — e.g.
-// `CallToolResultSchema.parse(value)` / `.safeParse(value)` — without depending on core's
-// internal barrel.
+// `CallToolResultSchema.parse(value)` / `.safeParse(value)` — without depending on core-internal's
+// barrel.
 //
 // Scope: Zod schemas ONLY. The corresponding spec TypeScript types, error classes, enums, and
 // type guards are part of the public API of @modelcontextprotocol/server and /client.
 //
-// Two groups, kept separate to mirror core's own spec-vs-auth split, each bundled from a build-only
-// subpath alias of core (tsconfig.json + tsdown.config.ts):
-//   - SPEC schemas, from @modelcontextprotocol/core-internal/schemas (core/src/types/schemas.ts): every
+// Two groups, kept separate to mirror core-internal's own spec-vs-auth split, each bundled from a build-only
+// subpath alias of core-internal (tsconfig.json + tsdown.config.ts):
+//   - SPEC schemas, from @modelcontextprotocol/core-internal/schemas (core-internal/src/types/schemas.ts): every
 //     `export const *Schema` EXCEPT internal helpers with no public spec type (e.g.
-//     BaseRequestParamsSchema). Mirrors core's SPEC_SCHEMA_KEYS allowlist.
-//   - OAUTH/OPENID schemas, from @modelcontextprotocol/core-internal/auth (core/src/shared/auth.ts).
-// The sdkSharedSchemas test asserts both groups stay in sync with their core source modules.
+//     BaseRequestParamsSchema). Mirrors core-internal's SPEC_SCHEMA_KEYS allowlist.
+//   - OAUTH/OPENID schemas, from @modelcontextprotocol/core-internal/auth (core-internal/src/shared/auth.ts).
+// The coreSchemas test asserts both groups stay in sync with their core-internal source modules.
 export {
     AnnotationsSchema,
     AudioContentSchema,
@@ -176,12 +176,12 @@ export {
 } from '@modelcontextprotocol/core-internal/schemas';
 
 // Auth schemas (OAuth / OpenID / IdJag) — kept as a SEPARATE group from the MCP spec schemas above,
-// mirroring core's own spec-vs-auth split (these live in core/src/shared/auth.ts, not types/schemas.ts,
-// and are registered as `authSchemas` in core's specTypeSchema.ts). This group is EXACTLY core's
+// mirroring core-internal's own spec-vs-auth split (these live in core-internal/src/shared/auth.ts, not types/schemas.ts,
+// and are registered as `authSchemas` in core-internal's specTypeSchema.ts). This group is EXACTLY core-internal's
 // `authSchemas` set — every auth schema that has a public spec type (so `isSpecType.OAuthTokens`,
 // `isSpecType.IdJagTokenExchangeResponse`, etc. exist). The typeless internal URL field-validators
-// (SafeUrlSchema, OptionalSafeUrlSchema) are not auth schemas and stay out. The sdkSharedSchemas test
-// asserts this group stays in sync with core's `authSchemas`.
+// (SafeUrlSchema, OptionalSafeUrlSchema) are not auth schemas and stay out. The coreSchemas test
+// asserts this group stays in sync with core-internal's `authSchemas`.
 export {
     IdJagTokenExchangeResponseSchema,
     OAuthClientInformationFullSchema,
