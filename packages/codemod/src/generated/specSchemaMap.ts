@@ -147,6 +147,8 @@ export const SPEC_SCHEMA_NAMES: ReadonlySet<string> = new Set([
     'SubscriptionsAcknowledgedNotificationSchema',
     'SubscriptionsListenRequestParamsSchema',
     'SubscriptionsListenRequestSchema',
+    'SubscriptionsListenResultMetaSchema',
+    'SubscriptionsListenResultSchema',
     'TaskAugmentedRequestParamsSchema',
     'TaskCreationParamsSchema',
     'TaskMetadataSchema',

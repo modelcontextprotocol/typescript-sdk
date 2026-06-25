@@ -186,8 +186,8 @@ describe('corpus inventory pins', () => {
 
         // The corpus size at the pinned spec commit. A change here means the
         // vendored corpus was regenerated — review the delta deliberately.
-        expect(manifest.directoryCount).toBe(86);
-        expect(manifest.fileCount).toBe(127);
+        expect(manifest.directoryCount).toBe(87);
+        expect(manifest.fileCount).toBe(128);
     });
 
     test('the frozen 2025-11-25 corpus keeps its inventory', () => {

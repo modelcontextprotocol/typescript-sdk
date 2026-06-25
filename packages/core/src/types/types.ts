@@ -149,6 +149,8 @@ import type {
     SubscriptionsAcknowledgedNotificationSchema,
     SubscriptionsListenRequestParamsSchema,
     SubscriptionsListenRequestSchema,
+    SubscriptionsListenResultMetaSchema,
+    SubscriptionsListenResultSchema,
     TaskAugmentedRequestParamsSchema,
     TaskCreationParamsSchema,
     TaskMetadataSchema,
@@ -376,6 +378,8 @@ export type SubscriptionsListenRequestParams = Infer<typeof SubscriptionsListenR
 export type SubscriptionsListenRequest = Infer<typeof SubscriptionsListenRequestSchema>;
 export type SubscriptionsAcknowledgedNotificationParams = Infer<typeof SubscriptionsAcknowledgedNotificationParamsSchema>;
 export type SubscriptionsAcknowledgedNotification = Infer<typeof SubscriptionsAcknowledgedNotificationSchema>;
+export type SubscriptionsListenResultMeta = Infer<typeof SubscriptionsListenResultMetaSchema>;
+export type SubscriptionsListenResult = StripWireOnly<Infer<typeof SubscriptionsListenResultSchema>>;
 
 /* Prompts */
 export type PromptArgument = Infer<typeof PromptArgumentSchema>;
@@ -681,11 +685,11 @@ export type ResultTypeMap = {
     'resources/read': ReadResourceResult;
     'resources/subscribe': EmptyResult;
     'resources/unsubscribe': EmptyResult;
-    // `subscriptions/listen` never receives a JSON-RPC result on the wire:
-    // termination is stream close (HTTP) or `notifications/cancelled` (stdio).
-    // The `EmptyResult` entry exists only to keep the mapped types total —
-    // see `Client.listen()` and the serving entries' listen routers.
-    'subscriptions/listen': EmptyResult;
+    // `subscriptions/listen` receives a JSON-RPC result only on a server-side
+    // graceful close (the empty `SubscriptionsListenResult`). Listen requests
+    // never reach `request()` / the typed result map — `Client.listen()` sends
+    // directly on the transport and demuxes the response in `_onresponse`.
+    'subscriptions/listen': SubscriptionsListenResult;
     'tools/call': CallToolResult;
     'tools/list': ListToolsResult;
     'sampling/createMessage': CreateMessageResult | CreateMessageResultWithTools;

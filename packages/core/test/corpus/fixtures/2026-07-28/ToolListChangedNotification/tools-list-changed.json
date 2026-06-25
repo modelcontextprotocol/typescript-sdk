@@ -1,4 +1,9 @@
 {
   "jsonrpc": "2.0",
-  "method": "notifications/tools/list_changed"
+  "method": "notifications/tools/list_changed",
+  "params": {
+    "_meta": {
+      "io.modelcontextprotocol/subscriptionId": "listen-1"
+    }
+  }
 }
