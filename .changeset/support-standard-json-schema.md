@@ -1,5 +1,5 @@
 ---
-'@modelcontextprotocol/core': minor
+'@modelcontextprotocol/core-internal': minor
 '@modelcontextprotocol/server': minor
 '@modelcontextprotocol/client': minor
 ---
@@ -30,5 +30,5 @@ server.registerTool('greet', {
 
 **Breaking changes:**
 - `experimental.tasks.getTaskResult()` no longer accepts a `resultSchema` parameter. Returns `GetTaskPayloadResult` (a loose `Result`); cast to the expected type at the call site.
-- Removed unused exports from `@modelcontextprotocol/core`: `SchemaInput`, `schemaToJson`, `parseSchemaAsync`, `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema`. Use the new `standardSchemaToJsonSchema` and `validateStandardSchema` instead.
+- Removed unused exports from `@modelcontextprotocol/core-internal`: `SchemaInput`, `schemaToJson`, `parseSchemaAsync`, `getSchemaShape`, `getSchemaDescription`, `isOptionalSchema`, `unwrapOptionalSchema`. Use the new `standardSchemaToJsonSchema` and `validateStandardSchema` instead.
 - `completable()` remains Zod-specific (it relies on Zod's `.shape` introspection).

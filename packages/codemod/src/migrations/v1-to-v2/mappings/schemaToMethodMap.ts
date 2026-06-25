@@ -14,7 +14,11 @@ export const SCHEMA_TO_METHOD: Record<string, string> = {
     SetLevelRequestSchema: 'logging/setLevel',
     PingRequestSchema: 'ping',
     CompleteRequestSchema: 'completion/complete',
-    ListRootsRequestSchema: 'roots/list'
+    ListRootsRequestSchema: 'roots/list',
+    GetTaskRequestSchema: 'tasks/get',
+    GetTaskPayloadRequestSchema: 'tasks/result',
+    ListTasksRequestSchema: 'tasks/list',
+    CancelTaskRequestSchema: 'tasks/cancel'
 };
 
 export const NOTIFICATION_SCHEMA_TO_METHOD: Record<string, string> = {
@@ -27,5 +31,6 @@ export const NOTIFICATION_SCHEMA_TO_METHOD: Record<string, string> = {
     CancelledNotificationSchema: 'notifications/cancelled',
     InitializedNotificationSchema: 'notifications/initialized',
     RootsListChangedNotificationSchema: 'notifications/roots/list_changed',
-    ElicitationCompleteNotificationSchema: 'notifications/elicitation/complete'
+    ElicitationCompleteNotificationSchema: 'notifications/elicitation/complete',
+    TaskStatusNotificationSchema: 'notifications/tasks/status'
 };

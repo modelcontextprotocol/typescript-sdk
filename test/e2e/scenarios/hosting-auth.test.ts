@@ -31,8 +31,8 @@ import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelconte
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const VALID_TOKEN = 'analytics-dashboard-access-token';
 

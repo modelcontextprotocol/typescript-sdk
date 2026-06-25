@@ -1,6 +1,6 @@
 ---
 name: migrate-v1-to-v2
-description: Migrate MCP TypeScript SDK code from v1 (@modelcontextprotocol/sdk) to v2 (@modelcontextprotocol/core, /client, /server). Use when a user asks to migrate, upgrade, or port their MCP TypeScript code from v1 to v2.
+description: Migrate MCP TypeScript SDK code from v1 (@modelcontextprotocol/sdk) to v2 (@modelcontextprotocol/client, /server, /core). Use when a user asks to migrate, upgrade, or port their MCP TypeScript code from v1 to v2.
 ---
 
 # MCP TypeScript SDK: v1 → v2 Migration
@@ -20,15 +20,17 @@ Remove the old package and install only what you need:
 npm uninstall @modelcontextprotocol/sdk
 ```
 
-| You need              | Install                                                                  |
-| --------------------- | ------------------------------------------------------------------------ |
-| Client only           | `npm install @modelcontextprotocol/client`                               |
-| Server only           | `npm install @modelcontextprotocol/server`                               |
-| Server + Node.js HTTP | `npm install @modelcontextprotocol/server @modelcontextprotocol/node`    |
-| Server + Express      | `npm install @modelcontextprotocol/server @modelcontextprotocol/express` |
-| Server + Hono         | `npm install @modelcontextprotocol/server @modelcontextprotocol/hono`    |
+| You need                    | Install                                                                  |
+| --------------------------- | ------------------------------------------------------------------------ |
+| Client only                 | `npm install @modelcontextprotocol/client`                               |
+| Server only                 | `npm install @modelcontextprotocol/server`                               |
+| Server + Node.js HTTP       | `npm install @modelcontextprotocol/server @modelcontextprotocol/node`    |
+| Server + Express            | `npm install @modelcontextprotocol/server @modelcontextprotocol/express` |
+| Server + Hono               | `npm install @modelcontextprotocol/server @modelcontextprotocol/hono`    |
+| Raw Zod `*Schema` constants | `npm install @modelcontextprotocol/core`                                 |
 
-`@modelcontextprotocol/core` is installed automatically as a dependency.
+`@modelcontextprotocol/client` and `@modelcontextprotocol/server` are self-contained — the shared types, protocol layer, and transports are bundled in and re-exported, so there is no separate runtime package to install for them. Install `@modelcontextprotocol/core` only if you
+import the raw Zod `*Schema` constants directly (see §11).
 
 ## 3. Import Mapping
 
@@ -59,18 +61,18 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 ### Types / shared imports
 
-| v1 import path                                    | v2 package                                                                                                                                                                                           |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk/types.js`              | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
-| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
-| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
-| `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
-| `@modelcontextprotocol/sdk/shared/auth.js`        | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
-| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` (`ReadBuffer`, `serializeMessage`, `deserializeMessage` are in the root barrel; the `./stdio` subpath only has the transport class) |
+| v1 import path                                    | v2 package                                                                                                                                                                                                      |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@modelcontextprotocol/sdk/types.js`              | Types / error classes / enums / guards → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; Zod `*Schema` constants → `@modelcontextprotocol/core`                                         |
+| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                                |
+| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                                |
+| `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                                |
+| `@modelcontextprotocol/sdk/shared/auth.js`        | Types / classes → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; OAuth/OpenID Zod `*Schema` constants (e.g. `OAuthTokensSchema`, `OAuthMetadataSchema`) → `@modelcontextprotocol/core` |
+| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` (`ReadBuffer`, `serializeMessage`, `deserializeMessage` are in the root barrel; the `./stdio` subpath only has the transport class)            |
 
 Notes:
 
-- `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core`, so import from whichever package you already depend on. Do not import from `@modelcontextprotocol/core` directly — it is an internal package.
+- `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared types from `@modelcontextprotocol/core-internal`, so import from whichever package you already depend on. Do not import from `@modelcontextprotocol/core-internal` directly — it is an internal package.
 - When multiple v1 imports map to the same v2 package, consolidate them into a single import statement.
 
 ## 4. Renamed Symbols
@@ -81,25 +83,28 @@ Notes:
 
 ## 5. Removed / Renamed Type Aliases and Symbols
 
-| v1 (removed)                             | v2 (replacement)                                                                                                |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `JSONRPCError`                           | `JSONRPCErrorResponse`                                                                                          |
-| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                                                                                    |
-| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                                                                                        |
-| `isJSONRPCResponse` (deprecated in v1)   | `isJSONRPCResultResponse` (**not** v2's new `isJSONRPCResponse`, which correctly matches both result and error) |
-| `ResourceReference`                      | `ResourceTemplateReference`                                                                                     |
-| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                                                                               |
-| `IsomorphicHeaders`                      | REMOVED (use Web Standard `Headers`)                                                                            |
-| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`)               |
-| `McpError`                               | `ProtocolError`                                                                                                 |
-| `ErrorCode`                              | `ProtocolErrorCode`                                                                                             |
-| `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                                                                                   |
-| `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                                                                                 |
-| `StreamableHTTPError`                    | REMOVED (use `SdkHttpError` with `SdkErrorCode.ClientHttp*`)                                                    |
-| `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                         |
+| v1 (removed)                                | v2 (replacement)                                                                                                                                                 |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JSONRPCError`                              | `JSONRPCErrorResponse`                                                                                                                                           |
+| `JSONRPCErrorSchema`                        | `JSONRPCErrorResponseSchema`                                                                                                                                     |
+| `isJSONRPCError`                            | `isJSONRPCErrorResponse`                                                                                                                                         |
+| `isJSONRPCResponse` (deprecated in v1)      | `isJSONRPCResultResponse` (**not** v2's new `isJSONRPCResponse`, which correctly matches both result and error)                                                  |
+| `JSONRPCResponseSchema` (result-only in v1) | `JSONRPCResultResponseSchema` (from `@modelcontextprotocol/core`; **not** v2's new `JSONRPCResponseSchema`, a `z.union` that also accepts error responses) |
+| `JSONRPCResponse` (type, result-only in v1) | `JSONRPCResultResponse` (**not** v2's new `JSONRPCResponse` type, which is the result\|error union)                                                              |
+| `ResourceReference`                         | `ResourceTemplateReference`                                                                                                                                      |
+| `ResourceReferenceSchema`                   | `ResourceTemplateReferenceSchema`                                                                                                                                |
+| `IsomorphicHeaders`                         | REMOVED (use Web Standard `Headers`)                                                                                                                             |
+| `AuthInfo` (from `server/auth/types.js`)    | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`)                                                                |
+| `McpError`                                  | `ProtocolError`                                                                                                                                                  |
+| `ErrorCode`                                 | `ProtocolErrorCode`                                                                                                                                              |
+| `ErrorCode.RequestTimeout`                  | `SdkErrorCode.RequestTimeout`                                                                                                                                    |
+| `ErrorCode.ConnectionClosed`                | `SdkErrorCode.ConnectionClosed`                                                                                                                                  |
+| `StreamableHTTPError`                       | REMOVED (use `SdkHttpError` with `SdkErrorCode.ClientHttp*`)                                                                                                     |
+| `WebSocketClientTransport`                  | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                                                                          |
 
-All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names. **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) are no longer part of the public API — they are internal to the SDK. For runtime validation, use
-`isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or `specTypeSchemas.TypeName` for the `StandardSchemaV1Sync` validator object. The keys are typed as `SpecTypeName`, a literal union of all spec type names.
+All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`. The **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) move to
+`@modelcontextprotocol/core`; `<Name>Schema.parse(value)` / `.safeParse(value)` keep working unchanged (the codemod rewrites the import path). To validate **without** depending on Zod, use `isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or
+`specTypeSchemas.TypeName` (a `StandardSchemaV1Sync` validator) from `@modelcontextprotocol/client` / `@modelcontextprotocol/server`; the keys are typed as `SpecTypeName`, a literal union of all spec type names.
 
 ### Error class changes
 
@@ -302,7 +307,7 @@ Note: the third argument (`metadata`) is required — pass `{}` if no metadata.
 
 ### Removed core exports
 
-| Removed from `@modelcontextprotocol/core`                                            | Replacement                               |
+| Removed from `@modelcontextprotocol/core-internal`                                            | Replacement                               |
 | ------------------------------------------------------------------------------------ | ----------------------------------------- |
 | `schemaToJson(schema)`                                                               | `standardSchemaToJsonSchema(schema)`      |
 | `parseSchemaAsync(schema, data)`                                                     | `validateStandardSchema(schema, data)`    |
@@ -501,7 +506,8 @@ The 2025-11 task side-channel through `Protocol` is removed (was always `@experi
 
 `TaskStore` / `InMemoryTaskStore` / `CreateTaskOptions` / `isTerminal` (storage layer) are also removed; they will return with the SEP-2663 server-directed plugin.
 
-NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task members of the request/result/notification unions, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
+NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task
+members of the request/result/notification unions, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
 
 ## 13. Behavioral Changes
 
@@ -513,8 +519,10 @@ NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + infe
 
 No code changes required; these are wire-behavior notes:
 
-- Resumability behavior (SSE priming events, `closeSSEStream` / `closeStandaloneSSEStream` callbacks) is only enabled for protocol versions in the transport's supported-versions list that are `>= 2025-11-25`. Unknown future version strings in an `initialize` request body no longer enable it. Behavior for all currently supported protocol versions is unchanged.
-- Session-ID mismatch still responds `404 Not Found` with JSON-RPC error code `-32001` (`Session not found`), unchanged from v1. This `-32001` usage is an SDK convention, not a spec-assigned code, and may be re-derived as 2026 protocol revision error handling is adopted — migrated client code should key off the HTTP `404` status, not the `-32001` code.
+- Resumability behavior (SSE priming events, `closeSSEStream` / `closeStandaloneSSEStream` callbacks) is only enabled for protocol versions in the transport's supported-versions list that are `>= 2025-11-25`. Unknown future version strings in an `initialize` request body no
+  longer enable it. Behavior for all currently supported protocol versions is unchanged.
+- Session-ID mismatch still responds `404 Not Found` with JSON-RPC error code `-32001` (`Session not found`), unchanged from v1. This `-32001` usage is an SDK convention, not a spec-assigned code, and may be re-derived as 2026 protocol revision error handling is adopted —
+  migrated client code should key off the HTTP `404` status, not the `-32001` code.
 
 ## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
@@ -558,4 +566,6 @@ Validator behavior:
 8. If using server SSE transport, migrate to Streamable HTTP
 9. If using server auth from the SDK: RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers → `@modelcontextprotocol/server-legacy/auth` (deprecated); migrate AS to external IdP/OAuth library
 10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
-11. Verify: build with `tsc` / run tests
+11. Format the changed files with the project's formatter (`prettier --write`, `eslint --fix`, or `biome format --write`) — edits are not reformatted automatically, and the wrapped schemas (step 5) and rewritten `setRequestHandler` method strings (section 9) frequently need it to
+    satisfy lint
+12. Verify: build with `tsc` / run tests

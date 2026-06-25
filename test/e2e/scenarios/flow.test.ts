@@ -24,10 +24,10 @@ import { McpServer, ProtocolErrorCode, Server, specTypeSchemas, UrlElicitationRe
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { hostPerSession, hostResumable, wire } from '../helpers/index.js';
-import { startLegacySseHost } from '../helpers/sse-host.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { hostPerSession, hostResumable, wire } from '../helpers/index';
+import { startLegacySseHost } from '../helpers/sse-host';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 verifies('flow:compat:dual-transport-server', async (_args: TestArgs) => {
     // One deployment, one server factory, both transports: the modern Streamable HTTP

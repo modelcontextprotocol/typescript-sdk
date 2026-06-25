@@ -5,8 +5,10 @@
     "compilerOptions": {
         "paths": {
             "*": ["./*"],
-            "@modelcontextprotocol/core": ["./node_modules/@modelcontextprotocol/core/src/index.ts"],
-            "@modelcontextprotocol/core/public": ["./node_modules/@modelcontextprotocol/core/src/exports/public/index.ts"],
+            "@modelcontextprotocol/core-internal": ["./node_modules/@modelcontextprotocol/core-internal/src/index.ts"],
+            "@modelcontextprotocol/core-internal/public": [
+                "./node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
+            ],
             "@modelcontextprotocol/client": ["./node_modules/@modelcontextprotocol/client/src/index.ts"],
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
             "@modelcontextprotocol/express": ["./node_modules/@modelcontextprotocol/express/src/index.ts"],

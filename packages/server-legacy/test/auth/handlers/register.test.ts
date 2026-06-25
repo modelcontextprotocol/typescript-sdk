@@ -1,6 +1,6 @@
-import { clientRegistrationHandler, ClientRegistrationHandlerOptions } from '../../../src/auth/handlers/register.js';
-import { OAuthRegisteredClientsStore } from '../../../src/auth/clients.js';
-import { OAuthClientInformationFull, OAuthClientMetadata } from '@modelcontextprotocol/core';
+import { clientRegistrationHandler, ClientRegistrationHandlerOptions } from '../../../src/auth/handlers/register';
+import { OAuthRegisteredClientsStore } from '../../../src/auth/clients';
+import { OAuthClientInformationFull, OAuthClientMetadata } from '@modelcontextprotocol/core-internal';
 import express from 'express';
 import supertest from 'supertest';
 import { MockInstance } from 'vitest';

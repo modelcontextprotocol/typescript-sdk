@@ -1,17 +1,17 @@
-import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/core';
+import type { OAuthMetadata, OAuthProtectedResourceMetadata } from '@modelcontextprotocol/core-internal';
 import type { RequestHandler } from 'express';
 import express from 'express';
 
-import type { AuthorizationHandlerOptions } from './handlers/authorize.js';
-import { authorizationHandler } from './handlers/authorize.js';
-import { metadataHandler } from './handlers/metadata.js';
-import type { ClientRegistrationHandlerOptions } from './handlers/register.js';
-import { clientRegistrationHandler } from './handlers/register.js';
-import type { RevocationHandlerOptions } from './handlers/revoke.js';
-import { revocationHandler } from './handlers/revoke.js';
-import type { TokenHandlerOptions } from './handlers/token.js';
-import { tokenHandler } from './handlers/token.js';
-import type { OAuthServerProvider } from './provider.js';
+import type { AuthorizationHandlerOptions } from './handlers/authorize';
+import { authorizationHandler } from './handlers/authorize';
+import { metadataHandler } from './handlers/metadata';
+import type { ClientRegistrationHandlerOptions } from './handlers/register';
+import { clientRegistrationHandler } from './handlers/register';
+import type { RevocationHandlerOptions } from './handlers/revoke';
+import { revocationHandler } from './handlers/revoke';
+import type { TokenHandlerOptions } from './handlers/token';
+import { tokenHandler } from './handlers/token';
+import type { OAuthServerProvider } from './provider';
 
 // Check for dev mode flag that allows HTTP issuer URLs (for development/testing only)
 const allowInsecureIssuerUrl =

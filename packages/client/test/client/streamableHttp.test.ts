@@ -1,11 +1,11 @@
-import type { JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
-import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, OAuthTokens } from '@modelcontextprotocol/core-internal';
+import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core-internal';
 import type { Mock, Mocked } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
-import { UnauthorizedError } from '../../src/client/auth.js';
-import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
-import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
+import type { OAuthClientProvider } from '../../src/client/auth';
+import { UnauthorizedError } from '../../src/client/auth';
+import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp';
+import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
 describe('StreamableHTTPClientTransport', () => {
     let transport: StreamableHTTPClientTransport;
@@ -894,6 +894,105 @@ describe('StreamableHTTPClientTransport', () => {
         expect(mockAuthProvider.redirectToAuthorization.mock.calls).toHaveLength(1);
     });
 
+    it('silently refreshes and retries when a POST returns 401 invalid_token', async () => {
+        const message: JSONRPCMessage = {
+            jsonrpc: '2.0',
+            method: 'tools/call',
+            params: {
+                name: 'power-bi-query',
+                arguments: {}
+            },
+            id: 'tool-use-1'
+        };
+        const resourceMetadataUrl = 'http://localhost:1234/.well-known/oauth-protected-resource/mcp';
+        let currentTokens: OAuthTokens = {
+            access_token: 'expired-access-token',
+            token_type: 'Bearer',
+            refresh_token: 'refresh-token'
+        };
+
+        mockAuthProvider.tokens.mockImplementation(() => currentTokens);
+        mockAuthProvider.saveTokens.mockImplementation(tokens => {
+            currentTokens = tokens;
+        });
+
+        const fetchMock = globalThis.fetch as Mock;
+        fetchMock.mockImplementation(async (url, init) => {
+            const urlString = url.toString();
+
+            if (urlString === 'http://localhost:1234/mcp' && init?.method === 'POST') {
+                const headers = new Headers(init.headers);
+                const authorization = headers.get('authorization');
+
+                if (authorization === 'Bearer expired-access-token') {
+                    return new Response('expired', {
+                        status: 401,
+                        statusText: 'Unauthorized',
+                        headers: {
+                            'WWW-Authenticate': `Bearer resource_metadata="${resourceMetadataUrl}", error="invalid_token", error_description="The access token expired"`
+                        }
+                    });
+                }
+
+                if (authorization === 'Bearer new-access-token') {
+                    return new Response(null, { status: 202 });
+                }
+
+                return new Response('unexpected bearer', { status: 401, statusText: 'Unauthorized' });
+            }
+
+            if (urlString === resourceMetadataUrl) {
+                return Response.json({
+                    resource: 'http://localhost:1234/mcp',
+                    authorization_servers: ['http://localhost:1234']
+                });
+            }
+
+            if (urlString === 'http://localhost:1234/.well-known/oauth-authorization-server') {
+                return Response.json({
+                    issuer: 'http://localhost:1234',
+                    authorization_endpoint: 'http://localhost:1234/authorize',
+                    token_endpoint: 'http://localhost:1234/token',
+                    response_types_supported: ['code'],
+                    code_challenge_methods_supported: ['S256']
+                });
+            }
+
+            if (urlString === 'http://localhost:1234/token' && init?.method === 'POST') {
+                const params = new URLSearchParams(init.body as string);
+                expect(params.get('grant_type')).toBe('refresh_token');
+                expect(params.get('refresh_token')).toBe('refresh-token');
+
+                return Response.json({
+                    access_token: 'new-access-token',
+                    token_type: 'Bearer',
+                    refresh_token: 'new-refresh-token'
+                });
+            }
+
+            return new Response('not found', { status: 404 });
+        });
+
+        await transport.send(message);
+
+        const mcpPostCalls = fetchMock.mock.calls.filter(
+            ([url, init]) => url.toString() === 'http://localhost:1234/mcp' && init?.method === 'POST'
+        );
+        expect(mcpPostCalls).toHaveLength(2);
+        const firstPost = mcpPostCalls[0]!;
+        const secondPost = mcpPostCalls[1]!;
+        expect(new Headers(firstPost[1]?.headers).get('authorization')).toBe('Bearer expired-access-token');
+        expect(new Headers(secondPost[1]?.headers).get('authorization')).toBe('Bearer new-access-token');
+        expect(firstPost[1]?.body).toBe(JSON.stringify(message));
+        expect(secondPost[1]?.body).toBe(JSON.stringify(message));
+        expect(mockAuthProvider.saveTokens).toHaveBeenCalledWith({
+            access_token: 'new-access-token',
+            token_type: 'Bearer',
+            refresh_token: 'new-refresh-token'
+        });
+        expect(mockAuthProvider.redirectToAuthorization).not.toHaveBeenCalled();
+    });
+
     it('attempts upscoping on 403 with WWW-Authenticate header', async () => {
         const message: JSONRPCMessage = {
             jsonrpc: '2.0',
@@ -923,7 +1022,7 @@ describe('StreamableHTTPClientTransport', () => {
             });
 
         // Spy on the imported auth function and mock successful authorization
-        const authModule = await import('../../src/client/auth.js');
+        const authModule = await import('../../src/client/auth');
         const authSpy = vi.spyOn(authModule, 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
@@ -965,8 +1064,8 @@ describe('StreamableHTTPClientTransport', () => {
         });
 
         // Spy on the imported auth function and mock successful authorization
-        const authModule = await import('../../src/client/auth.js');
-        const authSpy = vi.spyOn(authModule as typeof import('../../src/client/auth.js'), 'auth');
+        const authModule = await import('../../src/client/auth');
+        const authSpy = vi.spyOn(authModule as typeof import('../../src/client/auth'), 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
         // First send: should trigger upscoping

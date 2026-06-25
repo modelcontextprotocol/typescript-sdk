@@ -1,7 +1,7 @@
 {
     "name": "@modelcontextprotocol/test-e2e",
     "private": true,
-    "version": "2.0.0-alpha.0",
+    "version": "2.0.0-alpha.1",
     "description": "Model Context Protocol implementation for TypeScript",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
@@ -32,7 +32,7 @@
     "devDependencies": {
         "@hono/node-server": "catalog:runtimeServerOnly",
         "@modelcontextprotocol/client": "workspace:^",
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/server-legacy": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
