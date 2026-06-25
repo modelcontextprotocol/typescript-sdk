@@ -667,7 +667,7 @@ describe('Client.listen()', () => {
         await client.close();
     });
 
-    it('server answers listen with a JSON-RPC RESULT during opening: rejects with a typed InvalidResult (not 60s)', async () => {
+    it('server answers listen with a JSON-RPC RESULT during opening: rejects ConnectionClosed (graceful pre-ack close, not 60s)', async () => {
         const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
         serverTx.onmessage = m => {
             const req = m as { id?: number | string; method?: string };
@@ -684,9 +684,9 @@ describe('Client.listen()', () => {
                 });
             }
             if (req.method === 'subscriptions/listen' && req.id !== undefined) {
-                // Buggy server: answers with a result instead of the
-                // acknowledged notification. Spec defines listen as never
-                // receiving a result.
+                // Server is shutting down: emits the SubscriptionsListenResult
+                // before ever sending the ack. The client treats receipt of
+                // any result for the listen id as the graceful-close signal.
                 void serverTx.send({ jsonrpc: '2.0', id: req.id, result: {} });
             }
         };
@@ -696,9 +696,31 @@ describe('Client.listen()', () => {
         const t0 = Date.now();
         const error = await client.listen({ toolsListChanged: true }).catch(e => e as SdkError);
         expect(error).toBeInstanceOf(SdkError);
-        expect((error as SdkError).code).toBe(SdkErrorCode.InvalidResult);
-        expect((error as SdkError).message).toContain('expected the acknowledged notification');
+        expect((error as SdkError).code).toBe(SdkErrorCode.ConnectionClosed);
+        expect((error as SdkError).message).toContain('closed the subscription gracefully before acknowledging');
         expect(Date.now() - t0).toBeLessThan(1000);
+        expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
+        await client.close();
+    });
+
+    it("inbound SubscriptionsListenResult post-ack: closed resolves 'graceful'; subscription torn down", async () => {
+        let listenId!: number | string;
+        let send!: (m: JSONRPCMessage) => void;
+        const { clientTx } = await scriptedModern((id, _f, s) => {
+            listenId = id;
+            send = s;
+        });
+        const client = new Client({ name: 'c', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+        await client.connect(clientTx);
+        const sub = await client.listen({ toolsListChanged: true });
+        // The spec's graceful-close signal: the server emits the empty
+        // subscriptions/listen response, then closes the stream.
+        send({
+            jsonrpc: '2.0',
+            id: listenId,
+            result: { resultType: 'complete', _meta: { [SUBSCRIPTION_ID_META_KEY]: listenId } }
+        } as JSONRPCMessage);
+        await expect(sub.closed).resolves.toBe('graceful');
         expect((client as unknown as { _listenState: Map<unknown, unknown> })._listenState.size).toBe(0);
         await client.close();
     });

@@ -774,11 +774,13 @@ export function serveStdio(factory: McpServerFactory, options: ServeStdioOptions
         closing = true;
         const current = state;
         state = { phase: 'closed' };
-        // Stdio server-side teardown: emit ONE `notifications/cancelled` per
-        // active listen subscription referencing the listen request id (the
-        // spec MUST), before the wire is closed.
-        for (const cancelled of listenRouter.teardownAll()) {
-            await wire.send(cancelled).catch(error => reportError(toError(error)));
+        // Stdio server-side graceful teardown: emit the empty
+        // `subscriptions/listen` JSON-RPC result for every active subscription
+        // (the spec's graceful-close signal — `SubscriptionsListenResult`)
+        // before the wire is closed, so the client distinguishes graceful end
+        // from a transport drop.
+        for (const result of listenRouter.teardownAll()) {
+            await wire.send(result).catch(error => reportError(toError(error)));
         }
         if (current.phase === 'probe' || current.phase === 'pinned') {
             await current.instance.product.close().catch(error => reportError(toError(error)));
