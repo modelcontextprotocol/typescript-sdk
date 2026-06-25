@@ -107,3 +107,46 @@ describe('@modelcontextprotocol/hono', () => {
         expect(await res.json()).toEqual({ preset: true });
     });
 });
+
+describe('createMcpHonoApp generic type support', () => {
+    test('createMcpHonoApp accepts generic Env type parameter', () => {
+        // Define a custom Env type with Bindings and Variables
+        type CustomEnv = {
+            Bindings: {
+                DB: { query: (sql: string) => Promise<unknown[]> };
+            };
+            Variables: {
+                userId: string;
+            };
+        };
+
+        // Create app with custom Env type
+        const app = createMcpHonoApp<CustomEnv>();
+        
+        // Add a route that uses the typed env and variables
+        app.get('/test', async (c) => {
+            // c.env.DB should be typed
+            const db = c.env.DB;
+            
+            // c.get('userId') should be typed as string
+            const userId = c.get('userId');
+            
+            // TypeScript should allow setting a string variable
+            c.set('userId', '123');
+            
+            return c.json({ db: typeof db, userId: typeof userId });
+        });
+
+        // App should be created successfully
+        expect(app).toBeInstanceOf(Hono);
+    });
+
+    test('createMcpHonoApp works without generic parameter (backward compatibility)', () => {
+        // Should work without any generic parameter (uses BlankEnv default)
+        const app = createMcpHonoApp();
+        
+        app.get('/health', c => c.text('ok'));
+        
+        expect(app).toBeInstanceOf(Hono);
+    });
+});
