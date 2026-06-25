@@ -2743,6 +2743,43 @@ describe('Zod v4', () => {
             });
         });
 
+        test('should echo the exact requested URI for nonexistent resources', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+            const requestedUri = 'HTTP://example.com:80/docs/../missing file.txt';
+            mcpServer.registerResource('test', 'test://resource', {}, async () => ({
+                contents: [
+                    {
+                        uri: 'test://resource',
+                        text: 'Test content'
+                    }
+                ]
+            }));
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            await expect(
+                client.request({
+                    method: 'resources/read',
+                    params: {
+                        uri: requestedUri
+                    }
+                })
+            ).rejects.toMatchObject({
+                code: ProtocolErrorCode.InvalidParams,
+                message: expect.stringContaining('not found'),
+                data: { uri: requestedUri }
+            });
+        });
+
         /***
          * Test: ProtocolError for Disabled Resource
          */
