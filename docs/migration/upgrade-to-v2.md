@@ -131,13 +131,16 @@ The single `@modelcontextprotocol/sdk` package is split:
 | --- | --- |
 | `@modelcontextprotocol/sdk` | `@modelcontextprotocol/client` (client implementation) |
 | | `@modelcontextprotocol/server` (server implementation) |
-| | `@modelcontextprotocol/core` (internal — never import directly) |
+| | `@modelcontextprotocol/core` (public Zod `*Schema` constants) |
+| | `@modelcontextprotocol/core-internal` (internal — never import directly) |
 | Built-in HTTP framework support | `@modelcontextprotocol/node` / `@modelcontextprotocol/express` / `@modelcontextprotocol/hono` / `@modelcontextprotocol/fastify` |
 
 `@modelcontextprotocol/client` and `@modelcontextprotocol/server` both re-export shared
-types from `@modelcontextprotocol/core`, so import types and error classes from
-whichever package you already depend on. **Do not import from `@modelcontextprotocol/core`
-directly.**
+types from `@modelcontextprotocol/core-internal`, so import types and error classes from
+whichever package you already depend on. `@modelcontextprotocol/core-internal` is
+`private: true` and is not published — **do not import from it directly.**
+`@modelcontextprotocol/core` is the public Zod-schema package (raw `*Schema` constants
+only); see [Zod `*Schema` constants moved to `@modelcontextprotocol/core`](#zod-schema-constants-moved-to-modelcontextprotocolcore) below.
 
 The framework adapter packages declare their framework as a **peer dependency**
 (`express`, `hono`, `fastify`); v1 shipped them as direct deps. The codemod adds the

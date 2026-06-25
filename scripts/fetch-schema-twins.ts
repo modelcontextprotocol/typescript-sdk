@@ -1,9 +1,9 @@
 /**
  * Vendors the generated `schema.json` twins from the spec repository into
- * `packages/core/test/corpus/schema-twins/` as RAW UPSTREAM BYTES.
+ * `packages/core-internal/test/corpus/schema-twins/` as RAW UPSTREAM BYTES.
  *
  * The twins are TEST-ONLY conformance oracles (never bundled, never runtime):
- * `packages/core/test/wire/schemaTwinConformance.test.ts` compiles them into
+ * `packages/core-internal/test/wire/schemaTwinConformance.test.ts` compiles them into
  * generated validators and locks the hand-written wire layer to them. Their
  * authority rests on provenance, so they are vendored verbatim — no
  * formatting of any kind (the directory is .prettierignore'd) — and each file
@@ -11,7 +11,7 @@
  * (prettier, an editor, a manual touch-up) turns CI red.
  *
  * Refresh ATOMICALLY with the matching spec.types anchor (see
- * packages/core/src/types/README.md lifecycle rule 4).
+ * packages/core-internal/src/types/README.md lifecycle rule 4).
  *
  * Usage:
  *   pnpm fetch:schema-twins [sha]   # default: the manifest's current source commit
@@ -30,7 +30,7 @@ const __filename = fileURLToPath(import.meta.url);
 const PROJECT_ROOT = join(dirname(__filename), '..');
 
 const SPEC_REPO = 'modelcontextprotocol/modelcontextprotocol';
-const TWINS_DIR = join(PROJECT_ROOT, 'packages', 'core', 'test', 'corpus', 'schema-twins');
+const TWINS_DIR = join(PROJECT_ROOT, 'packages', 'core-internal', 'test', 'corpus', 'schema-twins');
 const MANIFEST_PATH = join(TWINS_DIR, 'manifest.json');
 
 interface TwinManifest {

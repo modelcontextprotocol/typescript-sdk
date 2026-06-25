@@ -38,7 +38,7 @@ const UPSTREAM_SCHEMA_DIRS: Record<SpecVersion, string> = {
  * Draft-tracking revisions have no entry and float to the latest upstream
  * commit via the nightly workflow's refresh PRs.
  *
- * See `packages/core/src/types/README.md` for the full lifecycle policy.
+ * See `packages/core-internal/src/types/README.md` for the full lifecycle policy.
  */
 const RELEASED_REVISION_PINS: Partial<Record<SpecVersion, string>> = {
     '2025-11-25': '0168c57fc74aba6e6dcf8f0b7191db3caaa5ad65'

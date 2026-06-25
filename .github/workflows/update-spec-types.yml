@@ -1,6 +1,6 @@
 # Nightly refresh of the draft-tracking spec anchor (2026-07-28).
 #
-# Anchor lifecycle (see packages/core/src/types/README.md for the full policy):
+# Anchor lifecycle (see packages/core-internal/src/types/README.md for the full policy):
 # - Draft anchors float: this job regenerates the draft-tracking anchor from the
 #   latest upstream draft schema and, on drift, opens a refresh PR for review.
 #   It only ever proposes — it never merges.

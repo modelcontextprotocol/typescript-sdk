@@ -18,7 +18,7 @@
  *   blind to them).
  *
  * Twin refresh is ATOMIC with the matching anchor (lifecycle rule 4,
- * packages/core/src/types/README.md); provenance in schema-twins/manifest.json.
+ * packages/core-internal/src/types/README.md); provenance in schema-twins/manifest.json.
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
