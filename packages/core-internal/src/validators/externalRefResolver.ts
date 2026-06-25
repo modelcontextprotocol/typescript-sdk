@@ -58,11 +58,11 @@ export interface ResolveExternalRefsOptions {
      * use; plaintext fetches are easier to tamper with in transit.
      */
     allowedProtocols?: readonly string[];
-    /** Per-request timeout in milliseconds (default {@link DEFAULT_REF_FETCH_TIMEOUT_MS}). */
+    /** Per-request timeout in milliseconds (default: 5000). */
     timeoutMs?: number;
-    /** Maximum size of a single fetched document in bytes (default {@link DEFAULT_REF_MAX_BYTES}). */
+    /** Maximum size of a single fetched document in bytes (default: 1,000,000). */
     maxBytes?: number;
-    /** Maximum number of distinct documents fetched (default {@link DEFAULT_REF_MAX_DOCUMENTS}). */
+    /** Maximum number of distinct documents fetched (default: 50). */
     maxDocuments?: number;
     /**
      * Fetch implementation. Defaults to the global `fetch`. Inject a custom one for tests or to add
