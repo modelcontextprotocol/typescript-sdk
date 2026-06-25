@@ -5513,18 +5513,28 @@ describe('SEP-2352: authorization server binding', () => {
             client_id: 'old-client-id',
             client_secret: 'old-client-secret'
         });
+        const freshResourceMetadata = {
+            resource: 'https://resource.example.com',
+            scopes_supported: ['read:data']
+        };
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            authorizationServerSource: 'protected-resource-metadata',
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
 
         mockFetch.mockImplementation(url => {
             const urlString = url.toString();
 
-            if (urlString.includes('/.well-known/oauth-protected-resource')) {
+            if (urlString === resourceMetadataUrl.toString()) {
                 return Promise.resolve({
                     ok: true,
                     status: 200,
-                    json: async () => ({
-                        resource: 'https://resource.example.com',
-                        scopes_supported: ['read:data']
-                    })
+                    json: async () => freshResourceMetadata
                 });
             }
 
@@ -5552,10 +5562,19 @@ describe('SEP-2352: authorization server binding', () => {
             return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
         });
 
-        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com', resourceMetadataUrl });
 
         expect(result).toBe('REDIRECT');
         expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: oldAuthServerUrl,
+                authorizationServerSource: 'protected-resource-metadata',
+                resourceMetadataUrl: resourceMetadataUrl.toString(),
+                resourceMetadata: freshResourceMetadata,
+                authorizationServerMetadata: sameAuthMetadata
+            })
+        );
 
         const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
         expect(redirectUrl.origin).toBe('https://old-auth.example.com');
