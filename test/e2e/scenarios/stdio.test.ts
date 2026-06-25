@@ -17,11 +17,11 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { JSONRPCMessageSchema } from '@modelcontextprotocol/core';
+import { JSONRPCMessageSchema } from '@modelcontextprotocol/core-internal';
 import { expect, vi } from 'vitest';
 
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 /** Absolute path to the runnable fixture server (executed with tsx). */
 const FIXTURE_PATH = fileURLToPath(new URL('../fixtures/stdio-server.ts', import.meta.url));

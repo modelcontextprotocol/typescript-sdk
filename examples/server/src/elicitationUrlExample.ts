@@ -19,7 +19,7 @@ import type { Request, Response } from 'express';
 import express from 'express';
 import * as z from 'zod/v4';
 
-import { InMemoryEventStore } from './inMemoryEventStore.js';
+import { InMemoryEventStore } from './inMemoryEventStore';
 
 // Create an MCP server with implementation details
 const getServer = () => {

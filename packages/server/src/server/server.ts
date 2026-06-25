@@ -30,7 +30,7 @@ import type {
     ServerContext,
     ToolResultContent,
     ToolUseContent
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
@@ -48,7 +48,7 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 export type ServerOptions = ProtocolOptions & {

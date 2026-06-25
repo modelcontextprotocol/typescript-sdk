@@ -1,1 +1,1 @@
-export type { AuthInfo } from '@modelcontextprotocol/core';
+export type { AuthInfo } from '@modelcontextprotocol/core-internal';

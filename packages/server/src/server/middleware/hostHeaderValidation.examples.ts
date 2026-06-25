@@ -7,7 +7,7 @@
  * @module
  */
 
-import { validateHostHeader } from './hostHeaderValidation.js';
+import { validateHostHeader } from './hostHeaderValidation';
 
 /**
  * Example: Validating a host header against allowed hosts.

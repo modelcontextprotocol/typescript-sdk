@@ -26,13 +26,10 @@
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "pnpm run typecheck && pnpm run lint",
         "test": "vitest run",
-        "test:watch": "vitest",
-        "start": "pnpm run server",
-        "server": "tsx watch --clear-screen=false scripts/cli.ts server",
-        "client": "tsx scripts/cli.ts client"
+        "test:watch": "vitest"
     },
     "dependencies": {
-        "@modelcontextprotocol/core": "workspace:^",
+        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "better-auth": "^1.4.17",
@@ -54,7 +51,6 @@
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
-        "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"

@@ -6,9 +6,9 @@ import supertest from 'supertest';
 import type { Mock } from 'vitest';
 import { vi } from 'vitest';
 
-import type { OAuthTokenVerifier } from '../../src/auth/types.js';
-import { requireBearerAuth } from '../../src/auth/bearerAuth.js';
-import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../src/auth/metadataRouter.js';
+import type { OAuthTokenVerifier } from '../../src/auth/types';
+import { requireBearerAuth } from '../../src/auth/bearerAuth';
+import { getOAuthProtectedResourceMetadataUrl, mcpAuthMetadataRouter } from '../../src/auth/metadataRouter';
 
 // ---------------------------------------------------------------------------
 // requireBearerAuth
