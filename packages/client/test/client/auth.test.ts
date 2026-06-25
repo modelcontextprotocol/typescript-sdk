@@ -5273,6 +5273,7 @@ describe('SEP-2352: authorization server binding', () => {
             resourceMetadata: sameResourceMetadata,
             authorizationServerMetadata: sameAuthMetadata
         });
+        provider.saveDiscoveryState = vi.fn();
 
         mockFetch.mockImplementation(url => {
             const urlString = url.toString();
@@ -5305,9 +5306,10 @@ describe('SEP-2352: authorization server binding', () => {
 
         expect(result).toBe('REDIRECT');
         expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(provider.saveDiscoveryState).not.toHaveBeenCalled();
 
         const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
-        expect(redirectUrl.origin).toBe('https://resource.example.com');
+        expect(redirectUrl.origin).toBe('https://old-auth.example.com');
         expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
     });
 
