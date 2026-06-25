@@ -3,8 +3,8 @@ import process from 'node:process';
 import type { Stream } from 'node:stream';
 import { PassThrough } from 'node:stream';
 
-import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { ReadBuffer, SdkError, SdkErrorCode, serializeMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
+import { ReadBuffer, SdkError, SdkErrorCode, serializeMessage } from '@modelcontextprotocol/core-internal';
 import spawn from 'cross-spawn';
 
 export type StdioServerParameters = {

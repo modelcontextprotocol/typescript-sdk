@@ -19,10 +19,10 @@ import type { EventStore, JSONRPCMessage, McpServer, Server } from '@modelcontex
 import { InMemoryTransport, ReadBuffer, serializeMessage, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { StdioServerTransport } from '@modelcontextprotocol/server/stdio';
 
-import type { Transport } from '../types.js';
-import { startLegacySseHost } from './sse-host.js';
-import type { SnifferOptions } from './wire-sniffer.js';
-import { sniffTransport } from './wire-sniffer.js';
+import type { Transport } from '../types';
+import { startLegacySseHost } from './sse-host';
+import type { SnifferOptions } from './wire-sniffer';
+import { sniffTransport } from './wire-sniffer';
 
 export type ServerFactory = () => McpServer | Server;
 

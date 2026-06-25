@@ -1,12 +1,16 @@
 import type { SourceFile } from 'ts-morph';
+import { SyntaxKind } from 'ts-morph';
 
-import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { renameAllReferences } from '../../../utils/astUtils.js';
-import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
-import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
-import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
-import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
+import { renameAllReferences } from '../../../utils/astUtils';
+import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics';
+import type { NamedImportSpec } from '../../../utils/importUtils';
+import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils';
+import { resolveTypesPackage } from '../../../utils/projectAnalyzer';
+import { AUTH_SCHEMA_NAMES_NO_V2_PUBLIC_EXPORT } from '../mappings/authSchemaNames';
+import { isAuthImport, lookupImportMapping } from '../mappings/importMap';
+import { isSharedSchemaConst, resolveRenamedName, symbolTargetOverride } from '../mappings/schemaRouting';
+import { SIMPLE_RENAMES } from '../mappings/symbolMap';
 
 const REEXPORT_WARNINGS: Record<string, string> = {
     ErrorCode: 'Re-exported ErrorCode was split into ProtocolErrorCode and SdkErrorCode in v2. Update this re-export manually.',
@@ -50,17 +54,29 @@ export const importPathsTransform: Transform = {
 
         const insertIndex = sourceFile.getImportDeclarations().indexOf(sdkImports[0]!);
 
+        // A leading file-header / JSDoc comment attaches to the first SDK import as leading trivia. When
+        // that import is removed and re-emitted (the per-symbol split/merge path calls imp.remove()),
+        // ts-morph drops the comment with it. Capture it now and restore it after emitting if it was lost.
+        // Capture the EXACT source bytes spanning all leading comment ranges (first range's start to last
+        // range's end) rather than re-joining each range with '\n' — a join drops the original separators
+        // (a blank line, or CRLF in CRLF files), so the later survival check would never match a header
+        // that actually survived (in-place setModuleSpecifier rewrite) and would re-insert it, duplicating
+        // it. The slice reproduces the block verbatim, so the includes() guard below is byte-exact.
+        const leadingRanges = sdkImports[0]!.getLeadingCommentRanges();
+        const leadingCommentText =
+            leadingRanges.length > 0 ? sourceFile.getFullText().slice(leadingRanges[0]!.getPos(), leadingRanges.at(-1)!.getEnd()) : '';
+
         interface PendingImport {
-            names: string[];
+            specs: NamedImportSpec[];
             isTypeOnly: boolean;
         }
         const pendingImports = new Map<string, PendingImport[]>();
 
-        function addPending(target: string, names: string[], isTypeOnly: boolean): void {
+        function addPending(target: string, specs: NamedImportSpec[], isTypeOnly: boolean): void {
             if (!pendingImports.has(target)) {
                 pendingImports.set(target, []);
             }
-            pendingImports.get(target)!.push({ names, isTypeOnly });
+            pendingImports.get(target)!.push({ specs, isTypeOnly });
         }
 
         for (const imp of sdkImports) {
@@ -71,7 +87,7 @@ export const importPathsTransform: Transform = {
             const defaultImport = imp.getDefaultImport();
             const namespaceImport = imp.getNamespaceImport();
 
-            let mapping = IMPORT_MAP[specifier];
+            let mapping = lookupImportMapping(specifier);
 
             if (!mapping && isAuthImport(specifier)) {
                 mapping = {
@@ -94,15 +110,22 @@ export const importPathsTransform: Transform = {
                 continue;
             }
 
+            // Resolve a RESOLVE_BY_CONTEXT mapping (sdk/types.js, sdk/shared/auth.js) only when a binding
+            // actually routes to the context package. resolveTypesPackage's diagnostic sink emits a "could
+            // not determine project type" warning (or, for a 'both' project, an info note), so resolving
+            // eagerly would emit that note even for an import of nothing but `*Schema` constants — which
+            // routes entirely to core and never uses the context package. A namespace or default
+            // binding always needs context; a named symbol needs it only when it has no per-symbol override
+            // (i.e. it is not a `*Schema` routed to core).
             let targetPackage = mapping.target;
             if (targetPackage === 'RESOLVE_BY_CONTEXT') {
-                targetPackage = resolveTypesPackage(context, hasClientImport, hasServerImport, {
-                    filePath,
-                    line,
-                    diagnostics
-                });
-                if (mapping.subpathSuffix) {
-                    targetPackage = `${targetPackage}${mapping.subpathSuffix}`;
+                const needsContext =
+                    namespaceImport != null ||
+                    defaultImport != null ||
+                    namedImports.some(n => symbolTargetOverride(n.getName(), mapping!) === undefined);
+                if (needsContext) {
+                    const base = resolveTypesPackage(context, hasClientImport, hasServerImport, { filePath, line, diagnostics });
+                    targetPackage = mapping.subpathSuffix ? `${base}${mapping.subpathSuffix}` : base;
                 }
             }
 
@@ -116,20 +139,42 @@ export const importPathsTransform: Transform = {
                 }
             }
 
-            const hasAlias = namedImports.some(n => n.getAliasNode() !== undefined);
-            if (defaultImport || namespaceImport || hasAlias) {
-                let effectiveTarget = targetPackage;
-                if (mapping.symbolTargetOverrides && !namespaceImport && !defaultImport) {
-                    const allOverridden = namedImports.length > 0 && namedImports.every(n => n.getName() in mapping.symbolTargetOverrides!);
-                    if (allOverridden) {
-                        effectiveTarget = mapping.symbolTargetOverrides[namedImports[0]!.getName()]!;
-                    } else if (namedImports.some(n => n.getName() in mapping.symbolTargetOverrides!)) {
+            // A namespace import (`import * as ns from …`) cannot be split per-symbol — usages are
+            // qualified (`ns.Foo`), so the whole binding moves to one package. Named imports (aliased or
+            // not), including the named siblings of a default import, DO fall through to the per-symbol
+            // splitter below — so an all-`*Schema` import routes entirely to core, a single aliased
+            // specifier no longer forces unrelated symbols into the wrong package, and a mixed
+            // `import sdk, { CallToolResultSchema }` routes the schema to core while the default
+            // binding (handled at the end of the per-symbol path) moves to the context package.
+            if (namespaceImport) {
+                const effectiveTarget = targetPackage;
+                // Any `ns.<Name>Schema` accesses would silently resolve against the wrong package (the
+                // namespace can't be split), so flag them.
+                if (mapping.schemaSymbolTarget) {
+                    const nsName = namespaceImport.getText();
+                    // Map each accessed v1 name to the v2 name core actually exports — some are
+                    // renamed (e.g. JSONRPCErrorSchema → JSONRPCErrorResponseSchema), and core only
+                    // exports the v2 name. Dedupe by the accessed (v1) name.
+                    const schemaAccesses = [
+                        ...new Map(
+                            sourceFile
+                                .getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)
+                                .filter(pa => pa.getExpression().getText() === nsName && isSharedSchemaConst(pa.getName(), mapping))
+                                .map(pa => [pa.getName(), resolveRenamedName(pa.getName(), mapping)] as const)
+                        )
+                    ];
+                    if (schemaAccesses.length > 0) {
+                        const accessed = schemaAccesses.map(([v1]) => v1).join(', ');
+                        const importName = schemaAccesses[0]![1];
+                        const renamed = schemaAccesses.filter(([v1, v2]) => v1 !== v2);
+                        const renameNote =
+                            renamed.length > 0 ? ` Renamed in v2: ${renamed.map(([v1, v2]) => `${v1} → ${v2}`).join(', ')}.` : '';
                         diagnostics.push(
                             actionRequired(
                                 filePath,
                                 imp,
-                                `Aliased import from ${specifier} mixes symbols that belong to different v2 packages. ` +
-                                    `Split the import manually so each symbol targets the correct package.`
+                                `Namespace import of ${specifier} is used to access Zod schema(s) (${accessed}) that moved to ${mapping.schemaSymbolTarget}.${renameNote} ` +
+                                    `Import them with a named import (e.g. \`import { ${importName} } from '${mapping.schemaSymbolTarget}'\`) and update the qualified usages.`
                             )
                         );
                     }
@@ -137,22 +182,14 @@ export const importPathsTransform: Transform = {
                 usedPackages.add(effectiveTarget);
                 imp.setModuleSpecifier(effectiveTarget);
                 if (mapping.renamedSymbols) {
-                    for (const n of namedImports) {
-                        const newName = mapping.renamedSymbols[n.getName()];
-                        if (newName) {
-                            n.setName(newName);
-                        }
-                    }
-                    if (namespaceImport) {
-                        diagnostics.push(
-                            actionRequired(
-                                filePath,
-                                imp,
-                                `Namespace import of ${specifier}: exported symbol(s) ${Object.keys(mapping.renamedSymbols).join(', ')} ` +
-                                    `were renamed in ${effectiveTarget}. Update qualified accesses manually.`
-                            )
-                        );
-                    }
+                    diagnostics.push(
+                        actionRequired(
+                            filePath,
+                            imp,
+                            `Namespace import of ${specifier}: exported symbol(s) ${Object.keys(mapping.renamedSymbols).join(', ')} ` +
+                                `were renamed in ${effectiveTarget}. Update qualified accesses manually.`
+                        )
+                    );
                 }
                 changesCount++;
                 if (mapping.migrationHint) {
@@ -166,13 +203,40 @@ export const importPathsTransform: Transform = {
 
             for (const n of namedImports) {
                 const name = n.getName();
+                const alias = n.getAliasNode()?.getText();
                 const resolvedName = mapping.renamedSymbols?.[name] ?? name;
                 const specifierTypeOnly = typeOnly || n.isTypeOnly();
-                const symbolTarget = mapping.symbolTargetOverrides?.[name] ?? targetPackage;
+                const symbolTarget = symbolTargetOverride(name, mapping) ?? targetPackage;
+                // A v1 auth-schema constant with no public v2 home (SafeUrlSchema/OptionalSafeUrlSchema)
+                // routes by context to a package that doesn't export it. Flag it so the user inlines the
+                // validation instead of hitting a silent "has no exported member" error.
+                if (mapping.schemaSymbolTarget && AUTH_SCHEMA_NAMES_NO_V2_PUBLIC_EXPORT.has(name)) {
+                    diagnostics.push(
+                        actionRequired(
+                            filePath,
+                            imp,
+                            `${name} was an internal URL field-validator in v1's ${specifier} with no public v2 equivalent ` +
+                                `(it is not re-exported by @modelcontextprotocol/core). Remove this import and inline the ` +
+                                `validation (e.g. validate the URL with the WHATWG \`URL\` constructor or your own Zod schema).`
+                        )
+                    );
+                }
                 usedPackages.add(symbolTarget);
-                addPending(symbolTarget, [resolvedName], specifierTypeOnly);
+                addPending(symbolTarget, [alias ? { name: resolvedName, alias } : resolvedName], specifierTypeOnly);
             }
-            imp.remove();
+            if (defaultImport) {
+                // The default binding can't be split per-symbol, so move it (and the module specifier) to
+                // the resolved context/target package. The named siblings were just routed per-symbol
+                // above, so drop them from this now default-only import.
+                const effectiveTarget = targetPackage;
+                usedPackages.add(effectiveTarget);
+                if (namedImports.length > 0) {
+                    imp.removeNamedImports();
+                }
+                imp.setModuleSpecifier(effectiveTarget);
+            } else {
+                imp.remove();
+            }
             changesCount++;
             if (mapping.migrationHint) {
                 diagnostics.push(info(filePath, line, mapping.migrationHint));
@@ -182,26 +246,32 @@ export const importPathsTransform: Transform = {
             }
         }
 
+        const specLocal = (spec: NamedImportSpec): string => (typeof spec === 'string' ? spec : (spec.alias ?? spec.name));
         for (const [target, groups] of pendingImports) {
-            const typeOnlyNames = new Set<string>();
-            const valueNames = new Set<string>();
+            // Dedupe by local binding name (alias when present), keeping the spec so aliases survive.
+            const typeOnlySpecs = new Map<string, NamedImportSpec>();
+            const valueSpecs = new Map<string, NamedImportSpec>();
             for (const group of groups) {
-                for (const name of group.names) {
-                    if (group.isTypeOnly) {
-                        typeOnlyNames.add(name);
-                    } else {
-                        valueNames.add(name);
-                    }
+                for (const spec of group.specs) {
+                    (group.isTypeOnly ? typeOnlySpecs : valueSpecs).set(specLocal(spec), spec);
                 }
             }
 
-            if (valueNames.size > 0) {
-                addOrMergeImport(sourceFile, target, [...valueNames], false, insertIndex);
+            if (valueSpecs.size > 0) {
+                addOrMergeImport(sourceFile, target, [...valueSpecs.values()], false, insertIndex);
             }
-            if (typeOnlyNames.size > 0) {
-                const typeInsertIndex = valueNames.size > 0 ? insertIndex + 1 : insertIndex;
-                addOrMergeImport(sourceFile, target, [...typeOnlyNames], true, typeInsertIndex);
+            if (typeOnlySpecs.size > 0) {
+                const typeInsertIndex = valueSpecs.size > 0 ? insertIndex + 1 : insertIndex;
+                addOrMergeImport(sourceFile, target, [...typeOnlySpecs.values()], true, typeInsertIndex);
             }
+        }
+
+        // Restore the captured leading comment if the rewrite dropped it (guard against duplication when
+        // the first import was rewritten in place and kept its comment).
+        if (leadingCommentText && !sourceFile.getFullText().includes(leadingCommentText)) {
+            const imports = sourceFile.getImportDeclarations();
+            const anchor = imports[Math.min(insertIndex, imports.length - 1)];
+            sourceFile.insertText(anchor ? anchor.getStart() : 0, `${leadingCommentText}\n`);
         }
 
         return { changesCount, diagnostics, usedPackages };
@@ -223,7 +293,7 @@ function rewriteExportDeclarations(
         if (!specifier) continue;
 
         const line = exp.getStartLineNumber();
-        let mapping = IMPORT_MAP[specifier];
+        let mapping = lookupImportMapping(specifier);
 
         if (!mapping && isAuthImport(specifier)) {
             mapping = {
@@ -262,12 +332,30 @@ function rewriteExportDeclarations(
             }
         }
 
-        if (mapping.symbolTargetOverrides) {
+        if (mapping.symbolTargetOverrides || mapping.schemaSymbolTarget) {
             const namedExports = exp.getNamedExports();
-            const allOverridden = namedExports.length > 0 && namedExports.every(s => s.getName() in mapping.symbolTargetOverrides!);
-            if (allOverridden) {
-                targetPackage = mapping.symbolTargetOverrides[namedExports[0]!.getName()]!;
-            } else if (namedExports.some(s => s.getName() in mapping.symbolTargetOverrides!)) {
+            // A star re-export (`export * from …`, including `export * as ns from …`) has no named
+            // exports to route per-symbol, so it moves wholesale to the context package — which exports
+            // none of the Zod `*Schema` constants the v1 module re-exported. Downstream consumers of this
+            // barrel would hit "has no exported member" with no pointer to where the schemas went, so flag
+            // it (mirroring the namespace-import diagnostic on the import side).
+            if (mapping.schemaSymbolTarget && namedExports.length === 0) {
+                diagnostics.push(
+                    actionRequired(
+                        filePath,
+                        exp,
+                        `Star re-export of ${specifier} will not include the Zod schema constants that moved to ` +
+                            `${mapping.schemaSymbolTarget} (they are no longer exported by ${targetPackage}). ` +
+                            `Add an explicit \`export { … } from '${mapping.schemaSymbolTarget}'\` for any re-exported \`*Schema\` constants.`
+                    )
+                );
+            }
+            const overrides = namedExports.map(s => symbolTargetOverride(s.getName(), mapping));
+            const uniqueOverrides = new Set(overrides.filter((t): t is string => t !== undefined));
+            const allOverridden = namedExports.length > 0 && overrides.every(t => t !== undefined);
+            if (allOverridden && uniqueOverrides.size === 1) {
+                targetPackage = [...uniqueOverrides][0]!;
+            } else if (uniqueOverrides.size > 0) {
                 diagnostics.push(
                     actionRequired(
                         filePath,

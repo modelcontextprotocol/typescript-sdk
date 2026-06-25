@@ -3,10 +3,10 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 
-import { getMigration } from '../src/migrations/index.js';
-import { run } from '../src/runner.js';
-import { DiagnosticLevel } from '../src/types.js';
-import type { Migration, Transform } from '../src/types.js';
+import { getMigration } from '../src/migrations/index';
+import { run } from '../src/runner';
+import { DiagnosticLevel } from '../src/types';
+import type { Migration, Transform } from '../src/types';
 
 const migration = getMigration('v1-to-v2')!;
 
@@ -377,6 +377,70 @@ describe('integration', () => {
         expect(pkgJson.dependencies['@modelcontextprotocol/server']).toBeDefined();
         expect(pkgJson.dependencies['@modelcontextprotocol/node']).toBeDefined();
         expect(pkgJson.dependencies['express']).toBe('^4.0.0');
+    });
+
+    it('package.json: does not add core when every schema import is rewritten away', () => {
+        // The dominant v1 pattern: a `*Schema` constant used ONLY as a setRequestHandler first arg.
+        // importPaths routes it to @modelcontextprotocol/core (recording the package), but
+        // handlerRegistration then rewrites the call to a method string and deletes the now-unused
+        // import. No core import survives, so package.json must NOT gain a core dependency.
+        const dir = createTempDir();
+        writePkgJson(dir, { dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' } });
+        writeFileSync(
+            path.join(dir, 'server.ts'),
+            [
+                `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+                `import { CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
+                `const server = new McpServer({ name: 'test', version: '1.0' });`,
+                `server.setRequestHandler(CallToolRequestSchema, async () => ({ content: [] }));`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        // The schema usage was rewritten and its import deleted.
+        const output = readFileSync(path.join(dir, 'server.ts'), 'utf8');
+        expect(output).toContain("setRequestHandler('tools/call'");
+        expect(output).not.toContain('core');
+
+        // So core must not be added; the package actually imported (server) still is.
+        expect(result.packageJsonChanges).toBeDefined();
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/server');
+        expect(result.packageJsonChanges!.added).not.toContain('@modelcontextprotocol/core');
+
+        const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        expect(pkgJson.dependencies['@modelcontextprotocol/core']).toBeUndefined();
+        expect(pkgJson.dependencies['@modelcontextprotocol/server']).toBeDefined();
+    });
+
+    it('package.json: still adds core when a schema import survives as a value', () => {
+        // Guard against over-correcting: a schema used as a value (e.g. `.parse(...)`) keeps its import,
+        // so core remains a real dependency and must still be added.
+        const dir = createTempDir();
+        writePkgJson(dir, { dependencies: { '@modelcontextprotocol/sdk': '^1.0.0' } });
+        writeFileSync(
+            path.join(dir, 'lib.ts'),
+            [
+                `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+                `export function parseResult(x: unknown) {`,
+                `    return CallToolResultSchema.parse(x);`,
+                `}`,
+                ``
+            ].join('\n')
+        );
+
+        const result = run(migration, { targetDir: dir });
+
+        const output = readFileSync(path.join(dir, 'lib.ts'), 'utf8');
+        expect(output).toContain('@modelcontextprotocol/core');
+        expect(output).toContain('CallToolResultSchema.parse');
+
+        expect(result.packageJsonChanges).toBeDefined();
+        expect(result.packageJsonChanges!.added).toContain('@modelcontextprotocol/core');
+
+        const pkgJson = JSON.parse(readFileSync(path.join(dir, 'package.json'), 'utf8'));
+        expect(pkgJson.dependencies['@modelcontextprotocol/core']).toBeDefined();
     });
 
     it('does not modify package.json in dry-run mode', () => {

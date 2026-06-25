@@ -4,6 +4,17 @@ export interface ImportMapping {
     renamedSymbols?: Record<string, string>;
     /** Route specific symbols to a different target package than `target`. */
     symbolTargetOverrides?: Record<string, string>;
+    /**
+     * Route an imported symbol to this package (instead of `target`) when its rename-resolved name is
+     * a Zod schema constant re-exported by core — a member of `SPEC_SCHEMA_NAMES` (spec schemas,
+     * for `sdk/types.js`) or `AUTH_SCHEMA_NAMES` (OAuth/OpenID schemas, for `sdk/shared/auth.js`). The
+     * schemas now live in `@modelcontextprotocol/core` (so `<Name>Schema.parse(...)` keeps
+     * working), while the corresponding types/constants/guards resolve by context. Matching on
+     * membership (not a `*Schema` suffix) keeps TYPES whose name ends in `Schema` — e.g. the
+     * elicitation primitives `BooleanSchema`/`StringSchema`/`EnumSchema` — routed by context, where
+     * their types live. `symbolTargetOverrides` (exact-name) takes precedence.
+     */
+    schemaSymbolTarget?: string;
     removalMessage?: string;
     /** No entries currently set this; scaffolding for when a v1 symbol has no v2 equivalent yet. */
     isV2Gap?: boolean;
@@ -119,6 +130,7 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     '@modelcontextprotocol/sdk/types.js': {
         target: 'RESOLVE_BY_CONTEXT',
         status: 'moved',
+        schemaSymbolTarget: '@modelcontextprotocol/core',
         renamedSymbols: {
             ResourceTemplate: 'ResourceTemplateType'
         }
@@ -137,7 +149,12 @@ export const IMPORT_MAP: Record<string, ImportMapping> = {
     },
     '@modelcontextprotocol/sdk/shared/auth.js': {
         target: 'RESOLVE_BY_CONTEXT',
-        status: 'moved'
+        status: 'moved',
+        // OAuth/OpenID Zod schema constants (AUTH_SCHEMA_NAMES) are re-exported by core as a
+        // separate group, so route them there (keeping `OAuthTokensSchema.parse(...)` working). The
+        // OAuth/OpenID TYPES (OAuthTokens, etc.) carry no `schemaSymbolTarget` match and resolve by
+        // context to @modelcontextprotocol/client | /server.
+        schemaSymbolTarget: '@modelcontextprotocol/core'
     },
     '@modelcontextprotocol/sdk/shared/stdio.js': {
         target: 'RESOLVE_BY_CONTEXT',
@@ -189,4 +206,29 @@ for (const barrelSpecifier of ['@modelcontextprotocol/sdk/validation/index.js', 
 
 export function isAuthImport(specifier: string): boolean {
     return specifier.includes('/server/auth/') || specifier.includes('/server/auth.');
+}
+
+// SDK subpath specifiers can be written with or without a JS extension
+// (e.g. `@modelcontextprotocol/sdk/types` vs `.../types.js`) depending on the
+// consumer's module resolution (`bundler`/`nodenext` allow the extensionless form).
+// Normalize the extension so both spellings resolve to the same mapping. Built
+// after every IMPORT_MAP entry above is populated; entries whose `.js` and
+// extensionless forms coexist (e.g. `experimental/tasks`) share an identical
+// mapping, so the collapse is lossless.
+function stripJsExtension(specifier: string): string {
+    return specifier.replace(/\.(?:js|mjs|cjs)$/, '');
+}
+
+const NORMALIZED_IMPORT_MAP: Record<string, ImportMapping> = {};
+for (const [key, mapping] of Object.entries(IMPORT_MAP)) {
+    NORMALIZED_IMPORT_MAP[stripJsExtension(key)] = mapping;
+}
+
+/**
+ * Resolves the v2 mapping for a v1 SDK import/export/mock specifier, tolerating
+ * JS extension variance. An exact match always wins; otherwise the specifier is
+ * matched ignoring a trailing `.js`/`.mjs`/`.cjs` (or its absence).
+ */
+export function lookupImportMapping(specifier: string): ImportMapping | undefined {
+    return IMPORT_MAP[specifier] ?? NORMALIZED_IMPORT_MAP[stripJsExtension(specifier)];
 }

@@ -168,6 +168,34 @@ server.registerTool(
 );
 ```
 
+### Icons
+
+Tools, prompts, resources, and resource templates can advertise `icons` that a client may render in its UI — the same field is also accepted on your server's `Implementation` info. Each icon needs a `src` (a URL or `data:` URI) and may add a `mimeType`, the `sizes` it suits (`"WxH"` strings, or `"any"` for scalable formats like SVG), and a `theme` (`light` or `dark`). Icons are passed straight through to the relevant list response, such as `tools/list`:
+
+```ts source="../examples/server/src/serverGuide.examples.ts#registerTool_icons"
+server.registerTool(
+    'generate-chart',
+    {
+        title: 'Generate Chart',
+        description: 'Render a chart from a series of numbers',
+        inputSchema: z.object({ data: z.array(z.number()) }),
+        // Icons a client may render in its UI. `src` is required; `mimeType`,
+        // `sizes`, and `theme` ('light' | 'dark') are optional hints.
+        icons: [
+            { src: 'https://example.com/icons/chart.svg', mimeType: 'image/svg+xml', sizes: ['any'] },
+            { src: 'https://example.com/icons/chart-48.png', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' }
+        ]
+    },
+    async ({ data }): Promise<CallToolResult> => {
+        // ... render chart ...
+        return { content: [{ type: 'text', text: `Charted ${data.length} points` }] };
+    }
+);
+```
+
+> [!NOTE]
+> Clients that render icons must support `image/png` and `image/jpeg`, and should also support `image/svg+xml` and `image/webp`. Pass the same `icons` field to `registerPrompt`, `registerResource`, and the `McpServer` constructor's server-info object to advertise icons for prompts, resources, and the server itself.
+
 ### Error handling
 
 Return `isError: true` to report tool-level errors. The LLM sees these and can self-correct, unlike protocol-level errors which are hidden from it:

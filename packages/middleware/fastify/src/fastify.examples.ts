@@ -7,7 +7,7 @@
  * @module
  */
 
-import { createMcpFastifyApp } from './fastify.js';
+import { createMcpFastifyApp } from './fastify';
 
 /**
  * Example: Basic usage with default DNS rebinding protection.

@@ -5,8 +5,8 @@
     "compilerOptions": {
         "paths": {
             "*": ["./*"],
-            "@modelcontextprotocol/eslint-config": ["./node_modules/@modelcontextprotocol/eslint-config/tsconfig.json"],
-            "@modelcontextprotocol/vitest-config": ["./node_modules/@modelcontextprotocol/vitest-config/tsconfig.json"]
+            "@modelcontextprotocol/core-internal/schemas": ["./node_modules/@modelcontextprotocol/core-internal/src/types/schemas.ts"],
+            "@modelcontextprotocol/core-internal/auth": ["./node_modules/@modelcontextprotocol/core-internal/src/shared/auth.ts"]
         }
     }
 }

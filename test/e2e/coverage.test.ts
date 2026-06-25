@@ -13,7 +13,7 @@ import { fileURLToPath } from 'node:url';
 
 import { expect, test } from 'vitest';
 
-import { REQUIREMENTS } from './requirements.js';
+import { REQUIREMENTS } from './requirements';
 
 const E2E_DIR = path.dirname(fileURLToPath(import.meta.url));
 
