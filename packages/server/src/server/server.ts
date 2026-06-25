@@ -51,6 +51,7 @@ import {
     legacyProtocolVersions,
     LOG_LEVEL_META_KEY,
     LoggingLevelSchema,
+    ElicitRequestFormParamsSchema,
     mergeCapabilities,
     missingClientCapabilities,
     MissingRequiredClientCapabilityError,
@@ -62,6 +63,7 @@ import {
     SdkError,
     SdkErrorCode,
     standardSchemaToJsonSchema,
+    validateStandardSchema,
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
@@ -1185,31 +1187,42 @@ export class Server extends Protocol<ServerContext> {
                 return this.request({ method: 'elicitation/create', params: urlParams }, options);
             }
             case 'form': {
-                const formParams = this.normalizeElicitInputFormParams(
+                const { params: formParams, standardSchema } = this.normalizeElicitInputFormParams(
                     params as ElicitRequestFormParams | ElicitInputFormParams<StandardSchemaWithJSON>
                 );
 
                 const result = await this.request({ method: 'elicitation/create', params: formParams }, options);
 
-                if (validateAcceptedContent && result.action === 'accept' && result.content && formParams.requestedSchema) {
-                    try {
-                        const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema as JsonSchemaType);
-                        const validationResult = validator(result.content);
-
-                        if (!validationResult.valid) {
+                if (validateAcceptedContent && result.action === 'accept' && result.content !== undefined && formParams.requestedSchema) {
+                    if (standardSchema) {
+                        const parsedContent = await validateStandardSchema(standardSchema, result.content);
+                        if (!parsedContent.success) {
                             throw new ProtocolError(
                                 ProtocolErrorCode.InvalidParams,
-                                `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
+                                `Elicitation response content does not match requested schema: ${parsedContent.error}`
                             );
                         }
-                    } catch (error) {
-                        if (error instanceof ProtocolError) {
-                            throw error;
+                        return { ...result, content: parsedContent.data };
+                    } else {
+                        try {
+                            const validator = this._jsonSchemaValidator.getValidator(formParams.requestedSchema as JsonSchemaType);
+                            const validationResult = validator(result.content);
+
+                            if (!validationResult.valid) {
+                                throw new ProtocolError(
+                                    ProtocolErrorCode.InvalidParams,
+                                    `Elicitation response content does not match requested schema: ${validationResult.errorMessage}`
+                                );
+                            }
+                        } catch (error) {
+                            if (error instanceof ProtocolError) {
+                                throw error;
+                            }
+                            throw new ProtocolError(
+                                ProtocolErrorCode.InternalError,
+                                `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
+                            );
                         }
-                        throw new ProtocolError(
-                            ProtocolErrorCode.InternalError,
-                            `Error validating elicitation response: ${error instanceof Error ? error.message : String(error)}`
-                        );
                     }
                 }
                 return result;
@@ -1217,25 +1230,32 @@ export class Server extends Protocol<ServerContext> {
         }
     }
 
-    private normalizeElicitInputFormParams(
-        params: ElicitRequestFormParams | ElicitInputFormParams<StandardSchemaWithJSON>
-    ): ElicitRequestFormParams {
+    private normalizeElicitInputFormParams(params: ElicitRequestFormParams | ElicitInputFormParams<StandardSchemaWithJSON>): {
+        params: ElicitRequestFormParams;
+        standardSchema?: StandardSchemaWithJSON;
+    } {
         const formParams =
             params.mode === 'form'
                 ? (params as ElicitRequestFormParams)
                 : { ...(params as ElicitRequestFormParams), mode: 'form' as const };
 
         if (this.isElicitInputSchema(formParams.requestedSchema)) {
-            return {
+            const standardSchema = formParams.requestedSchema;
+            const normalizedParams = {
                 ...formParams,
-                requestedSchema: standardSchemaToJsonSchema(
-                    formParams.requestedSchema,
-                    'input'
-                ) as ElicitRequestFormParams['requestedSchema']
+                requestedSchema: standardSchemaToJsonSchema(standardSchema, 'input')
             };
+            const parsedParams = parseSchema(ElicitRequestFormParamsSchema, normalizedParams);
+            if (!parsedParams.success) {
+                throw new ProtocolError(
+                    ProtocolErrorCode.InvalidParams,
+                    'Elicitation requestedSchema only supports flat primitive properties (string, number, integer, boolean, and string enums).'
+                );
+            }
+            return { params: parsedParams.data, standardSchema };
         }
 
-        return formParams;
+        return { params: formParams };
     }
 
     private isElicitInputSchema(
