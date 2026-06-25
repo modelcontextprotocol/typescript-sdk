@@ -1363,12 +1363,16 @@ export function isHttpsUrl(value?: string): boolean {
 /**
  * SEP-2352: Normalizes an authorization server identity (issuer identifier or
  * authorization server URL) for comparison, so that textual variations of the
- * same URL (e.g. a missing trailing slash on an origin-only issuer) do not
+ * same URL (e.g. a missing trailing slash on an issuer URL) do not
  * register as an authorization server change.
  */
 function normalizeAuthorizationServerIdentity(value: string): string {
     try {
-        return new URL(value).href;
+        const url = new URL(value);
+        if (url.pathname !== '/') {
+            url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+        }
+        return url.href;
     } catch {
         return value;
     }

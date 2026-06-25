@@ -5098,6 +5098,7 @@ describe('SEP-2352: authorization server binding', () => {
         provider: OAuthClientProvider;
         invalidateCredentials: Mock;
         saveClientInformation: Mock;
+        saveTokens: Mock;
         redirectToAuthorization: Mock;
     } {
         let clientInformation: { client_id: string; client_secret?: string } | undefined = initialClientInformation;
@@ -5110,6 +5111,7 @@ describe('SEP-2352: authorization server binding', () => {
         const saveClientInformation = vi.fn(async (info: { client_id: string; client_secret?: string }) => {
             clientInformation = info;
         });
+        const saveTokens = vi.fn();
         const redirectToAuthorization = vi.fn();
 
         const provider: OAuthClientProvider = {
@@ -5125,7 +5127,7 @@ describe('SEP-2352: authorization server binding', () => {
             clientInformation: vi.fn(async () => clientInformation),
             saveClientInformation,
             tokens: vi.fn().mockResolvedValue(undefined),
-            saveTokens: vi.fn(),
+            saveTokens,
             redirectToAuthorization,
             saveCodeVerifier: vi.fn(),
             codeVerifier: vi.fn().mockResolvedValue('test_verifier'),
@@ -5133,13 +5135,14 @@ describe('SEP-2352: authorization server binding', () => {
             invalidateCredentials
         };
 
-        return { provider, invalidateCredentials, saveClientInformation, redirectToAuthorization };
+        return { provider, invalidateCredentials, saveClientInformation, saveTokens, redirectToAuthorization };
     }
 
     function mockDiscoveryAndRegistration(options: {
         resourceMetadata: { resource: string; authorization_servers: string[] };
         authMetadata: { issuer: string };
         registeredClient?: { client_id: string; client_secret?: string };
+        tokens?: OAuthTokens;
     }): void {
         mockFetch.mockImplementation((url, init) => {
             const urlString = url.toString();
@@ -5171,6 +5174,17 @@ describe('SEP-2352: authorization server binding', () => {
                         ...JSON.parse(init.body as string),
                         ...options.registeredClient
                     })
+                });
+            }
+
+            if (urlString.includes('/token') && init?.method === 'POST') {
+                if (!options.tokens) {
+                    return Promise.reject(new Error(`Unexpected token request: ${urlString}`));
+                }
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => options.tokens
                 });
             }
 
@@ -5213,6 +5227,46 @@ describe('SEP-2352: authorization server binding', () => {
         const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
         expect(redirectUrl.origin).toBe('https://new-auth.example.com');
         expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
+    });
+
+    it('keeps the re-registered client while exchanging the authorization code after an AS migration', async () => {
+        const { provider, invalidateCredentials, saveClientInformation, saveTokens, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' },
+            tokens: { access_token: 'new-access-token', token_type: 'Bearer' }
+        });
+
+        const redirectResult = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(redirectResult).toBe('REDIRECT');
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(saveClientInformation).toHaveBeenCalledWith(expect.objectContaining({ client_id: 'new-client-id' }));
+
+        invalidateCredentials.mockClear();
+        mockFetch.mockClear();
+
+        const exchangeResult = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            authorizationCode: 'returned-code'
+        });
+
+        expect(exchangeResult).toBe('AUTHORIZED');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(invalidateCredentials).not.toHaveBeenCalledWith('client');
+        expect(saveTokens).toHaveBeenCalledWith({ access_token: 'new-access-token', token_type: 'Bearer' });
+        expect(redirectToAuthorization).toHaveBeenCalledTimes(1);
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(0);
+        const tokenCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/token'));
+        expect(tokenCalls).toHaveLength(1);
+        expect(tokenCalls[0]![0].toString()).toBe('https://new-auth.example.com/token');
     });
 
     it('refreshes cached discovery from an explicit resource metadata challenge before comparing authorization servers', async () => {
@@ -5682,6 +5736,44 @@ describe('SEP-2352: authorization server binding', () => {
         const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
         expect(redirectUrl.toString()).toContain('https://auth.example.com/tenant1/authorize');
         expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
+    it('does not invalidate credentials when path-bearing authorization server identities only differ by a trailing slash', async () => {
+        const tenantAuthServerUrl = 'https://auth.example.com/tenant1';
+        const tenantAuthMetadata = {
+            issuer: tenantAuthServerUrl,
+            authorization_endpoint: `${tenantAuthServerUrl}/authorize`,
+            token_endpoint: `${tenantAuthServerUrl}/token`,
+            registration_endpoint: `${tenantAuthServerUrl}/register`,
+            response_types_supported: ['code'],
+            code_challenge_methods_supported: ['S256']
+        };
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'tenant-client-id',
+            client_secret: 'tenant-client-secret'
+        });
+
+        provider.authorizationServerUrl = vi.fn().mockResolvedValue(`${tenantAuthServerUrl}/`);
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: {
+                resource: 'https://resource.example.com',
+                authorization_servers: [tenantAuthServerUrl]
+            },
+            authMetadata: tenantAuthMetadata
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+
+        const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
+        expect(registrationCalls).toHaveLength(0);
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.toString()).toContain(`${tenantAuthServerUrl}/authorize`);
+        expect(redirectUrl.searchParams.get('client_id')).toBe('tenant-client-id');
     });
 
     it('does not invalidate credentials when the authorization server is unchanged', async () => {
