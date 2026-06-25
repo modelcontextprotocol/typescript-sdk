@@ -284,9 +284,10 @@ export async function validateStandardSchema<T extends StandardSchemaV1>(
 // Prompt argument extraction
 
 export function promptArgumentsFromStandardSchema(
-    schema: StandardJSONSchemaV1
+    schema: StandardJSONSchemaV1,
+    logger: SdkLogger = console
 ): Array<{ name: string; description?: string; required: boolean }> {
-    const jsonSchema = standardSchemaToJsonSchema(schema, 'input');
+    const jsonSchema = standardSchemaToJsonSchema(schema, 'input', logger);
     const properties = (jsonSchema.properties as Record<string, { description?: string }>) || {};
     const required = (jsonSchema.required as string[]) || [];
 
