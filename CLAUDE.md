@@ -64,11 +64,12 @@ The SDK is organized into three main layers:
 
 ### Public API Exports
 
-The SDK has a two-layer export structure to separate internal code from the public API:
+The SDK separates internal code from the public API surface:
 
 - **`@modelcontextprotocol/core-internal`** (main entry, `packages/core-internal/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
 - **`@modelcontextprotocol/core-internal/public`** (`packages/core-internal/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
 - **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core-internal/public`.
+- **`@modelcontextprotocol/core`** (`packages/core/src/index.ts`) — Public Zod-schema package. Re-exports **only** the `*Schema` Zod constants (MCP spec + OAuth/OpenID), bundled from `core-internal` at build time. The published home for raw runtime validation (`CallToolResultSchema.parse(...)`); runtime-neutral (`zod` is its only dependency). Not consumed by the sibling packages — `client`/`server` keep their own bundled schema copies and stay Zod-free in their public surface.
 
 When modifying exports:
 - Use explicit named exports, not `export *`, in package `index.ts` files and `core-internal/public`.
