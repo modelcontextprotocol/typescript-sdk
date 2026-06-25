@@ -143,15 +143,22 @@ export const importPathsTransform: Transform = {
                 continue;
             }
 
+            // Resolve a RESOLVE_BY_CONTEXT mapping (sdk/types.js, sdk/shared/auth.js) only when a binding
+            // actually routes to the context package. resolveTypesPackage's diagnostic sink emits a "could
+            // not determine project type" warning (or, for a 'both' project, an info note), so resolving
+            // eagerly would emit that note even for an import of nothing but `*Schema` constants — which
+            // routes entirely to sdk-shared and never uses the context package. A namespace or default
+            // binding always needs context; a named symbol needs it only when it has no per-symbol override
+            // (i.e. it is not a `*Schema` routed to sdk-shared).
             let targetPackage = mapping.target;
             if (targetPackage === 'RESOLVE_BY_CONTEXT') {
-                targetPackage = resolveTypesPackage(context, hasClientImport, hasServerImport, {
-                    filePath,
-                    line,
-                    diagnostics
-                });
-                if (mapping.subpathSuffix) {
-                    targetPackage = `${targetPackage}${mapping.subpathSuffix}`;
+                const needsContext =
+                    namespaceImport != null ||
+                    defaultImport != null ||
+                    namedImports.some(n => symbolTargetOverride(n.getName(), mapping!) === undefined);
+                if (needsContext) {
+                    const base = resolveTypesPackage(context, hasClientImport, hasServerImport, { filePath, line, diagnostics });
+                    targetPackage = mapping.subpathSuffix ? `${base}${mapping.subpathSuffix}` : base;
                 }
             }
 
@@ -165,14 +172,18 @@ export const importPathsTransform: Transform = {
                 }
             }
 
-            // Default and namespace imports cannot be split per-symbol — the whole binding moves to one
-            // package. Named imports (aliased or not) fall through to the per-symbol splitter below, so a
-            // single aliased specifier no longer forces unrelated symbols into the wrong package.
-            if (defaultImport || namespaceImport) {
+            // A namespace import (`import * as ns from …`) cannot be split per-symbol — usages are
+            // qualified (`ns.Foo`), so the whole binding moves to one package. Named imports (aliased or
+            // not), including the named siblings of a default import, DO fall through to the per-symbol
+            // splitter below — so an all-`*Schema` import routes entirely to sdk-shared, a single aliased
+            // specifier no longer forces unrelated symbols into the wrong package, and a mixed
+            // `import sdk, { CallToolResultSchema }` routes the schema to sdk-shared while the default
+            // binding (handled at the end of the per-symbol path) moves to the context package.
+            if (namespaceImport) {
                 const effectiveTarget = targetPackage;
-                // A namespace import (`import * as ns from '…/types.js'`) cannot be split per-symbol, so
-                // any `ns.<Name>Schema` accesses would silently resolve against the wrong package. Flag them.
-                if (namespaceImport && mapping.schemaSymbolTarget) {
+                // Any `ns.<Name>Schema` accesses would silently resolve against the wrong package (the
+                // namespace can't be split), so flag them.
+                if (mapping.schemaSymbolTarget) {
                     const nsName = namespaceImport.getText();
                     // Map each accessed v1 name to the v2 name sdk-shared actually exports — some are
                     // renamed (e.g. JSONRPCErrorSchema → JSONRPCErrorResponseSchema), and sdk-shared only
@@ -204,22 +215,14 @@ export const importPathsTransform: Transform = {
                 usedPackages.add(effectiveTarget);
                 imp.setModuleSpecifier(effectiveTarget);
                 if (mapping.renamedSymbols) {
-                    for (const n of namedImports) {
-                        const newName = mapping.renamedSymbols[n.getName()];
-                        if (newName) {
-                            n.setName(newName);
-                        }
-                    }
-                    if (namespaceImport) {
-                        diagnostics.push(
-                            actionRequired(
-                                filePath,
-                                imp,
-                                `Namespace import of ${specifier}: exported symbol(s) ${Object.keys(mapping.renamedSymbols).join(', ')} ` +
-                                    `were renamed in ${effectiveTarget}. Update qualified accesses manually.`
-                            )
-                        );
-                    }
+                    diagnostics.push(
+                        actionRequired(
+                            filePath,
+                            imp,
+                            `Namespace import of ${specifier}: exported symbol(s) ${Object.keys(mapping.renamedSymbols).join(', ')} ` +
+                                `were renamed in ${effectiveTarget}. Update qualified accesses manually.`
+                        )
+                    );
                 }
                 changesCount++;
                 if (mapping.migrationHint) {
@@ -240,7 +243,19 @@ export const importPathsTransform: Transform = {
                 usedPackages.add(symbolTarget);
                 addPending(symbolTarget, [alias ? { name: resolvedName, alias } : resolvedName], specifierTypeOnly);
             }
-            imp.remove();
+            if (defaultImport) {
+                // The default binding can't be split per-symbol, so move it (and the module specifier) to
+                // the resolved context/target package. The named siblings were just routed per-symbol
+                // above, so drop them from this now default-only import.
+                const effectiveTarget = targetPackage;
+                usedPackages.add(effectiveTarget);
+                if (namedImports.length > 0) {
+                    imp.removeNamedImports();
+                }
+                imp.setModuleSpecifier(effectiveTarget);
+            } else {
+                imp.remove();
+            }
             changesCount++;
             if (mapping.migrationHint) {
                 diagnostics.push(info(filePath, line, mapping.migrationHint));

@@ -213,6 +213,56 @@ describe('import-paths transform', () => {
         expect(result).not.toContain('@modelcontextprotocol/sdk/shared/auth');
     });
 
+    it('does not emit a project-type note when every symbol routes to sdk-shared (both project)', () => {
+        // A types.js import of nothing but `*Schema` constants routes entirely to sdk-shared, so the
+        // context package is never used — resolveTypesPackage must not be called, and no "both"-project
+        // info note should be emitted.
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { CallToolResultSchema, ListToolsResultSchema } from '@modelcontextprotocol/sdk/types.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'both' });
+        expect(result.diagnostics.some(d => /both client and server|determine project type/i.test(d.message))).toBe(false);
+        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/sdk-shared');
+        expect(sourceFile.getFullText()).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('does not warn about project type when an auth-schema-only import routes entirely to sdk-shared (unknown project)', () => {
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { OAuthTokensSchema, OAuthMetadataSchema } from '@modelcontextprotocol/sdk/shared/auth.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'unknown' });
+        expect(result.diagnostics.some(d => /determine project type/i.test(d.message))).toBe(false);
+        expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/sdk-shared');
+    });
+
+    it('still warns about project type when a non-schema symbol falls through to context (unknown project)', () => {
+        // Control: `Tool` is a type with no schema-name match, so it falls through to context resolution —
+        // the warning must still fire (lazy resolution must not suppress genuine fall-throughs).
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile(
+            'test.ts',
+            `import { CallToolResultSchema, Tool } from '@modelcontextprotocol/sdk/types.js';\n`
+        );
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'unknown' });
+        expect(result.diagnostics.some(d => /determine project type/i.test(d.message))).toBe(true);
+    });
+
+    it('splits a mixed default + named schema import — schema to sdk-shared, default to context', () => {
+        // The named `CallToolResultSchema` must route to sdk-shared even though a default import is present;
+        // the default binding (which can't be split) moves to the context package. Pre-fix the whole import
+        // moved to context and the schema silently became a "no exported member" error.
+        const result = applyTransform(`import sdk, { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';\n`, {
+            projectType: 'server'
+        });
+        expect(result).toMatch(/import\s*\{[^}]*\bCallToolResultSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/sdk-shared["']/);
+        expect(result).toMatch(/import\s+sdk\s+from\s*["']@modelcontextprotocol\/server["']/);
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
     it('does not rewrite schema .parse() usages (migrates as an import-path swap)', () => {
         const input = [
             `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
