@@ -1,6 +1,6 @@
 {
     "name": "@modelcontextprotocol/client",
-    "version": "2.0.0-alpha.2",
+    "version": "2.0.0-alpha.3",
     "description": "Model Context Protocol implementation for TypeScript - Client package",
     "license": "MIT",
     "author": "Anthropic, PBC (https://anthropic.com)",
