@@ -1,7 +1,13 @@
-import type { JsonSchemaType, JsonSchemaValidatorResult, jsonSchemaValidator } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { expectTypeOf } from 'vitest';
 import * as z from 'zod/v4';
+import type {
+    ElicitInputFormParams,
+    ElicitInputResult,
+    JsonSchemaType,
+    JsonSchemaValidatorResult,
+    jsonSchemaValidator
+} from '../../src/index';
 import { fromJsonSchema } from '../../src/fromJsonSchema';
 import { Server } from '../../src/server/server';
 
@@ -118,33 +124,86 @@ describe('server JSON Schema validator overrides', () => {
                 await clientTransport.send({
                     jsonrpc: '2.0',
                     id: message.id,
-                    result: { action: 'accept', content: { name: 'Ada Lovelace' } }
+                    result: { action: 'accept', content: { count: '5' } }
                 });
             }
         };
 
         const schema = z.object({
-            name: z.string().describe('Full name'),
-            subscribe: z.boolean().optional()
+            count: z.coerce.number().min(1),
+            newsletter: z.boolean().default(false)
         });
 
-        const result = await server.elicitInput({
-            message: 'What is your name?',
+        const params = {
+            message: 'How many registrations?',
             requestedSchema: schema
-        });
+        } satisfies ElicitInputFormParams<typeof schema>;
 
-        expectTypeOf(result.content).toEqualTypeOf<{ name: string; subscribe?: boolean | undefined } | undefined>();
-        expect(result).toEqual({ action: 'accept', content: { name: 'Ada Lovelace' } });
+        const result = await server.elicitInput(params);
+
+        expectTypeOf(result).toMatchTypeOf<ElicitInputResult<typeof schema>>();
+        expectTypeOf(result.content).toEqualTypeOf<{ count: number; newsletter: boolean } | undefined>();
+        expect(result).toEqual({ action: 'accept', content: { count: 5, newsletter: false } });
         expect(requestedSchema).toMatchObject({
             type: 'object',
             properties: {
-                name: { type: 'string', description: 'Full name' },
-                subscribe: { type: 'boolean' }
+                count: { type: 'number', minimum: 1 },
+                newsletter: { type: 'boolean', default: false }
             },
-            required: ['name']
+            required: ['count']
         });
-        expect(validator.schemas).toEqual([requestedSchema]);
-        expect(validator.values).toEqual([{ name: 'Ada Lovelace' }]);
+        expect(validator.schemas).toEqual([]);
+        expect(validator.values).toEqual([]);
+
+        await server.close();
+        await clientTransport.close();
+    });
+
+    test('Server elicitInput rejects Standard Schemas outside the elicitation subset before sending', async () => {
+        const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: {} });
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        await clientTransport.start();
+
+        const initializeResponse = new Promise(resolve => {
+            clientTransport.onmessage = message => resolve(message);
+        });
+        await clientTransport.send({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+                protocolVersion: LATEST_PROTOCOL_VERSION,
+                capabilities: { elicitation: { form: {} } },
+                clientInfo: { name: 'test-client', version: '1.0.0' }
+            }
+        });
+        await initializeResponse;
+
+        let sawElicitationRequest = false;
+        clientTransport.onmessage = async message => {
+            if ('method' in message && 'id' in message && message.method === 'elicitation/create') {
+                sawElicitationRequest = true;
+                await clientTransport.send({
+                    jsonrpc: '2.0',
+                    id: message.id,
+                    result: { action: 'decline' }
+                });
+            }
+        };
+
+        await expect(
+            server.elicitInput({
+                message: 'Where should we ship it?',
+                requestedSchema: z.object({
+                    address: z.object({
+                        city: z.string()
+                    })
+                })
+            })
+        ).rejects.toThrow(/flat primitive properties/);
+        expect(sawElicitationRequest).toBe(false);
 
         await server.close();
         await clientTransport.close();
