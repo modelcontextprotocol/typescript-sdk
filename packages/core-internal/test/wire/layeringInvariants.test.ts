@@ -17,7 +17,7 @@ import { posix, sep } from 'node:path';
 
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
-import type { WireCodec } from '../../src/wire/codec.js';
+import type { WireCodec } from '../../src/wire/codec';
 
 const SRC_ROOT = new URL('../../src/', import.meta.url);
 

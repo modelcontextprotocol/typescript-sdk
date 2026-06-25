@@ -25,7 +25,7 @@ import {
     JSONRPCRequestSchema,
     JSONRPCResultResponseSchema,
     ResultSchema
-} from '../../src/types/index.js';
+} from '../../src/types/index';
 // The per-request envelope is wire-only vocabulary and now lives in the
 // 2026-era wire module (Q1 increment 2); its accept/reject line is unchanged.
 import {
@@ -33,7 +33,7 @@ import {
     ClientCapabilitiesSchema as Wire2026ClientCapabilitiesSchema,
     ListToolsResultSchema as Wire2026ListToolsResultSchema,
     RequestMetaEnvelopeSchema
-} from '../../src/wire/rev2026-07-28/schemas.js';
+} from '../../src/wire/rev2026-07-28/schemas';
 import type {
     CallToolResult,
     CompleteResult,
@@ -45,7 +45,7 @@ import type {
     ListToolsResult,
     ReadResourceResult,
     ServerCapabilities
-} from '../../src/types/index.js';
+} from '../../src/types/index';
 
 /** Extract zod issue codes without depending on zod's generics. */
 const issueCodes = (err: unknown): string[] => ((err as { issues?: Array<{ code: string }> }).issues ?? []).map(i => i.code);

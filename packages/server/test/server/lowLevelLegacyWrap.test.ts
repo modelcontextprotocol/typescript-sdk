@@ -11,7 +11,7 @@ import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@model
 import { InMemoryTransport, isJSONRPCResultResponse, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
-import { Server } from '../../src/server/server.js';
+import { Server } from '../../src/server/server';
 
 async function wire(server: Server) {
     const [peerTx, serverTx] = InMemoryTransport.createLinkedPair();

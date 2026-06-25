@@ -42,10 +42,10 @@ import {
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import type { McpServerFactory } from '../../src/server/createMcpHandler.js';
-import { McpServer } from '../../src/server/mcp.js';
-import type { ServeStdioOptions } from '../../src/server/serveStdio.js';
-import { serveStdio } from '../../src/server/serveStdio.js';
+import type { McpServerFactory } from '../../src/server/createMcpHandler';
+import { McpServer } from '../../src/server/mcp';
+import type { ServeStdioOptions } from '../../src/server/serveStdio';
+import { serveStdio } from '../../src/server/serveStdio';
 
 const MODERN = '2026-07-28';
 

@@ -17,17 +17,17 @@
 import { describe, expect, expectTypeOf, test } from 'vitest';
 import * as z from 'zod/v4';
 
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { Protocol } from '../../src/shared/protocol.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
-import type { JSONRPCMessage, JSONRPCRequest, RequestMetaEnvelope, Result } from '../../src/types/index.js';
+import type { BaseContext } from '../../src/shared/protocol';
+import { Protocol } from '../../src/shared/protocol';
+import { InMemoryTransport } from '../../src/util/inMemory';
+import type { JSONRPCMessage, JSONRPCRequest, RequestMetaEnvelope, Result } from '../../src/types/index';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     LOG_LEVEL_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     RELATED_TASK_META_KEY
-} from '../../src/types/index.js';
+} from '../../src/types/index';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}

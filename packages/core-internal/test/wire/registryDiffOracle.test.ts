@@ -20,8 +20,8 @@ import path from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import { rev2025NotificationMethods, rev2025RequestMethods } from '../../src/wire/rev2025-11-25/registry.js';
-import { rev2026NotificationMethods, rev2026RequestMethods } from '../../src/wire/rev2026-07-28/registry.js';
+import { rev2025NotificationMethods, rev2025RequestMethods } from '../../src/wire/rev2025-11-25/registry';
+import { rev2026NotificationMethods, rev2026RequestMethods } from '../../src/wire/rev2026-07-28/registry';
 
 const ANCHORS = {
     '2025-11-25': path.resolve(__dirname, '../../src/types/spec.types.2025-11-25.ts'),

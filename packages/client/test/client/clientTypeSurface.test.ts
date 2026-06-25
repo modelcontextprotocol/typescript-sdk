@@ -9,7 +9,7 @@
 import type { CallToolResult, EmptyResult, ListToolsResult, ReadResourceResult } from '@modelcontextprotocol/core-internal';
 import { describe, expectTypeOf, test } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
+import { Client } from '../../src/client/client';
 
 type KnownKeyOf<T> = keyof { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
 

@@ -17,9 +17,9 @@ import {
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { invoke } from '../../src/server/invoke.js';
-import { McpServer } from '../../src/server/mcp.js';
-import { Server } from '../../src/server/server.js';
+import { invoke } from '../../src/server/invoke';
+import { McpServer } from '../../src/server/mcp';
+import { Server } from '../../src/server/server';
 
 const MODERN_REVISION = '2026-07-28';
 const MODERN: MessageClassification = { era: 'modern', revision: MODERN_REVISION };

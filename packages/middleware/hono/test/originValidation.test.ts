@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { vi } from 'vitest';
 
-import { createMcpHonoApp } from '../src/hono.js';
-import { localhostOriginValidation, originValidation } from '../src/middleware/originValidation.js';
+import { createMcpHonoApp } from '../src/hono';
+import { localhostOriginValidation, originValidation } from '../src/middleware/originValidation';
 
 describe('@modelcontextprotocol/hono origin validation', () => {
     test('originValidation blocks a disallowed Origin and allows an allowed Origin', async () => {

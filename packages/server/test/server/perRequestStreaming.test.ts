@@ -13,9 +13,9 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
-import type { PerRequestResponseMode } from '../../src/server/perRequestTransport.js';
-import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport.js';
-import { Server } from '../../src/server/server.js';
+import type { PerRequestResponseMode } from '../../src/server/perRequestTransport';
+import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport';
+import { Server } from '../../src/server/server';
 
 const MODERN_REVISION = '2026-07-28';
 const MODERN: MessageClassification = { era: 'modern', revision: MODERN_REVISION };

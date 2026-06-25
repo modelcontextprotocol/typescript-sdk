@@ -22,8 +22,8 @@
 import { describe, expect, test } from 'vitest';
 import type * as z4 from 'zod/v4';
 
-import type * as SDK from '../../src/types/index.js';
-import type * as Wire2026 from '../../src/wire/rev2026-07-28/schemas.js';
+import type * as SDK from '../../src/types/index';
+import type * as Wire2026 from '../../src/wire/rev2026-07-28/schemas';
 
 /* eslint-disable @typescript-eslint/no-unused-vars */
 

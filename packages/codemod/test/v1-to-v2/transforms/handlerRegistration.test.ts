@@ -93,7 +93,7 @@ describe('handler-registration transform', () => {
 
     it('does not replace schema identifiers from non-MCP packages', () => {
         const input = [
-            `import { CallToolRequestSchema } from './local-schemas.js';`,
+            `import { CallToolRequestSchema } from './local-schemas';`,
             `server.setRequestHandler(CallToolRequestSchema, async (request) => {`,
             `    return { content: [] };`,
             `});`,
@@ -106,14 +106,14 @@ describe('handler-registration transform', () => {
 
     it('does not rewrite local import when aliased MCP import has same export name', () => {
         const input = [
-            `import { CallToolRequestSchema } from './local-schemas.js';`,
+            `import { CallToolRequestSchema } from './local-schemas';`,
             `import { CallToolRequestSchema as McpSchema } from '@modelcontextprotocol/sdk/types.js';`,
             `server.setRequestHandler(CallToolRequestSchema, async () => ({ content: [] }));`,
             `validateSchema(McpSchema);`,
             ''
         ].join('\n');
         const result = applyTransform(input);
-        expect(result).toContain("from './local-schemas.js'");
+        expect(result).toContain("from './local-schemas'");
         expect(result).toContain('setRequestHandler(CallToolRequestSchema');
         expect(result).not.toContain("'tools/call'");
     });

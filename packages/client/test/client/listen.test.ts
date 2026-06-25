@@ -17,7 +17,7 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
+import { Client } from '../../src/client/client';
 
 const MODERN = '2026-07-28';
 const flush = () => new Promise(r => setTimeout(r, 10));

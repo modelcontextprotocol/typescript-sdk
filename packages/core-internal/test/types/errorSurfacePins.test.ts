@@ -12,7 +12,7 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { SdkError, SdkErrorCode, SdkHttpError } from '../../src/errors/sdkErrors.js';
+import { SdkError, SdkErrorCode, SdkHttpError } from '../../src/errors/sdkErrors';
 import {
     DEFAULT_NEGOTIATED_PROTOCOL_VERSION,
     INTERNAL_ERROR,
@@ -28,8 +28,8 @@ import {
     ResourceNotFoundError,
     UnsupportedProtocolVersionError,
     UrlElicitationRequiredError
-} from '../../src/types/index.js';
-import { STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../src/shared/stdio.js';
+} from '../../src/types/index';
+import { STDIO_DEFAULT_MAX_BUFFER_SIZE } from '../../src/shared/stdio';
 
 describe('ProtocolErrorCode', () => {
     test('numeric values are frozen wire ABI', () => {

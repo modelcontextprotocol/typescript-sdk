@@ -20,10 +20,10 @@ import {
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { invoke } from '../../src/server/invoke.js';
-import { McpServer, ResourceTemplate } from '../../src/server/mcp.js';
-import type { ServerOptions } from '../../src/server/server.js';
-import { installModernOnlyHandlers, Server } from '../../src/server/server.js';
+import { invoke } from '../../src/server/invoke';
+import { McpServer, ResourceTemplate } from '../../src/server/mcp';
+import type { ServerOptions } from '../../src/server/server';
+import { installModernOnlyHandlers, Server } from '../../src/server/server';
 
 const MODERN_REVISION = '2026-07-28';
 const MODERN: MessageClassification = { era: 'modern', revision: MODERN_REVISION };

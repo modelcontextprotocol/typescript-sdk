@@ -12,10 +12,10 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { hasEnvelopeClaim, validateEnvelopeMeta } from '../../src/shared/envelope.js';
-import type { InboundHttpRequest, InboundLegacyRoute } from '../../src/shared/inboundClassification.js';
-import { classifyInboundRequest, modernOnlyStrictRejection } from '../../src/shared/inboundClassification.js';
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants.js';
+import { hasEnvelopeClaim, validateEnvelopeMeta } from '../../src/shared/envelope';
+import type { InboundHttpRequest, InboundLegacyRoute } from '../../src/shared/inboundClassification';
+import { classifyInboundRequest, modernOnlyStrictRejection } from '../../src/shared/inboundClassification';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants';
 
 const MODERN_REVISION = '2026-07-28';
 

@@ -35,7 +35,7 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
-import { discoverAdvertisedCapabilities, Server } from '../../src/server/server.js';
+import { discoverAdvertisedCapabilities, Server } from '../../src/server/server';
 
 const MODERN = '2026-07-28';
 /** A supported list spanning both eras — what the constant becomes after a future bump. */

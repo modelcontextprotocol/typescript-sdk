@@ -18,9 +18,9 @@
  * every wire leg unchanged, and `maxTotalTimeout` bounds the whole flow by
  * shrinking the budget passed to each leg — no new timer system.
  */
-import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
-import { isInputRequiredResult } from '../types/guards.js';
-import type { Progress } from '../types/types.js';
+import { SdkError, SdkErrorCode } from '../errors/sdkErrors';
+import { isInputRequiredResult } from '../types/guards';
+import type { Progress } from '../types/types';
 
 /**
  * Whether the multi-round-trip driver fulfils `input_required` results

@@ -17,10 +17,10 @@
  */
 import type { AuthInfo, JSONRPCNotification, JSONRPCRequest, MessageClassification } from '@modelcontextprotocol/core-internal';
 
-import type { McpServer } from './mcp.js';
-import type { PerRequestResponseMode } from './perRequestTransport.js';
-import { PerRequestHTTPServerTransport } from './perRequestTransport.js';
-import type { Server } from './server.js';
+import type { McpServer } from './mcp';
+import type { PerRequestResponseMode } from './perRequestTransport';
+import { PerRequestHTTPServerTransport } from './perRequestTransport';
+import type { Server } from './server';
 
 /** Per-exchange context for {@linkcode invoke}. */
 export interface InvokeContext {

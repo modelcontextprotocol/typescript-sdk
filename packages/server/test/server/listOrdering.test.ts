@@ -10,8 +10,8 @@
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { invoke } from '../../src/server/invoke.js';
-import { McpServer } from '../../src/server/mcp.js';
+import { invoke } from '../../src/server/invoke';
+import { McpServer } from '../../src/server/mcp';
 
 const LEGACY = { classification: { era: 'legacy' as const } };
 

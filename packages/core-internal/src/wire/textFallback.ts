@@ -1,4 +1,4 @@
-import type { CallToolResult } from '../types/types.js';
+import type { CallToolResult } from '../types/types';
 
 /**
  * SEP-2106 §4.3 TextContent auto-append, era-agnostic, called from BOTH

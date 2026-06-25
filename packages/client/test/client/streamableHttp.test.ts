@@ -1018,7 +1018,7 @@ describe('StreamableHTTPClientTransport', () => {
             })
             .mockResolvedValueOnce({ ok: true, status: 202, headers: new Headers() });
 
-        const authModule = await import('../../src/client/auth.js');
+        const authModule = await import('../../src/client/auth');
         const authSpy = vi.spyOn(authModule, 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
@@ -1050,9 +1050,9 @@ describe('StreamableHTTPClientTransport', () => {
             text: () => Promise.resolve('Insufficient scope')
         });
 
-        const authModule = await import('../../src/client/auth.js');
+        const authModule = await import('../../src/client/auth');
         const authSpy = vi.spyOn(authModule, 'auth');
-        const { InsufficientScopeError } = await import('../../src/client/authErrors.js');
+        const { InsufficientScopeError } = await import('../../src/client/authErrors');
 
         const sendPromise = transport.send(message);
         await expect(sendPromise).rejects.toBeInstanceOf(InsufficientScopeError);

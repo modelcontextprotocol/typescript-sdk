@@ -45,8 +45,8 @@ import type {
     ResultTypeMap,
     Task,
     TaskAugmentedRequestParams
-} from '../../src/types/types.js';
-import { CallToolResultSchema, ResultSchema } from '../../src/types/schemas.js';
+} from '../../src/types/types';
+import { CallToolResultSchema, ResultSchema } from '../../src/types/schemas';
 
 /** Declared (non-index-signature) keys of T. */
 type KnownKeyOf<T> = keyof { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };

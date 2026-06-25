@@ -8,10 +8,10 @@
  */
 import { describe, expect, expectTypeOf, test } from 'vitest';
 
-import { ClientRequestSchema, DiscoverResultSchema, ServerResultSchema } from '../../src/types/index.js';
-import type { DiscoverResult, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../src/types/index.js';
-import { getRequestSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry.js';
-import { getRequestSchema2026, getResultSchema2026 } from '../../src/wire/rev2026-07-28/registry.js';
+import { ClientRequestSchema, DiscoverResultSchema, ServerResultSchema } from '../../src/types/index';
+import type { DiscoverResult, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../src/types/index';
+import { getRequestSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry';
+import { getRequestSchema2026, getResultSchema2026 } from '../../src/wire/rev2026-07-28/registry';
 
 describe('server/discover typed-funnel wiring (LC-02)', () => {
     test('ClientRequestSchema accepts a server/discover request', () => {

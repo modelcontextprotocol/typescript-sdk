@@ -24,8 +24,8 @@
  *   present on the 2025 era, absent from the 2026 era (the modern keepalive
  *   story is owned by the negotiation milestones).
  */
-import type { WireCodec } from './codec.js';
-import { codecForVersion, MODERN_WIRE_REVISION } from './codec.js';
+import type { WireCodec } from './codec';
+import { codecForVersion, MODERN_WIRE_REVISION } from './codec';
 
 export function bootstrapOutboundCodec(method: string): WireCodec | undefined {
     switch (method) {

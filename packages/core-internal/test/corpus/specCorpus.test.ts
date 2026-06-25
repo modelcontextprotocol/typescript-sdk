@@ -36,14 +36,14 @@ import {
     CreateMessageResultWithToolsSchema,
     JSONRPCErrorResponseSchema,
     JSONRPCResultResponseSchema
-} from '../../src/types/schemas.js';
-import * as schemas from '../../src/types/schemas.js';
+} from '../../src/types/schemas';
+import * as schemas from '../../src/types/schemas';
 // Era routing (Q1 increment 2): each corpus revision resolves through its own
 // wire-era module first — 2025 fixtures may use 2025-only vocabulary (tasks),
 // 2026 fixtures use 2026-only vocabulary (envelope, discover) — then falls
 // back to the shared neutral payload schemas.
-import * as wire2025 from '../../src/wire/rev2025-11-25/schemas.js';
-import * as wire2026 from '../../src/wire/rev2026-07-28/schemas.js';
+import * as wire2025 from '../../src/wire/rev2025-11-25/schemas';
+import * as wire2026 from '../../src/wire/rev2026-07-28/schemas';
 
 const FIXTURES_ROOT = join(__dirname, 'fixtures');
 

@@ -23,8 +23,8 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { HEADER_MISMATCH_ERROR_CODE, httpStatusForErrorCode, LADDER_ERROR_HTTP_STATUS } from '../../src/shared/inboundClassification.js';
-import { ProtocolErrorCode } from '../../src/types/enums.js';
+import { HEADER_MISMATCH_ERROR_CODE, httpStatusForErrorCode, LADDER_ERROR_HTTP_STATUS } from '../../src/shared/inboundClassification';
+import { ProtocolErrorCode } from '../../src/types/enums';
 
 describe('the status matrix — pinned cells', () => {
     const PINNED_LADDER_CELLS: ReadonlyArray<{ code: number; status: number; cell: string }> = [

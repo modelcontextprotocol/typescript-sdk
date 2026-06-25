@@ -10,7 +10,7 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
+import { Client } from '../../src/client/client';
 
 const MODERN = '2026-07-28';
 

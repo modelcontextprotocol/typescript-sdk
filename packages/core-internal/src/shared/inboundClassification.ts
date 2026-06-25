@@ -63,19 +63,19 @@
  * `settled` flag on {@linkcode InboundLadderRejection} stays available to mark
  * a cell provisional again while such a change is in flight.
  */
-import { PROTOCOL_VERSION_META_KEY } from '../types/constants.js';
-import { ProtocolErrorCode } from '../types/enums.js';
-import { ProtocolError, UnsupportedProtocolVersionError } from '../types/errors.js';
-import { isJSONRPCErrorResponse, isJSONRPCNotification, isJSONRPCRequest, isJSONRPCResultResponse } from '../types/guards.js';
-import type { JSONRPCNotification, JSONRPCRequest, MessageClassification } from '../types/types.js';
-import { envelopeClaimVersion, hasEnvelopeClaim, requestMetaOf, validateEnvelopeMeta } from './envelope.js';
+import { PROTOCOL_VERSION_META_KEY } from '../types/constants';
+import { ProtocolErrorCode } from '../types/enums';
+import { ProtocolError, UnsupportedProtocolVersionError } from '../types/errors';
+import { isJSONRPCErrorResponse, isJSONRPCNotification, isJSONRPCRequest, isJSONRPCResultResponse } from '../types/guards';
+import type { JSONRPCNotification, JSONRPCRequest, MessageClassification } from '../types/types';
+import { envelopeClaimVersion, hasEnvelopeClaim, requestMetaOf, validateEnvelopeMeta } from './envelope';
 // Value encoding is shared between the standard `Mcp-Name` header and the
 // custom `Mcp-Param-*` headers; the codec module already imports the
 // `HeaderMismatch` constant and rejection type from here, so this is a benign
 // two-module cycle (both sides only consume the other's exports inside
 // function bodies, never at module-evaluation time).
-import { decodeMcpParamValue } from './mcpParamHeaders.js';
-import { isModernProtocolVersion } from './protocolEras.js';
+import { decodeMcpParamValue } from './mcpParamHeaders';
+import { isModernProtocolVersion } from './protocolEras';
 
 /* ------------------------------------------------------------------------ *
  * Classifier input

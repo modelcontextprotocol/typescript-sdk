@@ -6,8 +6,8 @@ import {
     legacyProtocolVersions,
     modernProtocolVersions,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
-} from '../../src/shared/protocolEras.js';
-import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '../../src/types/constants.js';
+} from '../../src/shared/protocolEras';
+import { LATEST_PROTOCOL_VERSION, SUPPORTED_PROTOCOL_VERSIONS } from '../../src/types/constants';
 
 describe('protocol era helpers', () => {
     test('every released (legacy-list) version is classified legacy', () => {

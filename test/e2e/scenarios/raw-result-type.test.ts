@@ -26,8 +26,8 @@ import type { JSONRPCRequest } from '@modelcontextprotocol/server';
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const INPUT_REQUIRED_BODY = {
     resultType: 'input_required',

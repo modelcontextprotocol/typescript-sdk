@@ -331,7 +331,7 @@ describe('symbol-renames transform', () => {
 
     it('does not rename RequestHandlerExtra from non-MCP imports', () => {
         const input = [
-            `import type { RequestHandlerExtra } from './my-local-types.js';`,
+            `import type { RequestHandlerExtra } from './my-local-types';`,
             `type MyHandler = (extra: RequestHandlerExtra) => void;`,
             ''
         ].join('\n');

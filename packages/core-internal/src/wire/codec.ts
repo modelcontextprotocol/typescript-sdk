@@ -41,8 +41,8 @@
  * nothing per-revision is public surface, and nothing here may ever be
  * exported from `core/public`.
  */
-import type { SdkError } from '../errors/sdkErrors.js';
-import { isModernProtocolVersion } from '../shared/protocolEras.js';
+import type { SdkError } from '../errors/sdkErrors';
+import { isModernProtocolVersion } from '../shared/protocolEras';
 import type {
     CallToolResult,
     ClientCapabilities,
@@ -58,9 +58,9 @@ import type {
     RequestTypeMap,
     Result,
     ResultTypeMap
-} from '../types/types.js';
-import { rev2025Codec } from './rev2025-11-25/codec.js';
-import { rev2026Codec } from './rev2026-07-28/codec.js';
+} from '../types/types';
+import { rev2025Codec } from './rev2025-11-25/codec';
+import { rev2026Codec } from './rev2026-07-28/codec';
 
 /** Wire eras with distinct vocabulary. */
 export type WireEra = '2025-11-25' | '2026-07-28';

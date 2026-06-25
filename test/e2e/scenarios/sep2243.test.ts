@@ -10,9 +10,9 @@ import { encodeMcpParamValue, MCP_PARAM_HEADER_PREFIX } from '@modelcontextproto
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 
-import { modernEnvelopeMeta, wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { modernEnvelopeMeta, wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 /**
  * One tool with a single `x-mcp-header`-declared string parameter. Declared as

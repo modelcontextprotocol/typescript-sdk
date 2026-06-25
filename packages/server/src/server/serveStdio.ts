@@ -74,12 +74,12 @@ import {
     validateEnvelopeMeta
 } from '@modelcontextprotocol/core-internal';
 
-import type { McpServerFactory } from './createMcpHandler.js';
-import { DEFAULT_MAX_SUBSCRIPTIONS, StdioListenRouter } from './listenRouter.js';
-import { McpServer } from './mcp.js';
-import type { Server } from './server.js';
-import { installModernOnlyHandlers } from './server.js';
-import { StdioServerTransport } from './stdio.js';
+import type { McpServerFactory } from './createMcpHandler';
+import { DEFAULT_MAX_SUBSCRIPTIONS, StdioListenRouter } from './listenRouter';
+import { McpServer } from './mcp';
+import type { Server } from './server';
+import { installModernOnlyHandlers } from './server';
+import { StdioServerTransport } from './stdio';
 
 /** Options for {@linkcode serveStdio}. */
 export interface ServeStdioOptions {

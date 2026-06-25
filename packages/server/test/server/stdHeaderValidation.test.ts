@@ -22,8 +22,8 @@ import {
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { createMcpHandler } from '../../src/server/createMcpHandler.js';
-import { McpServer } from '../../src/server/mcp.js';
+import { createMcpHandler } from '../../src/server/createMcpHandler';
+import { McpServer } from '../../src/server/mcp';
 
 const MODERN = '2026-07-28';
 const ENVELOPE = {

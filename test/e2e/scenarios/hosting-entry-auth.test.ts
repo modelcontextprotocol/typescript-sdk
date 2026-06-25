@@ -26,8 +26,8 @@ import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const MODERN = '2026-07-28';
 const VALID_TOKEN = 'e2e-entry-access-token';

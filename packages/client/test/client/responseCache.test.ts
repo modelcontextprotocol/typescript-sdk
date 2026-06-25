@@ -11,9 +11,9 @@ import type { JSONRPCMessage, JSONRPCRequest, Tool } from '@modelcontextprotocol
 import { InMemoryTransport, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
-import type { CacheEntry, ResponseCacheStore } from '../../src/client/responseCache.js';
-import { ClientResponseCache, InMemoryResponseCacheStore } from '../../src/client/responseCache.js';
+import { Client } from '../../src/client/client';
+import type { CacheEntry, ResponseCacheStore } from '../../src/client/responseCache';
+import { ClientResponseCache, InMemoryResponseCacheStore } from '../../src/client/responseCache';
 
 const MODERN = '2026-07-28';
 

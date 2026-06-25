@@ -27,7 +27,7 @@
  */
 import * as z from 'zod/v4';
 
-import type { JSONObject, JSONValue } from '../../types/types.js';
+import type { JSONObject, JSONValue } from '../../types/types';
 
 /* ───────────────────────────────────────────────────────────────────────────
  * Building blocks

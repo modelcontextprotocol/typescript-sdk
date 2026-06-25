@@ -13,7 +13,7 @@ import {
     ListToolsResultSchema,
     ToolResultContentSchema,
     ToolSchema
-} from '../../src/wire/rev2025-11-25/schemas.js';
+} from '../../src/wire/rev2025-11-25/schemas';
 
 describe('frozen 2025-11-25 wire shapes (Q10-L2)', () => {
     it('CallToolResultSchema rejects non-object structuredContent', () => {

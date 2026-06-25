@@ -18,9 +18,9 @@ import {
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { StdioListenRouter } from '../../src/server/listenRouter.js';
-import { McpServer } from '../../src/server/mcp.js';
-import { serveStdio } from '../../src/server/serveStdio.js';
+import { StdioListenRouter } from '../../src/server/listenRouter';
+import { McpServer } from '../../src/server/mcp';
+import { serveStdio } from '../../src/server/serveStdio';
 
 const ENVELOPE = {
     [PROTOCOL_VERSION_META_KEY]: '2026-07-28',

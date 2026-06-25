@@ -25,11 +25,11 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { Protocol, setNegotiatedProtocolVersion } from '../../src/shared/protocol.js';
-import type { JSONRPCRequest } from '../../src/types/index.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
+import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors';
+import type { BaseContext } from '../../src/shared/protocol';
+import { Protocol, setNegotiatedProtocolVersion } from '../../src/shared/protocol';
+import type { JSONRPCRequest } from '../../src/types/index';
+import { InMemoryTransport } from '../../src/util/inMemory';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}
@@ -201,7 +201,7 @@ describe('raw-first resultType handling — 2025 era (strip-on-lift, Q1-SD3 ii)'
 
 describe('decode step 2 — the wire-exact schema lookup is own-key only', () => {
     test("a prototype-chain method name (e.g. 'constructor') skips the wire-exact parse instead of throwing", async () => {
-        const { rev2026Codec } = await import('../../src/wire/rev2026-07-28/codec.js');
+        const { rev2026Codec } = await import('../../src/wire/rev2026-07-28/codec');
         // A bare object-prototype hit would surface Function (not a schema)
         // and throw a TypeError out of the decode hop. The lookup must treat
         // non-own keys exactly like unknown methods: no wire-exact parse,

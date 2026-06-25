@@ -29,9 +29,9 @@
  */
 import type * as z from 'zod/v4';
 
-import type { NotificationMethod, NotificationTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types.js';
-import type { Rev2026NotificationMethod, Rev2026RequestMethod } from './schemas.js';
-import { dispatchRequestSchemas, dispatchResultSchemas, notificationSchemas2026 } from './schemas.js';
+import type { NotificationMethod, NotificationTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types';
+import type { Rev2026NotificationMethod, Rev2026RequestMethod } from './schemas';
+import { dispatchRequestSchemas, dispatchResultSchemas, notificationSchemas2026 } from './schemas';
 
 /** The 2026-era request-method set (registry membership = the deletion story). */
 export function hasRequestMethod2026(method: string): method is Rev2026RequestMethod {

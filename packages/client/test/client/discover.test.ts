@@ -9,7 +9,7 @@ import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-inter
 import { isJSONRPCRequest, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
+import { Client } from '../../src/client/client';
 
 const MODERN = '2026-07-28';
 

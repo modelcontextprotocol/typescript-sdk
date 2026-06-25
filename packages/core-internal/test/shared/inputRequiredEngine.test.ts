@@ -6,11 +6,7 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import {
-    buildRetryLegRequestOptions,
-    partitionInputResponses,
-    synthesizeInputRequestContext
-} from '../../src/shared/inputRequiredEngine.js';
+import { buildRetryLegRequestOptions, partitionInputResponses, synthesizeInputRequestContext } from '../../src/shared/inputRequiredEngine';
 
 describe('per-retry-leg request options whitelist', () => {
     test('only the whitelisted fields carry over — resumption tokens and the related-request id never do', () => {

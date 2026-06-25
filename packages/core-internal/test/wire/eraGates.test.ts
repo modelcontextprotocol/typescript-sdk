@@ -35,11 +35,11 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { Protocol, setNegotiatedProtocolVersion } from '../../src/shared/protocol.js';
-import type { JSONRPCMessage, MessageClassification, Result } from '../../src/types/index.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
+import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors';
+import type { BaseContext } from '../../src/shared/protocol';
+import { Protocol, setNegotiatedProtocolVersion } from '../../src/shared/protocol';
+import type { JSONRPCMessage, MessageClassification, Result } from '../../src/types/index';
+import { InMemoryTransport } from '../../src/util/inMemory';
 import * as z from 'zod/v4';
 
 class TestProtocol extends Protocol<BaseContext> {
@@ -307,7 +307,7 @@ describe('the stamp seam and the never-stamp guarantee', () => {
     });
 
     test('the 2025 codec encodeResult is the identity (same reference, nothing added)', async () => {
-        const { rev2025Codec } = await import('../../src/wire/rev2025-11-25/codec.js');
+        const { rev2025Codec } = await import('../../src/wire/rev2025-11-25/codec');
         const result = { content: [{ type: 'text', text: 'x' }] } as unknown as Result;
         expect(rev2025Codec.encodeResult('tools/call', result)).toBe(result);
     });
@@ -564,7 +564,7 @@ describe('outbound era gates — typed local error before the transport', () => 
 
 describe('T6 width-leak killed at both roots', () => {
     test('2026 era: a task-shaped tools/call body can never parse as an empty success', async () => {
-        const { rev2026Codec } = await import('../../src/wire/rev2026-07-28/codec.js');
+        const { rev2026Codec } = await import('../../src/wire/rev2026-07-28/codec');
         // resultType present-and-complete but the body is task-shaped: the
         // wire-exact parse requires content — loud invalid, never {content: []}.
         const decoded = rev2026Codec.decodeResult('tools/call', {
@@ -575,8 +575,8 @@ describe('T6 width-leak killed at both roots', () => {
     });
 
     test('2025 era: with the content default gone, a bare task-shaped body fails the plain schema loudly', async () => {
-        const { rev2025Codec } = await import('../../src/wire/rev2025-11-25/codec.js');
-        const { CallToolResultSchema } = await import('../../src/wire/rev2025-11-25/schemas.js');
+        const { rev2025Codec } = await import('../../src/wire/rev2025-11-25/codec');
+        const { CallToolResultSchema } = await import('../../src/wire/rev2025-11-25/schemas');
         const decoded = rev2025Codec.decodeResult('tools/call', { task: { taskId: 't-1', status: 'working' } });
         expect(decoded.kind).toBe('complete');
         if (decoded.kind === 'complete') {
@@ -590,7 +590,7 @@ describe('T6 width-leak killed at both roots', () => {
         // failure (surfaced as a typed INVALID_RESULT — see
         // test/shared/typedMapAlignment.test.ts). Task interop is the
         // explicit-schema overload, never a silent union member.
-        const { getResultSchema } = await import('../../src/wire/rev2025-11-25/registry.js');
+        const { getResultSchema } = await import('../../src/wire/rev2025-11-25/registry');
         const plain = getResultSchema('tools/call');
         expect(plain).toBe(CallToolResultSchema);
         expect(

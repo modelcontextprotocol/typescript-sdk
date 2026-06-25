@@ -23,10 +23,10 @@ import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import { Protocol } from '../../src/shared/protocol.js';
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
-import type { JSONRPCMessage } from '../../src/types/index.js';
+import { Protocol } from '../../src/shared/protocol';
+import type { BaseContext } from '../../src/shared/protocol';
+import { InMemoryTransport } from '../../src/util/inMemory';
+import type { JSONRPCMessage } from '../../src/types/index';
 
 const REJECTION_DIR = join(__dirname, 'fixtures', 'rejection');
 

@@ -11,12 +11,12 @@
 import { describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { Protocol, setNegotiatedProtocolVersion } from '../../src/shared/protocol.js';
-import type { JSONRPCRequest } from '../../src/types/index.js';
-import { isInputRequiredResult } from '../../src/types/guards.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
-import { rev2026Codec } from '../../src/wire/rev2026-07-28/codec.js';
+import type { BaseContext } from '../../src/shared/protocol';
+import { Protocol, setNegotiatedProtocolVersion } from '../../src/shared/protocol';
+import type { JSONRPCRequest } from '../../src/types/index';
+import { isInputRequiredResult } from '../../src/types/guards';
+import { InMemoryTransport } from '../../src/util/inMemory';
+import { rev2026Codec } from '../../src/wire/rev2026-07-28/codec';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}

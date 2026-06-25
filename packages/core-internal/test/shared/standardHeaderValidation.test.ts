@@ -19,10 +19,10 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import type { InboundHttpRequest, InboundLadderRejection, InboundModernRoute } from '../../src/shared/inboundClassification.js';
-import { classifyInboundRequest, MCP_NAME_HEADER_SOURCE, validateStandardRequestHeaders } from '../../src/shared/inboundClassification.js';
-import { encodeMcpParamValue } from '../../src/shared/mcpParamHeaders.js';
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants.js';
+import type { InboundHttpRequest, InboundLadderRejection, InboundModernRoute } from '../../src/shared/inboundClassification';
+import { classifyInboundRequest, MCP_NAME_HEADER_SOURCE, validateStandardRequestHeaders } from '../../src/shared/inboundClassification';
+import { encodeMcpParamValue } from '../../src/shared/mcpParamHeaders';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants';
 
 const MODERN = '2026-07-28';
 const ENVELOPE = {

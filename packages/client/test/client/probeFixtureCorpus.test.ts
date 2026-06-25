@@ -22,9 +22,9 @@ import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-inter
 import { LATEST_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
-import type { ProbeClassifierContext, ProbeOutcome, ProbeVerdict } from '../../src/client/probeClassifier.js';
-import { classifyProbeOutcome } from '../../src/client/probeClassifier.js';
+import { Client } from '../../src/client/client';
+import type { ProbeClassifierContext, ProbeOutcome, ProbeVerdict } from '../../src/client/probeClassifier';
+import { classifyProbeOutcome } from '../../src/client/probeClassifier';
 
 const MODERN = '2026-07-28';
 

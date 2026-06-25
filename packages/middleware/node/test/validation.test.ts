@@ -2,8 +2,8 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 
 import { vi } from 'vitest';
 
-import { hostHeaderValidation, localhostHostValidation } from '../src/middleware/hostHeaderValidation.js';
-import { localhostOriginValidation, originValidation } from '../src/middleware/originValidation.js';
+import { hostHeaderValidation, localhostHostValidation } from '../src/middleware/hostHeaderValidation';
+import { localhostOriginValidation, originValidation } from '../src/middleware/originValidation';
 
 function fakeReqRes(headers: Record<string, string | undefined>) {
     const req = { headers } as unknown as IncomingMessage;

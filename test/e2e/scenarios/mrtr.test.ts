@@ -16,10 +16,10 @@ import { acceptedContent, inputRequired, McpServer, ProtocolError, UrlElicitatio
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import type { Wired } from '../helpers/index.js';
-import { wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import type { Wired } from '../helpers/index';
+import { wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 /** Every JSON-RPC request the wired client POSTed for the given method, in order. */
 function recordedRequests(wired: Wired, method: string): Array<Record<string, unknown>> {

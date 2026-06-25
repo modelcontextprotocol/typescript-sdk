@@ -23,13 +23,13 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { Protocol, setNegotiatedProtocolVersion } from '../../src/shared/protocol.js';
-import { attachCacheHintFallback, CACHEABLE_RESULT_METHODS } from '../../src/shared/resultCacheHints.js';
-import type { JSONRPCMessage, MessageClassification, Result } from '../../src/types/index.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
-import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec.js';
-import { rev2026Codec } from '../../src/wire/rev2026-07-28/codec.js';
+import type { BaseContext } from '../../src/shared/protocol';
+import { Protocol, setNegotiatedProtocolVersion } from '../../src/shared/protocol';
+import { attachCacheHintFallback, CACHEABLE_RESULT_METHODS } from '../../src/shared/resultCacheHints';
+import type { JSONRPCMessage, MessageClassification, Result } from '../../src/types/index';
+import { InMemoryTransport } from '../../src/util/inMemory';
+import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec';
+import { rev2026Codec } from '../../src/wire/rev2026-07-28/codec';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}

@@ -7,7 +7,7 @@
  */
 import { describe, expect, test, vi } from 'vitest';
 
-import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
+import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors';
 import {
     buildInputRequiredRetryParams,
     DEFAULT_INPUT_REQUIRED_AUTO_FULFILL,
@@ -15,7 +15,7 @@ import {
     REQUEST_STATE_ONLY_LEG_PACING_MS,
     resolveInputRequiredDriverConfig,
     runInputRequiredDriver
-} from '../../src/shared/inputRequiredDriver.js';
+} from '../../src/shared/inputRequiredDriver';
 
 const ELICIT_ENTRY = { method: 'elicitation/create', params: { mode: 'form', message: 'Name?' } };
 

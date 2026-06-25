@@ -20,14 +20,14 @@
  */
 import * as z from 'zod/v4';
 
-import type { RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types.js';
+import type { RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types';
 import {
     CreateMessageRequestParamsSchema,
     CreateMessageResultSchema,
     ElicitRequestParamsSchema,
     ElicitResultSchema,
     ListRootsResultSchema
-} from './schemas.js';
+} from './schemas';
 
 /** The embedded input-request methods of the 2026-07-28 revision. */
 export const INPUT_REQUEST_METHODS_2026 = ['elicitation/create', 'sampling/createMessage', 'roots/list'] as const;

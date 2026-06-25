@@ -31,8 +31,8 @@ import { createMcpHandler, isLegacyRequest, McpServer, WebStandardStreamableHTTP
 import { expect, vi } from 'vitest';
 import { z } from 'zod/v4';
 
-import { modernEnvelopeMeta } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
+import { modernEnvelopeMeta } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
 
 const LEGACY = '2025-11-25';
 

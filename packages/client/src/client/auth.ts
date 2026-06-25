@@ -27,20 +27,10 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import pkceChallenge from 'pkce-challenge';
 
-import {
-    AuthorizationServerMismatchError,
-    InsecureTokenEndpointError,
-    IssuerMismatchError,
-    RegistrationRejectedError
-} from './authErrors';
+import { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
 
 // Re-exported for back-compat — the canonical home is ./authErrors.js.
-export {
-    AuthorizationServerMismatchError,
-    InsecureTokenEndpointError,
-    IssuerMismatchError,
-    RegistrationRejectedError
-} from './authErrors';
+export { AuthorizationServerMismatchError, InsecureTokenEndpointError, IssuerMismatchError, RegistrationRejectedError } from './authErrors';
 
 /**
  * Function type for adding client authentication to token requests.

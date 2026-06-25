@@ -28,12 +28,12 @@
  */
 import type * as z from 'zod/v4';
 
-import type { CallToolResult, Result } from '../../types/types.js';
-import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec.js';
-import { appendTextFallbackForNonObject } from '../textFallback.js';
-import { isNonObjectJsonSchemaRoot, wrapOutputSchemaForLegacy } from './legacyWrap.js';
-import { getNotificationSchema, getRequestSchema, getResultSchema, hasNotificationMethod2025, hasRequestMethod2025 } from './registry.js';
-import { CreateMessageResultSchema, CreateMessageResultWithToolsSchema } from './schemas.js';
+import type { CallToolResult, Result } from '../../types/types';
+import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec';
+import { appendTextFallbackForNonObject } from '../textFallback';
+import { isNonObjectJsonSchemaRoot, wrapOutputSchemaForLegacy } from './legacyWrap';
+import { getNotificationSchema, getRequestSchema, getResultSchema, hasNotificationMethod2025, hasRequestMethod2025 } from './registry';
+import { CreateMessageResultSchema, CreateMessageResultWithToolsSchema } from './schemas';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);

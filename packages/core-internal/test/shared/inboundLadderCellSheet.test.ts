@@ -19,15 +19,15 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import type { InboundHttpRequest, InboundLadderRejection } from '../../src/shared/inboundClassification.js';
+import type { InboundHttpRequest, InboundLadderRejection } from '../../src/shared/inboundClassification';
 import {
     classifyInboundRequest,
     httpStatusForErrorCode,
     INBOUND_VALIDATION_LADDER,
     LADDER_ERROR_HTTP_STATUS,
     modernOnlyStrictRejection
-} from '../../src/shared/inboundClassification.js';
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants.js';
+} from '../../src/shared/inboundClassification';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../src/types/constants';
 
 const MODERN_REVISION = '2026-07-28';
 

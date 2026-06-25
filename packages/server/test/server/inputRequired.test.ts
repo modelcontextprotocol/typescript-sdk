@@ -41,9 +41,9 @@ import {
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
-import { McpServer } from '../../src/server/mcp.js';
-import type { ServerOptions } from '../../src/server/server.js';
-import { Server } from '../../src/server/server.js';
+import { McpServer } from '../../src/server/mcp';
+import type { ServerOptions } from '../../src/server/server';
+import { Server } from '../../src/server/server';
 
 const MODERN = '2026-07-28';
 

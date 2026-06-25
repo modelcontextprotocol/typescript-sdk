@@ -21,11 +21,11 @@ import type {
     SamplingMessageContentBlock,
     Tool,
     ToolResultContent
-} from '../../src/types/types.js';
+} from '../../src/types/types';
 import {
     CallToolResultSchema as Wire2025CallToolResultSchema,
     ToolSchema as Wire2025ToolSchema
-} from '../../src/wire/rev2025-11-25/schemas.js';
+} from '../../src/wire/rev2025-11-25/schemas';
 
 describe('SEP-2106 public-type widening', () => {
     it('CallToolResult.structuredContent is unknown', () => {

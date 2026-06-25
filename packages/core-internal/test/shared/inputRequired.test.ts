@@ -7,9 +7,9 @@
 import { describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';
 
-import { acceptedContent, inputRequired, withInputRequired } from '../../src/shared/inputRequired.js';
-import { isInputRequiredResult } from '../../src/types/guards.js';
-import { validateStandardSchema } from '../../src/util/standardSchema.js';
+import { acceptedContent, inputRequired, withInputRequired } from '../../src/shared/inputRequired';
+import { isInputRequiredResult } from '../../src/types/guards';
+import { validateStandardSchema } from '../../src/util/standardSchema';
 
 describe('inputRequired() builder', () => {
     test('builds a plain discriminated value (no brand) from inputRequests', () => {

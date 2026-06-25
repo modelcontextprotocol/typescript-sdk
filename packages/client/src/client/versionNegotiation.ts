@@ -25,8 +25,8 @@ import {
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
-import type { ProbeEnvironment, ProbeOutcome, ProbeTransportKind, ProbeVerdict } from './probeClassifier.js';
-import { classifyProbeOutcome } from './probeClassifier.js';
+import type { ProbeEnvironment, ProbeOutcome, ProbeTransportKind, ProbeVerdict } from './probeClassifier';
+import { classifyProbeOutcome } from './probeClassifier';
 
 /**
  * Probe policy for `'auto'` and pinned negotiation modes.

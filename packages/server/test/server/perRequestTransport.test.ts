@@ -4,7 +4,13 @@
  * pre-handler rejections, auth-info pass-through, and the close/teardown
  * chain.
  */
-import type { CallToolResult, JSONRPCNotification, JSONRPCRequest, MessageClassification, ServerContext } from '@modelcontextprotocol/core-internal';
+import type {
+    CallToolResult,
+    JSONRPCNotification,
+    JSONRPCRequest,
+    MessageClassification,
+    ServerContext
+} from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -17,8 +23,8 @@ import {
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport.js';
-import { Server } from '../../src/server/server.js';
+import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport';
+import { Server } from '../../src/server/server';
 
 const MODERN_REVISION = '2026-07-28';
 const MODERN: MessageClassification = { era: 'modern', revision: MODERN_REVISION };

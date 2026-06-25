@@ -7,8 +7,8 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { ProtocolErrorCode } from '../../src/types/enums.js';
-import { MissingRequiredClientCapabilityError, ProtocolError } from '../../src/types/errors.js';
+import { ProtocolErrorCode } from '../../src/types/enums';
+import { MissingRequiredClientCapabilityError, ProtocolError } from '../../src/types/errors';
 
 describe('MissingRequiredClientCapabilityError', () => {
     test('carries the -32021 code and the missing capabilities in data.requiredCapabilities', () => {

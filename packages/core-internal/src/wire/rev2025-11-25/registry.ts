@@ -23,8 +23,8 @@
  */
 import type * as z from 'zod/v4';
 
-import type { NotificationMethod, NotificationTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types.js';
-import type { ClientNotificationSchema, ClientRequestSchema, ServerNotificationSchema, ServerRequestSchema } from './schemas.js';
+import type { NotificationMethod, NotificationTypeMap, RequestMethod, RequestTypeMap, ResultTypeMap } from '../../types/types';
+import type { ClientNotificationSchema, ClientRequestSchema, ServerNotificationSchema, ServerRequestSchema } from './schemas';
 import {
     CallToolRequestSchema,
     CallToolResultSchema,
@@ -70,7 +70,7 @@ import {
     TaskStatusNotificationSchema,
     ToolListChangedNotificationSchema,
     UnsubscribeRequestSchema
-} from './schemas.js';
+} from './schemas';
 
 /* The era's wire vocabulary, derived from the wire role unions in
  * `./schemas.ts` (the same unions the registries used to be built from at

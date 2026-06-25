@@ -7,8 +7,8 @@
 import type { ServerContext } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
-import { createRequestStateCodec } from '../../src/server/requestStateCodec.js';
-import type { ServerOptions } from '../../src/server/server.js';
+import { createRequestStateCodec } from '../../src/server/requestStateCodec';
+import type { ServerOptions } from '../../src/server/server';
 
 const KEY = crypto.getRandomValues(new Uint8Array(32));
 

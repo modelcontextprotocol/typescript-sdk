@@ -6,7 +6,7 @@ import {
     honoredSubset,
     listenFilterAccepts,
     serverEventToNotification
-} from '../../src/server/serverEventBus.js';
+} from '../../src/server/serverEventBus';
 
 describe('listenFilterAccepts', () => {
     it('accepts only the change types the filter explicitly opted in to', () => {

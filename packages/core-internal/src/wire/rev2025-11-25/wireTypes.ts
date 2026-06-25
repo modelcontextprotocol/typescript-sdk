@@ -65,8 +65,8 @@ import type {
     SubscribeRequest,
     Tool,
     UnsubscribeRequest
-} from '../../types/types.js';
-import type { SamplingMessageSchema as Frozen2025SamplingMessageSchema } from './schemas.js';
+} from '../../types/types';
+import type { SamplingMessageSchema as Frozen2025SamplingMessageSchema } from './schemas';
 
 /** The 2025 anchor types blob values as bare `object`. */
 type ObjectMap = { [key: string]: object };

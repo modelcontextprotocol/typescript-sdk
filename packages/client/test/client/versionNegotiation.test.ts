@@ -18,10 +18,10 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
-import type { StreamableHTTPClientTransportOptions } from '../../src/client/streamableHttp.js';
-import type { StdioServerParameters } from '../../src/client/stdio.js';
-import { resolveVersionNegotiation } from '../../src/client/versionNegotiation.js';
+import { Client } from '../../src/client/client';
+import type { StreamableHTTPClientTransportOptions } from '../../src/client/streamableHttp';
+import type { StdioServerParameters } from '../../src/client/stdio';
+import { resolveVersionNegotiation } from '../../src/client/versionNegotiation';
 
 const MODERN = '2026-07-28';
 

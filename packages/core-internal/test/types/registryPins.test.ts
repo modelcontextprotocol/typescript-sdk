@@ -22,7 +22,7 @@ import { describe, expect, it } from 'vitest';
 
 // Post-relocation home (Q1 increment-2 step 1): the pinned contents are
 // unchanged — only the module housing the registries moved.
-import { getNotificationSchema, getRequestSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry.js';
+import { getNotificationSchema, getRequestSchema, getResultSchema } from '../../src/wire/rev2025-11-25/registry';
 // The 2025 wire schemas are fully self-contained in the era's schema module:
 // every per-method schema the registry serves is a FROZEN 2025-11-25 copy so
 // the public/neutral layer can evolve (e.g. SEP-2106 widening) without
@@ -73,7 +73,7 @@ import {
     TaskStatusNotificationSchema,
     ToolListChangedNotificationSchema,
     UnsubscribeRequestSchema
-} from '../../src/wire/rev2025-11-25/schemas.js';
+} from '../../src/wire/rev2025-11-25/schemas';
 
 /** The exact 2025-era request-method → schema map (today's wire surface, verbatim). */
 const EXPECTED_REQUEST_SCHEMAS = {

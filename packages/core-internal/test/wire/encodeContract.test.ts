@@ -23,19 +23,19 @@ import {
     CACHEABLE_RESULT_METHODS,
     cacheHintFallbackOf,
     RESULT_CACHE_HINT_FALLBACK
-} from '../../src/shared/resultCacheHints.js';
-import { ProtocolError } from '../../src/types/errors.js';
-import type { Result } from '../../src/types/types.js';
-import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec.js';
-import { rev2026Codec } from '../../src/wire/rev2026-07-28/codec.js';
-import { DiscoverResultSchema as Wire2026DiscoverResultSchema } from '../../src/wire/rev2026-07-28/schemas.js';
+} from '../../src/shared/resultCacheHints';
+import { ProtocolError } from '../../src/types/errors';
+import type { Result } from '../../src/types/types';
+import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec';
+import { rev2026Codec } from '../../src/wire/rev2026-07-28/codec';
+import { DiscoverResultSchema as Wire2026DiscoverResultSchema } from '../../src/wire/rev2026-07-28/schemas';
 import {
     DEFAULT_CACHE_SCOPE,
     DEFAULT_CACHE_TTL_MS,
     EXTENDED_RESULT_TYPE_METHODS,
     fillCacheFields,
     stampResultType
-} from '../../src/wire/rev2026-07-28/encodeContract.js';
+} from '../../src/wire/rev2026-07-28/encodeContract';
 
 const asResult = (value: Record<string, unknown>): Result => value as unknown as Result;
 const fieldsOf = (value: Result): Record<string, unknown> => value as unknown as Record<string, unknown>;

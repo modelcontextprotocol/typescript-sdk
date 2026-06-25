@@ -14,8 +14,8 @@ import {
     REQUIRED_CLIENT_CAPABILITIES_BY_METHOD,
     requiredClientCapabilitiesForInputRequest,
     requiredClientCapabilitiesForRequest
-} from '../../src/shared/clientCapabilityRequirements.js';
-import { rev2026RequestMethods } from '../../src/wire/rev2026-07-28/registry.js';
+} from '../../src/shared/clientCapabilityRequirements';
+import { rev2026RequestMethods } from '../../src/wire/rev2026-07-28/registry';
 
 describe('missingClientCapabilities', () => {
     test('an undeclared capability view (no envelope, empty session state) misses everything required — the structural clean refusal', () => {

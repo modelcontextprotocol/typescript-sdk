@@ -27,25 +27,20 @@
  */
 import type * as z from 'zod/v4';
 
-import { SdkError, SdkErrorCode } from '../../errors/sdkErrors.js';
-import {
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
-    LOG_LEVEL_META_KEY,
-    PROTOCOL_VERSION_META_KEY
-} from '../../types/constants.js';
-import type { CallToolResult, Result } from '../../types/types.js';
-import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec.js';
-import { appendTextFallbackForNonObject } from '../textFallback.js';
-import { fillCacheFields, stampResultType } from './encodeContract.js';
-import { getInputRequestSchema2026, getInputResponseSchema2026 } from './inputRequired.js';
+import { SdkError, SdkErrorCode } from '../../errors/sdkErrors';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, LOG_LEVEL_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../types/constants';
+import type { CallToolResult, Result } from '../../types/types';
+import type { DecodedResult, EnvelopeIssue, LiftedWireMaterial, OutboundEnvelopeMaterial, ValidateOutcome, WireCodec } from '../codec';
+import { appendTextFallbackForNonObject } from '../textFallback';
+import { fillCacheFields, stampResultType } from './encodeContract';
+import { getInputRequestSchema2026, getInputResponseSchema2026 } from './inputRequired';
 import {
     getNotificationSchema2026,
     getRequestSchema2026,
     getResultSchema2026,
     hasNotificationMethod2026,
     hasRequestMethod2026
-} from './registry.js';
+} from './registry';
 import {
     CallToolResultSchema,
     CompleteResultSchema,
@@ -57,7 +52,7 @@ import {
     ListToolsResultSchema,
     ReadResourceResultSchema,
     RequestMetaEnvelopeSchema
-} from './schemas.js';
+} from './schemas';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === 'object' && !Array.isArray(value);

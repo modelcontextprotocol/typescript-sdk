@@ -12,18 +12,18 @@
  * `allowInputRequired` request option and the `inputResponses`/`requestState`/
  * `droppedInputResponseKeys` context fields), and the named extension point.
  */
-import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
-import type { InputRequiredResult, JSONRPCRequest, RequestMeta, Result } from '../types/types.js';
-import type { StandardSchemaV1 } from '../util/standardSchema.js';
-import type { WireCodec } from '../wire/codec.js';
+import { SdkError, SdkErrorCode } from '../errors/sdkErrors';
+import type { InputRequiredResult, JSONRPCRequest, RequestMeta, Result } from '../types/types';
+import type { StandardSchemaV1 } from '../util/standardSchema';
+import type { WireCodec } from '../wire/codec';
 import type {
     InputRequiredDriverHooks,
     InputRequiredPayload,
     InputRequiredRetryLegOptions,
     ResolvedInputRequiredDriverConfig
-} from './inputRequiredDriver.js';
-import { runInputRequiredDriver } from './inputRequiredDriver.js';
-import type { BaseContext, NonCompleteResultFlow, RequestOptions } from './protocol.js';
+} from './inputRequiredDriver';
+import { runInputRequiredDriver } from './inputRequiredDriver';
+import type { BaseContext, NonCompleteResultFlow, RequestOptions } from './protocol';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { wrapOutputSchemaForLegacy } from '../../src/wire/rev2025-11-25/legacyWrap.js';
-import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec.js';
+import { wrapOutputSchemaForLegacy } from '../../src/wire/rev2025-11-25/legacyWrap';
+import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec';
 
 /** Test helper: drill into a nested untyped object by path. */
 function dig(node: unknown, ...path: ReadonlyArray<string | number>): unknown {

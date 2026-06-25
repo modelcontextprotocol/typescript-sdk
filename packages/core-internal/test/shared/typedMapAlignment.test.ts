@@ -18,14 +18,14 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { Protocol } from '../../src/shared/protocol.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
-import type { JSONRPCRequest } from '../../src/types/index.js';
+import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors';
+import type { BaseContext } from '../../src/shared/protocol';
+import { Protocol } from '../../src/shared/protocol';
+import { InMemoryTransport } from '../../src/util/inMemory';
+import type { JSONRPCRequest } from '../../src/types/index';
 // Post-relocation home (Q1 increment-2 step 1): the runtime registries live
 // behind the per-era wire-codec interface now.
-import { getResultSchema } from '../../src/wire/rev2025-11-25/registry.js';
+import { getResultSchema } from '../../src/wire/rev2025-11-25/registry';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}

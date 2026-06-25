@@ -24,13 +24,8 @@
  */
 import * as z from 'zod/v4';
 
-import {
-    CLIENT_CAPABILITIES_META_KEY,
-    CLIENT_INFO_META_KEY,
-    LOG_LEVEL_META_KEY,
-    PROTOCOL_VERSION_META_KEY
-} from '../../types/constants.js';
-import type { JSONObject, JSONValue } from '../../types/types.js';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, LOG_LEVEL_META_KEY, PROTOCOL_VERSION_META_KEY } from '../../types/constants';
+import type { JSONObject, JSONValue } from '../../types/types';
 
 /* ════════════════════════════════════════════════════════════════════════════
  * Frozen neutral-layer building blocks

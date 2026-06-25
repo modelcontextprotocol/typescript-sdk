@@ -16,7 +16,7 @@
  * discriminator, and hand-built result literals are equally legal — the
  * server seam re-checks the at-least-one rule for them.
  */
-import { isInputRequiredResult } from '../types/guards.js';
+import { isInputRequiredResult } from '../types/guards';
 import type {
     CreateMessageRequestParams,
     ElicitRequestFormParams,
@@ -26,8 +26,8 @@ import type {
     InputRequests,
     InputRequiredResult,
     InputResponses
-} from '../types/types.js';
-import type { StandardSchemaV1 } from '../util/standardSchema.js';
+} from '../types/types';
+import type { StandardSchemaV1 } from '../util/standardSchema';
 
 /** The shape accepted by {@linkcode inputRequired}. */
 export interface InputRequiredSpec {

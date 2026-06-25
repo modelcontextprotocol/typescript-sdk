@@ -10,7 +10,7 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { codecForVersion, MODERN_WIRE_REVISION } from '../../src/wire/codec.js';
+import { codecForVersion, MODERN_WIRE_REVISION } from '../../src/wire/codec';
 
 const MATERIAL = {
     protocolVersion: '2026-09-01',

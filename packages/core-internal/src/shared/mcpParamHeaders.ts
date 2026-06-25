@@ -20,8 +20,8 @@
  * - draft/server/tools.mdx § "x-mcp-header" (the schema-extension property and
  *   its constraints)
  */
-import type { InboundLadderRejection } from './inboundClassification.js';
-import { HEADER_MISMATCH_ERROR_CODE } from './inboundClassification.js';
+import type { InboundLadderRejection } from './inboundClassification';
+import { HEADER_MISMATCH_ERROR_CODE } from './inboundClassification';
 
 /* ------------------------------------------------------------------------ *
  * Declaration scan

@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { localhostAllowedOrigins, originValidationResponse, validateOriginHeader } from '../../src/server/middleware/originValidation.js';
+import { localhostAllowedOrigins, originValidationResponse, validateOriginHeader } from '../../src/server/middleware/originValidation';
 
 describe('validateOriginHeader', () => {
     it('passes when no Origin header is present (non-browser clients)', () => {

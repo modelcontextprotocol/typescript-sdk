@@ -6,9 +6,9 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
-import type { McpRequestContext } from '../../src/server/createMcpHandler.js';
-import { legacyStatelessFallback } from '../../src/server/createMcpHandler.js';
-import { McpServer } from '../../src/server/mcp.js';
+import type { McpRequestContext } from '../../src/server/createMcpHandler';
+import { legacyStatelessFallback } from '../../src/server/createMcpHandler';
+import { McpServer } from '../../src/server/mcp';
 
 interface JSONRPCErrorBody {
     jsonrpc: string;

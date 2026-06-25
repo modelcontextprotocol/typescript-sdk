@@ -10,7 +10,7 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import { HEADER_MISMATCH_ERROR_CODE } from '../../src/shared/inboundClassification.js';
+import { HEADER_MISMATCH_ERROR_CODE } from '../../src/shared/inboundClassification';
 import {
     buildMcpParamHeaders,
     decodeMcpParamValue,
@@ -21,7 +21,7 @@ import {
     scanXMcpHeaderDeclarations,
     validateMcpParamHeaders,
     X_MCP_HEADER_KEY
-} from '../../src/shared/mcpParamHeaders.js';
+} from '../../src/shared/mcpParamHeaders';
 
 /* ------------------------------------------------------------------------ *
  * Value encoding (spec table)

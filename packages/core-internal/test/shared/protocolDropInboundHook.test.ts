@@ -13,17 +13,17 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { Protocol } from '../../src/shared/protocol.js';
+import type { BaseContext } from '../../src/shared/protocol';
+import { Protocol } from '../../src/shared/protocol';
 import type {
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResultResponse
-} from '../../src/types/index.js';
-import { isJSONRPCResultResponse } from '../../src/types/index.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
+} from '../../src/types/index';
+import { isJSONRPCResultResponse } from '../../src/types/index';
+import { InMemoryTransport } from '../../src/util/inMemory';
 
 class HookedProtocol extends Protocol<BaseContext> {
     /** Messages the hook was consulted for (in order). */

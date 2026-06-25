@@ -21,17 +21,17 @@
  * Ordering matters and is pinned by tests: the stamp runs before the fill, so
  * an `input_required` result is never given cache fields.
  */
-import type { CacheHint } from '../../shared/resultCacheHints.js';
+import type { CacheHint } from '../../shared/resultCacheHints';
 import {
     cacheHintFallbackOf,
     isCacheableResultMethod,
     isValidCacheScope,
     isValidCacheTtlMs,
     RESULT_CACHE_HINT_FALLBACK
-} from '../../shared/resultCacheHints.js';
-import { ProtocolErrorCode } from '../../types/enums.js';
-import { ProtocolError } from '../../types/errors.js';
-import type { Result } from '../../types/types.js';
+} from '../../shared/resultCacheHints';
+import { ProtocolErrorCode } from '../../types/enums';
+import { ProtocolError } from '../../types/errors';
+import type { Result } from '../../types/types';
 
 /** The default cache policy when neither the handler nor configuration provides one. */
 export const DEFAULT_CACHE_TTL_MS = 0;

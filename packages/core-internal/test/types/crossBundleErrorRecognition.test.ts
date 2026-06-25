@@ -17,11 +17,11 @@
  */
 import { describe, expect, test } from 'vitest';
 
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { Protocol } from '../../src/shared/protocol.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
-import type { JSONRPCRequest } from '../../src/types/index.js';
-import { ProtocolError, ProtocolErrorCode, UnsupportedProtocolVersionError, UrlElicitationRequiredError } from '../../src/types/index.js';
+import type { BaseContext } from '../../src/shared/protocol';
+import { Protocol } from '../../src/shared/protocol';
+import { InMemoryTransport } from '../../src/util/inMemory';
+import type { JSONRPCRequest } from '../../src/types/index';
+import { ProtocolError, ProtocolErrorCode, UnsupportedProtocolVersionError, UrlElicitationRequiredError } from '../../src/types/index';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}

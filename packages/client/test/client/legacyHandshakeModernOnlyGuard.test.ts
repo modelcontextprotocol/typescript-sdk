@@ -9,7 +9,7 @@ import type { JSONRPCMessage, MessageExtraInfo, Transport } from '@modelcontextp
 import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
+import { Client } from '../../src/client/client';
 
 function recordingTransport(): Transport & { sent: JSONRPCMessage[] } {
     const sent: JSONRPCMessage[] = [];

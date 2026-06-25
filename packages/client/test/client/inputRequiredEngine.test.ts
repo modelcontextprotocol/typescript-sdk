@@ -9,8 +9,8 @@ import type { ElicitResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontext
 import { InMemoryTransport, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
-import type { ClientOptions } from '../../src/client/client.js';
+import { Client } from '../../src/client/client';
+import type { ClientOptions } from '../../src/client/client';
 
 const MODERN = '2026-07-28';
 

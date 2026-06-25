@@ -19,9 +19,9 @@
  * mapping live in the wire layer (the 2026-era codec's `validateEnvelopeMeta`).
  * This module never reaches into a per-revision wire module directly.
  */
-import { PROTOCOL_VERSION_META_KEY } from '../types/constants.js';
-import type { EnvelopeIssue } from '../wire/codec.js';
-import { codecForVersion, MODERN_WIRE_REVISION } from '../wire/codec.js';
+import { PROTOCOL_VERSION_META_KEY } from '../types/constants';
+import type { EnvelopeIssue } from '../wire/codec';
+import { codecForVersion, MODERN_WIRE_REVISION } from '../wire/codec';
 
 // Re-export from the wire layer (the canonical home): the issue shape is part
 // of the function-only WireCodec contract. Imported above for the local return

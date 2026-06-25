@@ -25,7 +25,7 @@
  * All three share {@linkcode missingClientCapabilities}; the per-method
  * requirement table below feeds call site 1 only.
  */
-import type { ClientCapabilities } from '../types/types.js';
+import type { ClientCapabilities } from '../types/types';
 
 /**
  * Inbound request methods whose processing structurally requires a client

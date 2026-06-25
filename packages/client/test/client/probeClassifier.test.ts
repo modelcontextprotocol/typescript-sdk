@@ -10,8 +10,8 @@
 import { SdkError, SdkErrorCode, UnsupportedProtocolVersionError } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
-import type { ProbeClassifierContext, ProbeOutcome, ProbeVerdict } from '../../src/client/probeClassifier.js';
-import { classifyProbeOutcome } from '../../src/client/probeClassifier.js';
+import type { ProbeClassifierContext, ProbeOutcome, ProbeVerdict } from '../../src/client/probeClassifier';
+import { classifyProbeOutcome } from '../../src/client/probeClassifier';
 
 const MODERN = '2026-07-28';
 const LEGACY = '2025-11-25';
