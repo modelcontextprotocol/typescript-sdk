@@ -1416,6 +1416,43 @@ describe('OAuth Authorization', () => {
             expect(result.authorizationServerMetadata).toBeDefined();
         });
 
+        it('uses legacy fallback metadata issuer when it differs from the MCP origin', async () => {
+            const legacyAuthMetadata = {
+                ...validAuthMetadata,
+                issuer: 'https://auth.example.com/oauth',
+                authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+                token_endpoint: 'https://auth.example.com/oauth/token'
+            };
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => legacyAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            expect(result.authorizationServerUrl).toBe('https://auth.example.com/oauth');
+            expect(result.resourceMetadata).toBeUndefined();
+            expect(result.authorizationServerMetadata).toEqual(legacyAuthMetadata);
+            expect(mockFetch.mock.calls[1]![0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');
+        });
+
         it('forwards resourceMetadataUrl override to protected resource metadata discovery', async () => {
             const overrideUrl = new URL('https://custom.example.com/.well-known/oauth-protected-resource');
 
@@ -2777,6 +2814,84 @@ describe('OAuth Authorization', () => {
 
             // Second call should be to oauth metadata at the root path
             expect(mockFetch.mock.calls[1]![0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');
+        });
+
+        it('saves the metadata issuer as the AS URL for legacy no-PRM fallback', async () => {
+            const saveDiscoveryState = vi.fn();
+            const saveAuthorizationServerUrl = vi.fn();
+            const provider: OAuthClientProvider = {
+                ...mockProvider,
+                clientInformation: vi.fn().mockResolvedValue(undefined),
+                tokens: vi.fn().mockResolvedValue(undefined),
+                saveClientInformation: vi.fn(),
+                saveCodeVerifier: vi.fn(),
+                redirectToAuthorization: vi.fn(),
+                saveDiscoveryState,
+                saveAuthorizationServerUrl
+            };
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString === 'https://resource.example.com/.well-known/oauth-authorization-server') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com/oauth',
+                            authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+                            token_endpoint: 'https://auth.example.com/oauth/token',
+                            registration_endpoint: 'https://auth.example.com/oauth/register',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                if (urlString === 'https://auth.example.com/oauth/register') {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            client_id: 'test-client-id',
+                            client_secret: 'test-client-secret',
+                            client_id_issued_at: 1_612_137_600,
+                            client_secret_expires_at: 1_612_224_000,
+                            redirect_uris: ['http://localhost:3000/callback'],
+                            client_name: 'Test Client'
+                        })
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch call: ${urlString}`));
+            });
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com'
+            });
+
+            expect(result).toBe('REDIRECT');
+            expect(saveDiscoveryState).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    authorizationServerUrl: 'https://auth.example.com/oauth',
+                    resourceMetadata: undefined,
+                    authorizationServerMetadata: expect.objectContaining({
+                        issuer: 'https://auth.example.com/oauth'
+                    })
+                })
+            );
+            expect(saveAuthorizationServerUrl).toHaveBeenCalledWith('https://auth.example.com/oauth');
+
+            const redirectCall = (provider.redirectToAuthorization as Mock).mock.calls[0]!;
+            const authUrl: URL = redirectCall[0];
+            expect(authUrl.origin + authUrl.pathname).toBe('https://auth.example.com/oauth/authorize');
         });
 
         it('uses base URL (with root path) as authorization server when protected-resource-metadata discovery fails', async () => {
