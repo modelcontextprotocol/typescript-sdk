@@ -37,11 +37,22 @@ export function toJsonSchemaCompat(schema: AnyObjectSchema, opts?: CommonOpts): 
         }) as JsonSchema;
     }
 
-    // v3 branch — use vendored converter
-    return zodToJsonSchema(schema as z3.ZodTypeAny, {
+    // v3 branch — use vendored converter (emits draft-07)
+    const result = zodToJsonSchema(schema as z3.ZodTypeAny, {
         strictUnions: opts?.strictUnions ?? true,
         pipeStrategy: opts?.pipeStrategy ?? 'input'
     }) as JsonSchema;
+
+    // SEP-1613: advertise draft/2020-12 when requested. zod-to-json-schema has
+    // no native 2020-12 target, but its emitted keywords (type, properties,
+    // required, additionalProperties, oneOf, anyOf, allOf, enum, const) are
+    // semantically unchanged in 2020-12. Tuple emission via `items: [...]`
+    // remains draft-07-shaped — upgrade to Zod v4 for native prefixItems.
+    if (mapMiniTarget(opts?.target) === 'draft-2020-12') {
+        result.$schema = 'https://json-schema.org/draft/2020-12/schema';
+    }
+
+    return result;
 }
 
 export function getMethodLiteral(schema: AnyObjectSchema): string {
