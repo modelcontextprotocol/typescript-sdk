@@ -7,6 +7,20 @@ import type { InferRawShape } from '../../src/server/mcp';
 import { completable } from '../../src/server/completable';
 
 describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () => {
+    it('routes tool-name warnings to the configured logger', () => {
+        const warn = vi.fn();
+        const consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        const server = new McpServer({ name: 't', version: '1.0.0' }, { logger: { warn } });
+
+        server.registerTool('bad tool', {}, async () => ({
+            content: [{ type: 'text' as const, text: 'ok' }]
+        }));
+
+        expect(warn).toHaveBeenCalledWith('Tool name validation warning for "bad tool":');
+        expect(consoleWarn).not.toHaveBeenCalled();
+        consoleWarn.mockRestore();
+    });
+
     it('registerTool accepts a raw shape for inputSchema and auto-wraps it', () => {
         const server = new McpServer({ name: 't', version: '1.0.0' });
 
