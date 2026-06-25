@@ -90,6 +90,7 @@ class InteractiveOAuthClient {
                 console.log(`📥 Received callback: ${req.url}`);
                 const parsedUrl = new URL(req.url || '', 'http://localhost');
                 const code = parsedUrl.searchParams.get('code');
+                const iss = parsedUrl.searchParams.get('iss');
                 const error = parsedUrl.searchParams.get('error');
 
                 if (code) {
