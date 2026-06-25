@@ -9,8 +9,8 @@
 
 import * as z from 'zod/v4';
 
-import { completable } from './completable.js';
-import { McpServer } from './mcp.js';
+import { completable } from './completable';
+import { McpServer } from './mcp';
 
 /**
  * Example: Using completable() in a prompt registration.

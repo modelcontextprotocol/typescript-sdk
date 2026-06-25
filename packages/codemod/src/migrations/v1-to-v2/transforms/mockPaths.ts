@@ -1,12 +1,12 @@
 import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
-import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { actionRequired, v2Gap, warning } from '../../../utils/diagnostics.js';
-import { isSdkSpecifier } from '../../../utils/importUtils.js';
-import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
-import { IMPORT_MAP, isAuthImport } from '../mappings/importMap.js';
-import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
+import { actionRequired, v2Gap, warning } from '../../../utils/diagnostics';
+import { isSdkSpecifier } from '../../../utils/importUtils';
+import { resolveTypesPackage } from '../../../utils/projectAnalyzer';
+import { IMPORT_MAP, isAuthImport } from '../mappings/importMap';
+import { SIMPLE_RENAMES } from '../mappings/symbolMap';
 
 const MOCK_METHODS = new Set([
     'mock',

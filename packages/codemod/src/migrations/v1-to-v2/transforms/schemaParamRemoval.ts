@@ -1,8 +1,8 @@
 import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
-import type { Transform, TransformContext, TransformResult } from '../../../types.js';
-import { isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils.js';
+import type { Transform, TransformContext, TransformResult } from '../../../types';
+import { isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils';
 
 const TARGET_METHODS = new Set(['request', 'callTool']);
 

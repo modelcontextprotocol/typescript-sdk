@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
-import { standardSchemaToJsonSchema } from '../../src/util/standardSchema.js';
+import { standardSchemaToJsonSchema } from '../../src/util/standardSchema';
 
 type SchemaArg = Parameters<typeof standardSchemaToJsonSchema>[0];
 

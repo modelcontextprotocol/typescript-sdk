@@ -4,7 +4,7 @@
 
 import type * as z from 'zod/v4';
 
-import type { INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR } from './constants.js';
+import type { INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR } from './constants';
 import type {
     AnnotationsSchema,
     AudioContentSchema,
@@ -159,7 +159,7 @@ import type {
     UnsubscribeRequestSchema,
     UntitledMultiSelectEnumSchemaSchema,
     UntitledSingleSelectEnumSchemaSchema
-} from './schemas.js';
+} from './schemas';
 
 /* JSON types */
 export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;

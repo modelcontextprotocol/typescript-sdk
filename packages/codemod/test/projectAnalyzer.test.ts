@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, it, expect, afterEach } from 'vitest';
 
-import { analyzeProject } from '../src/utils/projectAnalyzer.js';
+import { analyzeProject } from '../src/utils/projectAnalyzer';
 
 let tempDir: string;
 

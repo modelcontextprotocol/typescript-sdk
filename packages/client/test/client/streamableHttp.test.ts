@@ -2,10 +2,10 @@ import type { JSONRPCMessage, JSONRPCRequest, OAuthTokens } from '@modelcontextp
 import { OAuthError, OAuthErrorCode, SdkErrorCode, SdkHttpError } from '@modelcontextprotocol/core';
 import type { Mock, Mocked } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
-import { UnauthorizedError } from '../../src/client/auth.js';
-import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp.js';
-import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
+import type { OAuthClientProvider } from '../../src/client/auth';
+import { UnauthorizedError } from '../../src/client/auth';
+import type { ReconnectionScheduler, StartSSEOptions, StreamableHTTPReconnectionOptions } from '../../src/client/streamableHttp';
+import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
 describe('StreamableHTTPClientTransport', () => {
     let transport: StreamableHTTPClientTransport;
@@ -912,7 +912,7 @@ describe('StreamableHTTPClientTransport', () => {
             });
 
         // Spy on the imported auth function and mock successful authorization
-        const authModule = await import('../../src/client/auth.js');
+        const authModule = await import('../../src/client/auth');
         const authSpy = vi.spyOn(authModule, 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
@@ -954,8 +954,8 @@ describe('StreamableHTTPClientTransport', () => {
         });
 
         // Spy on the imported auth function and mock successful authorization
-        const authModule = await import('../../src/client/auth.js');
-        const authSpy = vi.spyOn(authModule as typeof import('../../src/client/auth.js'), 'auth');
+        const authModule = await import('../../src/client/auth');
+        const authSpy = vi.spyOn(authModule as typeof import('../../src/client/auth'), 'auth');
         authSpy.mockResolvedValue('AUTHORIZED');
 
         // First send: should trigger upscoping

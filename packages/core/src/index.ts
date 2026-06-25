@@ -1,22 +1,22 @@
-export * from './auth/errors.js';
-export * from './errors/sdkErrors.js';
-export * from './shared/auth.js';
-export * from './shared/authUtils.js';
-export * from './shared/metadataUtils.js';
-export * from './shared/protocol.js';
-export * from './shared/stdio.js';
-export * from './shared/toolNameValidation.js';
-export * from './shared/transport.js';
-export * from './shared/uriTemplate.js';
-export * from './types/index.js';
-export * from './util/inMemory.js';
-export * from './util/schema.js';
-export * from './util/standardSchema.js';
-export * from './util/zodCompat.js';
+export * from './auth/errors';
+export * from './errors/sdkErrors';
+export * from './shared/auth';
+export * from './shared/authUtils';
+export * from './shared/metadataUtils';
+export * from './shared/protocol';
+export * from './shared/stdio';
+export * from './shared/toolNameValidation';
+export * from './shared/transport';
+export * from './shared/uriTemplate';
+export * from './types/index';
+export * from './util/inMemory';
+export * from './util/schema';
+export * from './util/standardSchema';
+export * from './util/zodCompat';
 
 // Validator providers are type-only here — import the runtime classes from the explicit
 // `@modelcontextprotocol/{core,client,server}/validators/{ajv,cf-worker}` subpaths to customise.
-export type { AjvJsonSchemaValidator } from './validators/ajvProvider.js';
-export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from './validators/cfWorkerProvider.js';
-export * from './validators/fromJsonSchema.js';
-export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types.js';
+export type { AjvJsonSchemaValidator } from './validators/ajvProvider';
+export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from './validators/cfWorkerProvider';
+export * from './validators/fromJsonSchema';
+export type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './validators/types';

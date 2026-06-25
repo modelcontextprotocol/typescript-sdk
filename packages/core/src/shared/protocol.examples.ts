@@ -9,7 +9,7 @@
 
 import * as z from 'zod/v4';
 
-import type { BaseContext, Protocol } from './protocol.js';
+import type { BaseContext, Protocol } from './protocol';
 
 /**
  * Example: registering a handler for a custom (non-spec) request method.

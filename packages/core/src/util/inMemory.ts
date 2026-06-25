@@ -1,6 +1,6 @@
-import { SdkError, SdkErrorCode } from '../errors/sdkErrors.js';
-import type { Transport } from '../shared/transport.js';
-import type { AuthInfo, JSONRPCMessage, RequestId } from '../types/index.js';
+import { SdkError, SdkErrorCode } from '../errors/sdkErrors';
+import type { Transport } from '../shared/transport';
+import type { AuthInfo, JSONRPCMessage, RequestId } from '../types/index';
 
 interface QueuedMessage {
     message: JSONRPCMessage;

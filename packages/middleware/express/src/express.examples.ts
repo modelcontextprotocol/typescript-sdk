@@ -7,7 +7,7 @@
  * @module
  */
 
-import { createMcpExpressApp } from './express.js';
+import { createMcpExpressApp } from './express';
 
 /**
  * Example: Basic usage with default DNS rebinding protection.

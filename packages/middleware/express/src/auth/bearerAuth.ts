@@ -1,7 +1,7 @@
 import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
 import type { RequestHandler } from 'express';
 
-import type { OAuthTokenVerifier } from './types.js';
+import type { OAuthTokenVerifier } from './types';
 
 /**
  * Options for {@link requireBearerAuth}.

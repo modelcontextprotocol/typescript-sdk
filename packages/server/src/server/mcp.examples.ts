@@ -10,8 +10,8 @@
 import type { CallToolResult } from '@modelcontextprotocol/core';
 import * as z from 'zod/v4';
 
-import { McpServer } from './mcp.js';
-import { StdioServerTransport } from './stdio.js';
+import { McpServer } from './mcp';
+import { StdioServerTransport } from './stdio';
 
 /**
  * Example: Creating a new McpServer.

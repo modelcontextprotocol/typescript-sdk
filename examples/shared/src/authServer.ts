@@ -18,8 +18,8 @@ import cors from 'cors';
 import type { Request, Response as ExpressResponse, Router } from 'express';
 import express from 'express';
 
-import type { DemoAuth } from './auth.js';
-import { createDemoAuth, DEMO_USER_CREDENTIALS } from './auth.js';
+import type { DemoAuth } from './auth';
+import { createDemoAuth, DEMO_USER_CREDENTIALS } from './auth';
 
 export interface SetupAuthServerOptions {
     authServerUrl: URL;

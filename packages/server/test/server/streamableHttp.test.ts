@@ -3,9 +3,9 @@ import { randomUUID } from 'node:crypto';
 import type { CallToolResult, JSONRPCErrorResponse, JSONRPCMessage } from '@modelcontextprotocol/core';
 import * as z from 'zod/v4';
 
-import { McpServer } from '../../src/server/mcp.js';
-import type { EventId, EventStore, StreamId } from '../../src/server/streamableHttp.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
+import { McpServer } from '../../src/server/mcp';
+import type { EventId, EventStore, StreamId } from '../../src/server/streamableHttp';
+import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp';
 
 /**
  * Common test messages

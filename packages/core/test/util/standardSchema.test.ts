@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 
-import { standardSchemaToJsonSchema } from '../../src/util/standardSchema.js';
+import { standardSchemaToJsonSchema } from '../../src/util/standardSchema';
 
 describe('standardSchemaToJsonSchema', () => {
     test('emits type:object for plain z.object schemas', () => {

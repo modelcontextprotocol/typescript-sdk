@@ -1,9 +1,9 @@
 import { beforeEach, describe, expect, test } from 'vitest';
 
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { Protocol } from '../../src/shared/protocol.js';
-import type { Transport } from '../../src/shared/transport.js';
-import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from '../../src/types/index.js';
+import type { BaseContext } from '../../src/shared/protocol';
+import { Protocol } from '../../src/shared/protocol';
+import type { Transport } from '../../src/shared/transport';
+import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from '../../src/types/index';
 
 // Mock Transport class
 class MockTransport implements Transport {

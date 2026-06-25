@@ -2,8 +2,8 @@ import type { Context } from 'hono';
 import { Hono } from 'hono';
 import { vi } from 'vitest';
 
-import { createMcpHonoApp } from '../src/hono.js';
-import { hostHeaderValidation } from '../src/middleware/hostHeaderValidation.js';
+import { createMcpHonoApp } from '../src/hono';
+import { hostHeaderValidation } from '../src/middleware/hostHeaderValidation';
 
 describe('@modelcontextprotocol/hono', () => {
     test('hostHeaderValidation blocks invalid Host and allows valid Host', async () => {

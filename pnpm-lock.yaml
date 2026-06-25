@@ -333,6 +333,9 @@ importers:
         specifier: workspace:^
         version: link:../../packages/client
     devDependencies:
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
       '@types/node':
         specifier: ^24.10.1
         version: 24.12.0
@@ -413,6 +416,9 @@ importers:
         specifier: catalog:runtimeShared
         version: 4.3.6
     devDependencies:
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
       '@types/node':
         specifier: ^24.10.1
         version: 24.12.0
@@ -483,9 +489,6 @@ importers:
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -571,9 +574,6 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -699,9 +699,6 @@ importers:
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -925,9 +922,6 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -995,9 +989,6 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3

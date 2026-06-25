@@ -3,7 +3,7 @@ import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelconte
 import type { Mock } from 'vitest';
 import { expect, vi } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
+import type { OAuthClientProvider } from '../../src/client/auth';
 import {
     auth,
     buildDiscoveryUrls,
@@ -20,8 +20,8 @@ import {
     selectClientAuthMethod,
     startAuthorization,
     validateClientMetadataUrl
-} from '../../src/client/auth.js';
-import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
+} from '../../src/client/auth';
+import { createPrivateKeyJwtAuth } from '../../src/client/authExtensions';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({

@@ -1,4 +1,4 @@
-import { UriTemplate } from '../../src/shared/uriTemplate.js';
+import { UriTemplate } from '../../src/shared/uriTemplate';
 
 describe('UriTemplate', () => {
     describe('isTemplate', () => {

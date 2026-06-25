@@ -1,9 +1,9 @@
 import type { SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
-import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { info } from '../../../utils/diagnostics.js';
-import { isOriginalNameImportedFromMcp, resolveLocalImportName } from '../../../utils/importUtils.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
+import { info } from '../../../utils/diagnostics';
+import { isOriginalNameImportedFromMcp, resolveLocalImportName } from '../../../utils/importUtils';
 
 export const expressMiddlewareTransform: Transform = {
     name: 'Express middleware signature migration',

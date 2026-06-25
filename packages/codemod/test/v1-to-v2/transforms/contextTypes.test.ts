@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { contextTypesTransform } from '../../../src/migrations/v1-to-v2/transforms/contextTypes.js';
-import type { TransformContext } from '../../../src/types.js';
+import { contextTypesTransform } from '../../../src/migrations/v1-to-v2/transforms/contextTypes';
+import type { TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 

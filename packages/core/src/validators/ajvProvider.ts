@@ -5,7 +5,7 @@
 import { Ajv } from 'ajv';
 import _addFormats from 'ajv-formats';
 
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types.js';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator, JsonSchemaValidatorResult } from './types';
 
 /** Structural subset of the AJV interface used by {@link AjvJsonSchemaValidator}. */
 interface AjvLike {

@@ -1,5 +1,5 @@
-import { clientRegistrationHandler, ClientRegistrationHandlerOptions } from '../../../src/auth/handlers/register.js';
-import { OAuthRegisteredClientsStore } from '../../../src/auth/clients.js';
+import { clientRegistrationHandler, ClientRegistrationHandlerOptions } from '../../../src/auth/handlers/register';
+import { OAuthRegisteredClientsStore } from '../../../src/auth/clients';
 import { OAuthClientInformationFull, OAuthClientMetadata } from '@modelcontextprotocol/core';
 import express from 'express';
 import supertest from 'supertest';
