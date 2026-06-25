@@ -1,5 +1,7 @@
 import type { JsonSchemaType, JsonSchemaValidatorResult, jsonSchemaValidator } from '@modelcontextprotocol/core-internal';
 import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { expectTypeOf } from 'vitest';
+import * as z from 'zod/v4';
 import { fromJsonSchema } from '../../src/fromJsonSchema';
 import { Server } from '../../src/server/server';
 
@@ -75,6 +77,74 @@ describe('server JSON Schema validator overrides', () => {
             }
         ]);
         expect(validator.values).toEqual([{ name: 123 }]);
+
+        await server.close();
+        await clientTransport.close();
+    });
+
+    test('Server elicitInput accepts a Standard Schema requestedSchema', async () => {
+        const validator = new RecordingValidator();
+        const server = new Server(
+            { name: 'test-server', version: '1.0.0' },
+            {
+                capabilities: {},
+                jsonSchemaValidator: validator
+            }
+        );
+
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        await clientTransport.start();
+
+        const initializeResponse = new Promise(resolve => {
+            clientTransport.onmessage = message => resolve(message);
+        });
+        await clientTransport.send({
+            jsonrpc: '2.0',
+            id: 1,
+            method: 'initialize',
+            params: {
+                protocolVersion: LATEST_PROTOCOL_VERSION,
+                capabilities: { elicitation: { form: {} } },
+                clientInfo: { name: 'test-client', version: '1.0.0' }
+            }
+        });
+        await initializeResponse;
+
+        let requestedSchema: JsonSchemaType | undefined;
+        clientTransport.onmessage = async message => {
+            if ('method' in message && 'id' in message && message.method === 'elicitation/create' && message.params) {
+                requestedSchema = message.params.requestedSchema as JsonSchemaType;
+                await clientTransport.send({
+                    jsonrpc: '2.0',
+                    id: message.id,
+                    result: { action: 'accept', content: { name: 'Ada Lovelace' } }
+                });
+            }
+        };
+
+        const schema = z.object({
+            name: z.string().describe('Full name'),
+            subscribe: z.boolean().optional()
+        });
+
+        const result = await server.elicitInput({
+            message: 'What is your name?',
+            requestedSchema: schema
+        });
+
+        expectTypeOf(result.content).toEqualTypeOf<{ name: string; subscribe?: boolean | undefined } | undefined>();
+        expect(result).toEqual({ action: 'accept', content: { name: 'Ada Lovelace' } });
+        expect(requestedSchema).toMatchObject({
+            type: 'object',
+            properties: {
+                name: { type: 'string', description: 'Full name' },
+                subscribe: { type: 'boolean' }
+            },
+            required: ['name']
+        });
+        expect(validator.schemas).toEqual([requestedSchema]);
+        expect(validator.values).toEqual([{ name: 'Ada Lovelace' }]);
 
         await server.close();
         await clientTransport.close();
