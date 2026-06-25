@@ -5213,6 +5213,54 @@ describe('SEP-2352: authorization server binding', () => {
         expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
     });
 
+    it('refreshes cached discovery from an explicit resource metadata challenge before comparing authorization servers', async () => {
+        const { provider, invalidateCredentials, saveClientInformation, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockDiscoveryAndRegistration({
+            resourceMetadata: newResourceMetadata,
+            authMetadata: newAuthMetadata,
+            registeredClient: { client_id: 'new-client-id', client_secret: 'new-client-secret' }
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('REDIRECT');
+
+        const prmCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('oauth-protected-resource'));
+        expect(prmCalls).toHaveLength(1);
+        expect(prmCalls[0]![0].toString()).toBe(resourceMetadataUrl.toString());
+
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: 'https://new-auth.example.com',
+                resourceMetadataUrl: resourceMetadataUrl.toString(),
+                resourceMetadata: newResourceMetadata,
+                authorizationServerMetadata: newAuthMetadata
+            })
+        );
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(saveClientInformation).toHaveBeenCalledWith(expect.objectContaining({ client_id: 'new-client-id' }));
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
+    });
+
     it('does not invalidate credentials when the authorization server is unchanged', async () => {
         const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
             client_id: 'old-client-id',

@@ -1043,14 +1043,15 @@ async function authInternal(
     let metadata: AuthorizationServerMetadata | undefined;
     let freshDiscoveryState: OAuthDiscoveryState | undefined;
 
-    // If resourceMetadataUrl is not provided, try to load it from cached state
-    // This handles browser redirects where the URL was saved before navigation
+    // If resourceMetadataUrl is not provided, try to load it from cached state.
+    // This handles browser redirects where the URL was saved before navigation.
     let effectiveResourceMetadataUrl = resourceMetadataUrl;
     if (!effectiveResourceMetadataUrl && cachedState?.resourceMetadataUrl) {
         effectiveResourceMetadataUrl = new URL(cachedState.resourceMetadataUrl);
     }
+    const shouldRefreshCachedDiscovery = cachedState?.authorizationServerUrl !== undefined && resourceMetadataUrl !== undefined;
 
-    if (cachedState?.authorizationServerUrl) {
+    if (cachedState?.authorizationServerUrl && !shouldRefreshCachedDiscovery) {
         // Restore discovery state from cache
         authorizationServerUrl = cachedState.authorizationServerUrl;
         resourceMetadata = cachedState.resourceMetadata;
