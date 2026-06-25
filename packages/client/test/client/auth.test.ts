@@ -134,6 +134,24 @@ describe('OAuth Authorization', () => {
 
             expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ error: 'insufficient_scope', scope: 'admin' });
         });
+
+        it('parses invalid_token challenges with protected resource metadata', async () => {
+            const resourceUrl = 'https://resource.example.com/.well-known/oauth-protected-resource/mcp';
+            const mockResponse = {
+                headers: {
+                    get: vi.fn(name =>
+                        name === 'WWW-Authenticate'
+                            ? `Bearer resource_metadata="${resourceUrl}", error="invalid_token", error_description="The access token expired"`
+                            : null
+                    )
+                }
+            } as unknown as Response;
+
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({
+                resourceMetadataUrl: new URL(resourceUrl),
+                error: 'invalid_token'
+            });
+        });
     });
 
     describe('discoverOAuthProtectedResourceMetadata', () => {
