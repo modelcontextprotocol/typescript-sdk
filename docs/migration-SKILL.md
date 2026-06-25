@@ -1,6 +1,6 @@
 ---
 name: migrate-v1-to-v2
-description: Migrate MCP TypeScript SDK code from v1 (@modelcontextprotocol/sdk) to v2 (@modelcontextprotocol/core-internal, /client, /server). Use when a user asks to migrate, upgrade, or port their MCP TypeScript code from v1 to v2.
+description: Migrate MCP TypeScript SDK code from v1 (@modelcontextprotocol/sdk) to v2 (@modelcontextprotocol/client, /server, /core). Use when a user asks to migrate, upgrade, or port their MCP TypeScript code from v1 to v2.
 ---
 
 # MCP TypeScript SDK: v1 → v2 Migration
@@ -20,15 +20,17 @@ Remove the old package and install only what you need:
 npm uninstall @modelcontextprotocol/sdk
 ```
 
-| You need              | Install                                                                  |
-| --------------------- | ------------------------------------------------------------------------ |
-| Client only           | `npm install @modelcontextprotocol/client`                               |
-| Server only           | `npm install @modelcontextprotocol/server`                               |
-| Server + Node.js HTTP | `npm install @modelcontextprotocol/server @modelcontextprotocol/node`    |
-| Server + Express      | `npm install @modelcontextprotocol/server @modelcontextprotocol/express` |
-| Server + Hono         | `npm install @modelcontextprotocol/server @modelcontextprotocol/hono`    |
+| You need                    | Install                                                                  |
+| --------------------------- | ------------------------------------------------------------------------ |
+| Client only                 | `npm install @modelcontextprotocol/client`                               |
+| Server only                 | `npm install @modelcontextprotocol/server`                               |
+| Server + Node.js HTTP       | `npm install @modelcontextprotocol/server @modelcontextprotocol/node`    |
+| Server + Express            | `npm install @modelcontextprotocol/server @modelcontextprotocol/express` |
+| Server + Hono               | `npm install @modelcontextprotocol/server @modelcontextprotocol/hono`    |
+| Raw Zod `*Schema` constants | `npm install @modelcontextprotocol/core`                                 |
 
-`@modelcontextprotocol/core-internal` is installed automatically as a dependency.
+`@modelcontextprotocol/client` and `@modelcontextprotocol/server` are self-contained — the shared types, protocol layer, and transports are bundled in and re-exported, so there is no separate runtime package to install for them. Install `@modelcontextprotocol/core` only if you
+import the raw Zod `*Schema` constants directly (see §11).
 
 ## 3. Import Mapping
 

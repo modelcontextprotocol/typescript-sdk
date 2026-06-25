@@ -68,12 +68,12 @@ The SDK has a two-layer export structure to separate internal code from the publ
 
 - **`@modelcontextprotocol/core-internal`** (main entry, `packages/core-internal/src/index.ts`) — Internal barrel. Exports everything (including Zod schemas, Protocol class, stdio utils). Only consumed by sibling packages within the monorepo (`private: true`).
 - **`@modelcontextprotocol/core-internal/public`** (`packages/core-internal/src/exports/public/index.ts`) — Curated public API. Exports only TypeScript types, error classes, constants, and guards. Re-exported by client and server packages.
-- **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core/public`.
+- **`@modelcontextprotocol/client`** and **`@modelcontextprotocol/server`** (`packages/*/src/index.ts`) — Final public surface. Package-specific exports (named explicitly) plus re-exports from `core-internal/public`.
 
 When modifying exports:
-- Use explicit named exports, not `export *`, in package `index.ts` files and `core/public`.
+- Use explicit named exports, not `export *`, in package `index.ts` files and `core-internal/public`.
 - Adding a symbol to a package `index.ts` makes it public API — do so intentionally.
-- Internal helpers should stay in the core internal barrel and not be added to `core/public` or package index files.
+- Internal helpers should stay in the core internal barrel and not be added to `core-internal/public` or package index files.
 - The package root entry must stay runtime-neutral so browser and Cloudflare Workers bundlers can consume it. Exports whose module graph transitively touches unpolyfillable Node builtins (`node:child_process`, `node:net`, `cross-spawn`, etc.) must live at a named subpath export (e.g. `./stdio`) and be covered by a `barrelClean` test in that package.
 
 ### Transport System

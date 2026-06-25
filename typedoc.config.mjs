@@ -16,7 +16,12 @@ const packages = packageJsonPaths.map(p => {
     return { rootDir, manifest };
 });
 
-const publicPackages = packages.filter(p => p.manifest.private !== true);
+// @modelcontextprotocol/core is published for direct schema imports (CallToolResultSchema.parse(...)),
+// but it's a thin re-export of the spec/OAuth Zod schemas whose JSDoc cross-references TYPES that live
+// in client/server — unresolvable from core's own per-package doc scope. We skip rendering its API docs
+// (the schemas mirror the documented types 1:1) so monorepo-wide invalid-link validation can stay ON.
+const DOCS_EXCLUDED_PACKAGES = new Set(['@modelcontextprotocol/core']);
+const publicPackages = packages.filter(p => p.manifest.private !== true && !DOCS_EXCLUDED_PACKAGES.has(p.manifest.name));
 const entryPoints = publicPackages.map(p => p.rootDir);
 
 console.log(
@@ -47,14 +52,6 @@ export default {
         readme: false
     },
     customJs: 'docs/v2-banner.js',
-    // The spec-generated schema/type JSDoc uses `{@linkcode <SpecType> | method}` cross-references.
-    // With the data model split across packages (Zod schemas in @modelcontextprotocol/core,
-    // their types in @modelcontextprotocol/server / -client), typedoc's per-package link resolution
-    // can't resolve those bare cross-package references. Disable only the invalid-link check; every
-    // other validation (notExported, etc.) stays on under treatWarningsAsErrors.
-    validation: {
-        invalidLink: false
-    },
     treatWarningsAsErrors: true,
     out: 'tmp/docs/',
     externalSymbolLinkMappings: {

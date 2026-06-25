@@ -4,8 +4,8 @@ This guide covers the breaking changes introduced in v2 of the MCP TypeScript SD
 
 ## Overview
 
-Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core-internal`,
-`@modelcontextprotocol/client`, and `@modelcontextprotocol/server` packages.
+Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into focused `@modelcontextprotocol/client`
+and `@modelcontextprotocol/server` packages, with the shared Zod schema constants published separately as `@modelcontextprotocol/core`.
 
 > **Formatting:** The `@modelcontextprotocol/codemod` package automates most of the mechanical changes below, but it rewrites your code's AST without reformatting it — wrapped schemas and generated handler method strings may not match your project's style. After migrating (with
 > the codemod or by hand), run your formatter on the changed files — for example `prettier --write`, `eslint --fix`, or `biome format --write` — and review the diff.
@@ -14,13 +14,16 @@ Version 2 of the MCP TypeScript SDK introduces several breaking changes to impro
 
 ### Package split (monorepo)
 
-The single `@modelcontextprotocol/sdk` package has been split into three packages:
+The single `@modelcontextprotocol/sdk` package has been split into focused packages:
 
-| v1                          | v2                                                         |
-| --------------------------- | ---------------------------------------------------------- |
-| `@modelcontextprotocol/sdk` | `@modelcontextprotocol/core-internal` (types, protocol, transports) |
-|                             | `@modelcontextprotocol/client` (client implementation)     |
-|                             | `@modelcontextprotocol/server` (server implementation)     |
+| v1                          | v2                                                                            |
+| --------------------------- | ----------------------------------------------------------------------------- |
+| `@modelcontextprotocol/sdk` | `@modelcontextprotocol/client` (client implementation)                        |
+|                             | `@modelcontextprotocol/server` (server implementation)                        |
+|                             | `@modelcontextprotocol/core` (Zod `*Schema` constants — install only if used) |
+
+`@modelcontextprotocol/client` and `@modelcontextprotocol/server` are self-contained: the shared protocol types, error classes, guards, and transports are bundled in and re-exported, so most projects install only one of them. `@modelcontextprotocol/core` is a separate,
+lightweight package needed only if you import the raw Zod `*Schema` constants directly (see [Zod schema constants](#protocolrequest-ctxmcpreqsend-and-clientcalltool-no-longer-require-a-schema-parameter-for-spec-methods) below).
 
 Remove the old package and install only the packages you need:
 
@@ -33,7 +36,8 @@ npm install @modelcontextprotocol/client
 # If you only need a server
 npm install @modelcontextprotocol/server
 
-# Both packages depend on @modelcontextprotocol/core-internal automatically
+# Only if you import the raw Zod *Schema constants directly
+npm install @modelcontextprotocol/core
 ```
 
 Update your imports accordingly:
