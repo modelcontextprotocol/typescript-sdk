@@ -5389,6 +5389,71 @@ describe('SEP-2352: authorization server binding', () => {
         expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
     });
 
+    it('keeps cached AS metadata when challenged PRM confirms the same AS but AS metadata discovery fails', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+        const cachedAuthMetadata = {
+            ...sameAuthMetadata,
+            authorization_endpoint: `${oldAuthServerUrl}/oauth2/v1/authorize`,
+            token_endpoint: `${oldAuthServerUrl}/oauth2/v1/token`
+        };
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            authorizationServerSource: 'protected-resource-metadata',
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: cachedAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation(url => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => sameResourceMetadata
+                });
+            }
+
+            if (urlString.startsWith(`${oldAuthServerUrl}/.well-known/`)) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 502,
+                    statusText: 'Bad Gateway',
+                    text: async () => 'temporarily unavailable'
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: oldAuthServerUrl,
+                authorizationServerSource: 'protected-resource-metadata',
+                resourceMetadataUrl: resourceMetadataUrl.toString(),
+                resourceMetadata: sameResourceMetadata,
+                authorizationServerMetadata: cachedAuthMetadata
+            })
+        );
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.toString()).toContain(`${oldAuthServerUrl}/oauth2/v1/authorize`);
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
     it('preserves fresh PRM resource metadata when AS selection falls back to the saved server', async () => {
         const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
             client_id: 'old-client-id',
