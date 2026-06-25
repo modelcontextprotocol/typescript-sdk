@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
-import { AUTH_SCHEMA_NAMES } from '../../src/migrations/v1-to-v2/mappings/authSchemaNames.js';
+import { AUTH_SCHEMA_NAMES, AUTH_SCHEMA_NAMES_NO_V2_PUBLIC_EXPORT } from '../../src/migrations/v1-to-v2/mappings/authSchemaNames.js';
 
 describe('AUTH_SCHEMA_NAMES (codemod auth schema-routing allowlist)', () => {
     it('routes only auth schemas that @modelcontextprotocol/sdk-shared exports (drift guard)', () => {
@@ -23,5 +23,14 @@ describe('AUTH_SCHEMA_NAMES (codemod auth schema-routing allowlist)', () => {
         expect(notExportedBySdkShared).toEqual([]);
         // The v1 auth-schema set is frozen; pin its size so an accidental add/remove is caught.
         expect(AUTH_SCHEMA_NAMES.size).toBe(11);
+    });
+
+    it('keeps the no-v2-home auth schemas OUT of the routing allowlist', () => {
+        // SafeUrlSchema/OptionalSafeUrlSchema have no public v2 export, so they must NOT be routed to
+        // sdk-shared (the import transform flags them instead). Guard the two sets stay disjoint.
+        for (const name of AUTH_SCHEMA_NAMES_NO_V2_PUBLIC_EXPORT) {
+            expect(AUTH_SCHEMA_NAMES.has(name)).toBe(false);
+        }
+        expect([...AUTH_SCHEMA_NAMES_NO_V2_PUBLIC_EXPORT].sort()).toEqual(['OptionalSafeUrlSchema', 'SafeUrlSchema']);
     });
 });

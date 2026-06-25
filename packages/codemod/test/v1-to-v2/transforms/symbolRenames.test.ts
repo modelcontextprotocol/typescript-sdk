@@ -44,6 +44,19 @@ describe('symbol-renames transform', () => {
         expect(result).toContain('isJSONRPCResultResponse');
     });
 
+    it('renames JSONRPCResponseSchema to JSONRPCResultResponseSchema (result-only in v1)', () => {
+        // v1's JSONRPCResponseSchema validated only result responses; v2 reuses the name for a union that
+        // also accepts errors. Rename to the result-only schema to preserve v1 parse/safeParse behavior.
+        const input = [
+            `import { JSONRPCResponseSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const r = JSONRPCResponseSchema.parse(value);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('JSONRPCResultResponseSchema.parse(value)');
+        expect(result).not.toMatch(/(?<!Result)JSONRPCResponseSchema/);
+    });
+
     it('renames ResourceReference to ResourceTemplateReference', () => {
         const input = [
             `import { ResourceReference } from '@modelcontextprotocol/sdk/types.js';`,

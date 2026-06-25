@@ -5,8 +5,28 @@ import type { Diagnostic, Transform, TransformContext, TransformResult } from '.
 import { actionRequired, v2Gap, warning } from '../../../utils/diagnostics';
 import { isSdkSpecifier } from '../../../utils/importUtils';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer';
+import type { ImportMapping } from '../mappings/importMap';
 import { isAuthImport, lookupImportMapping } from '../mappings/importMap';
+import { symbolTargetOverride } from '../mappings/schemaRouting';
 import { SIMPLE_RENAMES } from '../mappings/symbolMap';
+
+/**
+ * Resolve the single per-symbol target package shared by every `symbol` (mocked factory keys or
+ * destructured `import()` bindings), or report that they mix v2 packages. A mock/dynamic-import
+ * specifier is a single string and cannot be split, so a mix can only be flagged, not rewritten.
+ * Returns `target: undefined` when no symbol carries a per-symbol override (the caller keeps the
+ * mapping's resolved context/`target` package). Mirrors `symbolTargetOverride` routing used by the
+ * static import/export transform so e.g. a factory of only `*Schema` constants routes to sdk-shared.
+ */
+function routeSymbols(symbols: string[], mapping: ImportMapping): { target?: string; mixed: boolean } {
+    if (symbols.length === 0) return { mixed: false };
+    const targets = symbols.map(s => symbolTargetOverride(s, mapping));
+    const overridden = targets.filter((t): t is string => t !== undefined);
+    const unique = new Set(overridden);
+    if (overridden.length === symbols.length && unique.size === 1) return { target: [...unique][0]!, mixed: false };
+    if (unique.size > 0) return { mixed: true };
+    return { mixed: false };
+}
 
 const MOCK_METHODS = new Set([
     'mock',
@@ -54,12 +74,12 @@ function resolveTarget(
     context: TransformContext,
     sourceFile: SourceFile,
     diagnosticSink?: { filePath: string; line: number; diagnostics: Diagnostic[] }
-):
-    | { target: string; renamedSymbols?: Record<string, string>; symbolTargetOverrides?: Record<string, string> }
-    | { removed: true; isV2Gap?: boolean; removalMessage?: string }
-    | null {
+): { target: string; mapping: ImportMapping } | { removed: true; isV2Gap?: boolean; removalMessage?: string } | null {
     const mapping = lookupImportMapping(specifier);
-    if (!mapping && isAuthImport(specifier)) return { target: '@modelcontextprotocol/server-legacy/auth' };
+    if (!mapping && isAuthImport(specifier)) {
+        const authMapping: ImportMapping = { target: '@modelcontextprotocol/server-legacy/auth', status: 'moved' };
+        return { target: authMapping.target, mapping: authMapping };
+    }
     if (!mapping) return null;
     if (mapping.status === 'removed') return { removed: true, isV2Gap: mapping.isV2Gap, removalMessage: mapping.removalMessage };
 
@@ -79,7 +99,10 @@ function resolveTarget(
         }
     }
 
-    return { target, renamedSymbols: mapping.renamedSymbols, symbolTargetOverrides: mapping.symbolTargetOverrides };
+    // Return the original mapping (not just `renamedSymbols`/`symbolTargetOverrides`) so per-symbol
+    // routing can consult `schemaSymbolTarget` via the shared `symbolTargetOverride`/`routeSymbols`,
+    // matching how the static import transform routes `*Schema` constants to sdk-shared.
+    return { target, mapping };
 }
 
 function rewriteMockCall(
@@ -122,13 +145,15 @@ function rewriteMockCall(
     let changes = 0;
 
     let effectiveTarget = resolved.target;
-    if (resolved.symbolTargetOverrides && args.length >= 2) {
-        const factorySymbols = collectFactorySymbols(args[1]!);
-        const allOverridden = factorySymbols.length > 0 && factorySymbols.every(s => s in resolved.symbolTargetOverrides!);
-        const someOverridden = factorySymbols.some(s => s in resolved.symbolTargetOverrides!);
-        if (allOverridden) {
-            effectiveTarget = resolved.symbolTargetOverrides[factorySymbols[0]!]!;
-        } else if (someOverridden) {
+    if (args.length >= 2) {
+        // Route the factory's mocked symbols the same way the static import transform would: a factory of
+        // only `*Schema` constants (from sdk/types.js or sdk/shared/auth.js) moves to sdk-shared; a factory
+        // of only `StreamableHTTPServerTransport` moves to @modelcontextprotocol/node. A single mock path
+        // can't be split, so a mix of packages is flagged for manual migration.
+        const { target: routedTarget, mixed } = routeSymbols(collectFactorySymbols(args[1]!), resolved.mapping);
+        if (routedTarget) {
+            effectiveTarget = routedTarget;
+        } else if (mixed) {
             diagnostics.push(
                 actionRequired(
                     sourceFile.getFilePath(),
@@ -144,7 +169,7 @@ function rewriteMockCall(
     firstArg.setLiteralValue(effectiveTarget);
     changes++;
 
-    const allRenames: Record<string, string> = { ...SIMPLE_RENAMES, ...resolved.renamedSymbols };
+    const allRenames: Record<string, string> = { ...SIMPLE_RENAMES, ...resolved.mapping.renamedSymbols };
     if (args.length >= 2) {
         changes += renameSymbolsInFactory(args[1]!, allRenames);
     }
@@ -263,27 +288,31 @@ function rewriteDynamicImports(
         }
 
         let effectiveTarget = resolved.target;
-        const allRenames: Record<string, string> = { ...SIMPLE_RENAMES, ...resolved.renamedSymbols };
+        const allRenames: Record<string, string> = { ...SIMPLE_RENAMES, ...resolved.mapping.renamedSymbols };
 
-        // Check if destructured symbols should route to an override target
-        if (resolved.symbolTargetOverrides) {
-            const parent = node.getParent();
-            if (parent && Node.isAwaitExpression(parent)) {
-                const grandParent = parent.getParent();
-                if (grandParent && Node.isVariableDeclaration(grandParent)) {
-                    const nameNode = grandParent.getNameNode();
-                    if (Node.isObjectBindingPattern(nameNode)) {
-                        const elements = nameNode.getElements();
-                        const allOverridden =
-                            elements.length > 0 &&
-                            elements.every(el => {
-                                const key = el.getPropertyNameNode()?.getText() ?? el.getName();
-                                return key in resolved.symbolTargetOverrides!;
-                            });
-                        if (allOverridden) {
-                            effectiveTarget =
-                                resolved.symbolTargetOverrides[elements[0]!.getPropertyNameNode()?.getText() ?? elements[0]!.getName()]!;
-                        }
+        // Route the destructured bindings the same way the static import transform would: a destructuring
+        // of only `*Schema` constants (e.g. `const { CallToolResultSchema } = await import('…/types.js')`)
+        // moves to sdk-shared, and `StreamableHTTPServerTransport` moves to @modelcontextprotocol/node. A
+        // single import() specifier can't be split, so a mix of packages is flagged for manual migration.
+        const parentExpr = node.getParent();
+        if (parentExpr && Node.isAwaitExpression(parentExpr)) {
+            const grandParent = parentExpr.getParent();
+            if (grandParent && Node.isVariableDeclaration(grandParent)) {
+                const nameNode = grandParent.getNameNode();
+                if (Node.isObjectBindingPattern(nameNode)) {
+                    const keys = nameNode.getElements().map(el => el.getPropertyNameNode()?.getText() ?? el.getName());
+                    const { target: routedTarget, mixed } = routeSymbols(keys, resolved.mapping);
+                    if (routedTarget) {
+                        effectiveTarget = routedTarget;
+                    } else if (mixed) {
+                        diagnostics.push(
+                            actionRequired(
+                                sourceFile.getFilePath(),
+                                node,
+                                `Dynamic import of ${specifier} destructures symbols that belong to different v2 packages. ` +
+                                    `Split the import manually so each symbol targets the correct package.`
+                            )
+                        );
                     }
                 }
             }
@@ -314,7 +343,7 @@ function rewriteDynamicImports(
                         }
                     }
                 }
-                const moduleRenames = resolved.renamedSymbols ?? {};
+                const moduleRenames = resolved.mapping.renamedSymbols ?? {};
                 if (!Node.isObjectBindingPattern(nameNode) && Object.keys(moduleRenames).length > 0) {
                     diagnostics.push(
                         actionRequired(

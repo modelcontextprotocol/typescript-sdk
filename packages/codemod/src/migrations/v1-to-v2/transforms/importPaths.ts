@@ -7,10 +7,9 @@ import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics
 import type { NamedImportSpec } from '../../../utils/importUtils';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer';
-import { AUTH_SCHEMA_NAMES } from '../mappings/authSchemaNames';
-import type { ImportMapping } from '../mappings/importMap';
+import { AUTH_SCHEMA_NAMES_NO_V2_PUBLIC_EXPORT } from '../mappings/authSchemaNames';
 import { isAuthImport, lookupImportMapping } from '../mappings/importMap';
-import { SPEC_SCHEMA_NAMES } from '../mappings/specSchemaNames';
+import { isSharedSchemaConst, resolveRenamedName, symbolTargetOverride } from '../mappings/schemaRouting';
 import { SIMPLE_RENAMES } from '../mappings/symbolMap';
 
 const REEXPORT_WARNINGS: Record<string, string> = {
@@ -21,38 +20,6 @@ const REEXPORT_WARNINGS: Record<string, string> = {
     StreamableHTTPError:
         'Re-exported StreamableHTTPError was renamed to SdkHttpError in v2 with a different constructor. Update this re-export manually.'
 };
-
-/** The v2 name a symbol resolves to after renames (per-mapping override, then global SIMPLE_RENAMES). */
-function resolveRenamedName(name: string, mapping: ImportMapping): string {
-    return mapping.renamedSymbols?.[name] ?? SIMPLE_RENAMES[name] ?? name;
-}
-
-/**
- * True when `name` (after renames) is a Zod schema CONSTANT that sdk-shared re-exports — either a spec
- * schema (`SPEC_SCHEMA_NAMES`) or an OAuth/OpenID schema (`AUTH_SCHEMA_NAMES`). Membership (not a
- * `*Schema` suffix) is what keeps TYPES whose name ends in `Schema` — e.g. `BooleanSchema` — out.
- */
-function isSharedSchemaConst(name: string, mapping: ImportMapping): boolean {
-    const resolved = resolveRenamedName(name, mapping);
-    return SPEC_SCHEMA_NAMES.has(resolved) || AUTH_SCHEMA_NAMES.has(resolved);
-}
-
-/**
- * The per-symbol target package for a symbol imported/re-exported from `mapping`'s module, or
- * `undefined` when the symbol should use the mapping's resolved `target`. Exact-name
- * `symbolTargetOverrides` win over `schemaSymbolTarget`, which routes a symbol to the shared-schemas
- * package only when its rename-resolved name is a schema constant re-exported by sdk-shared (see
- * `isSharedSchemaConst`).
- */
-function symbolTargetOverride(name: string, mapping: ImportMapping): string | undefined {
-    if (mapping.symbolTargetOverrides && name in mapping.symbolTargetOverrides) {
-        return mapping.symbolTargetOverrides[name];
-    }
-    if (mapping.schemaSymbolTarget && isSharedSchemaConst(name, mapping)) {
-        return mapping.schemaSymbolTarget;
-    }
-    return undefined;
-}
 
 export const importPathsTransform: Transform = {
     name: 'Import path rewrites',
@@ -240,6 +207,20 @@ export const importPathsTransform: Transform = {
                 const resolvedName = mapping.renamedSymbols?.[name] ?? name;
                 const specifierTypeOnly = typeOnly || n.isTypeOnly();
                 const symbolTarget = symbolTargetOverride(name, mapping) ?? targetPackage;
+                // A v1 auth-schema constant with no public v2 home (SafeUrlSchema/OptionalSafeUrlSchema)
+                // routes by context to a package that doesn't export it. Flag it so the user inlines the
+                // validation instead of hitting a silent "has no exported member" error.
+                if (mapping.schemaSymbolTarget && AUTH_SCHEMA_NAMES_NO_V2_PUBLIC_EXPORT.has(name)) {
+                    diagnostics.push(
+                        actionRequired(
+                            filePath,
+                            imp,
+                            `${name} was an internal URL field-validator in v1's ${specifier} with no public v2 equivalent ` +
+                                `(it is not re-exported by @modelcontextprotocol/sdk-shared). Remove this import and inline the ` +
+                                `validation (e.g. validate the URL with the WHATWG \`URL\` constructor or your own Zod schema).`
+                        )
+                    );
+                }
                 usedPackages.add(symbolTarget);
                 addPending(symbolTarget, [alias ? { name: resolvedName, alias } : resolvedName], specifierTypeOnly);
             }
@@ -353,6 +334,22 @@ function rewriteExportDeclarations(
 
         if (mapping.symbolTargetOverrides || mapping.schemaSymbolTarget) {
             const namedExports = exp.getNamedExports();
+            // A star re-export (`export * from …`, including `export * as ns from …`) has no named
+            // exports to route per-symbol, so it moves wholesale to the context package — which exports
+            // none of the Zod `*Schema` constants the v1 module re-exported. Downstream consumers of this
+            // barrel would hit "has no exported member" with no pointer to where the schemas went, so flag
+            // it (mirroring the namespace-import diagnostic on the import side).
+            if (mapping.schemaSymbolTarget && namedExports.length === 0) {
+                diagnostics.push(
+                    actionRequired(
+                        filePath,
+                        exp,
+                        `Star re-export of ${specifier} will not include the Zod schema constants that moved to ` +
+                            `${mapping.schemaSymbolTarget} (they are no longer exported by ${targetPackage}). ` +
+                            `Add an explicit \`export { … } from '${mapping.schemaSymbolTarget}'\` for any re-exported \`*Schema\` constants.`
+                    )
+                );
+            }
             const overrides = namedExports.map(s => symbolTargetOverride(s.getName(), mapping));
             const uniqueOverrides = new Set(overrides.filter((t): t is string => t !== undefined));
             const allOverridden = namedExports.length > 0 && overrides.every(t => t !== undefined);

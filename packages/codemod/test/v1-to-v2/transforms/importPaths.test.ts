@@ -323,6 +323,50 @@ describe('import-paths transform', () => {
         expect(result).not.toContain('@modelcontextprotocol/sdk/types');
     });
 
+    it('routes JSONRPCResponseSchema (result-only in v1) from sdk/types.js to sdk-shared', () => {
+        // v1's JSONRPCResponseSchema validated only result responses; v2 reuses the name for a union.
+        // The rename to JSONRPCResultResponseSchema (a sdk-shared export) preserves v1 behavior; importPaths
+        // routes it to sdk-shared against the rename-resolved name (symbolRenames applies the rename after).
+        const input = `import { JSONRPCResponseSchema } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain(`from "@modelcontextprotocol/sdk-shared"`);
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+        expect(result).not.toContain(`from "@modelcontextprotocol/server"`);
+    });
+
+    it('flags a SafeUrlSchema import from sdk/shared/auth.js (no public v2 equivalent)', () => {
+        // SafeUrlSchema/OptionalSafeUrlSchema were internal URL field-validators in v1; v2's sdk-shared
+        // deliberately does not re-export them, so there is no v2 home — emit guidance instead of silently
+        // routing to a package that has no such export.
+        const input = `import { SafeUrlSchema, OptionalSafeUrlSchema } from '@modelcontextprotocol/sdk/shared/auth.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const messages = result.diagnostics.map(d => d.message);
+        expect(messages.some(m => m.includes('SafeUrlSchema') && m.includes('no public v2 equivalent'))).toBe(true);
+        expect(messages.some(m => m.includes('OptionalSafeUrlSchema') && m.includes('no public v2 equivalent'))).toBe(true);
+    });
+
+    it('flags a star re-export of sdk/types.js that drops the moved schema constants', () => {
+        // `export * from '…/types.js'` cannot be routed per-symbol, so the Zod *Schema constants (now in
+        // sdk-shared) silently disappear from the re-exporting barrel. Surface that for the user.
+        const input = `export * from '@modelcontextprotocol/sdk/types.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        const messages = result.diagnostics.map(d => d.message).join('\n');
+        expect(messages).toContain('@modelcontextprotocol/sdk-shared');
+        expect(messages).toMatch(/Star re-export/i);
+    });
+
+    it('flags a star re-export of sdk/shared/auth.js (schema constants move to sdk-shared)', () => {
+        const input = `export * from '@modelcontextprotocol/sdk/shared/auth.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.map(d => d.message).join('\n')).toContain('@modelcontextprotocol/sdk-shared');
+    });
+
     it('emits a split diagnostic for a re-export mixing a spec schema and a *Schema type (no silent breakage)', () => {
         // The `*Schema` suffix would have routed BooleanSchema to sdk-shared silently (no such export);
         // membership routing instead surfaces the mismatch so the user splits the re-export manually.

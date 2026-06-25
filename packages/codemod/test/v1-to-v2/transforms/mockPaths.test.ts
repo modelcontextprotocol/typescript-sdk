@@ -338,6 +338,70 @@ describe('mock-paths transform', () => {
         });
     });
 
+    describe('schema constant routing (schemaSymbolTarget)', () => {
+        it('routes a vi.mock factory of only spec *Schema constants to sdk-shared', () => {
+            const input = [`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`, `    CallToolResultSchema: vi.fn()`, `}));`, ''].join(
+                '\n'
+            );
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/sdk-shared'`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+            // The schema constant lives in sdk-shared, never the context (server) package.
+            expect(result).not.toContain(`'@modelcontextprotocol/server'`);
+        });
+
+        it('routes a vi.mock factory of only auth *Schema constants to sdk-shared', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/shared/auth.js', () => ({`,
+                `    OAuthTokensSchema: vi.fn()`,
+                `}));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/sdk-shared'`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk/shared/auth');
+        });
+
+        it('routes a destructured dynamic import of only *Schema constants to sdk-shared', () => {
+            const input = [`const { CallToolResultSchema } = await import('@modelcontextprotocol/sdk/types.js');`, ''].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`import('@modelcontextprotocol/sdk-shared')`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+        });
+
+        it('renames JSONRPCResponseSchema and routes it to sdk-shared in a mock factory', () => {
+            const input = [`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`, `    JSONRPCResponseSchema: vi.fn()`, `}));`, ''].join(
+                '\n'
+            );
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/sdk-shared'`);
+            expect(result).toContain('JSONRPCResultResponseSchema');
+            expect(result).not.toMatch(/(?<!Result)JSONRPCResponseSchema/);
+        });
+
+        it('flags a vi.mock factory mixing a *Schema constant and a type (cannot be split)', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`,
+                `    CallToolResultSchema: vi.fn(),`,
+                `    McpError: vi.fn()`,
+                `}));`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.some(d => d.message.includes('mixes symbols that belong to different v2 packages'))).toBe(true);
+        });
+
+        it('flags a destructured dynamic import mixing a *Schema constant and a type', () => {
+            const input = [`const { CallToolResultSchema, McpError } = await import('@modelcontextprotocol/sdk/types.js');`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.some(d => d.message.includes('belong to different v2 packages'))).toBe(true);
+        });
+    });
+
     describe('validator subpath rewrites', () => {
         it('rewrites vi.mock of validator provider to the subpath', () => {
             const input = [

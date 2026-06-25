@@ -7,7 +7,8 @@ This guide covers the breaking changes introduced in v2 of the MCP TypeScript SD
 Version 2 of the MCP TypeScript SDK introduces several breaking changes to improve modularity, reduce dependency bloat, and provide a cleaner API surface. The biggest change is the split from a single `@modelcontextprotocol/sdk` package into separate `@modelcontextprotocol/core`,
 `@modelcontextprotocol/client`, and `@modelcontextprotocol/server` packages.
 
-> **Formatting:** The `@modelcontextprotocol/codemod` package automates most of the mechanical changes below, but it rewrites your code's AST without reformatting it — wrapped schemas and generated handler method strings may not match your project's style. After migrating (with the codemod or by hand), run your formatter on the changed files — for example `prettier --write`, `eslint --fix`, or `biome format --write` — and review the diff.
+> **Formatting:** The `@modelcontextprotocol/codemod` package automates most of the mechanical changes below, but it rewrites your code's AST without reformatting it — wrapped schemas and generated handler method strings may not match your project's style. After migrating (with
+> the codemod or by hand), run your formatter on the changed files — for example `prettier --write`, `eslint --fix`, or `biome format --write` — and review the diff.
 
 ## Breaking Changes
 
@@ -338,11 +339,11 @@ Note: the v2 signature takes a plain `string[]` instead of an options object.
 
 ### Resumability gating for unknown protocol versions (Streamable HTTP server)
 
-The server-side Streamable HTTP transport enables resumability behavior introduced with protocol version `2025-11-25` — SSE priming events and the `closeSSEStream` / `closeStandaloneSSEStream` callbacks — based on the client's protocol version. Previously this was an
-open-ended `protocolVersion >= '2025-11-25'` comparison, so an unrecognized future version string in an `initialize` request body (which, unlike the `MCP-Protocol-Version` header, is not validated against the supported-versions list) silently enabled the behavior.
+The server-side Streamable HTTP transport enables resumability behavior introduced with protocol version `2025-11-25` — SSE priming events and the `closeSSEStream` / `closeStandaloneSSEStream` callbacks — based on the client's protocol version. Previously this was an open-ended
+`protocolVersion >= '2025-11-25'` comparison, so an unrecognized future version string in an `initialize` request body (which, unlike the `MCP-Protocol-Version` header, is not validated against the supported-versions list) silently enabled the behavior.
 
-The check is now bounded: the version must be one of the transport's supported protocol versions (after `connect()`, the server's `supportedProtocolVersions`) **and** at least `2025-11-25`. Behavior for all currently supported protocol versions (`2024-10-07` through
-`2025-11-25`) is unchanged. Clients claiming an unknown future protocol version in the initialize body are now treated like clients without empty-SSE-data support: no priming event is sent and no early-close callbacks are provided.
+The check is now bounded: the version must be one of the transport's supported protocol versions (after `connect()`, the server's `supportedProtocolVersions`) **and** at least `2025-11-25`. Behavior for all currently supported protocol versions (`2024-10-07` through `2025-11-25`)
+is unchanged. Clients claiming an unknown future protocol version in the initialize body are now treated like clients without empty-SSE-data support: no priming event is sent and no early-close callbacks are provided.
 
 ### `setRequestHandler` and `setNotificationHandler` use method strings
 
@@ -516,7 +517,8 @@ The return type is now inferred from the method name via `ResultTypeMap`. For ex
 
 For **custom (non-spec)** methods, keep the result-schema argument — see [Sending custom-method requests](#sending-custom-method-requests). Only drop the schema when calling a spec method.
 
-If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), import the schema from `@modelcontextprotocol/sdk-shared`. Your `.parse()` / `.safeParse()` calls keep working unchanged — only the import path changes:
+If you were using `CallToolResultSchema` (or any `*Schema` constant) for **runtime validation** (not just in `request()`/`callTool()` calls), import the schema from `@modelcontextprotocol/sdk-shared`. Your `.parse()` / `.safeParse()` calls keep working unchanged — only the import
+path changes:
 
 ```typescript
 // v1
@@ -532,7 +534,8 @@ if (CallToolResultSchema.safeParse(value).success) {
 }
 ```
 
-`@modelcontextprotocol/sdk-shared` is the canonical home for the Zod schema constants — both the spec schemas and the OAuth/OpenID schemas (e.g. `OAuthTokensSchema`, `OAuthMetadataSchema`) that v1 exported from `@modelcontextprotocol/sdk/shared/auth.js`. `@modelcontextprotocol/server` and `@modelcontextprotocol/client` keep a Zod-free public surface (they export the corresponding TypeScript types, e.g. `OAuthTokens`), so the raw `*Schema` constants live in `sdk-shared`. (The codemod rewrites these imports for you.)
+`@modelcontextprotocol/sdk-shared` is the canonical home for the Zod schema constants — both the spec schemas and the OAuth/OpenID schemas (e.g. `OAuthTokensSchema`, `OAuthMetadataSchema`) that v1 exported from `@modelcontextprotocol/sdk/shared/auth.js`.
+`@modelcontextprotocol/server` and `@modelcontextprotocol/client` keep a Zod-free public surface (they export the corresponding TypeScript types, e.g. `OAuthTokens`), so the raw `*Schema` constants live in `sdk-shared`. (The codemod rewrites these imports for you.)
 
 If you'd rather **not** depend on Zod, `@modelcontextprotocol/client` and `@modelcontextprotocol/server` also expose Zod-free validators keyed by `SpecTypeName` — a literal union of every named spec type, so you get autocomplete and a compile error on typos:
 
@@ -594,10 +597,14 @@ The following deprecated type aliases have been removed from `@modelcontextproto
 | `IsomorphicHeaders`                      | Use Web Standard `Headers`                                                                        |
 | `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`) |
 
-All other symbols exported from `@modelcontextprotocol/sdk/types.js` retain their original names. Import the **types**, error classes, enums, and guards from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`, and the **Zod schemas** (the `*Schema` constants) from `@modelcontextprotocol/sdk-shared`.
+All other symbols exported from `@modelcontextprotocol/sdk/types.js` retain their original names. Import the **types**, error classes, enums, and guards from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`, and the **Zod schemas** (the `*Schema` constants) from
+`@modelcontextprotocol/sdk-shared`.
 
 > **Note on `isJSONRPCResponse`:** v1's `isJSONRPCResponse` was a deprecated alias that only checked for _result_ responses (it was equivalent to `isJSONRPCResultResponse`). v2 removes the deprecated alias and introduces a **new** `isJSONRPCResponse` with corrected semantics — it
 > checks for _any_ response (either result or error). If you are migrating v1 code that used `isJSONRPCResponse`, rename it to `isJSONRPCResultResponse` to preserve the original behavior. Use the new `isJSONRPCResponse` only when you want to match both result and error responses.
+
+> **Note on `JSONRPCResponseSchema`:** the Zod schema follows the same pattern. v1's `JSONRPCResponseSchema` validated only _result_ responses; v2 reuses the name for a `z.union([JSONRPCResultResponseSchema, JSONRPCErrorResponseSchema])` that also accepts error responses. If you
+> are migrating v1 code that called `JSONRPCResponseSchema.parse()`/`.safeParse()`, rename it to `JSONRPCResultResponseSchema` (re-exported by `@modelcontextprotocol/sdk-shared`) to preserve the original validation. The codemod performs this rename automatically.
 
 **Before (v1):**
 
@@ -914,7 +921,9 @@ The 2025-11 experimental tasks side-channel woven through `Protocol` has been re
 
 **Also removed:** the storage layer (`TaskStore`, `InMemoryTaskStore`, `CreateTaskOptions`, `isTerminal`). It will return as part of the SEP-2663 server-directed plugin in a follow-up.
 
-**Wire types remain.** The task wire surface defined by the 2025-11-25 protocol revision is still exported, for interoperability with peers on that revision: the task Zod schemas and their inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `GetTaskPayload*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), the task members of the request/result/notification unions, the `tasks` capability key, the `isTaskAugmentedRequestParams` guard, and `RELATED_TASK_META_KEY`. Only the behavior is gone: servers built on this SDK do not advertise the `tasks` capability, and inbound `tasks/*` requests receive a standard `-32601` (method not found) error.
+**Wire types remain.** The task wire surface defined by the 2025-11-25 protocol revision is still exported, for interoperability with peers on that revision: the task Zod schemas and their inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`,
+`CreateTaskResult`, `GetTask*`, `GetTaskPayload*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), the task members of the request/result/notification unions, the `tasks` capability key, the `isTaskAugmentedRequestParams` guard, and
+`RELATED_TASK_META_KEY`. Only the behavior is gone: servers built on this SDK do not advertise the `tasks` capability, and inbound `tasks/*` requests receive a standard `-32601` (method not found) error.
 
 There is no migration path for the removed surface; it was always `@experimental`. Task support is planned to return as an opt-in extension plugin per SEP-2663.
 
@@ -1009,9 +1018,9 @@ The following APIs are unchanged between v1 and v2 (only the import paths change
 - All Zod schemas and type definitions from `types.ts` (except the aliases listed above)
 - Tool, prompt, and resource callback return types
 
-**Session-ID mismatch responses**: when session management is enabled and a request carries an `Mcp-Session-Id` header that doesn't match the active session, the Streamable HTTP server transport responds `404 Not Found` with a JSON-RPC error body using code `-32001` and
-message `Session not found` — unchanged from v1. Note that this use of `-32001` is an SDK convention, not a spec-assigned error code, and it is expected to be re-derived as error handling for the 2026 protocol revision (`2026-07-28`) is adopted. Avoid hard-coding the
-`-32001` code in client logic; key off the HTTP `404` status instead.
+**Session-ID mismatch responses**: when session management is enabled and a request carries an `Mcp-Session-Id` header that doesn't match the active session, the Streamable HTTP server transport responds `404 Not Found` with a JSON-RPC error body using code `-32001` and message
+`Session not found` — unchanged from v1. Note that this use of `-32001` is an SDK convention, not a spec-assigned error code, and it is expected to be re-derived as error handling for the 2026 protocol revision (`2026-07-28`) is adopted. Avoid hard-coding the `-32001` code in
+client logic; key off the HTTP `404` status instead.
 
 ## Using an LLM to migrate your code
 

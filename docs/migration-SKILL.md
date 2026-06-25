@@ -59,14 +59,14 @@ Replace all `@modelcontextprotocol/sdk/...` imports using this table.
 
 ### Types / shared imports
 
-| v1 import path                                    | v2 package                                                                                                                                                                                           |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk/types.js`              | Types / error classes / enums / guards → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; Zod `*Schema` constants → `@modelcontextprotocol/sdk-shared`                                |
-| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
-| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
-| `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                     |
+| v1 import path                                    | v2 package                                                                                                                                                                                                      |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@modelcontextprotocol/sdk/types.js`              | Types / error classes / enums / guards → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; Zod `*Schema` constants → `@modelcontextprotocol/sdk-shared`                                         |
+| `@modelcontextprotocol/sdk/shared/protocol.js`    | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                                |
+| `@modelcontextprotocol/sdk/shared/transport.js`   | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                                |
+| `@modelcontextprotocol/sdk/shared/uriTemplate.js` | `@modelcontextprotocol/client` or `@modelcontextprotocol/server`                                                                                                                                                |
 | `@modelcontextprotocol/sdk/shared/auth.js`        | Types / classes → `@modelcontextprotocol/client` or `@modelcontextprotocol/server`; OAuth/OpenID Zod `*Schema` constants (e.g. `OAuthTokensSchema`, `OAuthMetadataSchema`) → `@modelcontextprotocol/sdk-shared` |
-| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` (`ReadBuffer`, `serializeMessage`, `deserializeMessage` are in the root barrel; the `./stdio` subpath only has the transport class) |
+| `@modelcontextprotocol/sdk/shared/stdio.js`       | `@modelcontextprotocol/client` or `@modelcontextprotocol/server` (`ReadBuffer`, `serializeMessage`, `deserializeMessage` are in the root barrel; the `./stdio` subpath only has the transport class)            |
 
 Notes:
 
@@ -81,24 +81,27 @@ Notes:
 
 ## 5. Removed / Renamed Type Aliases and Symbols
 
-| v1 (removed)                             | v2 (replacement)                                                                                                |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `JSONRPCError`                           | `JSONRPCErrorResponse`                                                                                          |
-| `JSONRPCErrorSchema`                     | `JSONRPCErrorResponseSchema`                                                                                    |
-| `isJSONRPCError`                         | `isJSONRPCErrorResponse`                                                                                        |
-| `isJSONRPCResponse` (deprecated in v1)   | `isJSONRPCResultResponse` (**not** v2's new `isJSONRPCResponse`, which correctly matches both result and error) |
-| `ResourceReference`                      | `ResourceTemplateReference`                                                                                     |
-| `ResourceReferenceSchema`                | `ResourceTemplateReferenceSchema`                                                                               |
-| `IsomorphicHeaders`                      | REMOVED (use Web Standard `Headers`)                                                                            |
-| `AuthInfo` (from `server/auth/types.js`) | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`)               |
-| `McpError`                               | `ProtocolError`                                                                                                 |
-| `ErrorCode`                              | `ProtocolErrorCode`                                                                                             |
-| `ErrorCode.RequestTimeout`               | `SdkErrorCode.RequestTimeout`                                                                                   |
-| `ErrorCode.ConnectionClosed`             | `SdkErrorCode.ConnectionClosed`                                                                                 |
-| `StreamableHTTPError`                    | REMOVED (use `SdkHttpError` with `SdkErrorCode.ClientHttp*`)                                                    |
-| `WebSocketClientTransport`               | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                         |
+| v1 (removed)                                | v2 (replacement)                                                                                                                                                 |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `JSONRPCError`                              | `JSONRPCErrorResponse`                                                                                                                                           |
+| `JSONRPCErrorSchema`                        | `JSONRPCErrorResponseSchema`                                                                                                                                     |
+| `isJSONRPCError`                            | `isJSONRPCErrorResponse`                                                                                                                                         |
+| `isJSONRPCResponse` (deprecated in v1)      | `isJSONRPCResultResponse` (**not** v2's new `isJSONRPCResponse`, which correctly matches both result and error)                                                  |
+| `JSONRPCResponseSchema` (result-only in v1) | `JSONRPCResultResponseSchema` (from `@modelcontextprotocol/sdk-shared`; **not** v2's new `JSONRPCResponseSchema`, a `z.union` that also accepts error responses) |
+| `ResourceReference`                         | `ResourceTemplateReference`                                                                                                                                      |
+| `ResourceReferenceSchema`                   | `ResourceTemplateReferenceSchema`                                                                                                                                |
+| `IsomorphicHeaders`                         | REMOVED (use Web Standard `Headers`)                                                                                                                             |
+| `AuthInfo` (from `server/auth/types.js`)    | `AuthInfo` (now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`)                                                                |
+| `McpError`                                  | `ProtocolError`                                                                                                                                                  |
+| `ErrorCode`                                 | `ProtocolErrorCode`                                                                                                                                              |
+| `ErrorCode.RequestTimeout`                  | `SdkErrorCode.RequestTimeout`                                                                                                                                    |
+| `ErrorCode.ConnectionClosed`                | `SdkErrorCode.ConnectionClosed`                                                                                                                                  |
+| `StreamableHTTPError`                       | REMOVED (use `SdkHttpError` with `SdkErrorCode.ClientHttp*`)                                                                                                     |
+| `WebSocketClientTransport`                  | REMOVED (use `StreamableHTTPClientTransport` or `StdioClientTransport`)                                                                                          |
 
-All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`. The **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) move to `@modelcontextprotocol/sdk-shared`; `<Name>Schema.parse(value)` / `.safeParse(value)` keep working unchanged (the codemod rewrites the import path). To validate **without** depending on Zod, use `isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or `specTypeSchemas.TypeName` (a `StandardSchemaV1Sync` validator) from `@modelcontextprotocol/client` / `@modelcontextprotocol/server`; the keys are typed as `SpecTypeName`, a literal union of all spec type names.
+All other **type** symbols from `@modelcontextprotocol/sdk/types.js` retain their original names — import them from `@modelcontextprotocol/client` or `@modelcontextprotocol/server`. The **Zod schemas** (e.g., `CallToolResultSchema`, `ListToolsResultSchema`) move to
+`@modelcontextprotocol/sdk-shared`; `<Name>Schema.parse(value)` / `.safeParse(value)` keep working unchanged (the codemod rewrites the import path). To validate **without** depending on Zod, use `isSpecType.TypeName(value)` (e.g., `isSpecType.CallToolResult(v)`) or
+`specTypeSchemas.TypeName` (a `StandardSchemaV1Sync` validator) from `@modelcontextprotocol/client` / `@modelcontextprotocol/server`; the keys are typed as `SpecTypeName`, a literal union of all spec type names.
 
 ### Error class changes
 
@@ -500,7 +503,8 @@ The 2025-11 task side-channel through `Protocol` is removed (was always `@experi
 
 `TaskStore` / `InMemoryTaskStore` / `CreateTaskOptions` / `isTerminal` (storage layer) are also removed; they will return with the SEP-2663 server-directed plugin.
 
-NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task members of the request/result/notification unions, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
+NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + inferred types (`Task`, `TaskStatus`, `TaskMetadata`, `RelatedTaskMetadata`, `CreateTaskResult`, `GetTask*`, `ListTasks*`, `CancelTask*`, `TaskStatusNotification*`, `TaskAugmentedRequestParams`), task
+members of the request/result/notification unions, the `tasks` capability key, `isTaskAugmentedRequestParams`, `RELATED_TASK_META_KEY`. Inbound `tasks/*` requests → `-32601`.
 
 ## 13. Behavioral Changes
 
@@ -512,8 +516,10 @@ NOT removed (wire surface, kept for 2025-11-25 interop): task Zod schemas + infe
 
 No code changes required; these are wire-behavior notes:
 
-- Resumability behavior (SSE priming events, `closeSSEStream` / `closeStandaloneSSEStream` callbacks) is only enabled for protocol versions in the transport's supported-versions list that are `>= 2025-11-25`. Unknown future version strings in an `initialize` request body no longer enable it. Behavior for all currently supported protocol versions is unchanged.
-- Session-ID mismatch still responds `404 Not Found` with JSON-RPC error code `-32001` (`Session not found`), unchanged from v1. This `-32001` usage is an SDK convention, not a spec-assigned code, and may be re-derived as 2026 protocol revision error handling is adopted — migrated client code should key off the HTTP `404` status, not the `-32001` code.
+- Resumability behavior (SSE priming events, `closeSSEStream` / `closeStandaloneSSEStream` callbacks) is only enabled for protocol versions in the transport's supported-versions list that are `>= 2025-11-25`. Unknown future version strings in an `initialize` request body no
+  longer enable it. Behavior for all currently supported protocol versions is unchanged.
+- Session-ID mismatch still responds `404 Not Found` with JSON-RPC error code `-32001` (`Session not found`), unchanged from v1. This `-32001` usage is an SDK convention, not a spec-assigned code, and may be re-derived as 2026 protocol revision error handling is adopted —
+  migrated client code should key off the HTTP `404` status, not the `-32001` code.
 
 ## 14. Runtime-Specific JSON Schema Validators (Enhancement)
 
@@ -557,5 +563,6 @@ Validator behavior:
 8. If using server SSE transport, migrate to Streamable HTTP
 9. If using server auth from the SDK: RS helpers (`requireBearerAuth`, `mcpAuthMetadataRouter`, `OAuthTokenVerifier`) → `@modelcontextprotocol/express`; AS helpers → `@modelcontextprotocol/server-legacy/auth` (deprecated); migrate AS to external IdP/OAuth library
 10. If relying on `listTools()`/`listPrompts()`/etc. throwing on missing capabilities, set `enforceStrictCapabilities: true`
-11. Format the changed files with the project's formatter (`prettier --write`, `eslint --fix`, or `biome format --write`) — edits are not reformatted automatically, and the wrapped schemas (step 5) and rewritten `setRequestHandler` method strings (section 9) frequently need it to satisfy lint
+11. Format the changed files with the project's formatter (`prettier --write`, `eslint --fix`, or `biome format --write`) — edits are not reformatted automatically, and the wrapped schemas (step 5) and rewritten `setRequestHandler` method strings (section 9) frequently need it to
+    satisfy lint
 12. Verify: build with `tsc` / run tests
