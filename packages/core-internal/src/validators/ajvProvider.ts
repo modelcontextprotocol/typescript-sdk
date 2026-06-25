@@ -47,7 +47,7 @@ function createDefaultAjvInstance(): AjvLike {
 
 /**
  * AJV-backed JSON Schema validator. See `@modelcontextprotocol/{client,server}/validators/ajv`
- * for the customisation entry point (re-exports `Ajv` and `addFormats` from the bundled copy).
+ * for the customisation entry point (re-exports `Ajv2020`, `Ajv`, and `addFormats` from the bundled copy).
  *
  * Default validates as **JSON Schema 2020-12** (SEP-1613). Schemas declaring a different
  * `$schema` are rejected with a plain `Error`; pass a pre-configured Ajv instance to validate
@@ -154,5 +154,6 @@ export class AjvJsonSchemaValidator implements jsonSchemaValidator {
  * dependencies (matching the SDK's pinned version) and `import { Ajv2020 } from 'ajv/dist/2020.js'`.
  */
 export { Ajv } from 'ajv';
+export { Ajv2020 } from 'ajv/dist/2020.js';
 /** `ajv-formats` default export, normalised through the CJS/ESM interop wrapper. */
 export { addFormats };

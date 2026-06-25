@@ -1,14 +1,14 @@
 /**
- * Customisation entry point for the AJV validator. Re-exports `Ajv` + `addFormats` from the
- * SDK's bundled copy, so customising the validator needs no extra installs.
+ * Customisation entry point for the AJV validator. Re-exports `Ajv2020` + `addFormats` from
+ * the SDK's bundled copy, so customising the validator needs no extra installs.
  *
  * @example
  * ```ts
- * import { Ajv, addFormats, AjvJsonSchemaValidator } from '@modelcontextprotocol/client/validators/ajv';
+ * import { Ajv2020, addFormats, AjvJsonSchemaValidator } from '@modelcontextprotocol/client/validators/ajv';
  *
- * const ajv = new Ajv({ strict: true, allErrors: true });
+ * const ajv = new Ajv2020({ strict: true, allErrors: true });
  * addFormats(ajv);
  * const validator = new AjvJsonSchemaValidator(ajv);
  * ```
  */
-export { addFormats, Ajv, AjvJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/ajv';
+export { addFormats, Ajv, Ajv2020, AjvJsonSchemaValidator } from '@modelcontextprotocol/core-internal/validators/ajv';

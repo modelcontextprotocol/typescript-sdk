@@ -1,5 +1,5 @@
 import type { JSONRPCMessage, JsonSchemaType, JsonSchemaValidatorResult, jsonSchemaValidator } from '@modelcontextprotocol/core-internal';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, LATEST_PROTOCOL_VERSION, ProtocolErrorCode } from '@modelcontextprotocol/core-internal';
 import { Client } from '../../src/client/client';
 import { fromJsonSchema } from '../../src/fromJsonSchema';
 
@@ -16,7 +16,13 @@ class RecordingValidator implements jsonSchemaValidator {
     }
 }
 
-async function connectInitializedClient(client: Client) {
+class ThrowingValidator implements jsonSchemaValidator {
+    getValidator<T>(_schema: JsonSchemaType): (value: unknown) => JsonSchemaValidatorResult<T> {
+        throw new Error('schema compile blocked');
+    }
+}
+
+async function connectInitializedClient(client: Client, handlers?: { onToolsCall?: (message: JSONRPCMessage) => void }) {
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     serverTransport.onmessage = async message => {
         if ('method' in message && 'id' in message && message.method === 'initialize') {
