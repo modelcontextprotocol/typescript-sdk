@@ -2008,15 +2008,25 @@ describe('outputSchema validation', () => {
      * or the use of other tools (SEP-2106 safety-guard isolation).
      */
     test('preserves outputSchema validation metadata across paginated tool listings', async () => {
-        const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+        const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: { listChanged: true } } });
+        const listRequests: Array<string | undefined> = [];
+        const listChangedNotifications: Array<[Error | null, Tool[] | null]> = [];
+        let resolveListChangedNotification: () => void = () => {};
+        const listChangedNotification = new Promise<void>(resolve => {
+            resolveListChangedNotification = resolve;
+        });
+        let lastPageToolReturnsInvalid = false;
+        let lastPageBadToolCalled = false;
 
         server.setRequestHandler('initialize', async request => ({
             protocolVersion: request.params.protocolVersion,
-            capabilities: { tools: {} },
+            capabilities: { tools: { listChanged: true } },
             serverInfo: { name: 'test-server', version: '1.0.0' }
         }));
 
         server.setRequestHandler('tools/list', async request => {
+            listRequests.push(request.params?.cursor);
+
             if (request.params?.cursor === 'page-2') {
                 return {
                     tools: [
@@ -2025,6 +2035,12 @@ describe('outputSchema validation', () => {
                             description: 'a tool on the final page',
                             inputSchema: { type: 'object', properties: {} },
                             outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] }
+                        },
+                        {
+                            name: 'last-page-bad-tool',
+                            description: 'a final-page tool with an outputSchema the SEP-2106 guard rejects',
+                            inputSchema: { type: 'object', properties: {} },
+                            outputSchema: { $ref: 'https://evil.example/final-page-schema.json' }
                         }
                     ]
                 };
@@ -2052,7 +2068,11 @@ describe('outputSchema validation', () => {
 
         server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'last-page-tool') {
-                return { content: [], structuredContent: { ok: true } };
+                return { content: [], structuredContent: { ok: lastPageToolReturnsInvalid ? 'not-a-boolean' : true } };
+            }
+            if (request.params.name === 'last-page-bad-tool') {
+                lastPageBadToolCalled = true;
+                return { content: [], structuredContent: { irrelevant: true } };
             }
             if (request.params.name === 'validated-tool') {
                 return { content: [], structuredContent: { ok: 'not-a-boolean' } };
@@ -2060,7 +2080,20 @@ describe('outputSchema validation', () => {
             return { content: [], structuredContent: { irrelevant: true } };
         });
 
-        const client = new Client({ name: 'test-client', version: '1.0.0' });
+        const client = new Client(
+            { name: 'test-client', version: '1.0.0' },
+            {
+                listChanged: {
+                    tools: {
+                        debounceMs: 0,
+                        onChanged: (error, tools) => {
+                            listChangedNotifications.push([error, tools]);
+                            resolveListChangedNotification();
+                        }
+                    }
+                }
+            }
+        );
         const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
@@ -2068,7 +2101,7 @@ describe('outputSchema validation', () => {
         const firstPage = await client.listTools();
         expect(firstPage.tools.map(t => t.name).toSorted()).toEqual(['bad-tool', 'validated-tool']);
         const secondPage = await client.listTools({ cursor: firstPage.nextCursor });
-        expect(secondPage.tools.map(t => t.name)).toEqual(['last-page-tool']);
+        expect(secondPage.tools.map(t => t.name).toSorted()).toEqual(['last-page-bad-tool', 'last-page-tool']);
 
         // The final page's tool is fully usable.
         const lastPage = await client.callTool({ name: 'last-page-tool' });
@@ -2079,6 +2112,30 @@ describe('outputSchema validation', () => {
 
         // An earlier-page schema compile error also survives pagination and is scoped to that tool.
         await expect(client.callTool({ name: 'bad-tool' })).rejects.toThrow(/output schema that could not be compiled/i);
+
+        // A final-page schema compile error also survives pagination and is scoped to that tool.
+        await expect(client.callTool({ name: 'last-page-bad-tool' })).rejects.toThrow(/output schema that could not be compiled/i);
+        expect(lastPageBadToolCalled).toBe(false);
+
+        listRequests.length = 0;
+        lastPageToolReturnsInvalid = true;
+        await server.notification({ method: 'notifications/tools/list_changed' });
+        await listChangedNotification;
+
+        expect(listRequests).toEqual([undefined, 'page-2']);
+        expect(listChangedNotifications).toHaveLength(1);
+        expect(listChangedNotifications[0]![0]).toBeNull();
+        expect(listChangedNotifications[0]![1]?.map(t => t.name).toSorted()).toEqual([
+            'bad-tool',
+            'last-page-bad-tool',
+            'last-page-tool',
+            'validated-tool'
+        ]);
+
+        await expect(client.callTool({ name: 'last-page-tool' })).rejects.toThrow(/Structured content does not match/);
+        lastPageBadToolCalled = false;
+        await expect(client.callTool({ name: 'last-page-bad-tool' })).rejects.toThrow(/output schema that could not be compiled/i);
+        expect(lastPageBadToolCalled).toBe(false);
     });
 
     /***

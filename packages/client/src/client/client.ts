@@ -728,6 +728,19 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
+    private async _listAllTools(): Promise<Tool[]> {
+        const tools: Tool[] = [];
+        let cursor: string | undefined;
+
+        do {
+            const result = await this.listTools(cursor === undefined ? undefined : { cursor });
+            tools.push(...result.tools);
+            cursor = result.nextCursor;
+        } while (cursor !== undefined);
+
+        return tools;
+    }
+
     /**
      * Registers new capabilities. This can only be called before connecting to a transport.
      *
