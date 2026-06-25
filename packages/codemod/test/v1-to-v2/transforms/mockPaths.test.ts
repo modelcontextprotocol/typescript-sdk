@@ -400,6 +400,37 @@ describe('mock-paths transform', () => {
             const result = mockPathsTransform.apply(sourceFile, ctx);
             expect(result.diagnostics.some(d => d.message.includes('belong to different v2 packages'))).toBe(true);
         });
+
+        it('routes a destructured .then() param of only *Schema constants to core', () => {
+            const input = [
+                `import('@modelcontextprotocol/sdk/types.js').then(({ CallToolResultSchema }) => CallToolResultSchema.parse(value));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`import('@modelcontextprotocol/core')`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+        });
+
+        it('renames a *Schema in a destructured .then() param and routes it to core', () => {
+            const input = [
+                `import('@modelcontextprotocol/sdk/types.js').then(({ JSONRPCResponseSchema }) => JSONRPCResponseSchema.parse(value));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`import('@modelcontextprotocol/core')`);
+            expect(result).toContain('JSONRPCResultResponseSchema');
+        });
+
+        it('flags a destructured .then() param mixing a *Schema constant and a type', () => {
+            const input = [
+                `import('@modelcontextprotocol/sdk/types.js').then(({ CallToolResultSchema, McpError }) => CallToolResultSchema.parse(value));`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.some(d => d.message.includes('belong to different v2 packages'))).toBe(true);
+        });
     });
 
     describe('lazy context resolution (no spurious project-type diagnostic)', () => {

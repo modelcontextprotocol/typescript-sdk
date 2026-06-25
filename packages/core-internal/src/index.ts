@@ -15,7 +15,7 @@ export * from './util/standardSchema';
 export * from './util/zodCompat';
 
 // Validator providers are type-only here — import the runtime classes from the explicit
-// `@modelcontextprotocol/{core,client,server}/validators/{ajv,cf-worker}` subpaths to customise.
+// `@modelcontextprotocol/{client,server}/validators/{ajv,cf-worker}` subpaths to customise.
 export type { AjvJsonSchemaValidator } from './validators/ajvProvider';
 export type { CfWorkerJsonSchemaValidator, CfWorkerSchemaDraft } from './validators/cfWorkerProvider';
 export * from './validators/fromJsonSchema';

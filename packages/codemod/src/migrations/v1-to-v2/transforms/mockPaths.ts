@@ -252,19 +252,45 @@ function renameSymbolsInFactory(factoryArg: import('ts-morph').Node, renamedSymb
 }
 
 /**
- * The destructured binding keys of an `await import()` assigned to an object binding pattern (e.g.
- * `const { CallToolResultSchema, McpError } = await import('…')`), or `[]` for a non-destructured
- * binding, a `.then()` chain, or an unassigned `await import()`. The keys feed per-symbol routing —
- * the specifier itself can't be split.
+ * The object binding pattern through which a dynamic import's named symbols are pulled — either
+ * `const { … } = await import('…')` or `import('…').then(({ … }) => …)`. Returns undefined for a
+ * non-destructured binding (`const mod = await import()`), an identifier `.then` param (`m => …`), or
+ * an unassigned `await import()`. Both destructured shapes expose named symbols that can be routed and
+ * renamed per-symbol (the specifier itself can't be split).
+ */
+function getModuleBindingPattern(node: import('ts-morph').CallExpression): import('ts-morph').ObjectBindingPattern | undefined {
+    const parent = node.getParent();
+    if (parent && Node.isAwaitExpression(parent)) {
+        const grandParent = parent.getParent();
+        if (grandParent && Node.isVariableDeclaration(grandParent)) {
+            const nameNode = grandParent.getNameNode();
+            if (Node.isObjectBindingPattern(nameNode)) return nameNode;
+        }
+        return undefined;
+    }
+    if (parent && Node.isPropertyAccessExpression(parent) && parent.getName() === 'then') {
+        const thenCall = parent.getParent();
+        if (thenCall && Node.isCallExpression(thenCall)) {
+            const cb = thenCall.getArguments()[0];
+            if (cb && (Node.isArrowFunction(cb) || Node.isFunctionExpression(cb))) {
+                const paramName = cb.getParameters()[0]?.getNameNode();
+                if (paramName && Node.isObjectBindingPattern(paramName)) return paramName;
+            }
+        }
+    }
+    return undefined;
+}
+
+/**
+ * The destructured binding keys of a dynamic import — for both `const { … } = await import('…')` and
+ * `import('…').then(({ … }) => …)` — or `[]` for a non-destructured binding, an identifier `.then`
+ * param, or an unassigned `await import()`. The keys feed per-symbol routing; the specifier itself
+ * can't be split.
  */
 function getDestructuredKeys(node: import('ts-morph').CallExpression): string[] {
-    const parent = node.getParent();
-    if (!parent || !Node.isAwaitExpression(parent)) return [];
-    const grandParent = parent.getParent();
-    if (!grandParent || !Node.isVariableDeclaration(grandParent)) return [];
-    const nameNode = grandParent.getNameNode();
-    if (!Node.isObjectBindingPattern(nameNode)) return [];
-    return nameNode.getElements().map(el => el.getPropertyNameNode()?.getText() ?? el.getName());
+    const pattern = getModuleBindingPattern(node);
+    if (!pattern) return [];
+    return pattern.getElements().map(el => el.getPropertyNameNode()?.getText() ?? el.getName());
 }
 
 /**
@@ -418,29 +444,36 @@ function rewriteDynamicImports(
         firstArg.setLiteralValue(effectiveTarget);
         changes++;
 
-        const parent = node.getParent();
-        if (parent && Node.isAwaitExpression(parent)) {
-            const grandParent = parent.getParent();
-            if (grandParent && Node.isVariableDeclaration(grandParent)) {
-                const nameNode = grandParent.getNameNode();
-                if (Node.isObjectBindingPattern(nameNode)) {
-                    for (const element of nameNode.getElements()) {
-                        const propertyName = element.getPropertyNameNode()?.getText();
-                        const bindingName = element.getName();
-                        const lookupKey = propertyName ?? bindingName;
-                        const newName = allRenames[lookupKey];
-                        if (newName) {
-                            if (propertyName) {
-                                element.getPropertyNameNode()!.replaceWithText(newName);
-                            } else {
-                                element.replaceWithText(`${newName}: ${bindingName}`);
-                            }
-                            changes++;
-                        }
+        // Apply symbol renames to the destructured binding elements — for both `await import()`
+        // destructuring and a `.then(({ … }) => …)` param (both routed per-symbol above when their
+        // symbols share a target, e.g. schema-only → core).
+        const bindingPattern = getModuleBindingPattern(node);
+        if (bindingPattern) {
+            for (const element of bindingPattern.getElements()) {
+                const propertyName = element.getPropertyNameNode()?.getText();
+                const bindingName = element.getName();
+                const lookupKey = propertyName ?? bindingName;
+                const newName = allRenames[lookupKey];
+                if (newName) {
+                    if (propertyName) {
+                        element.getPropertyNameNode()!.replaceWithText(newName);
+                    } else {
+                        element.replaceWithText(`${newName}: ${bindingName}`);
                     }
+                    changes++;
                 }
+            }
+        }
+
+        // A non-destructured awaited binding (`const mod = await import('…')`) can't have per-symbol
+        // renames applied, so flag them if the mapping carries any. (Identifier `.then` params and bare
+        // `mod.<Name>Schema` accesses are surfaced by `collectModuleSchemaAccesses` above.)
+        const awaitParent = node.getParent();
+        if (awaitParent && Node.isAwaitExpression(awaitParent)) {
+            const decl = awaitParent.getParent();
+            if (decl && Node.isVariableDeclaration(decl) && !Node.isObjectBindingPattern(decl.getNameNode())) {
                 const moduleRenames = resolved.mapping.renamedSymbols ?? {};
-                if (!Node.isObjectBindingPattern(nameNode) && Object.keys(moduleRenames).length > 0) {
+                if (Object.keys(moduleRenames).length > 0) {
                     diagnostics.push(
                         actionRequired(
                             sourceFile.getFilePath(),
