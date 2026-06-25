@@ -304,6 +304,44 @@ describe('crossAppAccess', () => {
             expect(String(mockFetch.mock.calls[1]![0])).toBe('https://idp.example.com/token');
         });
 
+        it('allows IdP discovery aliases whose metadata names a canonical issuer', async () => {
+            const mockFetch = vi.fn<FetchLike>();
+
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    issuer: 'https://login.microsoftonline.com/tenant-guid/v2.0',
+                    authorization_endpoint: 'https://login.microsoftonline.com/tenant-guid/oauth2/v2.0/authorize',
+                    token_endpoint: 'https://login.microsoftonline.com/tenant-guid/oauth2/v2.0/token',
+                    jwks_uri: 'https://login.microsoftonline.com/tenant-guid/discovery/v2.0/keys',
+                    response_types_supported: ['code'],
+                    grant_types_supported: ['urn:ietf:params:oauth:grant-type:token-exchange']
+                })
+            } as Response);
+
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({
+                    issued_token_type: 'urn:ietf:params:oauth:token-type:id-jag',
+                    access_token: 'jag-token',
+                    token_type: 'N_A'
+                })
+            } as Response);
+
+            const result = await discoverAndRequestJwtAuthGrant({
+                idpUrl: 'https://login.example-corp.com',
+                audience: 'https://auth.chat.example/',
+                resource: 'https://mcp.chat.example/',
+                idToken: 'id-token',
+                clientId: 'client',
+                fetchFn: mockFetch
+            });
+
+            expect(result.jwtAuthGrant).toBe('jag-token');
+            expect(String(mockFetch.mock.calls[0]![0])).toBe('https://login.example-corp.com/.well-known/oauth-authorization-server');
+            expect(String(mockFetch.mock.calls[1]![0])).toBe('https://login.microsoftonline.com/tenant-guid/oauth2/v2.0/token');
+        });
+
         it('throws error when token endpoint is not discovered', async () => {
             const mockFetch = vi.fn<FetchLike>().mockResolvedValue({
                 ok: true,

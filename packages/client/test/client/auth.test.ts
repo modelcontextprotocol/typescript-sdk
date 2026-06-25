@@ -1453,6 +1453,42 @@ describe('OAuth Authorization', () => {
             expect(mockFetch.mock.calls[1]![0].toString()).toBe('https://resource.example.com/.well-known/oauth-authorization-server');
         });
 
+        it('keeps the legacy fallback MCP origin when unvalidated metadata has an invalid issuer', async () => {
+            const legacyAuthMetadata = {
+                ...validAuthMetadata,
+                issuer: 'auth.example.com',
+                authorization_endpoint: 'https://resource.example.com/authorize',
+                token_endpoint: 'https://resource.example.com/token'
+            };
+
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: false,
+                        status: 404
+                    });
+                }
+
+                if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => legacyAuthMetadata
+                    });
+                }
+
+                return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+            });
+
+            const result = await discoverOAuthServerInfo('https://resource.example.com');
+
+            expect(result.authorizationServerUrl).toBe('https://resource.example.com/');
+            expect(result.resourceMetadata).toBeUndefined();
+            expect(result.authorizationServerMetadata).toEqual(legacyAuthMetadata);
+        });
+
         it('forwards resourceMetadataUrl override to protected resource metadata discovery', async () => {
             const overrideUrl = new URL('https://custom.example.com/.well-known/oauth-protected-resource');
 

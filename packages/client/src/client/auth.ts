@@ -1898,7 +1898,10 @@ export async function discoverAuthorizationServerMetadata(
  * @param options - Configuration options
  * @param options.fetchFn - Optional fetch function for making HTTP requests, defaults to global fetch
  * @param options.protocolVersion - MCP protocol version to use, defaults to {@linkcode LATEST_PROTOCOL_VERSION}
+ * @param options.validateIssuer - Whether to validate metadata's issuer against the discovery URL, defaults to true
  * @returns Promise resolving to authorization server metadata, or undefined if discovery fails
+ * @throws {Error} If discovered metadata has an invalid issuer or the issuer does not match
+ *                 the discovery URL while issuer validation is enabled
  */
 export async function discoverAuthorizationServerMetadata(
     authorizationServerUrl: string | URL,
