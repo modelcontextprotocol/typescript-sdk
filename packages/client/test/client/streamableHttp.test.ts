@@ -1027,7 +1027,7 @@ describe('StreamableHTTPClientTransport', () => {
             // ASSERT
             expect(errorSpy).toHaveBeenCalledWith(
                 expect.objectContaining({
-                    message: expect.stringContaining('SSE stream disconnected: Error: Network failure')
+                    message: expect.stringContaining('SSE stream disconnected: Network failure')
                 })
             );
             // THE KEY ASSERTION: A second fetch call proves reconnection was attempted.
@@ -1909,6 +1909,38 @@ describe('StreamableHTTPClientTransport', () => {
 
             // Clean up the pending reconnection to avoid test pollution
             transport['_cancelReconnection']?.();
+        });
+
+        it('should fail 202 responses after standalone SSE reconnect attempts are exhausted', async () => {
+            transport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), {
+                reconnectionOptions: {
+                    initialReconnectionDelay: 10,
+                    maxRetries: 0,
+                    maxReconnectionDelay: 1000,
+                    reconnectionDelayGrowFactor: 1
+                }
+            });
+
+            transport['_scheduleReconnection']({}, 0, true);
+
+            const message: JSONRPCRequest = {
+                jsonrpc: '2.0',
+                method: 'tools/call',
+                params: {},
+                id: 'request-after-dead-sse'
+            };
+
+            (globalThis.fetch as Mock).mockResolvedValueOnce({
+                ok: true,
+                status: 202,
+                headers: new Headers(),
+                text: vi.fn().mockResolvedValue('')
+            });
+
+            await expect(transport.send(message)).rejects.toThrow(
+                'SSE stream reconnection failed: Maximum reconnection attempts (0) exceeded.'
+            );
+            expect(globalThis.fetch).toHaveBeenCalledTimes(1);
         });
     });
 
