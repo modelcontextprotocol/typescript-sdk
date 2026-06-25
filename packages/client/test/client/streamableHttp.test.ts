@@ -1215,7 +1215,9 @@ describe('StreamableHTTPClientTransport', () => {
         it('keeps accumulated scope after a 401 challenge without scope', async () => {
             const authProvider: AuthProvider = { token: vi.fn(async () => undefined) };
             const challengeTransport = new StreamableHTTPClientTransport(new URL('http://localhost:1234/mcp'), { authProvider });
+            const resourceMetadataUrl = new URL('http://localhost:1234/.well-known/oauth-protected-resource/mcp');
             (challengeTransport as unknown as { _scope?: string })._scope = 'read write';
+            (challengeTransport as unknown as { _resourceMetadataUrl?: URL })._resourceMetadataUrl = resourceMetadataUrl;
             (globalThis.fetch as Mock).mockResolvedValueOnce({
                 ok: false,
                 status: 401,
@@ -1228,6 +1230,7 @@ describe('StreamableHTTPClientTransport', () => {
 
             await expect(challengeTransport.send(message)).rejects.toThrow(UnauthorizedError);
             expect((challengeTransport as unknown as { _scope?: string })._scope).toBe('read write');
+            expect((challengeTransport as unknown as { _resourceMetadataUrl?: URL })._resourceMetadataUrl).toBe(resourceMetadataUrl);
 
             await challengeTransport.close().catch(() => {});
         });

@@ -164,7 +164,7 @@ export class SSEClientTransport implements Transport {
                         this._last401Response = response;
                         if (response.headers.has('www-authenticate')) {
                             const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                            this._resourceMetadataUrl = resourceMetadataUrl;
+                            this._resourceMetadataUrl = resourceMetadataUrl ?? this._resourceMetadataUrl;
                             this._scope = unionScopes(this._scope, scope);
                         }
                     }
@@ -336,7 +336,7 @@ export class SSEClientTransport implements Transport {
                 if (response.status === 401 && this._authProvider) {
                     if (response.headers.has('www-authenticate')) {
                         const { resourceMetadataUrl, scope } = extractWWWAuthenticateParams(response);
-                        this._resourceMetadataUrl = resourceMetadataUrl;
+                        this._resourceMetadataUrl = resourceMetadataUrl ?? this._resourceMetadataUrl;
                         this._scope = unionScopes(this._scope, scope);
                     }
 
