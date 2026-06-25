@@ -1295,6 +1295,74 @@ describe.each(zodTestMatrix)('$zodVersionLabel', (entry: ZodMatrixEntry) => {
             expect(JSON.parse(textContent.text)).toEqual(result.structuredContent);
         });
 
+        test('should validate structuredContent against non-object-wrapper output schemas', async () => {
+            const mcpServer = new McpServer({
+                name: 'test server',
+                version: '1.0'
+            });
+
+            const client = new Client({
+                name: 'test client',
+                version: '1.0'
+            });
+
+            const schemaCases = [
+                {
+                    name: 'optional',
+                    outputSchema: z.object({ data: z.string() }).optional(),
+                    structuredContent: { data: 'hello' }
+                },
+                {
+                    name: 'nullable',
+                    outputSchema: z.object({ data: z.string() }).nullable(),
+                    structuredContent: { data: 'hello' }
+                },
+                {
+                    name: 'nullish',
+                    outputSchema: z.object({ data: z.string() }).nullish(),
+                    structuredContent: { data: 'hello' }
+                },
+                {
+                    name: 'union',
+                    outputSchema: z.union([z.object({ data: z.string() }), z.object({ value: z.string() })]),
+                    structuredContent: { value: 'hello' }
+                }
+            ];
+
+            for (const { name, outputSchema, structuredContent } of schemaCases) {
+                mcpServer.registerTool(
+                    `test-${name}`,
+                    {
+                        description: `Test tool with ${name} output schema`,
+                        outputSchema
+                    },
+                    async () => ({
+                        structuredContent,
+                        content: [
+                            {
+                                type: 'text',
+                                text: JSON.stringify(structuredContent)
+                            }
+                        ]
+                    })
+                );
+            }
+
+            const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+
+            await Promise.all([client.connect(clientTransport), mcpServer.server.connect(serverTransport)]);
+
+            for (const { name, structuredContent } of schemaCases) {
+                const result = await client.callTool({
+                    name: `test-${name}`,
+                    arguments: {}
+                });
+
+                expect(result.isError).not.toBe(true);
+                expect(result.structuredContent).toEqual(structuredContent);
+            }
+        });
+
         /***
          * Test: Tool with Output Schema Must Provide Structured Content
          */
