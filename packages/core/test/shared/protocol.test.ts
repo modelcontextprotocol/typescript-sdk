@@ -3,9 +3,9 @@ import { vi } from 'vitest';
 import * as z from 'zod/v4';
 import type { ZodType } from 'zod/v4';
 
-import type { BaseContext } from '../../src/shared/protocol.js';
-import { mergeCapabilities, Protocol } from '../../src/shared/protocol.js';
-import type { Transport, TransportSendOptions } from '../../src/shared/transport.js';
+import type { BaseContext } from '../../src/shared/protocol';
+import { mergeCapabilities, Protocol } from '../../src/shared/protocol';
+import type { Transport, TransportSendOptions } from '../../src/shared/transport';
 import type {
     ClientCapabilities,
     JSONRPCErrorResponse,
@@ -19,9 +19,9 @@ import type {
     RequestId,
     Result,
     ServerCapabilities
-} from '../../src/types/index.js';
-import { ProtocolError, ProtocolErrorCode } from '../../src/types/index.js';
-import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors.js';
+} from '../../src/types/index';
+import { ProtocolError, ProtocolErrorCode } from '../../src/types/index';
+import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors';
 
 // Test Protocol subclass for testing
 class TestProtocolImpl extends Protocol<BaseContext> {

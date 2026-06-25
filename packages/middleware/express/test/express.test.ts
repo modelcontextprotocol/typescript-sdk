@@ -1,8 +1,8 @@
 import type { NextFunction, Request, Response } from 'express';
 import { vi } from 'vitest';
 
-import { createMcpExpressApp } from '../src/express.js';
-import { hostHeaderValidation, localhostHostValidation } from '../src/middleware/hostHeaderValidation.js';
+import { createMcpExpressApp } from '../src/express';
+import { hostHeaderValidation, localhostHostValidation } from '../src/middleware/hostHeaderValidation';
 
 // Helper to create mock Express request/response/next
 function createMockReqResNext(host?: string) {

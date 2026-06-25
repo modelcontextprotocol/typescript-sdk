@@ -1,11 +1,11 @@
-import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions } from '../../src/auth/router.js';
-import { OAuthServerProvider, AuthorizationParams } from '../../src/auth/provider.js';
-import { OAuthRegisteredClientsStore } from '../../src/auth/clients.js';
+import { mcpAuthRouter, AuthRouterOptions, mcpAuthMetadataRouter, AuthMetadataOptions } from '../../src/auth/router';
+import { OAuthServerProvider, AuthorizationParams } from '../../src/auth/provider';
+import { OAuthRegisteredClientsStore } from '../../src/auth/clients';
 import { OAuthClientInformationFull, OAuthMetadata, OAuthTokenRevocationRequest, OAuthTokens } from '@modelcontextprotocol/core';
 import express, { Response } from 'express';
 import supertest from 'supertest';
-import { AuthInfo } from '../../src/auth/types.js';
-import { InvalidTokenError } from '../../src/auth/errors.js';
+import { AuthInfo } from '../../src/auth/types';
+import { InvalidTokenError } from '../../src/auth/errors';
 
 describe('MCP Auth Router', () => {
     // Setup mock provider with full capabilities

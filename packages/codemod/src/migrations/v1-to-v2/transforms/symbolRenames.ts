@@ -1,12 +1,12 @@
 import type { SourceFile } from 'ts-morph';
 import { Node } from 'ts-morph';
 
-import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { renameAllReferences } from '../../../utils/astUtils.js';
-import { info, warning } from '../../../utils/diagnostics.js';
-import { addOrMergeImport, isAnyMcpSpecifier, removeUnusedImport } from '../../../utils/importUtils.js';
-import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
-import { ERROR_CODE_SDK_MEMBERS, SIMPLE_RENAMES } from '../mappings/symbolMap.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
+import { renameAllReferences } from '../../../utils/astUtils';
+import { info, warning } from '../../../utils/diagnostics';
+import { addOrMergeImport, isAnyMcpSpecifier, removeUnusedImport } from '../../../utils/importUtils';
+import { resolveTypesPackage } from '../../../utils/projectAnalyzer';
+import { ERROR_CODE_SDK_MEMBERS, SIMPLE_RENAMES } from '../mappings/symbolMap';
 
 const SERVER_GENERIC_ARGS = new Set(['ServerRequest', 'ServerNotification']);
 const CLIENT_GENERIC_ARGS = new Set(['ClientRequest', 'ClientNotification']);

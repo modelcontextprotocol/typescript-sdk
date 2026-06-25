@@ -6,8 +6,8 @@
 
 import * as z from 'zod/v4';
 
-import type { StandardSchemaWithJSON } from './standardSchema.js';
-import { isStandardSchema } from './standardSchema.js';
+import type { StandardSchemaWithJSON } from './standardSchema';
+import { isStandardSchema } from './standardSchema';
 
 function isZodV4Schema(v: unknown): v is z.ZodType {
     // `_zod` is the v4 internal namespace property. Zod v3 schemas have `_def`

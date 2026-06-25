@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { schemaParamRemovalTransform } from '../../../src/migrations/v1-to-v2/transforms/schemaParamRemoval.js';
-import type { TransformContext } from '../../../src/types.js';
+import { schemaParamRemovalTransform } from '../../../src/migrations/v1-to-v2/transforms/schemaParamRemoval';
+import type { TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'client' };
 

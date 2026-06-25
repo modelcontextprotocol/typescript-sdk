@@ -1,9 +1,9 @@
 import type { CallExpression, SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
-import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { actionRequired, info } from '../../../utils/diagnostics.js';
-import { isOriginalNameImportedFromMcp, resolveLocalImportName } from '../../../utils/importUtils.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
+import { actionRequired, info } from '../../../utils/diagnostics';
+import { isOriginalNameImportedFromMcp, resolveLocalImportName } from '../../../utils/importUtils';
 
 export const mcpServerApiTransform: Transform = {
     name: 'McpServer API migration',

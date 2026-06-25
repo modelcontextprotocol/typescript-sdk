@@ -6,8 +6,8 @@
  * @module
  */
 
-import { fromJsonSchema } from './fromJsonSchema.js';
-import type { jsonSchemaValidator } from './types.js';
+import { fromJsonSchema } from './fromJsonSchema';
+import type { jsonSchemaValidator } from './types';
 
 declare const validator: jsonSchemaValidator;
 

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { updatePackageJson } from '../src/utils/packageJsonUpdater.js';
+import { updatePackageJson } from '../src/utils/packageJsonUpdater';
 
 let tempDir: string;
 

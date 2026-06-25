@@ -4,7 +4,7 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import spawn from 'cross-spawn';
 import type { Mock, MockedFunction } from 'vitest';
 
-import { getDefaultEnvironment, StdioClientTransport } from '../../src/client/stdio.js';
+import { getDefaultEnvironment, StdioClientTransport } from '../../src/client/stdio';
 
 // mock cross-spawn
 vi.mock('cross-spawn');

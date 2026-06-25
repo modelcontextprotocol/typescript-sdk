@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { Protocol } from '../../src/shared/protocol.js';
-import type { BaseContext, JSONRPCRequest, Result } from '../../src/exports/public/index.js';
+import { Protocol } from '../../src/shared/protocol';
+import type { BaseContext, JSONRPCRequest, Result } from '../../src/exports/public/index';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected buildContext(ctx: BaseContext): BaseContext {

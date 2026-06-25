@@ -1,17 +1,17 @@
 import type { SourceFile } from 'ts-morph';
 import { SyntaxKind } from 'ts-morph';
 
-import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
-import { renameAllReferences } from '../../../utils/astUtils.js';
-import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics.js';
-import type { NamedImportSpec } from '../../../utils/importUtils.js';
-import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
-import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
-import { AUTH_SCHEMA_NAMES } from '../mappings/authSchemaNames.js';
-import type { ImportMapping } from '../mappings/importMap.js';
-import { isAuthImport, lookupImportMapping } from '../mappings/importMap.js';
-import { SPEC_SCHEMA_NAMES } from '../mappings/specSchemaNames.js';
-import { SIMPLE_RENAMES } from '../mappings/symbolMap.js';
+import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
+import { renameAllReferences } from '../../../utils/astUtils';
+import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics';
+import type { NamedImportSpec } from '../../../utils/importUtils';
+import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils';
+import { resolveTypesPackage } from '../../../utils/projectAnalyzer';
+import { AUTH_SCHEMA_NAMES } from '../mappings/authSchemaNames';
+import type { ImportMapping } from '../mappings/importMap';
+import { isAuthImport, lookupImportMapping } from '../mappings/importMap';
+import { SPEC_SCHEMA_NAMES } from '../mappings/specSchemaNames';
+import { SIMPLE_RENAMES } from '../mappings/symbolMap';
 
 const REEXPORT_WARNINGS: Record<string, string> = {
     ErrorCode: 'Re-exported ErrorCode was split into ProtocolErrorCode and SdkErrorCode in v2. Update this re-export manually.',

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SdkError, SdkErrorCode, SdkHttpError } from '../../src/index.js';
+import { SdkError, SdkErrorCode, SdkHttpError } from '../../src/index';
 
 describe('SdkHttpError', () => {
     it('exposes status and statusText via getters', () => {

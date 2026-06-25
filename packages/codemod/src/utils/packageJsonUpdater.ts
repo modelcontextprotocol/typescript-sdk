@@ -1,8 +1,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
-import { V2_PACKAGE_VERSIONS } from '../generated/versions.js';
-import type { PackageJsonChange } from '../types.js';
-import { findPackageJson } from './projectAnalyzer.js';
+import { V2_PACKAGE_VERSIONS } from '../generated/versions';
+import type { PackageJsonChange } from '../types';
+import { findPackageJson } from './projectAnalyzer';
 
 const V1_PACKAGE = '@modelcontextprotocol/sdk';
 const PRIVATE_PACKAGES = new Set(['@modelcontextprotocol/core']);

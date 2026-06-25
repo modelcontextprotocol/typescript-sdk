@@ -1,5 +1,5 @@
-import type { StandardSchemaV1, StandardSchemaWithJSON } from '../util/standardSchema.js';
-import type { JsonSchemaType, jsonSchemaValidator } from './types.js';
+import type { StandardSchemaV1, StandardSchemaWithJSON } from '../util/standardSchema';
+import type { JsonSchemaType, jsonSchemaValidator } from './types';
 
 /**
  * Wrap a raw JSON Schema object as a {@linkcode StandardSchemaWithJSON} so it can be

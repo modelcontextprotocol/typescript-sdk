@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { importPathsTransform } from '../../../src/migrations/v1-to-v2/transforms/importPaths.js';
-import type { TransformContext } from '../../../src/types.js';
+import { importPathsTransform } from '../../../src/migrations/v1-to-v2/transforms/importPaths';
+import type { TransformContext } from '../../../src/types';
 
 function applyTransform(code: string, context: TransformContext = { projectType: 'both' }): string {
     const project = new Project({ useInMemoryFileSystem: true });

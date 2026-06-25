@@ -1,11 +1,11 @@
 import type { FetchLike } from '@modelcontextprotocol/core';
 import type { Mocked, MockedFunction, MockInstance } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
-import { applyMiddlewares, createMiddleware, withLogging, withOAuth } from '../../src/client/middleware.js';
+import type { OAuthClientProvider } from '../../src/client/auth';
+import { applyMiddlewares, createMiddleware, withLogging, withOAuth } from '../../src/client/middleware';
 
-vi.mock('../../src/client/auth.js', async () => {
-    const actual = await vi.importActual<typeof import('../../src/client/auth.js')>('../../src/client/auth.js');
+vi.mock('../../src/client/auth', async () => {
+    const actual = await vi.importActual<typeof import('../../src/client/auth')>('../../src/client/auth');
     return {
         ...actual,
         auth: vi.fn(),
@@ -13,7 +13,7 @@ vi.mock('../../src/client/auth.js', async () => {
     };
 });
 
-import { auth, extractWWWAuthenticateParams } from '../../src/client/auth.js';
+import { auth, extractWWWAuthenticateParams } from '../../src/client/auth';
 
 const mockAuth = auth as MockedFunction<typeof auth>;
 const mockExtractWWWAuthenticateParams = extractWWWAuthenticateParams as MockedFunction<typeof extractWWWAuthenticateParams>;

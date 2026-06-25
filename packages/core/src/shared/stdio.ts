@@ -1,5 +1,5 @@
-import type { JSONRPCMessage } from '../types/index.js';
-import { JSONRPCMessageSchema } from '../types/index.js';
+import type { JSONRPCMessage } from '../types/index';
+import { JSONRPCMessageSchema } from '../types/index';
 
 export const STDIO_DEFAULT_MAX_BUFFER_SIZE = 10 * 1024 * 1024;
 

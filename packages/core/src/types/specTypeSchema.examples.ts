@@ -7,7 +7,7 @@
  * @module
  */
 
-import { isSpecType, specTypeSchemas } from './specTypeSchema.js';
+import { isSpecType, specTypeSchemas } from './specTypeSchema';
 
 declare const untrusted: unknown;
 declare const value: unknown;
