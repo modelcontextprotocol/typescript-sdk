@@ -90,10 +90,14 @@ export const importPathsTransform: Transform = {
         // A leading file-header / JSDoc comment attaches to the first SDK import as leading trivia. When
         // that import is removed and re-emitted (the per-symbol split/merge path calls imp.remove()),
         // ts-morph drops the comment with it. Capture it now and restore it after emitting if it was lost.
-        const leadingCommentText = sdkImports[0]!
-            .getLeadingCommentRanges()
-            .map(r => r.getText())
-            .join('\n');
+        // Capture the EXACT source bytes spanning all leading comment ranges (first range's start to last
+        // range's end) rather than re-joining each range with '\n' — a join drops the original separators
+        // (a blank line, or CRLF in CRLF files), so the later survival check would never match a header
+        // that actually survived (in-place setModuleSpecifier rewrite) and would re-insert it, duplicating
+        // it. The slice reproduces the block verbatim, so the includes() guard below is byte-exact.
+        const leadingRanges = sdkImports[0]!.getLeadingCommentRanges();
+        const leadingCommentText =
+            leadingRanges.length > 0 ? sourceFile.getFullText().slice(leadingRanges[0]!.getPos(), leadingRanges.at(-1)!.getEnd()) : '';
 
         interface PendingImport {
             specs: NamedImportSpec[];

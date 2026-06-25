@@ -170,6 +170,32 @@ describe('import-paths transform', () => {
         expect(result).not.toContain('@modelcontextprotocol/sdk/');
     });
 
+    it('does not duplicate a multi-block leading header (blank line) when rewriting the first import in place', () => {
+        // The first SDK import is a namespace import, so it is rewritten in place (setModuleSpecifier) and
+        // its leading comments survive. The header is two // blocks separated by a BLANK line. A `\n`-join
+        // of the comment ranges loses that blank line, so the survival check would mis-fire and re-insert
+        // the header — duplicating it. The captured text must match the file's bytes exactly.
+        const input = [
+            `// Copyright ACME`,
+            ``,
+            `// Notes about the types module`,
+            `import * as types from '@modelcontextprotocol/sdk/types.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result.split('// Copyright ACME').length - 1).toBe(1);
+        expect(result).toContain('@modelcontextprotocol/server');
+    });
+
+    it('does not duplicate a CRLF leading header when rewriting the first import in place', () => {
+        // Same in-place rewrite, but the two // header lines are separated by CRLF. A `\n`-join never
+        // matches the file's `\r\n`, so the survival check would mis-fire and duplicate the header.
+        const input = `// Copyright ACME\r\n// Licensed MIT\r\n\r\nimport * as types from '@modelcontextprotocol/sdk/types.js';\r\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result.split('// Copyright ACME').length - 1).toBe(1);
+        expect(result).toContain('@modelcontextprotocol/server');
+    });
+
     it('routes OAuth *Schema from sdk/shared/auth.js to sdk-shared; the TYPE resolves by context', () => {
         // OAuthTokensSchema is a Zod schema re-exported by sdk-shared (AUTH_SCHEMA_NAMES), so route it
         // there — `OAuthTokensSchema.parse(...)` keeps working. OAuthTokens (the type) has no schema-name
