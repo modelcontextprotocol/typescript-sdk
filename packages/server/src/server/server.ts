@@ -244,6 +244,28 @@ export function installModernOnlyHandlers(server: Server, servedModernVersions: 
     installDiscoverHandler(server, servedModernVersions);
 }
 
+function isJsonObject(value: unknown): value is Record<string, unknown> {
+    return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function findStrippedJsonSchemaPaths(original: unknown, parsed: unknown, path = ''): string[] {
+    if (Array.isArray(original) && Array.isArray(parsed)) {
+        return original.flatMap((item, index) => findStrippedJsonSchemaPaths(item, parsed[index], `${path}[${index}]`));
+    }
+
+    if (!isJsonObject(original) || !isJsonObject(parsed)) {
+        return [];
+    }
+
+    return Object.entries(original).flatMap(([key, value]) => {
+        const childPath = path ? `${path}.${key}` : key;
+        if (!Object.prototype.hasOwnProperty.call(parsed, key)) {
+            return [childPath];
+        }
+        return findStrippedJsonSchemaPaths(value, parsed[key], childPath);
+    });
+}
+
 /**
  * An MCP server on top of a pluggable transport.
  *
@@ -1250,6 +1272,13 @@ export class Server extends Protocol<ServerContext> {
                 throw new ProtocolError(
                     ProtocolErrorCode.InvalidParams,
                     `Elicitation requestedSchema only supports flat primitive properties (string, number, integer, boolean, and string enums): ${parsedParams.error.message}`
+                );
+            }
+            const strippedSchemaPaths = findStrippedJsonSchemaPaths(normalizedParams.requestedSchema, parsedParams.data.requestedSchema);
+            if (strippedSchemaPaths.length > 0) {
+                throw new ProtocolError(
+                    ProtocolErrorCode.InvalidParams,
+                    `Elicitation requestedSchema contains unsupported JSON Schema keyword(s) after Standard Schema conversion: ${strippedSchemaPaths.join(', ')}`
                 );
             }
             return { params: parsedParams.data, standardSchema };
