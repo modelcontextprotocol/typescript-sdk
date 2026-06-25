@@ -220,6 +220,36 @@ describe('server JSON Schema validator overrides', () => {
         ).rejects.toThrow(/format/);
         expect(sawElicitationRequest).toBe(false);
 
+        await expect(
+            server.elicitInput({
+                message: 'What is your code?',
+                requestedSchema: z.object({
+                    code: z.string().regex(/^[A-Z]{3}$/)
+                })
+            })
+        ).rejects.toThrow(/properties\.code\.pattern/);
+        expect(sawElicitationRequest).toBe(false);
+
+        await expect(
+            server.elicitInput({
+                message: 'How many?',
+                requestedSchema: z.object({
+                    count: z.number().multipleOf(2)
+                })
+            })
+        ).rejects.toThrow(/properties\.count\.multipleOf/);
+        expect(sawElicitationRequest).toBe(false);
+
+        await expect(
+            server.elicitInput({
+                message: 'How many?',
+                requestedSchema: z.object({
+                    count: z.number().gt(0)
+                })
+            })
+        ).rejects.toThrow(/properties\.count\.exclusiveMinimum/);
+        expect(sawElicitationRequest).toBe(false);
+
         await server.close();
         await clientTransport.close();
     });
