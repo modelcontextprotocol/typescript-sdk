@@ -1,22 +1,16 @@
 /**
- * Minimal Resource-Server-only auth using the SDK's RS helpers
- * (`mcpAuthMetadataRouter`, `requireBearerAuth`, `OAuthTokenVerifier`).
+ * Minimal Resource-Server-only auth: `requireBearerAuth` + `OAuthTokenVerifier`
+ * in front of `createMcpHandler`. The verifier accepts a single static
+ * `demo-token`; the verified `authInfo` reaches the factory as `ctx.authInfo`.
  *
- * No Authorization Server in this repo — the metadata points at a placeholder
- * issuer; the token verifier accepts a single static `demo-token`. The MCP
- * endpoint is hosted on `createMcpHandler` with the verified `authInfo` passed
- * through to the factory (`ctx.authInfo`). HTTP-only by definition.
+ * No Authorization Server here, and no metadata endpoints — see `examples/oauth/`
+ * for the full RS + AS discovery flow. HTTP-only by definition.
  */
 import { parseExampleArgs } from '@mcp-examples/shared';
 import type { OAuthTokenVerifier } from '@modelcontextprotocol/express';
-import {
-    createMcpExpressApp,
-    getOAuthProtectedResourceMetadataUrl,
-    mcpAuthMetadataRouter,
-    requireBearerAuth
-} from '@modelcontextprotocol/express';
+import { createMcpExpressApp, requireBearerAuth } from '@modelcontextprotocol/express';
 import { toNodeHandler } from '@modelcontextprotocol/node';
-import type { AuthInfo, McpServerFactory, OAuthMetadata } from '@modelcontextprotocol/server';
+import type { AuthInfo, McpServerFactory } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
 import * as z from 'zod/v4';
 
@@ -29,14 +23,6 @@ const buildServer: McpServerFactory = ctx => {
 };
 
 const { port } = parseExampleArgs();
-const mcpServerUrl = new URL(`http://localhost:${port}/mcp`);
-
-const oauthMetadata: OAuthMetadata = {
-    issuer: 'https://auth.example.com',
-    authorization_endpoint: 'https://auth.example.com/authorize',
-    token_endpoint: 'https://auth.example.com/token',
-    response_types_supported: ['code']
-};
 
 // Replace with JWT verification, RFC 7662 introspection, etc.
 const staticTokenVerifier: OAuthTokenVerifier = {
@@ -54,18 +40,7 @@ const staticTokenVerifier: OAuthTokenVerifier = {
 const handler = createMcpHandler(buildServer);
 
 const app = createMcpExpressApp();
-app.use(
-    mcpAuthMetadataRouter({
-        oauthMetadata,
-        resourceServerUrl: mcpServerUrl,
-        resourceName: 'bearer-auth example'
-    })
-);
-const auth = requireBearerAuth({
-    verifier: staticTokenVerifier,
-    requiredScopes: ['mcp'],
-    resourceMetadataUrl: getOAuthProtectedResourceMetadataUrl(mcpServerUrl)
-});
+const auth = requireBearerAuth({ verifier: staticTokenVerifier, requiredScopes: ['mcp'] });
 // `requireBearerAuth` sets `req.auth`; `toNodeHandler` reads it and passes it
 // to the factory as `ctx.authInfo`.
 const node = toNodeHandler(handler);
