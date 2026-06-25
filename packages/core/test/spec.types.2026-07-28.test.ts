@@ -89,6 +89,8 @@ type WSubscriptionsListenRequest = z4.infer<typeof Wire2026.SubscriptionsListenR
 type WSubscriptionsListenRequestParams = WSubscriptionsListenRequest['params'];
 type WSubscriptionsAcknowledgedNotification = z4.infer<typeof Wire2026.SubscriptionsAcknowledgedNotificationSchema>;
 type WSubscriptionsAcknowledgedNotificationParams = WSubscriptionsAcknowledgedNotification['params'];
+type WSubscriptionsListenResult = z4.infer<typeof Wire2026.SubscriptionsListenResultSchema>;
+type WSubscriptionsListenResultMeta = z4.infer<typeof Wire2026.SubscriptionsListenResultMetaSchema>;
 // The anchor's ClientRequest union, composed from the era module's wire requests.
 type WClientRequest =
     | WCompleteRequest
@@ -149,6 +151,7 @@ type WServerResult =
     | WReadResourceResult
     | WCallToolResult
     | WListToolsResult
+    | WSubscriptionsListenResult
     | WInputRequiredResult;
 
 const sdkTypeChecks = {
@@ -790,6 +793,14 @@ const wireParityChecks = {
         sdk = spec;
         spec = sdk;
     },
+    SubscriptionsListenResult: (sdk: WSubscriptionsListenResult, spec: SpecTypes.SubscriptionsListenResult) => {
+        sdk = spec;
+        spec = sdk;
+    },
+    SubscriptionsListenResultMeta: (sdk: WSubscriptionsListenResultMeta, spec: SpecTypes.SubscriptionsListenResultMeta) => {
+        sdk = spec;
+        spec = sdk;
+    },
     ClientRequest: (sdk: WithJSONRPCRequest<WClientRequest>, spec: SpecTypes.ClientRequest) => {
         sdk = spec;
         spec = sdk;
@@ -855,7 +866,8 @@ describe('Spec Types (2026-07-28)', () => {
         expect(specTypes).toContain('DiscoverRequest');
         expect(specTypes).toContain('InputRequiredResult');
         expect(specTypes).toContain('SubscriptionsListenRequest');
-        expect(specTypes).toHaveLength(151);
+        expect(specTypes).toContain('SubscriptionsListenResult');
+        expect(specTypes).toHaveLength(153);
     });
 
     it('should only allowlist types that exist in the 2026-07-28 schema', () => {

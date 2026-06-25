@@ -1,6 +1,6 @@
 import * as z from 'zod/v4';
 
-import { JSONRPC_VERSION, RELATED_TASK_META_KEY } from './constants.js';
+import { JSONRPC_VERSION, RELATED_TASK_META_KEY, SUBSCRIPTION_ID_META_KEY } from './constants.js';
 import type { JSONArray, JSONObject, JSONValue } from './types.js';
 
 export const JSONValueSchema: z.ZodType<JSONValue, JSONValue> = z.lazy(() =>
@@ -957,6 +957,26 @@ export const SubscriptionsAcknowledgedNotificationParamsSchema = NotificationsPa
 export const SubscriptionsAcknowledgedNotificationSchema = NotificationSchema.extend({
     method: z.literal('notifications/subscriptions/acknowledged'),
     params: SubscriptionsAcknowledgedNotificationParamsSchema
+});
+
+/**
+ * `_meta` for a {@linkcode SubscriptionsListenResult}: the listen request's
+ * JSON-RPC ID under the canonical subscription-id key (mirroring the same key
+ * on every notification delivered on the stream).
+ */
+export const SubscriptionsListenResultMetaSchema = z.looseObject({
+    [SUBSCRIPTION_ID_META_KEY]: RequestIdSchema
+});
+
+/**
+ * The response to a `subscriptions/listen` request, signalling that the
+ * subscription has ended gracefully (for example, during server shutdown).
+ * Because the listen stream is long-lived, this result is sent only when the
+ * server tears the subscription down; an abrupt transport close carries no
+ * response. The result body is otherwise empty.
+ */
+export const SubscriptionsListenResultSchema = ResultSchema.extend({
+    _meta: SubscriptionsListenResultMetaSchema
 });
 
 /**
@@ -2394,5 +2414,6 @@ export const ServerResultSchema = z.union([
     ListResourceTemplatesResultSchema,
     ReadResourceResultSchema,
     CallToolResultSchema,
-    ListToolsResultSchema
+    ListToolsResultSchema,
+    SubscriptionsListenResultSchema
 ]);

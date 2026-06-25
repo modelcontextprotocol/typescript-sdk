@@ -97,6 +97,23 @@ verifies('subscriptions:listen:ack-first-stamped', async () => {
     await handler.close();
 });
 
+verifies('subscriptions:listen:graceful-close', async () => {
+    // Hosted directly so the test owns handler.close(); `await using` of
+    // hostListen() would close on dispose and obscure the assertion.
+    const handler = createMcpHandler(() => makeServer(), { legacy: 'reject', keepAliveMs: 0 });
+    const fetch = (u: URL | string, init?: RequestInit) => handler.fetch(new Request(u, init));
+    const client = new Client({ name: 'subs-e2e-client', version: '1' }, { versionNegotiation: { mode: 'auto' } });
+    await client.connect(new StreamableHTTPClientTransport(new URL('http://in-process/mcp'), { fetch }));
+    const sub = await client.listen({ toolsListChanged: true });
+    // Server-side graceful close: the entry's listen router emits the empty
+    // SubscriptionsListenResult as the final SSE frame, then closes the
+    // stream. The client surfaces this as `closed: 'graceful'` (distinct from
+    // `'remote'`, which is the transport-drop / no-result path).
+    await handler.close();
+    await expect(sub.closed).resolves.toBe('graceful');
+    await client.close();
+});
+
 verifies('subscriptions:listen:per-stream-filter', async () => {
     await using h = await hostListen();
     const seen: string[] = [];

@@ -3160,6 +3160,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         transports: ['entryModern'],
         note: 'Hosted by the test body via createMcpHandler with maxSubscriptions: 1.'
     },
+    'subscriptions:listen:graceful-close': {
+        source: 'https://modelcontextprotocol.io/specification/draft/basic/patterns/subscriptions#graceful-closure',
+        behavior:
+            "On a server-side graceful close, the server emits the empty subscriptions/listen JSON-RPC result (the SubscriptionsListenResult — _meta carries the subscriptionId stamp) before closing the stream; the client surfaces this on McpSubscription.closed as 'graceful' (distinct from a transport drop, which surfaces as 'remote').",
+        addedInSpecVersion: '2026-07-28',
+        transports: ['entryModern'],
+        note: 'Hosted by the test body via createMcpHandler so it can call handler.close(). The stdio path is covered at unit level in serveStdioListen.test.ts.'
+    },
     'typescript:subscriptions:listChanged-auto-open-modern': {
         source: 'sdk',
         behavior:

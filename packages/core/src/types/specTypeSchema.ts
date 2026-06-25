@@ -167,6 +167,8 @@ const SPEC_SCHEMA_KEYS = [
     'SubscriptionsAcknowledgedNotificationParamsSchema',
     'SubscriptionsListenRequestSchema',
     'SubscriptionsListenRequestParamsSchema',
+    'SubscriptionsListenResultSchema',
+    'SubscriptionsListenResultMetaSchema',
     'TaskAugmentedRequestParamsSchema',
     'TaskCreationParamsSchema',
     'TaskMetadataSchema',

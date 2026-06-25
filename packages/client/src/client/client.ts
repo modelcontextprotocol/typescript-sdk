@@ -406,10 +406,13 @@ export interface McpSubscription {
      *
      * - `'local'` — you called {@linkcode close} (or aborted the
      *   `RequestOptions.signal` you passed to `listen()`).
-     * - `'remote'` — the server cancelled, the stream ended, or the transport
-     *   dropped. Re-listen if you still want events.
+     * - `'graceful'` — the server ended the subscription deliberately by
+     *   sending the empty `subscriptions/listen` response (e.g. on shutdown).
+     * - `'remote'` — the stream ended without a response, or the transport
+     *   dropped — an unexpected disconnect. Re-listen if you still want
+     *   events.
      */
-    readonly closed: Promise<'local' | 'remote'>;
+    readonly closed: Promise<'local' | 'graceful' | 'remote'>;
 }
 
 /** @internal */
@@ -421,7 +424,7 @@ interface ListenStateEntry {
      * failure, ack timeout, caller-signal abort, `_resetConnectionState` —
      * routes through it.
      */
-    settle: (outcome: { ack: SubscriptionFilter } | { cause: 'local' | 'remote'; error?: Error }) => void;
+    settle: (outcome: { ack: SubscriptionFilter } | { cause: 'local' | 'graceful' | 'remote'; error?: Error }) => void;
 }
 
 /**
@@ -1894,12 +1897,12 @@ export class Client extends Protocol<ClientContext> {
         // settle()'s `→ closed` transition; never rejects. When listen()
         // itself rejects (pre-ack) there is no McpSubscription to observe it
         // on — settle() resolves it anyway so nothing dangles.
-        let resolveClosed!: (cause: 'local' | 'remote') => void;
-        const closed = new Promise<'local' | 'remote'>(resolve => {
+        let resolveClosed!: (cause: 'local' | 'graceful' | 'remote') => void;
+        const closed = new Promise<'local' | 'graceful' | 'remote'>(resolve => {
             resolveClosed = resolve;
         });
 
-        const settle = (outcome: { ack: SubscriptionFilter } | { cause: 'local' | 'remote'; error?: Error }): void => {
+        const settle = (outcome: { ack: SubscriptionFilter } | { cause: 'local' | 'graceful' | 'remote'; error?: Error }): void => {
             if (state === 'closed') return;
             const wasOpening = state === 'opening';
             if (ackTimer !== undefined) {
@@ -2103,13 +2106,14 @@ export class Client extends Protocol<ClientContext> {
     }
 
     /**
-     * Transport-level demux for `subscriptions/listen` responses. The spec
-     * defines listen as never receiving a JSON-RPC result; a JSON-RPC ERROR
-     * for the listen id is the server's pre-ack capacity/params rejection. A
-     * string-id response that matches a live `_listenState` entry is consumed
-     * here (Protocol's `_responseHandlers` map is keyed by NUMBER and never
-     * holds a listen id, so passing a string-id response through would
-     * surface as "unknown message ID" via `onerror`).
+     * Transport-level demux for `subscriptions/listen` responses. A JSON-RPC
+     * ERROR for the listen id is the server's pre-ack capacity/params
+     * rejection; a JSON-RPC RESULT for the listen id is the spec's
+     * `SubscriptionsListenResult` — the server's GRACEFUL-close signal (sent
+     * on shutdown). A string-id response that matches a live `_listenState`
+     * entry is consumed here (Protocol's `_responseHandlers` map is keyed by
+     * NUMBER and never holds a listen id, so passing a string-id response
+     * through would surface as "unknown message ID" via `onerror`).
      */
     protected override _onresponse(response: JSONRPCResponse): void {
         const id = response.id;
@@ -2121,11 +2125,20 @@ export class Client extends Protocol<ClientContext> {
                     error: ProtocolError.fromError(response.error.code, response.error.message, response.error.data)
                 });
             } else {
+                // The empty `SubscriptionsListenResult` — the server ended
+                // the subscription deliberately. Handles both pre-ack and
+                // post-ack: while opening, settle rejects the pending listen()
+                // promise with a ConnectionClosed (a server that answers
+                // before the ack is shutting down before serving); once open,
+                // settle transitions to closed and `closed` resolves
+                // 'graceful'. Per Q8, the result body itself is not validated
+                // — receipt for the listen id IS the signal (foreign servers
+                // may omit `_meta`).
                 entry.settle({
-                    cause: 'remote',
+                    cause: 'graceful',
                     error: new SdkError(
-                        SdkErrorCode.InvalidResult,
-                        'server answered subscriptions/listen with a result; expected the acknowledged notification'
+                        SdkErrorCode.ConnectionClosed,
+                        'subscriptions/listen: server closed the subscription gracefully before acknowledging'
                     )
                 });
             }

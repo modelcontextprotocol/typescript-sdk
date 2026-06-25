@@ -1014,6 +1014,23 @@ export const SubscriptionFilterSchema = z.object({
 const subscriptionsListenParamsShape = { notifications: SubscriptionFilterSchema };
 export const SubscriptionsListenRequestSchema = wireRequest('subscriptions/listen', subscriptionsListenParamsShape);
 
+/** Anchor SubscriptionsListenResultMeta — required subscriptionId stamp on the graceful-close result. */
+export const SubscriptionsListenResultMetaSchema = z.looseObject({
+    'io.modelcontextprotocol/subscriptionId': RequestIdSchema
+});
+
+/**
+ * Anchor SubscriptionsListenResult (2026-only). The empty `subscriptions/listen`
+ * response signalling that the subscription has ended gracefully (server
+ * shutdown). An abrupt transport close carries no response — the client treats
+ * stream-close-without-result as a disconnect.
+ */
+export const SubscriptionsListenResultSchema = z.looseObject({
+    /** Required `_meta` (the subscriptionId stamp); the result body is otherwise empty. */
+    _meta: SubscriptionsListenResultMetaSchema,
+    resultType: ResultTypeSchema.default('complete')
+});
+
 /**
  * The 2026-era request-method set — the hand-registry seed (see registry.ts
  * for the seed decisions). The dispatch maps below are mapped types over this
@@ -1114,10 +1131,11 @@ export const dispatchResultSchemas: { readonly [M in Rev2026RequestMethod]: z.Zo
         serverInfo: ImplementationSchema,
         instructions: z.string().optional()
     }),
-    // `subscriptions/listen` never receives a JSON-RPC result: termination is
-    // stream close (HTTP) or `notifications/cancelled` (stdio). The empty
-    // entry keeps the mapped type total; the codec's `decodeResult` would
-    // never be called for this method in practice.
+    // `subscriptions/listen` receives a JSON-RPC result only on a server-side
+    // graceful close (the empty `SubscriptionsListenResult` — `_meta` carries
+    // the subscriptionId stamp). The dispatch result schema stays the lifted
+    // empty body so the mapped type is total; the listen-response demux is
+    // entry-layer (`Client._onresponse`) and never reaches `decodeResult`.
     'subscriptions/listen': liftedResult({})
 };
 

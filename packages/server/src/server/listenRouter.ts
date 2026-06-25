@@ -17,7 +17,11 @@
  * - Every notification on the stream (including the ack) carries the listen
  *   request's JSON-RPC id under `_meta['io.modelcontextprotocol/subscriptionId']`.
  * - The server MUST NOT deliver a notification type the client did not request.
- * - Termination is stream close (HTTP); no JSON-RPC result is ever emitted.
+ * - Server-side graceful close (`closeAll()`) emits the empty
+ *   `subscriptions/listen` JSON-RPC result (the `SubscriptionsListenResult` —
+ *   `_meta` carries the subscription id) before closing the stream; an abrupt
+ *   transport close carries no response and the client treats it as a
+ *   disconnect.
  */
 import type { JSONRPCRequest, RequestId, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core';
 import { codecForVersion, MODERN_WIRE_REVISION, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core';
@@ -99,8 +103,9 @@ export interface ListenRouter {
      */
     serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities: ServerCapabilities): Response;
     /**
-     * Close every open subscription stream (HTTP teardown is stream close —
-     * no JSON-RPC result is written).
+     * Gracefully close every open subscription stream: emits the empty
+     * `subscriptions/listen` JSON-RPC result (the spec's graceful-close
+     * signal) as the final SSE frame, then closes the stream.
      */
     closeAll(): void;
     /** The number of currently open subscription streams (for tests / introspection). */
@@ -112,7 +117,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
     const maxSubscriptions = options.maxSubscriptions ?? DEFAULT_MAX_SUBSCRIPTIONS;
     const keepAliveMs = options.keepAliveMs ?? DEFAULT_LISTEN_KEEPALIVE_MS;
 
-    const open = new Set<() => void>();
+    const open = new Set<(graceful: boolean) => void>();
 
     function serve(message: JSONRPCRequest, signal: AbortSignal | undefined, capabilities: ServerCapabilities): Response {
         // Capacity guard, pre-ack: in-band -32603 on HTTP 200.
@@ -149,8 +154,22 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
             writeFrame(`event: message\ndata: ${JSON.stringify({ jsonrpc: '2.0', method, params })}\n\n`);
         };
 
-        const teardown = () => {
+        const teardown = (graceful: boolean) => {
             if (closed) return;
+            if (graceful) {
+                // Server-side graceful close: emit the empty
+                // `subscriptions/listen` JSON-RPC result before closing the
+                // stream so the client distinguishes graceful end from a
+                // transport drop. Written before `closed = true` so writeFrame
+                // still enqueues.
+                writeFrame(
+                    `event: message\ndata: ${JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: subscriptionId,
+                        result: { resultType: 'complete', _meta: { [SUBSCRIPTION_ID_META_KEY]: subscriptionId } }
+                    })}\n\n`
+                );
+            }
             closed = true;
             unsubscribe?.();
             if (keepAliveTimer !== undefined) clearInterval(keepAliveTimer);
@@ -194,16 +213,18 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
                 open.add(teardown);
             },
             cancel() {
-                // The client closed the SSE stream — the spec's HTTP cancel signal.
-                teardown();
+                // The client closed the SSE stream — the spec's HTTP cancel
+                // signal. Not a server-side graceful close, so no listen
+                // result is written (and the consumer is gone anyway).
+                teardown(false);
             }
         });
 
         if (signal !== undefined) {
             if (signal.aborted) {
-                teardown();
+                teardown(false);
             } else {
-                const onAbort = () => teardown();
+                const onAbort = () => teardown(false);
                 signal.addEventListener('abort', onAbort, { once: true });
                 abortCleanup = () => signal.removeEventListener('abort', onAbort);
             }
@@ -223,7 +244,7 @@ export function createListenRouter(options: ListenRouterOptions): ListenRouter {
     return {
         serve,
         closeAll() {
-            for (const teardown of open) teardown();
+            for (const teardown of open) teardown(true);
         },
         get openCount() {
             return open.size;
@@ -350,14 +371,23 @@ export class StdioListenRouter {
     }
 
     /**
-     * Server-side teardown of every active subscription: returns the single
-     * `notifications/cancelled` per subscription id the entry MUST emit on
-     * stdio teardown (and clears the set so nothing further is delivered).
+     * Server-side graceful teardown of every active subscription: returns the
+     * empty `subscriptions/listen` JSON-RPC result for each subscription id —
+     * the spec's graceful-close signal — for the entry to emit before closing
+     * the wire. Clears the set so nothing further is delivered.
      */
-    teardownAll(): { jsonrpc: '2.0'; method: 'notifications/cancelled'; params: { requestId: RequestId } }[] {
-        const out: { jsonrpc: '2.0'; method: 'notifications/cancelled'; params: { requestId: RequestId } }[] = [];
+    teardownAll(): {
+        jsonrpc: '2.0';
+        id: RequestId;
+        result: { resultType: 'complete'; _meta: { [SUBSCRIPTION_ID_META_KEY]: RequestId } };
+    }[] {
+        const out: {
+            jsonrpc: '2.0';
+            id: RequestId;
+            result: { resultType: 'complete'; _meta: { [SUBSCRIPTION_ID_META_KEY]: RequestId } };
+        }[] = [];
         for (const id of this._subs.keys()) {
-            out.push({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: id } });
+            out.push({ jsonrpc: '2.0', id, result: { resultType: 'complete', _meta: { [SUBSCRIPTION_ID_META_KEY]: id } } });
         }
         this._subs.clear();
         return out;

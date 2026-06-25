@@ -185,22 +185,31 @@ describe('createMcpHandler — subscriptions/listen', () => {
         await handler.close();
     });
 
-    it('handler.close() tears down every open listen stream (HTTP teardown is stream close)', async () => {
+    it('handler.close() emits the empty subscriptions/listen result, then closes the stream (graceful-close signal)', async () => {
         const handler = createMcpHandler(trivialFactory(), { keepAliveMs: 0 });
         const response = await handler.fetch(listenRequest(1, { toolsListChanged: true }));
         const reader = response.body!.getReader();
         // First frame is the ack.
         await reader.read();
         await handler.close();
-        // Stream-close termination: the read loop ends with no result frame.
-        let sawResult = false;
+        // Graceful-close termination: the SubscriptionsListenResult is the
+        // final SSE frame, then the stream ends.
+        let resultFrame: unknown;
         for (;;) {
             const { done, value } = await reader.read();
             if (done) break;
             const text = new TextDecoder().decode(value);
-            if (text.includes('"result"')) sawResult = true;
+            const dataLine = text.split('\n').find(l => l.startsWith('data: '));
+            if (dataLine) {
+                const message = JSON.parse(dataLine.slice(6)) as Record<string, unknown>;
+                if ('result' in message) resultFrame = message;
+            }
         }
-        expect(sawResult).toBe(false);
+        expect(resultFrame).toEqual({
+            jsonrpc: '2.0',
+            id: 1,
+            result: { resultType: 'complete', _meta: { 'io.modelcontextprotocol/subscriptionId': 1 } }
+        });
     });
 
     it('legacy-classified listen never reaches the entry listen router (no ack delivered)', async () => {

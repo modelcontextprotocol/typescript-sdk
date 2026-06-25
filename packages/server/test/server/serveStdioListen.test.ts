@@ -4,7 +4,8 @@
  * Covers ack-first on the single channel, subscription-id stamping, the
  * pinned instance's send*ListChanged() feeding the connection's listen
  * router (era-gated; legacy unchanged), inbound cancel hardening, and the
- * stdio teardown MUST (one notifications/cancelled per subscription id).
+ * graceful-close path (one empty `subscriptions/listen` result per
+ * subscription id on `handle.close()`).
  */
 import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, Transport } from '@modelcontextprotocol/core';
 import {
@@ -109,17 +110,22 @@ describe('serveStdio — subscriptions/listen', () => {
         await handle.close();
     });
 
-    it('handle.close() emits one notifications/cancelled per active subscription id (stdio teardown MUST)', async () => {
+    it('handle.close() emits one empty subscriptions/listen result per active subscription id (graceful-close signal)', async () => {
         const { handle, inbound, send, flush } = await bootModern();
         await send(listenReq('s1', { toolsListChanged: true }));
         await send(listenReq('s2', { promptsListChanged: true }));
         await flush();
         inbound.length = 0;
         await handle.close();
-        const cancelled = inbound.filter(m => (m as JSONRPCNotification).method === 'notifications/cancelled');
-        expect(cancelled.map(m => (m as JSONRPCNotification).params)).toEqual([{ requestId: 's1' }, { requestId: 's2' }]);
-        // No JSON-RPC result for the listen ids — termination is the cancelled notification only.
-        expect(inbound.some(m => 'result' in m)).toBe(false);
+        // The spec's SubscriptionsListenResult — one per subscription id, then
+        // the wire closes. No notifications/cancelled (the pre-#2953 path).
+        const results = inbound.filter(m => 'result' in m) as { id: unknown; result: unknown }[];
+        expect(results.map(m => m.id)).toEqual(['s1', 's2']);
+        expect(results.map(m => m.result)).toEqual([
+            { resultType: 'complete', _meta: { [SUBSCRIPTION_ID_META_KEY]: 's1' } },
+            { resultType: 'complete', _meta: { [SUBSCRIPTION_ID_META_KEY]: 's2' } }
+        ]);
+        expect(inbound.some(m => (m as JSONRPCNotification).method === 'notifications/cancelled')).toBe(false);
     });
 
     it('refuses pre-ack with -32603 when at capacity', async () => {
