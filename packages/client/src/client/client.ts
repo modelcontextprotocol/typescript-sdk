@@ -37,6 +37,7 @@ import type {
     NotificationMethod,
     ProtocolEra,
     ProtocolOptions,
+    Prompt,
     ReadResourceRequest,
     ReadResourceResult,
     RequestMethod,
@@ -739,6 +740,32 @@ export class Client extends Protocol<ClientContext> {
         } while (cursor !== undefined);
 
         return tools;
+    }
+
+    private async _listAllPrompts(): Promise<Prompt[]> {
+        const prompts: Prompt[] = [];
+        let cursor: string | undefined;
+
+        do {
+            const result = await this.listPrompts(cursor === undefined ? undefined : { cursor });
+            prompts.push(...result.prompts);
+            cursor = result.nextCursor;
+        } while (cursor !== undefined);
+
+        return prompts;
+    }
+
+    private async _listAllResources(): Promise<Resource[]> {
+        const resources: Resource[] = [];
+        let cursor: string | undefined;
+
+        do {
+            const result = await this.listResources(cursor === undefined ? undefined : { cursor });
+            resources.push(...result.resources);
+            cursor = result.nextCursor;
+        } while (cursor !== undefined);
+
+        return resources;
     }
 
     /**

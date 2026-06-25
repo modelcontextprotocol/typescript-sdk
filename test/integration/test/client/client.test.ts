@@ -1470,6 +1470,94 @@ test('should handle resource list changed notification with auto refresh', async
     expect(notifications[0]![1]?.[1]!.name).toBe('test-resource');
 });
 
+test('should auto-refresh all paginated prompts after prompt list changed notification', async () => {
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { prompts: { listChanged: true } } });
+    const listRequests: Array<string | undefined> = [];
+    const notifications: [Error | null, Prompt[] | null][] = [];
+    let resolveNotification: () => void = () => {};
+    const notification = new Promise<void>(resolve => {
+        resolveNotification = resolve;
+    });
+
+    server.setRequestHandler('prompts/list', async request => {
+        listRequests.push(request.params?.cursor);
+        if (request.params?.cursor === 'page-2') {
+            return { prompts: [{ name: 'prompt-2', description: 'second page' }] };
+        }
+        return { prompts: [{ name: 'prompt-1', description: 'first page' }], nextCursor: 'page-2' };
+    });
+
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        {
+            listChanged: {
+                prompts: {
+                    debounceMs: 0,
+                    onChanged: (error, prompts) => {
+                        notifications.push([error, prompts]);
+                        resolveNotification();
+                    }
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await server.notification({ method: 'notifications/prompts/list_changed' });
+    await notification;
+
+    expect(listRequests).toEqual([undefined, 'page-2']);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]![0]).toBeNull();
+    expect(notifications[0]![1]?.map(prompt => prompt.name)).toEqual(['prompt-1', 'prompt-2']);
+});
+
+test('should auto-refresh all paginated resources after resource list changed notification', async () => {
+    const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { resources: { listChanged: true } } });
+    const listRequests: Array<string | undefined> = [];
+    const notifications: [Error | null, Resource[] | null][] = [];
+    let resolveNotification: () => void = () => {};
+    const notification = new Promise<void>(resolve => {
+        resolveNotification = resolve;
+    });
+
+    server.setRequestHandler('resources/list', async request => {
+        listRequests.push(request.params?.cursor);
+        if (request.params?.cursor === 'page-2') {
+            return { resources: [{ name: 'resource-2', uri: 'file:///resource-2.txt' }] };
+        }
+        return { resources: [{ name: 'resource-1', uri: 'file:///resource-1.txt' }], nextCursor: 'page-2' };
+    });
+
+    const client = new Client(
+        { name: 'test-client', version: '1.0.0' },
+        {
+            listChanged: {
+                resources: {
+                    debounceMs: 0,
+                    onChanged: (error, resources) => {
+                        notifications.push([error, resources]);
+                        resolveNotification();
+                    }
+                }
+            }
+        }
+    );
+
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
+
+    await server.notification({ method: 'notifications/resources/list_changed' });
+    await notification;
+
+    expect(listRequests).toEqual([undefined, 'page-2']);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]![0]).toBeNull();
+    expect(notifications[0]![1]?.map(resource => resource.name)).toEqual(['resource-1', 'resource-2']);
+});
+
 /***
  * Test: Handle Multiple List Changed Handlers
  */
