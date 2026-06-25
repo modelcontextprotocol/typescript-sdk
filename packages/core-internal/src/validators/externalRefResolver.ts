@@ -115,6 +115,10 @@ function ipv6LiteralFromHost(host: string): string | undefined {
     return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : undefined;
 }
 
+function normalizeHostForPolicy(host: string): string {
+    return ipv6LiteralFromHost(host) === undefined ? host.replace(/\.+$/, '') : host;
+}
+
 function isBlockedIPv6Literal(host: string): boolean {
     if (host === '::' || host === '::1' || host.startsWith('::ffff:')) {
         return true;
@@ -139,10 +143,10 @@ function assertHostAllowed(url: URL, options: ResolvedOptions): void {
         );
     }
 
-    const host = url.hostname.toLowerCase();
+    const host = normalizeHostForPolicy(url.hostname.toLowerCase());
 
     if (options.allowlist) {
-        const allowlist = new Set(options.allowlist.map(allowedHost => allowedHost.toLowerCase()));
+        const allowlist = new Set(options.allowlist.map(allowedHost => normalizeHostForPolicy(allowedHost.toLowerCase())));
         if (!allowlist.has(host)) {
             throw new Error(`Refusing to dereference "${url.href}": host "${host}" is not in the allowlist.`);
         }

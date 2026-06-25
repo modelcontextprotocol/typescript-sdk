@@ -74,6 +74,20 @@ describe('resolveExternalSchemaRefs', () => {
         });
     });
 
+    it('matches allowlist hosts with a trailing DNS root dot', async () => {
+        const schema: JsonSchemaType = { $ref: 'https://schemas.example.com./forecast.json' };
+        const fetchImpl = fetchStub({
+            'https://schemas.example.com./forecast.json': { type: 'string' }
+        });
+
+        const resolved = await resolveExternalSchemaRefs(schema, { allowlist: ['schemas.example.com'], fetch: fetchImpl });
+
+        expect(resolved).toEqual({
+            $ref: '#/$defs/__externalRef_0',
+            $defs: { __externalRef_0: { type: 'string' } }
+        });
+    });
+
     it.each([
         ['AJV', () => new AjvJsonSchemaValidator()],
         ['CfWorker', () => new CfWorkerJsonSchemaValidator()]
@@ -191,9 +205,11 @@ describe('resolveExternalSchemaRefs', () => {
 
         it.each([
             'https://localhost/x.json',
+            'https://localhost./x.json',
             'https://127.0.0.1/x.json',
             'https://10.0.0.5/x.json',
             'https://169.254.169.254/x.json',
+            'https://metadata.google.internal./computeMetadata/v1',
             'https://[::1]/x.json',
             'https://[fd00::1]/x.json',
             'https://[fe80::1]/x.json',
