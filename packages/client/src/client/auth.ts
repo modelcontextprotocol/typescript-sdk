@@ -1037,6 +1037,7 @@ async function authInternal(
 
     // Check if the provider has cached discovery state to skip discovery
     const cachedState = await provider.discoveryState?.();
+    const savedAuthorizationServerUrl = await provider.authorizationServerUrl?.();
 
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | URL;
@@ -1055,6 +1056,7 @@ async function authInternal(
         // Restore discovery state from cache
         authorizationServerUrl = cachedState.authorizationServerUrl;
         resourceMetadata = cachedState.resourceMetadata;
+        authorizationServerSource = cachedState.authorizationServerSource;
         metadata =
             cachedState.authorizationServerMetadata ??
             (await discoverAuthorizationServerMetadata(authorizationServerUrl, {
@@ -1082,12 +1084,13 @@ async function authInternal(
 
         // Re-save if we enriched the cached state with missing metadata
         if (metadata !== cachedState.authorizationServerMetadata || resourceMetadata !== cachedState.resourceMetadata) {
-            await provider.saveDiscoveryState?.({
+            discoveryStateToSave = {
                 authorizationServerUrl: String(authorizationServerUrl),
+                authorizationServerSource,
                 resourceMetadataUrl: effectiveResourceMetadataUrl?.toString(),
                 resourceMetadata,
                 authorizationServerMetadata: metadata
-            });
+            };
         }
     } else {
         // Full discovery via RFC 9728
@@ -1861,6 +1864,12 @@ export interface OAuthServerInfo {
      * or `undefined` if the server does not support it.
      */
     resourceMetadata?: OAuthProtectedResourceMetadata;
+
+    /**
+     * Where the authorization server URL came from. Discovery calls set this
+     * field; it is optional so older persisted discovery state remains valid.
+     */
+    authorizationServerSource?: 'protected-resource-metadata' | 'legacy-fallback';
 }
 
 /**
@@ -1897,6 +1906,7 @@ export async function discoverOAuthServerInfo(
 ): Promise<OAuthServerInfo> {
     let resourceMetadata: OAuthProtectedResourceMetadata | undefined;
     let authorizationServerUrl: string | undefined;
+    let authorizationServerSource: OAuthServerInfo['authorizationServerSource'];
 
     try {
         resourceMetadata = await discoverOAuthProtectedResourceMetadata(
@@ -1906,6 +1916,7 @@ export async function discoverOAuthServerInfo(
         );
         if (resourceMetadata.authorization_servers && resourceMetadata.authorization_servers.length > 0) {
             authorizationServerUrl = resourceMetadata.authorization_servers[0];
+            authorizationServerSource = 'protected-resource-metadata';
         }
     } catch (error) {
         // Network failures (DNS, connection refused) surface as TypeError from fetch. Those are
@@ -1921,6 +1932,7 @@ export async function discoverOAuthServerInfo(
     // fall back to the legacy MCP spec behavior: MCP server base URL acts as the authorization server
     if (!authorizationServerUrl) {
         authorizationServerUrl = String(new URL('/', serverUrl));
+        authorizationServerSource = 'legacy-fallback';
     }
 
     const authorizationServerMetadata = await discoverAuthorizationServerMetadata(authorizationServerUrl, {
@@ -1930,6 +1942,7 @@ export async function discoverOAuthServerInfo(
 
     return {
         authorizationServerUrl,
+        authorizationServerSource,
         authorizationServerMetadata,
         resourceMetadata
     };

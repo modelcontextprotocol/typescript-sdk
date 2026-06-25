@@ -1370,6 +1370,7 @@ describe('OAuth Authorization', () => {
             const result = await discoverOAuthServerInfo('https://resource.example.com');
 
             expect(result.authorizationServerUrl).toBe('https://auth.example.com');
+            expect(result.authorizationServerSource).toBe('protected-resource-metadata');
             expect(result.resourceMetadata).toEqual(validResourceMetadata);
             expect(result.authorizationServerMetadata).toEqual(validAuthMetadata);
         });
@@ -1404,6 +1405,7 @@ describe('OAuth Authorization', () => {
 
             // Should fall back to server URL origin
             expect(result.authorizationServerUrl).toBe('https://resource.example.com/');
+            expect(result.authorizationServerSource).toBe('legacy-fallback');
             expect(result.resourceMetadata).toBeUndefined();
             expect(result.authorizationServerMetadata).toBeDefined();
         });
@@ -5261,6 +5263,80 @@ describe('SEP-2352: authorization server binding', () => {
         expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
     });
 
+    it('invalidates when challenged PRM names a new authorization server without AS metadata', async () => {
+        const { provider, invalidateCredentials, saveClientInformation, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            authorizationServerSource: 'protected-resource-metadata',
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation((url, init) => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => newResourceMetadata
+                });
+            }
+
+            if (urlString.includes('/.well-known/oauth-authorization-server') || urlString.includes('/.well-known/openid-configuration')) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 404,
+                    statusText: 'Not Found',
+                    text: async () => 'not found'
+                });
+            }
+
+            if (urlString === 'https://new-auth.example.com/register' && init?.method === 'POST') {
+                return Promise.resolve({
+                    ok: true,
+                    status: 201,
+                    json: async () => ({
+                        ...JSON.parse(init.body as string),
+                        client_id: 'new-client-id',
+                        client_secret: 'new-client-secret'
+                    })
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).toHaveBeenCalledWith('client');
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: 'https://new-auth.example.com',
+                authorizationServerSource: 'protected-resource-metadata',
+                resourceMetadataUrl: resourceMetadataUrl.toString(),
+                resourceMetadata: newResourceMetadata,
+                authorizationServerMetadata: undefined
+            })
+        );
+        expect(saveClientInformation).toHaveBeenCalledWith(expect.objectContaining({ client_id: 'new-client-id' }));
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://new-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
+    });
+
     it('does not invalidate credentials when challenged PRM discovery transiently falls back', async () => {
         const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
             client_id: 'old-client-id',
@@ -5307,6 +5383,127 @@ describe('SEP-2352: authorization server binding', () => {
         expect(result).toBe('REDIRECT');
         expect(invalidateCredentials).not.toHaveBeenCalled();
         expect(provider.saveDiscoveryState).not.toHaveBeenCalled();
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://old-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
+    it('enriches cached AS metadata when challenged PRM discovery falls back to a URL-only cache', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            resourceMetadata: sameResourceMetadata
+        });
+        provider.saveDiscoveryState = vi.fn();
+
+        mockFetch.mockImplementation(url => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    text: async () => 'temporarily unavailable'
+                });
+            }
+
+            if (urlString.startsWith(`${oldAuthServerUrl}/.well-known/`)) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => sameAuthMetadata
+                });
+            }
+
+            if (urlString.includes('/.well-known/oauth-authorization-server') || urlString.includes('/.well-known/openid-configuration')) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 404,
+                    statusText: 'Not Found',
+                    text: async () => 'not found'
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(provider.saveDiscoveryState).toHaveBeenCalledWith(
+            expect.objectContaining({
+                authorizationServerUrl: oldAuthServerUrl,
+                resourceMetadataUrl: resourceMetadataUrl.toString(),
+                resourceMetadata: sameResourceMetadata,
+                authorizationServerMetadata: sameAuthMetadata
+            })
+        );
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://old-auth.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
+    it('keeps a saved AS URL when PRM discovery falls back without cached discovery state', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const saveAuthorizationServerUrl = vi.fn();
+        provider.saveAuthorizationServerUrl = saveAuthorizationServerUrl;
+
+        mockFetch.mockImplementation(url => {
+            const urlString = url.toString();
+
+            if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 404,
+                    statusText: 'Not Found',
+                    text: async () => 'not found'
+                });
+            }
+
+            if (urlString.startsWith(`${oldAuthServerUrl}/.well-known/`)) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => sameAuthMetadata
+                });
+            }
+
+            if (urlString.startsWith('https://resource.example.com/.well-known/')) {
+                return Promise.resolve({
+                    ok: true,
+                    status: 200,
+                    json: async () => ({
+                        issuer: 'https://resource.example.com',
+                        authorization_endpoint: 'https://resource.example.com/authorize',
+                        token_endpoint: 'https://resource.example.com/token',
+                        response_types_supported: ['code']
+                    })
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, { serverUrl: 'https://resource.example.com' });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+        expect(saveAuthorizationServerUrl).not.toHaveBeenCalled();
 
         const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
         expect(redirectUrl.origin).toBe('https://old-auth.example.com');
