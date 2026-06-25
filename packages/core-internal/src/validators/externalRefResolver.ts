@@ -115,8 +115,17 @@ function ipv6LiteralFromHost(host: string): string | undefined {
     return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : undefined;
 }
 
+function stripTrailingDnsRootDots(host: string): string {
+    let end = host.length;
+    while (end > 0 && host.codePointAt(end - 1) === 46) {
+        end--;
+    }
+
+    return end === host.length ? host : host.slice(0, end);
+}
+
 function normalizeHostForPolicy(host: string): string {
-    return ipv6LiteralFromHost(host) === undefined ? host.replace(/\.+$/, '') : host;
+    return ipv6LiteralFromHost(host) === undefined ? stripTrailingDnsRootDots(host) : host;
 }
 
 function isBlockedIPv6Literal(host: string): boolean {
