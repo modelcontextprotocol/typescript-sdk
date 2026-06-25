@@ -1973,6 +1973,11 @@ export const ElicitRequestURLParamsSchema = TaskAugmentedRequestParamsSchema.ext
     /**
      * The ID of the elicitation, which must be unique within the context of the server.
      * The client MUST treat this ID as an opaque value.
+     *
+     * @deprecated Removed from the spec by #2891 (2026-07-28). The client learns the
+     * outcome of an out-of-band interaction by retrying the original request; no
+     * server-initiated completion signal exists in the 2026-07-28 revision. Kept here
+     * for the 2025-era URL-mode flow only.
      */
     elicitationId: z.string(),
     /**
@@ -1999,11 +2004,17 @@ export const ElicitRequestSchema = RequestSchema.extend({
 /**
  * Parameters for a {@linkcode ElicitationCompleteNotification | notifications/elicitation/complete} notification.
  *
+ * @deprecated Removed from the spec by #2891 (2026-07-28). The client learns the outcome
+ * of an out-of-band interaction by retrying the original request; no server-initiated
+ * completion signal exists in the 2026-07-28 revision. Kept here for the 2025-era flow
+ * only. The 2026-07-28 wire codec excludes this notification.
  * @category notifications/elicitation/complete
  */
 export const ElicitationCompleteNotificationParamsSchema = NotificationsParamsSchema.extend({
     /**
      * The ID of the elicitation that completed.
+     *
+     * @deprecated See {@linkcode ElicitationCompleteNotificationParamsSchema}.
      */
     elicitationId: z.string()
 });
@@ -2011,6 +2022,10 @@ export const ElicitationCompleteNotificationParamsSchema = NotificationsParamsSc
 /**
  * A notification from the server to the client, informing it of a completion of an out-of-band elicitation request.
  *
+ * @deprecated Removed from the spec by #2891 (2026-07-28). The client learns the outcome
+ * of an out-of-band interaction by retrying the original request; no server-initiated
+ * completion signal exists in the 2026-07-28 revision. Kept here for the 2025-era flow
+ * only. The 2026-07-28 wire codec excludes this notification.
  * @category notifications/elicitation/complete
  */
 export const ElicitationCompleteNotificationSchema = NotificationSchema.extend({
