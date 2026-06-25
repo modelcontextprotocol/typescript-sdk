@@ -88,6 +88,7 @@ const TEST_IMAGE_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQ
 
 // Sample base64 encoded minimal WAV file for testing
 const TEST_AUDIO_BASE64 = 'UklGRiYAAABXQVZFZm10IBAAAAABAAEAQB8AAAB9AAACABAAZGF0YQIAAAA=';
+const DRAFT_PROTOCOL_VERSION = '2026-07-28';
 
 // ===== MULTI-ROUND-TRIP requestState INTEGRITY (SEP-2322) =====
 //
@@ -116,6 +117,7 @@ function createMcpServer() {
             version: '1.0.0'
         },
         {
+            supportedProtocolVersions: [...new Set([DRAFT_PROTOCOL_VERSION, ...SUPPORTED_PROTOCOL_VERSIONS])],
             capabilities: {
                 tools: {
                     listChanged: true
