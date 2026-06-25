@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v4';
 
-import { Protocol } from '../../src/shared/protocol.js';
-import type { BaseContext } from '../../src/exports/public/index.js';
-import { BAGGAGE_META_KEY, TRACEPARENT_META_KEY, TRACESTATE_META_KEY } from '../../src/exports/public/index.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
+import { Protocol } from '../../src/shared/protocol';
+import type { BaseContext } from '../../src/exports/public/index';
+import { BAGGAGE_META_KEY, TRACEPARENT_META_KEY, TRACESTATE_META_KEY } from '../../src/exports/public/index';
+import { InMemoryTransport } from '../../src/util/inMemory';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected buildContext(ctx: BaseContext): BaseContext {
