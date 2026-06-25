@@ -1,6 +1,6 @@
 ---
 '@modelcontextprotocol/server': patch
-'@modelcontextprotocol/core': patch
+'@modelcontextprotocol/core-internal': patch
 '@modelcontextprotocol/node': patch
 ---
 
