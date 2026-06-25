@@ -28,7 +28,12 @@ export const SafeUrlSchema = z
  * RFC 9728 OAuth Protected Resource Metadata
  */
 export const OAuthProtectedResourceMetadataSchema = z.looseObject({
-    resource: z.string().url(),
+    resource: z
+        .string()
+        .url()
+        .refine(value => !value.includes('#'), {
+            message: "Protected Resource Metadata 'resource' MUST NOT include a fragment component (RFC 8707 §2)"
+        }),
     authorization_servers: z.array(SafeUrlSchema).optional(),
     jwks_uri: z.string().url().optional(),
     scopes_supported: z.array(z.string()).optional(),

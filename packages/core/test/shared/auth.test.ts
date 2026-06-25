@@ -1,6 +1,7 @@
 import {
     OAuthClientMetadataSchema,
     OAuthMetadataSchema,
+    OAuthProtectedResourceMetadataSchema,
     OpenIdProviderMetadataSchema,
     OptionalSafeUrlSchema,
     SafeUrlSchema
@@ -67,6 +68,46 @@ describe('OAuthMetadataSchema', () => {
         };
 
         expect(() => OAuthMetadataSchema.parse(incompleteMetadata)).toThrow();
+    });
+});
+
+describe('OAuthProtectedResourceMetadataSchema', () => {
+    it('accepts a resource identifier without a fragment', () => {
+        const metadata = {
+            resource: 'https://api.example.com/mcp'
+        };
+
+        expect(() => OAuthProtectedResourceMetadataSchema.parse(metadata)).not.toThrow();
+    });
+
+    it('rejects a resource identifier with a fragment', () => {
+        const metadata = {
+            resource: 'https://api.example.com/mcp#frag'
+        };
+
+        expect(() => OAuthProtectedResourceMetadataSchema.parse(metadata)).toThrow(
+            "Protected Resource Metadata 'resource' MUST NOT include a fragment component (RFC 8707 §2)"
+        );
+    });
+
+    it('rejects a resource identifier with an empty fragment', () => {
+        // RFC 3986 §3.5: presence of "#" delimits a fragment, even when empty.
+        const metadata = {
+            resource: 'https://api.example.com/mcp#'
+        };
+
+        expect(() => OAuthProtectedResourceMetadataSchema.parse(metadata)).toThrow(
+            "Protected Resource Metadata 'resource' MUST NOT include a fragment component (RFC 8707 §2)"
+        );
+    });
+
+    it('accepts percent-encoded "#" inside the path or query', () => {
+        // %23 is not a fragment delimiter; only a literal "#" is.
+        const metadata = {
+            resource: 'https://api.example.com/mcp%23section'
+        };
+
+        expect(() => OAuthProtectedResourceMetadataSchema.parse(metadata)).not.toThrow();
     });
 });
 

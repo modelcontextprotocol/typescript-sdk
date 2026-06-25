@@ -250,6 +250,34 @@ describe('OAuth Authorization', () => {
             await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow();
         });
 
+        it('rejects metadata whose resource identifier includes a fragment (RFC 8707 §2)', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    resource: 'https://resource.example.com/mcp#section'
+                })
+            });
+
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow(
+                "Protected Resource Metadata 'resource' MUST NOT include a fragment component (RFC 8707 §2)"
+            );
+        });
+
+        it('rejects metadata whose resource identifier ends with an empty fragment', async () => {
+            mockFetch.mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: async () => ({
+                    resource: 'https://resource.example.com/mcp#'
+                })
+            });
+
+            await expect(discoverOAuthProtectedResourceMetadata('https://resource.example.com')).rejects.toThrow(
+                "Protected Resource Metadata 'resource' MUST NOT include a fragment component (RFC 8707 §2)"
+            );
+        });
+
         it('returns metadata when discovery succeeds with path', async () => {
             mockFetch.mockResolvedValueOnce({
                 ok: true,
@@ -2650,6 +2678,54 @@ describe('OAuth Authorization', () => {
                 new URL('https://api.example.com/mcp-server'),
                 'https://different-resource.example.com/mcp-server'
             );
+        });
+
+        it('throws an actionable error pointing at validateResourceURL when PRM resource origin mismatches', async () => {
+            // Same setup as the override test above, but with NO override on the provider —
+            // this exercises the default `selectResourceURL` rejection path and asserts the
+            // error guides integrators to the documented escape hatch.
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://different-resource.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue(undefined);
+            (mockProvider.saveCodeVerifier as Mock).mockResolvedValue(undefined);
+            (mockProvider.redirectToAuthorization as Mock).mockResolvedValue(undefined);
+
+            await expect(
+                auth(mockProvider, {
+                    serverUrl: 'https://api.example.com/mcp-server'
+                })
+            ).rejects.toThrow(/validateResourceURL/);
         });
 
         it('uses prefix of server URL from PRM resource as resource parameter', async () => {
