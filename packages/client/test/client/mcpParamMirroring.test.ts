@@ -7,8 +7,8 @@
  * byte-untouched); stdio MAY-ignore (no headers on a single-channel
  * transport); the one-evict-refetch-retry on `HEADER_MISMATCH`.
  */
-import type { JSONRPCMessage, JSONRPCRequest, Tool, TransportSendOptions } from '@modelcontextprotocol/core';
-import { encodeMcpParamValue, HEADER_MISMATCH_ERROR_CODE, InMemoryTransport, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, Tool, TransportSendOptions } from '@modelcontextprotocol/core-internal';
+import { encodeMcpParamValue, HEADER_MISMATCH_ERROR_CODE, InMemoryTransport, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
 import { Client } from '../../src/client/client.js';

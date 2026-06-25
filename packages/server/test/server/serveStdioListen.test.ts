@@ -7,14 +7,14 @@
  * graceful-close path (one empty `subscriptions/listen` result per
  * subscription id on `handle.close()`).
  */
-import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, Transport } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest, Transport } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     InMemoryTransport,
     PROTOCOL_VERSION_META_KEY,
     SUBSCRIPTION_ID_META_KEY
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 

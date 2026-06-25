@@ -7,7 +7,7 @@
  * end-to-end capture of the same shapes from real server transports lives in
  * test/integration/test/client/versionNegotiation.test.ts.
  */
-import { SdkError, SdkErrorCode, UnsupportedProtocolVersionError } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode, UnsupportedProtocolVersionError } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
 import type { ProbeClassifierContext, ProbeOutcome, ProbeVerdict } from '../../src/client/probeClassifier.js';

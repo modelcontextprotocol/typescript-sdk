@@ -26,7 +26,7 @@ import type {
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResultResponse
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     acceptedContent,
     CLIENT_CAPABILITIES_META_KEY,
@@ -37,7 +37,7 @@ import {
     PROTOCOL_VERSION_META_KEY,
     setNegotiatedProtocolVersion,
     UrlElicitationRequiredError
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 

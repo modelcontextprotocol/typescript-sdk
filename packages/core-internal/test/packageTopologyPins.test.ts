@@ -50,6 +50,10 @@ const PUBLIC_PACKAGES: Record<string, { name: string; exportKeys: string[]; bin?
     'middleware/fastify': { name: '@modelcontextprotocol/fastify', exportKeys: ['.'] },
     'middleware/hono': { name: '@modelcontextprotocol/hono', exportKeys: ['.'] },
     'middleware/node': { name: '@modelcontextprotocol/node', exportKeys: ['.'] },
+    core: {
+        name: '@modelcontextprotocol/core',
+        exportKeys: ['.']
+    },
     codemod: {
         name: '@modelcontextprotocol/codemod',
         exportKeys: ['.'],
@@ -128,14 +132,14 @@ describe('the package set itself is pinned', () => {
         // of packages is itself published surface. A new package must be added
         // to PUBLIC_PACKAGES here deliberately (or pinned as private below) —
         // otherwise it would ship to npm without any pin applying to it.
-        expect(discoverManifestDirs()).toEqual([...Object.keys(PUBLIC_PACKAGES), 'core'].sort());
+        expect(discoverManifestDirs()).toEqual([...Object.keys(PUBLIC_PACKAGES), 'core-internal'].sort());
     });
 });
 
 describe('internal packages stay private', () => {
-    test('@modelcontextprotocol/core is private (bundled into client/server dists)', () => {
-        const manifest = readManifest('core');
-        expect(manifest.name).toBe('@modelcontextprotocol/core');
+    test('@modelcontextprotocol/core-internal is private (bundled into client/server dists)', () => {
+        const manifest = readManifest('core-internal');
+        expect(manifest.name).toBe('@modelcontextprotocol/core-internal');
         expect(manifest.private).toBe(true);
     });
 

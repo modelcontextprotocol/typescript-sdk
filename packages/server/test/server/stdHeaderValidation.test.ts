@@ -18,7 +18,7 @@ import {
     CLIENT_INFO_META_KEY,
     encodeMcpParamValue,
     PROTOCOL_VERSION_META_KEY
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 

@@ -4,13 +4,13 @@
  * forced response modes the entry-level knob will plug into, comment-frame
  * support, and disconnect-as-cancellation.
  */
-import type { CallToolResult, JSONRPCRequest, MessageClassification, ServerContext } from '@modelcontextprotocol/core';
+import type { CallToolResult, JSONRPCRequest, MessageClassification, ServerContext } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     setNegotiatedProtocolVersion
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import type { PerRequestResponseMode } from '../../src/server/perRequestTransport.js';

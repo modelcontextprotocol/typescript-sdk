@@ -1,6 +1,6 @@
 ---
 '@modelcontextprotocol/client': minor
-'@modelcontextprotocol/core': minor
+'@modelcontextprotocol/core-internal': minor
 ---
 
 Per-request `_meta` envelope auto-emission on modern-era connections: once a client negotiates a 2026-07-28+ protocol revision (via `versionNegotiation: { mode: 'auto' }` or `{ pin }`), it automatically attaches the reserved protocol-version / client-info / client-capabilities

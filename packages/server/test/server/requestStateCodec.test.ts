@@ -4,7 +4,7 @@
  * the seam-level wiring (`ServerOptions.requestState.verify`) is covered in
  * `inputRequired.test.ts`.
  */
-import type { ServerContext } from '@modelcontextprotocol/core';
+import type { ServerContext } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { createRequestStateCodec } from '../../src/server/requestStateCodec.js';

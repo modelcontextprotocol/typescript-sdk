@@ -18,8 +18,8 @@
  * negotiation engine suites; this corpus pins classification only, plus the
  * probe wire shape (string id, `server/discover` first, never a real request).
  */
-import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { LATEST_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
+import { LATEST_PROTOCOL_VERSION, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { Client } from '../../src/client/client.js';

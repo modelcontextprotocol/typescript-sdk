@@ -1,4 +1,4 @@
-import type { ListToolsResult, Tool } from '@modelcontextprotocol/core';
+import type { ListToolsResult, Tool } from '@modelcontextprotocol/core-internal';
 
 /**
  * Client-side response cache for SEP-2549 (`CacheableResult`) freshness hints.

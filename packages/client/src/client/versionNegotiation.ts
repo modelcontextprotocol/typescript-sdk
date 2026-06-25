@@ -11,7 +11,7 @@
  * after a modern resolution; while the probe window is open, inbound messages
  * that are not the probe response are dropped with zero bytes written back.
  */
-import type { ClientCapabilities, DiscoverResult, Implementation, JSONRPCRequest, Transport } from '@modelcontextprotocol/core';
+import type { ClientCapabilities, DiscoverResult, Implementation, JSONRPCRequest, Transport } from '@modelcontextprotocol/core-internal';
 import {
     codecForVersion,
     isJSONRPCErrorResponse,
@@ -23,7 +23,7 @@ import {
     SdkErrorCode,
     SdkHttpError,
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 
 import type { ProbeEnvironment, ProbeOutcome, ProbeTransportKind, ProbeVerdict } from './probeClassifier.js';
 import { classifyProbeOutcome } from './probeClassifier.js';

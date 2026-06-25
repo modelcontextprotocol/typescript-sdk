@@ -15,7 +15,7 @@ import {
     CLIENT_INFO_META_KEY,
     encodeMcpParamValue,
     PROTOCOL_VERSION_META_KEY
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
 import { fromJsonSchema } from '../../src/fromJsonSchema.js';

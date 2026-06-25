@@ -23,8 +23,8 @@
  *   transport close carries no response and the client treats it as a
  *   disconnect.
  */
-import type { JSONRPCRequest, RequestId, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core';
-import { codecForVersion, MODERN_WIRE_REVISION, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core';
+import type { JSONRPCRequest, RequestId, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core-internal';
+import { codecForVersion, MODERN_WIRE_REVISION, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core-internal';
 
 import type { ServerEventBus } from './serverEventBus.js';
 import { honoredSubset, listenFilterAccepts, serverEventToNotification } from './serverEventBus.js';

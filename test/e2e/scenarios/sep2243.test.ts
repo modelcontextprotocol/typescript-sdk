@@ -6,7 +6,7 @@
  * raw HTTP request headers are observable on the arm-recorded `wired.httpLog`.
  */
 import { Client } from '@modelcontextprotocol/client';
-import { encodeMcpParamValue, MCP_PARAM_HEADER_PREFIX } from '@modelcontextprotocol/core';
+import { encodeMcpParamValue, MCP_PARAM_HEADER_PREFIX } from '@modelcontextprotocol/core-internal';
 import { fromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 

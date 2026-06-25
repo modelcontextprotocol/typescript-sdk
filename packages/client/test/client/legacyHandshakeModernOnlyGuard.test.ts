@@ -5,8 +5,8 @@
  * connect() rejects with the typed negotiation error before anything reaches
  * the wire — independently of the same guard on the auto-negotiation path.
  */
-import type { JSONRPCMessage, MessageExtraInfo, Transport } from '@modelcontextprotocol/core';
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, MessageExtraInfo, Transport } from '@modelcontextprotocol/core-internal';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
 import { Client } from '../../src/client/client.js';

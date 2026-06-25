@@ -7,7 +7,7 @@
  * faces, the per-request era write + client-identity backfill, notification
  * routing, the response-mode knob, and close() teardown of the modern leg.
  */
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 

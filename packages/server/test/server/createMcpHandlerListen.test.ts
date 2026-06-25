@@ -12,7 +12,7 @@ import {
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     SUBSCRIPTION_ID_META_KEY
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { createMcpHandler } from '../../src/server/createMcpHandler.js';

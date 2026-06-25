@@ -9,7 +9,7 @@
  * still rides the harness-hosted entry.
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import { PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';

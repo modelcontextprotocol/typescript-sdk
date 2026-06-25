@@ -6,14 +6,14 @@
  * notification. User-supplied `_meta` keys win over the auto-attached ones.
  * Legacy-era connections never gain these keys (D9b byte-identity holds).
  */
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { Client } from '../../src/client/client.js';

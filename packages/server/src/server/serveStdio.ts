@@ -56,7 +56,7 @@ import type {
     RequestId,
     Transport,
     TransportSendOptions
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     carriesValidModernEnvelopeClaim,
     envelopeClaimVersion,
@@ -72,7 +72,7 @@ import {
     SUPPORTED_MODERN_PROTOCOL_VERSIONS,
     UnsupportedProtocolVersionError,
     validateEnvelopeMeta
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 
 import type { McpServerFactory } from './createMcpHandler.js';
 import { DEFAULT_MAX_SUBSCRIPTIONS, StdioListenRouter } from './listenRouter.js';

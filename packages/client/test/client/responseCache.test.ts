@@ -7,8 +7,8 @@
  * `toolDefinition` hit/miss and re-derivation only on a stamp change; the
  * generation guard skipping a stale write.
  */
-import type { JSONRPCMessage, JSONRPCRequest, Tool } from '@modelcontextprotocol/core';
-import { InMemoryTransport, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, Tool } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { Client } from '../../src/client/client.js';

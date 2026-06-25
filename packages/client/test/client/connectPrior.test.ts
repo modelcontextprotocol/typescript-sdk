@@ -6,8 +6,8 @@
  * legacy fallback). Populates `getDiscoverResult()` (alongside the
  * `'auto'`-mode probe path) and round-trips through JSON.
  */
-import type { DiscoverResult, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { isJSONRPCRequest, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import type { DiscoverResult, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
+import { isJSONRPCRequest, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
 import { Client } from '../../src/client/client.js';

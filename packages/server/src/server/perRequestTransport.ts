@@ -39,7 +39,7 @@ import type {
     RequestId,
     Transport,
     TransportSendOptions
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     isJSONRPCErrorResponse,
     isJSONRPCRequest,
@@ -47,7 +47,7 @@ import {
     LADDER_ERROR_HTTP_STATUS,
     SdkError,
     SdkErrorCode
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 
 /**
  * How the transport shapes its HTTP response for a request:

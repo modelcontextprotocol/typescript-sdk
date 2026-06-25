@@ -10,7 +10,7 @@
  * code -32000, and the literal substring `Unsupported protocol version`, with
  * the supported-versions suffix derived from `SUPPORTED_PROTOCOL_VERSIONS`.
  */
-import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
+import { SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 

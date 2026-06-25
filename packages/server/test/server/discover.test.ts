@@ -19,7 +19,7 @@
  * package-internal hook the entry will use, and the modern-era request shape
  * carries the required per-request `_meta` envelope.
  */
-import type { DiscoverResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
+import type { DiscoverResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -32,7 +32,7 @@ import {
     PROTOCOL_VERSION_META_KEY,
     setNegotiatedProtocolVersion,
     SUPPORTED_PROTOCOL_VERSIONS
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { discoverAdvertisedCapabilities, Server } from '../../src/server/server.js';

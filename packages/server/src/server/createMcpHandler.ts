@@ -35,7 +35,7 @@ import type {
     InboundLegacyRoute,
     InboundModernRoute,
     RequestId
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
@@ -54,7 +54,7 @@ import {
     UnsupportedProtocolVersionError,
     validateMcpParamHeaders,
     validateStandardRequestHeaders
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 
 import { invoke } from './invoke.js';
 import { createListenRouter, DEFAULT_LISTEN_KEEPALIVE_MS, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter.js';

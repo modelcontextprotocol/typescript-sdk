@@ -21,13 +21,13 @@ import path from 'node:path';
 
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     LATEST_PROTOCOL_VERSION,
     PROTOCOL_VERSION_META_KEY
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
 const FIXTURES_DIR = path.resolve(__dirname, '../__fixtures__');

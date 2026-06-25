@@ -15,11 +15,11 @@ pnpm-lock.yaml
 
 # Spec example corpora: vendored verbatim from the spec repository
 # (fetch:spec-examples) or hand-built and frozen - byte-faithful artifacts.
-packages/core/test/corpus/fixtures/
+packages/core-internal/test/corpus/fixtures/
 
 # Schema twins: raw upstream schema.json bytes (fetch:schema-twins), locked to
 # manifest.json by sha256 in schemaTwinConformance - reformatting breaks the lock.
-packages/core/test/corpus/schema-twins/
+packages/core-internal/test/corpus/schema-twins/
 
 # Batch test cloned repos and results
 packages/codemod/batch-test/repos

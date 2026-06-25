@@ -6,7 +6,7 @@
  * server-side cancel, and ClientOptions.listChanged auto-open on a modern
  * connection.
  */
-import type { JSONRPCMessage, JSONRPCNotification } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCNotification } from '@modelcontextprotocol/core-internal';
 import {
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
@@ -14,7 +14,7 @@ import {
     SdkError,
     SdkErrorCode,
     SUBSCRIPTION_ID_META_KEY
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Client } from '../../src/client/client.js';

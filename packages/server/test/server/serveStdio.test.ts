@@ -27,7 +27,7 @@ import type {
     JSONRPCRequest,
     MessageExtraInfo,
     Transport
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
@@ -38,7 +38,7 @@ import {
     PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 

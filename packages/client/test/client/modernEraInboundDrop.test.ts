@@ -6,8 +6,8 @@
  * connections keep today's behavior (the client answers, e.g. with −32601 for
  * methods it has no handler for).
  */
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { Client } from '../../src/client/client.js';

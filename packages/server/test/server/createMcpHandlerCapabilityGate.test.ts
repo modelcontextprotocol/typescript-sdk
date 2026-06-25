@@ -9,13 +9,13 @@
  * temporary entry to the requirement table; the production behavior with the
  * empty table — every modern request passes the gate — is pinned too.
  */
-import type { ClientCapabilities } from '@modelcontextprotocol/core';
+import type { ClientCapabilities } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     REQUIRED_CLIENT_CAPABILITIES_BY_METHOD
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { afterEach, describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 

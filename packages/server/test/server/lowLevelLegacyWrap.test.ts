@@ -7,8 +7,8 @@
  * structured content. Nothing in `mcp.ts` (or any server-side code) re-derives
  * the wrap — the only era branch is the codec.
  */
-import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core';
-import { InMemoryTransport, isJSONRPCResultResponse, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, isJSONRPCResultResponse, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
 import { Server } from '../../src/server/server.js';

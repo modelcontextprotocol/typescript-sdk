@@ -13,7 +13,7 @@ import {
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     SUBSCRIPTION_ID_META_KEY
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { toNodeHandler } from '@modelcontextprotocol/node';
 import type { CreateMcpHandlerOptions, McpHttpHandler, McpRequestContext } from '@modelcontextprotocol/server';
 import { createMcpHandler, McpServer } from '@modelcontextprotocol/server';

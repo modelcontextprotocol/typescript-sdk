@@ -5,8 +5,8 @@
  * outbound era gate rejects it locally with a typed error before anything
  * reaches the transport.
  */
-import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { isJSONRPCRequest, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
+import { isJSONRPCRequest, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
 import { Client } from '../../src/client/client.js';
