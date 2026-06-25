@@ -62,7 +62,7 @@ export const OAuthMetadataSchema = z.looseObject({
     revocation_endpoint: SafeUrlSchema.optional(),
     revocation_endpoint_auth_methods_supported: z.array(z.string()).optional(),
     revocation_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
-    introspection_endpoint: z.string().optional(),
+    introspection_endpoint: z.string().nullish(),
     introspection_endpoint_auth_methods_supported: z.array(z.string()).optional(),
     introspection_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
     code_challenge_methods_supported: z.array(z.string()).optional(),
