@@ -541,7 +541,7 @@ export class McpServer {
                             name,
                             title: prompt.title,
                             description: prompt.description,
-                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema) : undefined,
+                            arguments: prompt.argsSchema ? promptArgumentsFromStandardSchema(prompt.argsSchema, this._logger) : undefined,
                             icons: prompt.icons,
                             _meta: prompt._meta
                         };
