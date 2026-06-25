@@ -100,6 +100,23 @@ function isExternalRef(ref: string): boolean {
     return ref.length > 0 && !ref.startsWith('#');
 }
 
+function ipv6LiteralFromHost(host: string): string | undefined {
+    return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : undefined;
+}
+
+function isBlockedIPv6Literal(host: string): boolean {
+    if (host === '::' || host === '::1' || host.startsWith('::ffff:')) {
+        return true;
+    }
+
+    const firstHextet = Number.parseInt(host.split(':', 1)[0] ?? '', 16);
+    if (Number.isNaN(firstHextet)) {
+        return false;
+    }
+
+    return (firstHextet >= 0xfc_00 && firstHextet <= 0xfd_ff) || (firstHextet >= 0xfe_80 && firstHextet <= 0xfe_bf);
+}
+
 /**
  * Reject hosts that are obvious SSRF targets: loopback, link-local, and private ranges. This is a
  * best-effort literal-address check (it does not resolve DNS); the allowlist is the real defence.
@@ -122,9 +139,9 @@ function assertHostAllowed(url: URL, options: ResolvedOptions): void {
 
     // No allowlist: reject the most dangerous literal targets so an unguarded call still cannot
     // trivially hit internal services / cloud metadata endpoints.
+    const ipv6Literal = ipv6LiteralFromHost(host);
     const blocked =
         host === 'localhost' ||
-        host === '::1' ||
         host === '0.0.0.0' ||
         host.endsWith('.localhost') ||
         host.endsWith('.internal') ||
@@ -133,9 +150,7 @@ function assertHostAllowed(url: URL, options: ResolvedOptions): void {
         /^192\.168\./.test(host) ||
         /^169\.254\./.test(host) ||
         /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
-        host.startsWith('fc') ||
-        host.startsWith('fd') ||
-        host.startsWith('fe80');
+        (ipv6Literal !== undefined && isBlockedIPv6Literal(ipv6Literal));
     if (blocked) {
         throw new Error(
             `Refusing to dereference "${url.href}": host "${host}" resolves to a loopback/link-local/private address. ` +

@@ -23,6 +23,13 @@ function fetchStub(docs: Record<string, unknown>, init?: { status?: number; cont
 }
 
 describe('resolveExternalSchemaRefs', () => {
+    it('is exported from the curated public API', async () => {
+        const publicApi = await import('../../src/exports/public/index.js');
+
+        expect(publicApi.resolveExternalSchemaRefs).toBe(resolveExternalSchemaRefs);
+        expect(publicApi.MCP_DEFAULT_SCHEMA_DIALECT).toBe('2020-12');
+    });
+
     it('returns the schema unchanged when there are no external refs', async () => {
         const schema: JsonSchemaType = { type: 'object', properties: { a: { type: 'string' } } };
         const fetchImpl = vi.fn();
@@ -116,14 +123,29 @@ describe('resolveExternalSchemaRefs', () => {
             );
         });
 
-        it.each(['https://localhost/x.json', 'https://127.0.0.1/x.json', 'https://10.0.0.5/x.json', 'https://169.254.169.254/x.json'])(
-            'rejects loopback/link-local/private target %s when no allowlist is given',
-            async uri => {
-                await expect(resolveExternalSchemaRefs({ $ref: uri } as JsonSchemaType, { fetch: fetchStub({}) })).rejects.toThrow(
-                    /loopback\/link-local\/private/i
-                );
-            }
-        );
+        it.each([
+            'https://localhost/x.json',
+            'https://127.0.0.1/x.json',
+            'https://10.0.0.5/x.json',
+            'https://169.254.169.254/x.json',
+            'https://[::1]/x.json',
+            'https://[fd00::1]/x.json',
+            'https://[fe80::1]/x.json',
+            'https://[::ffff:127.0.0.1]/x.json'
+        ])('rejects loopback/link-local/private target %s when no allowlist is given', async uri => {
+            await expect(resolveExternalSchemaRefs({ $ref: uri } as JsonSchemaType, { fetch: fetchStub({}) })).rejects.toThrow(
+                /loopback\/link-local\/private/i
+            );
+        });
+
+        it('allows public DNS hosts that start with IPv6 private-range prefixes', async () => {
+            const fetchImpl = fetchStub({ 'https://fcc.gov/schema.json': { type: 'string' } });
+            const resolved = await resolveExternalSchemaRefs({ $ref: 'https://fcc.gov/schema.json' } as JsonSchemaType, {
+                fetch: fetchImpl
+            });
+
+            expect(resolved).toEqual({ $ref: '#/$defs/__externalRef_0', $defs: { __externalRef_0: { type: 'string' } } });
+        });
 
         it('rejects a disallowed protocol (http when only https is allowed)', async () => {
             await expect(
