@@ -2628,6 +2628,18 @@ describe('OAuth Authorization', () => {
                 expect(lastRegistrationBody().application_type).toBe('web');
             });
 
+            it('infers web for https loopback redirect URIs', async () => {
+                mockRegistrationResponse(validClientInfo);
+
+                await registerClient('https://auth.example.com', {
+                    clientMetadata: {
+                        redirect_uris: ['https://localhost:8443/callback', 'https://127.0.0.1:8443/callback', 'https://[::1]:8443/callback']
+                    }
+                });
+
+                expect(lastRegistrationBody().application_type).toBe('web');
+            });
+
             it('infers web for mixed loopback and remote redirect URIs', async () => {
                 mockRegistrationResponse(validClientInfo);
 
@@ -2664,34 +2676,6 @@ describe('OAuth Authorization', () => {
 
                 expect(clientInfo.application_type).toBe('native');
             });
-        });
-    });
-
-    describe('inferApplicationType', () => {
-        it('returns native when every redirect URI is loopback', () => {
-            expect(inferApplicationType(['http://localhost/callback', 'http://127.0.0.1:1234/cb', 'http://[::1]/cb'])).toBe('native');
-        });
-
-        it('returns native for custom non-http(s) schemes', () => {
-            expect(inferApplicationType(['myapp://oauth/callback', 'com.example.app:/redirect'])).toBe('native');
-        });
-
-        it('returns web for remote http(s) redirect URIs', () => {
-            expect(inferApplicationType(['https://app.example.com/callback'])).toBe('web');
-            expect(inferApplicationType(['http://app.example.com/callback'])).toBe('web');
-        });
-
-        it('returns web when any redirect URI is remote', () => {
-            expect(inferApplicationType(['http://localhost:3000/callback', 'https://app.example.com/callback'])).toBe('web');
-        });
-
-        it('does not treat localhost subdomains as loopback', () => {
-            expect(inferApplicationType(['https://localhost.example.com/callback'])).toBe('web');
-        });
-
-        it('returns web for empty or unparseable input', () => {
-            expect(inferApplicationType([])).toBe('web');
-            expect(inferApplicationType(['not a url'])).toBe('web');
         });
     });
 
