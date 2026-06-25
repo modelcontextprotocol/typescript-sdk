@@ -455,6 +455,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
 
         const encoder = new TextEncoder();
         let streamController: ReadableStreamDefaultController<Uint8Array>;
+        let keepAliveInterval: ReturnType<typeof setInterval> | undefined;
+
+        const clearKeepAlive = () => {
+            if (keepAliveInterval !== undefined) {
+                clearInterval(keepAliveInterval);
+                keepAliveInterval = undefined;
+            }
+        };
 
         // Create a ReadableStream with a controller we can use to push SSE events
         const readable = new ReadableStream<Uint8Array>({
@@ -463,6 +471,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             },
             cancel: () => {
                 // Stream was cancelled by client
+                clearKeepAlive();
                 this._streamMapping.delete(this._standaloneSseStreamId);
             }
         });
@@ -483,6 +492,7 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
             controller: streamController!,
             encoder,
             cleanup: () => {
+                clearKeepAlive();
                 this._streamMapping.delete(this._standaloneSseStreamId);
                 try {
                     streamController!.close();
@@ -491,6 +501,14 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
                 }
             }
         });
+
+        keepAliveInterval = setInterval(() => {
+            try {
+                streamController!.enqueue(encoder.encode(': keep-alive\n\n'));
+            } catch {
+                clearKeepAlive();
+            }
+        }, 15_000);
 
         return new Response(readable, { headers });
     }
