@@ -116,4 +116,38 @@ describe('detectFormatter', () => {
 
         expect(detectFormatter(src)).toBeNull();
     });
+
+    it('does not match a user-level $HOME config for a non-git project (stops at $HOME)', () => {
+        const home = createTempDir();
+        const projectSrc = path.join(home, 'projects', 'app', 'src');
+        mkdirSync(projectSrc, { recursive: true });
+        // A user-level config sits at $HOME, above a non-git project — it must never be read as the
+        // project's config (the walk must stop before ascending into $HOME).
+        writeFileSync(path.join(home, 'prettier.config.mjs'), 'export default {};');
+
+        expect(detectFormatter(projectSrc, home)).toBeNull();
+    });
+
+    it('reads the project root directly under $HOME but never $HOME itself', () => {
+        const home = createTempDir();
+        const projectRoot = path.join(home, 'app');
+        const src = path.join(projectRoot, 'src');
+        mkdirSync(src, { recursive: true });
+        // A higher-precedence formatter configured at $HOME must NOT shadow the project's own.
+        writeFileSync(path.join(home, 'biome.json'), '{}');
+        writeFileSync(path.join(projectRoot, 'eslint.config.js'), 'export default [];');
+
+        // Only the project's ESLint is detected; $HOME's Biome is never read.
+        expect(detectFormatter(src, home)?.name).toBe('ESLint');
+    });
+
+    it('detects a project config below $HOME (the boundary only blocks $HOME and above)', () => {
+        const home = createTempDir();
+        const projectRoot = path.join(home, 'projects', 'app');
+        const src = path.join(projectRoot, 'src');
+        mkdirSync(src, { recursive: true });
+        writeFileSync(path.join(projectRoot, 'biome.json'), '{}');
+
+        expect(detectFormatter(src, home)?.name).toBe('Biome');
+    });
 });

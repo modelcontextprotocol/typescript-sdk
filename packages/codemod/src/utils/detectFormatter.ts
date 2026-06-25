@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 /** A code formatter the codemod can recommend running after a migration. */
@@ -78,19 +79,27 @@ function readPackageJsonSignals(dir: string): PackageJsonSignals {
 }
 
 /**
- * Walks up from `startDir` — bounded to the repository, stopping at a `.git`
- * directory so a global config in `$HOME` is never matched — looking for a
- * configured code formatter, so the CLI can suggest the right "format your
- * changed files" command after a migration.
+ * Walks up from `startDir` looking for a configured code formatter, so the CLI can suggest the right
+ * "format your changed files" command after a migration.
  *
- * Detection is config-based and runs nothing. When multiple formatters are
- * configured, precedence is Biome > Prettier > ESLint.
+ * The walk is bounded so a user-level global config is never mistaken for the project's. It stops at the
+ * repository root (a `.git` directory) or the filesystem root, and — for a project that is not a git
+ * checkout (tarball, fresh scaffold, CI workspace) — never ascends into or above `$HOME`, so a
+ * `~/.prettierrc`, `~/biome.json`, or `~/package.json` with formatter deps is never matched. (A `.git`
+ * boundary alone did not hold this guarantee for non-git projects, which would otherwise walk to `$HOME`.)
  *
+ * Detection is config-based and runs nothing. When multiple formatters are configured, precedence is
+ * Biome > Prettier > ESLint.
+ *
+ * @param startDir the directory to start the upward search from.
+ * @param homeDir the user's home directory; the walk never reads it or any ancestor. Injectable for tests;
+ *   defaults to `os.homedir()`.
  * @returns the detected formatter, or `null` if none is configured.
  */
-export function detectFormatter(startDir: string): DetectedFormatter | null {
+export function detectFormatter(startDir: string, homeDir: string = os.homedir()): DetectedFormatter | null {
     let dir = path.resolve(startDir);
     const root = path.parse(dir).root;
+    const home = path.resolve(homeDir);
     const found = { biome: false, prettier: false, eslint: false };
 
     while (true) {
@@ -102,7 +111,11 @@ export function detectFormatter(startDir: string): DetectedFormatter | null {
         if (signals.prettier) found.prettier = true;
         if (signals.eslint) found.eslint = true;
 
-        if (existsSync(path.join(dir, '.git')) || dir === root) break;
+        // Stop at the repository root (a `.git` dir) or the filesystem root. For a project that is not a
+        // git checkout (tarball, fresh scaffold, CI workspace), also stop before ascending into `$HOME`:
+        // the project is a descendant of `$HOME`, so a user-level `~/.prettierrc`, `~/biome.json`, or
+        // `~/package.json` with formatter deps must never be read as the project's own config.
+        if (existsSync(path.join(dir, '.git')) || dir === root || dir === home || path.dirname(dir) === home) break;
         dir = path.dirname(dir);
     }
 
