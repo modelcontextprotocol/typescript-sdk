@@ -1,5 +1,5 @@
-import type { StandardSchemaV1, StandardSchemaWithJSON } from '../util/standardSchema.js';
-import type { JsonSchemaType, jsonSchemaValidator } from './types.js';
+import type { StandardSchemaV1, StandardSchemaWithJSON } from '../util/standardSchema';
+import type { JsonSchemaType, jsonSchemaValidator } from './types';
 
 /**
  * Wrap a raw JSON Schema object as a {@linkcode StandardSchemaWithJSON} so it can be
@@ -19,7 +19,7 @@ import type { JsonSchemaType, jsonSchemaValidator } from './types.js';
  * ```ts source="./fromJsonSchema.examples.ts#fromJsonSchema_basicUsage"
  * const inputSchema = fromJsonSchema<{ name: string }>(
  *     { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
- *     new AjvJsonSchemaValidator()
+ *     validator
  * );
  * // Use with server.registerTool('greet', { inputSchema }, handler)
  * ```

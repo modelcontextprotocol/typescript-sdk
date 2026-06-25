@@ -4,7 +4,7 @@
 
 import type * as z from 'zod/v4';
 
-import type { INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR } from './constants.js';
+import type { INTERNAL_ERROR, INVALID_PARAMS, INVALID_REQUEST, METHOD_NOT_FOUND, PARSE_ERROR } from './constants';
 import type {
     AnnotationsSchema,
     AudioContentSchema,
@@ -34,6 +34,8 @@ import type {
     CreateMessageResultWithToolsSchema,
     CreateTaskResultSchema,
     CursorSchema,
+    DiscoverRequestSchema,
+    DiscoverResultSchema,
     ElicitationCompleteNotificationParamsSchema,
     ElicitationCompleteNotificationSchema,
     ElicitRequestFormParamsSchema,
@@ -106,6 +108,7 @@ import type {
     ReadResourceResultSchema,
     RelatedTaskMetadataSchema,
     RequestIdSchema,
+    RequestMetaEnvelopeSchema,
     RequestMetaSchema,
     RequestSchema,
     ResourceContentsSchema,
@@ -156,7 +159,7 @@ import type {
     UnsubscribeRequestSchema,
     UntitledMultiSelectEnumSchemaSchema,
     UntitledSingleSelectEnumSchemaSchema
-} from './schemas.js';
+} from './schemas';
 
 /* JSON types */
 export type JSONValue = string | number | boolean | null | JSONObject | JSONArray;
@@ -200,6 +203,11 @@ export type JSONRPCResultResponse = Infer<typeof JSONRPCResultResponseSchema>;
 export type JSONRPCMessage = Infer<typeof JSONRPCMessageSchema>;
 export type RequestParams = Infer<typeof BaseRequestParamsSchema>;
 export type NotificationParams = Infer<typeof NotificationsParamsSchema>;
+/**
+ * The per-request `_meta` envelope carried by every request under protocol revision
+ * 2026-07-28 (protocol version, client info, client capabilities, optional log level).
+ */
+export type RequestMetaEnvelope = Infer<typeof RequestMetaEnvelopeSchema>;
 
 /* Empty result */
 export type EmptyResult = Infer<typeof EmptyResultSchema>;
@@ -217,12 +225,30 @@ export type Role = Infer<typeof RoleSchema>;
 
 /* Initialization */
 export type Implementation = Infer<typeof ImplementationSchema>;
+/**
+ * Capabilities a client may support.
+ *
+ * Note: the `roots` and `sampling` capabilities are deprecated as of protocol
+ * version 2026-07-28 (SEP-2577); they remain in the specification for at least
+ * twelve months. See `ClientCapabilitiesSchema`.
+ */
 export type ClientCapabilities = Infer<typeof ClientCapabilitiesSchema>;
 export type InitializeRequestParams = Infer<typeof InitializeRequestParamsSchema>;
 export type InitializeRequest = Infer<typeof InitializeRequestSchema>;
+/**
+ * Capabilities a server may support.
+ *
+ * Note: the `logging` capability is deprecated as of protocol version
+ * 2026-07-28 (SEP-2577); it remains in the specification for at least twelve
+ * months. See `ServerCapabilitiesSchema`.
+ */
 export type ServerCapabilities = Infer<typeof ServerCapabilitiesSchema>;
 export type InitializeResult = Infer<typeof InitializeResultSchema>;
 export type InitializedNotification = Infer<typeof InitializedNotificationSchema>;
+
+/* Discovery */
+export type DiscoverRequest = Infer<typeof DiscoverRequestSchema>;
+export type DiscoverResult = Infer<typeof DiscoverResultSchema>;
 
 /* Ping */
 export type PingRequest = Infer<typeof PingRequestSchema>;
@@ -456,6 +482,22 @@ export interface InvalidParamsError extends JSONRPCErrorObject {
 }
 export interface InternalError extends JSONRPCErrorObject {
     code: typeof INTERNAL_ERROR;
+}
+
+/**
+ * Data carried by a `-32004` UnsupportedProtocolVersion protocol error
+ * (protocol revision 2026-07-28).
+ */
+export interface UnsupportedProtocolVersionErrorData {
+    /**
+     * Protocol versions the receiver supports. The sender should choose a
+     * mutually supported version from this list and retry.
+     */
+    supported: string[];
+    /**
+     * The protocol version that was requested.
+     */
+    requested: string;
 }
 
 /**

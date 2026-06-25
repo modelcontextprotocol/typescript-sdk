@@ -1,13 +1,25 @@
-import type { JSONRPCMessage } from '../types/index.js';
-import { JSONRPCMessageSchema } from '../types/index.js';
+import type { JSONRPCMessage } from '../types/index';
+import { JSONRPCMessageSchema } from '../types/index';
+
+export const STDIO_DEFAULT_MAX_BUFFER_SIZE = 10 * 1024 * 1024;
 
 /**
  * Buffers a continuous stdio stream into discrete JSON-RPC messages.
  */
 export class ReadBuffer {
     private _buffer?: Buffer;
+    private _maxBufferSize: number;
+
+    constructor(options?: { maxBufferSize?: number }) {
+        this._maxBufferSize = options?.maxBufferSize ?? STDIO_DEFAULT_MAX_BUFFER_SIZE;
+    }
 
     append(chunk: Buffer): void {
+        const newSize = (this._buffer?.length ?? 0) + chunk.length;
+        if (newSize > this._maxBufferSize) {
+            this.clear();
+            throw new Error(`ReadBuffer exceeded maximum size of ${this._maxBufferSize} bytes`);
+        }
         this._buffer = this._buffer ? Buffer.concat([this._buffer, chunk]) : chunk;
     }
 

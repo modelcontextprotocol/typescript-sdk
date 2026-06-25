@@ -9,10 +9,10 @@
 
 import type { Prompt, Resource, Tool } from '@modelcontextprotocol/core';
 
-import { Client } from './client.js';
-import { SSEClientTransport } from './sse.js';
-import { StdioClientTransport } from './stdio.js';
-import { StreamableHTTPClientTransport } from './streamableHttp.js';
+import { Client } from './client';
+import { SSEClientTransport } from './sse';
+import { StdioClientTransport } from './stdio';
+import { StreamableHTTPClientTransport } from './streamableHttp';
 
 /**
  * Example: Using listChanged to automatically track tool and prompt updates.
@@ -143,11 +143,12 @@ async function Client_listTools_pagination(client: Client) {
     //#region Client_listTools_pagination
     const allTools: Tool[] = [];
     let cursor: string | undefined;
+    // Note: an empty-string cursor is valid and does not signal the end of results.
     do {
         const { tools, nextCursor } = await client.listTools({ cursor });
         allTools.push(...tools);
         cursor = nextCursor;
-    } while (cursor);
+    } while (cursor !== undefined);
     console.log(
         'Available tools:',
         allTools.map(t => t.name)
@@ -162,11 +163,12 @@ async function Client_listPrompts_pagination(client: Client) {
     //#region Client_listPrompts_pagination
     const allPrompts: Prompt[] = [];
     let cursor: string | undefined;
+    // Note: an empty-string cursor is valid and does not signal the end of results.
     do {
         const { prompts, nextCursor } = await client.listPrompts({ cursor });
         allPrompts.push(...prompts);
         cursor = nextCursor;
-    } while (cursor);
+    } while (cursor !== undefined);
     console.log(
         'Available prompts:',
         allPrompts.map(p => p.name)
@@ -181,11 +183,12 @@ async function Client_listResources_pagination(client: Client) {
     //#region Client_listResources_pagination
     const allResources: Resource[] = [];
     let cursor: string | undefined;
+    // Note: an empty-string cursor is valid and does not signal the end of results.
     do {
         const { resources, nextCursor } = await client.listResources({ cursor });
         allResources.push(...resources);
         cursor = nextCursor;
-    } while (cursor);
+    } while (cursor !== undefined);
     console.log(
         'Available resources:',
         allResources.map(r => r.name)

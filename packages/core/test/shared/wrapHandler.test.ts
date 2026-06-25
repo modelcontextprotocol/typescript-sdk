@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
-import { Protocol } from '../../src/shared/protocol.js';
-import type { BaseContext, JSONRPCRequest, Result } from '../../src/exports/public/index.js';
+import { Protocol } from '../../src/shared/protocol';
+import type { BaseContext, JSONRPCRequest, Result } from '../../src/exports/public/index';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected buildContext(ctx: BaseContext): BaseContext {
@@ -10,8 +10,6 @@ class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}
     protected assertNotificationCapability(): void {}
     protected assertRequestHandlerCapability(): void {}
-    protected assertTaskCapability(): void {}
-    protected assertTaskHandlerCapability(): void {}
 }
 
 describe('Protocol._wrapHandler', () => {

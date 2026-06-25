@@ -1,10 +1,17 @@
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
-import { createFetchWithInit, JSONRPCMessageSchema, normalizeHeaders, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import {
+    createFetchWithInit,
+    JSONRPCMessageSchema,
+    normalizeHeaders,
+    SdkError,
+    SdkErrorCode,
+    SdkHttpError
+} from '@modelcontextprotocol/core';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
-import type { AuthProvider, OAuthClientProvider } from './auth.js';
-import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth.js';
+import type { AuthProvider, OAuthClientProvider } from './auth';
+import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth';
 
 export class SseError extends Error {
     constructor(
@@ -285,8 +292,9 @@ export class SSEClientTransport implements Transport {
                     }
                     await response.text?.().catch(() => {});
                     if (isAuthRetry) {
-                        throw new SdkError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
-                            status: 401
+                        throw new SdkHttpError(SdkErrorCode.ClientHttpAuthentication, 'Server returned 401 after re-authentication', {
+                            status: 401,
+                            statusText: response.statusText
                         });
                     }
                     throw new UnauthorizedError();

@@ -36,7 +36,7 @@ Include what changed, why, and how to migrate. Search for related sections and g
 - **TypeScript**: Strict type checking, ES modules, explicit return types
 - **Naming**: PascalCase for classes/types, camelCase for functions/variables
 - **Files**: Lowercase with hyphens, test files with `.test.ts` suffix
-- **Imports**: ES module style, include `.js` extension, group imports logically
+- **Imports**: ES module style, no `.js` extension on relative imports (project uses `moduleResolution: bundler`), group imports logically
 - **Formatting**: 2-space indentation, semicolons required, single quotes preferred
 - **Testing**: Place tests under each package's `test/` directory (vitest only includes `test/**/*.test.ts`), use descriptive test names
 - **Comments**: JSDoc for public APIs, inline comments for complex logic
@@ -104,9 +104,7 @@ The repo also ships “middleware” packages under `packages/middleware/` (e.g.
 
 ### Experimental Features
 
-Located in `packages/*/src/experimental/`:
-
-- **Tasks**: Long-running task support with polling/resumption (`packages/core/src/experimental/tasks/`)
+Located in `packages/*/src/experimental/`. Currently empty.
 
 ### Zod Schemas
 
@@ -201,7 +199,6 @@ The `ctx` parameter in handlers provides a structured context:
   - `notify(notification)`: Send related notification back
 - `http?`: HTTP transport info (undefined for stdio)
   - `authInfo?`: Validated auth token info
-- `task?`: Task context (`{ id?, store, requestedTtl? }`) when task storage is configured
 
 **`ServerContext`** extends `BaseContext.mcpReq` and `BaseContext.http?` via type intersection:
 

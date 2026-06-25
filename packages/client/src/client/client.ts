@@ -29,24 +29,19 @@ import type {
     Result,
     ServerCapabilities,
     SubscribeRequest,
-    TaskManagerOptions,
     Tool,
     Transport,
     UnsubscribeRequest
 } from '@modelcontextprotocol/core';
 import {
-    assertClientRequestTaskCapability,
-    assertToolsCallTaskCapability,
     CallToolResultSchema,
     CompleteResultSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
-    CreateTaskResultSchema,
     ElicitRequestSchema,
     ElicitResultSchema,
     EmptyResultSchema,
-    extractTaskManagerOptions,
     GetPromptResultSchema,
     InitializeResultSchema,
     LATEST_PROTOCOL_VERSION,
@@ -64,8 +59,6 @@ import {
     SdkError,
     SdkErrorCode
 } from '@modelcontextprotocol/core';
-
-import { ExperimentalClientTasks } from '../experimental/tasks/client.js';
 
 /**
  * Elicitation default application helper. Applies defaults to the `data` based on the `schema`.
@@ -141,19 +134,11 @@ export function getSupportedElicitationModes(capabilities: ClientCapabilities['e
     return { supportsFormMode, supportsUrlMode };
 }
 
-/**
- * Extended tasks capability that includes runtime configuration (store, messageQueue).
- * The runtime-only fields are stripped before advertising capabilities to servers.
- */
-export type ClientTasksCapabilityWithRuntime = NonNullable<ClientCapabilities['tasks']> & TaskManagerOptions;
-
 export type ClientOptions = ProtocolOptions & {
     /**
      * Capabilities to advertise as being supported by this client.
      */
-    capabilities?: Omit<ClientCapabilities, 'tasks'> & {
-        tasks?: ClientTasksCapabilityWithRuntime;
-    };
+    capabilities?: ClientCapabilities;
 
     /**
      * JSON Schema validator for tool output validation.
@@ -161,7 +146,7 @@ export type ClientOptions = ProtocolOptions & {
      * The validator is used to validate structured content returned by tools
      * against their declared output schemas.
      *
-     * @default {@linkcode DefaultJsonSchemaValidator} ({@linkcode index.AjvJsonSchemaValidator | AjvJsonSchemaValidator} on Node.js, `CfWorkerJsonSchemaValidator` on Cloudflare Workers)
+     * @default Runtime-selected validator (AJV-backed on Node.js, `@cfworker/json-schema`-backed on browser/workerd runtimes)
      */
     jsonSchemaValidator?: jsonSchemaValidator;
 
@@ -204,6 +189,12 @@ export type ClientOptions = ProtocolOptions & {
  * `sampling/createMessage` and `elicitation/create`, the handler is automatically wrapped with
  * schema validation for both the incoming request and the returned result.
  *
+ * Note: the `roots/list` and `sampling/createMessage` handler surfaces (and the corresponding
+ * `roots` and `sampling` capabilities) are deprecated as of protocol version 2026-07-28
+ * (SEP-2577). They remain functional during the deprecation window (at least twelve months).
+ * Migrate sampling to calling LLM provider APIs directly, and roots to passing paths via tool
+ * parameters, resource URIs, or configuration.
+ *
  * @example Handling a sampling request
  * ```ts source="./client.examples.ts#Client_setRequestHandler_sampling"
  * client.setRequestHandler('sampling/createMessage', async request => {
@@ -230,9 +221,6 @@ export class Client extends Protocol<ClientContext> {
     private _instructions?: string;
     private _jsonSchemaValidator: jsonSchemaValidator;
     private _cachedToolOutputValidators: Map<string, JsonSchemaValidator<unknown>> = new Map();
-    private _cachedKnownTaskTools: Set<string> = new Set();
-    private _cachedRequiredTaskTools: Set<string> = new Set();
-    private _experimental?: { tasks: ExperimentalClientTasks };
     private _listChangedDebounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
     private _pendingListChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
@@ -244,21 +232,10 @@ export class Client extends Protocol<ClientContext> {
         private _clientInfo: Implementation,
         options?: ClientOptions
     ) {
-        super({
-            ...options,
-            tasks: extractTaskManagerOptions(options?.capabilities?.tasks)
-        });
+        super(options);
         this._capabilities = options?.capabilities ? { ...options.capabilities } : {};
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
-
-        // Strip runtime-only fields from advertised capabilities
-        if (options?.capabilities?.tasks) {
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
-            const { taskStore, taskMessageQueue, defaultTaskPollInterval, maxTaskQueueSize, ...wireCapabilities } =
-                options.capabilities.tasks;
-            this._capabilities.tasks = wireCapabilities;
-        }
 
         // Store list changed config for setup after connection (when we know server capabilities)
         if (options?.listChanged) {
@@ -297,22 +274,6 @@ export class Client extends Protocol<ClientContext> {
                 return result.resources;
             });
         }
-    }
-
-    /**
-     * Access experimental features.
-     *
-     * WARNING: These APIs are experimental and may change without notice.
-     *
-     * @experimental
-     */
-    get experimental(): { tasks: ExperimentalClientTasks } {
-        if (!this._experimental) {
-            this._experimental = {
-                tasks: new ExperimentalClientTasks(this)
-            };
-        }
-        return this._experimental;
     }
 
     /**
@@ -360,20 +321,6 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
-                // When task creation is requested, validate and return CreateTaskResult
-                if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                    if (!taskValidationResult.success) {
-                        const errorMessage =
-                            taskValidationResult.error instanceof Error
-                                ? taskValidationResult.error.message
-                                : String(taskValidationResult.error);
-                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                    }
-                    return taskValidationResult.data;
-                }
-
-                // For non-task requests, validate against ElicitResultSchema
                 const validationResult = parseSchema(ElicitResultSchema, result);
                 if (!validationResult.success) {
                     // Type guard: if success is false, error is guaranteed to exist
@@ -416,20 +363,6 @@ export class Client extends Protocol<ClientContext> {
 
                 const result = await handler(request, ctx);
 
-                // When task creation is requested, validate and return CreateTaskResult
-                if (params.task) {
-                    const taskValidationResult = parseSchema(CreateTaskResultSchema, result);
-                    if (!taskValidationResult.success) {
-                        const errorMessage =
-                            taskValidationResult.error instanceof Error
-                                ? taskValidationResult.error.message
-                                : String(taskValidationResult.error);
-                        throw new ProtocolError(ProtocolErrorCode.InvalidParams, `Invalid task creation result: ${errorMessage}`);
-                    }
-                    return taskValidationResult.data;
-                }
-
-                // For non-task requests, validate against appropriate schema based on tools presence
                 const hasTools = params.tools || params.toolChoice;
                 const resultSchema = hasTools ? CreateMessageResultWithToolsSchema : CreateMessageResultSchema;
                 const validationResult = parseSchema(resultSchema, result);
@@ -572,6 +505,8 @@ export class Client extends Protocol<ClientContext> {
 
     protected assertCapabilityForMethod(method: RequestMethod | string): void {
         switch (method as ClientRequest['method']) {
+            // Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+            // functional during the deprecation window (at least twelve months).
             case 'logging/setLevel': {
                 if (!this._serverCapabilities?.logging) {
                     throw new SdkError(SdkErrorCode.CapabilityNotSupported, `Server does not support logging (required for ${method})`);
@@ -635,6 +570,8 @@ export class Client extends Protocol<ClientContext> {
 
     protected assertNotificationCapability(method: NotificationMethod | string): void {
         switch (method as ClientNotification['method']) {
+            // Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+            // functional during the deprecation window (at least twelve months).
             case 'notifications/roots/list_changed': {
                 if (!this._capabilities.roots?.listChanged) {
                     throw new SdkError(
@@ -664,6 +601,8 @@ export class Client extends Protocol<ClientContext> {
 
     protected assertRequestHandlerCapability(method: string): void {
         switch (method) {
+            // Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+            // functional during the deprecation window (at least twelve months).
             case 'sampling/createMessage': {
                 if (!this._capabilities.sampling) {
                     throw new SdkError(
@@ -684,6 +623,8 @@ export class Client extends Protocol<ClientContext> {
                 break;
             }
 
+            // Deprecated as of protocol version 2026-07-28 (SEP-2577); remains
+            // functional during the deprecation window (at least twelve months).
             case 'roots/list': {
                 if (!this._capabilities.roots) {
                     throw new SdkError(
@@ -701,14 +642,6 @@ export class Client extends Protocol<ClientContext> {
         }
     }
 
-    protected assertTaskCapability(method: string): void {
-        assertToolsCallTaskCapability(this._serverCapabilities?.tasks?.requests, method, 'Server');
-    }
-
-    protected assertTaskHandlerCapability(method: string): void {
-        assertClientRequestTaskCapability(this._capabilities?.tasks?.requests, method, 'Client');
-    }
-
     async ping(options?: RequestOptions) {
         return this._requestWithSchema({ method: 'ping' }, EmptyResultSchema, options);
     }
@@ -718,7 +651,13 @@ export class Client extends Protocol<ClientContext> {
         return this._requestWithSchema({ method: 'completion/complete', params }, CompleteResultSchema, options);
     }
 
-    /** Sets the minimum severity level for log messages sent by the server. */
+    /**
+     * Sets the minimum severity level for log messages sent by the server.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to stderr logging (STDIO servers) or OpenTelemetry.
+     */
     async setLoggingLevel(level: LoggingLevel, options?: RequestOptions) {
         return this._requestWithSchema({ method: 'logging/setLevel', params: { level } }, EmptyResultSchema, options);
     }
@@ -738,11 +677,12 @@ export class Client extends Protocol<ClientContext> {
      * ```ts source="./client.examples.ts#Client_listPrompts_pagination"
      * const allPrompts: Prompt[] = [];
      * let cursor: string | undefined;
+     * // Note: an empty-string cursor is valid and does not signal the end of results.
      * do {
      *     const { prompts, nextCursor } = await client.listPrompts({ cursor });
      *     allPrompts.push(...prompts);
      *     cursor = nextCursor;
-     * } while (cursor);
+     * } while (cursor !== undefined);
      * console.log(
      *     'Available prompts:',
      *     allPrompts.map(p => p.name)
@@ -768,11 +708,12 @@ export class Client extends Protocol<ClientContext> {
      * ```ts source="./client.examples.ts#Client_listResources_pagination"
      * const allResources: Resource[] = [];
      * let cursor: string | undefined;
+     * // Note: an empty-string cursor is valid and does not signal the end of results.
      * do {
      *     const { resources, nextCursor } = await client.listResources({ cursor });
      *     allResources.push(...resources);
      *     cursor = nextCursor;
-     * } while (cursor);
+     * } while (cursor !== undefined);
      * console.log(
      *     'Available resources:',
      *     allResources.map(r => r.name)
@@ -828,8 +769,6 @@ export class Client extends Protocol<ClientContext> {
      * a problem), and thrown {@linkcode ProtocolError} for protocol-level failures or {@linkcode SdkError} for
      * SDK-level issues (timeouts, missing capabilities).
      *
-     * For task-based execution with streaming behavior, use {@linkcode ExperimentalClientTasks.callToolStream | client.experimental.tasks.callToolStream()} instead.
-     *
      * @example Basic usage
      * ```ts source="./client.examples.ts#Client_callTool_basic"
      * const result = await client.callTool({
@@ -860,14 +799,6 @@ export class Client extends Protocol<ClientContext> {
      * ```
      */
     async callTool(params: CallToolRequest['params'], options?: RequestOptions) {
-        // Guard: required-task tools need experimental API
-        if (this.isToolTaskRequired(params.name)) {
-            throw new ProtocolError(
-                ProtocolErrorCode.InvalidRequest,
-                `Tool "${params.name}" requires task-based execution. Use client.experimental.tasks.callToolStream() instead.`
-            );
-        }
-
         const result = await this._requestWithSchema({ method: 'tools/call', params }, CallToolResultSchema, options);
 
         // Check if the tool has an outputSchema
@@ -908,45 +839,18 @@ export class Client extends Protocol<ClientContext> {
         return result;
     }
 
-    private isToolTask(toolName: string): boolean {
-        if (!this._serverCapabilities?.tasks?.requests?.tools?.call) {
-            return false;
-        }
-
-        return this._cachedKnownTaskTools.has(toolName);
-    }
-
-    /**
-     * Check if a tool requires task-based execution.
-     * Unlike {@linkcode isToolTask} which includes `'optional'` tools, this only checks for `'required'`.
-     */
-    private isToolTaskRequired(toolName: string): boolean {
-        return this._cachedRequiredTaskTools.has(toolName);
-    }
-
     /**
      * Cache validators for tool output schemas.
      * Called after {@linkcode listTools | listTools()} to pre-compile validators for better performance.
      */
     private cacheToolMetadata(tools: Tool[]): void {
         this._cachedToolOutputValidators.clear();
-        this._cachedKnownTaskTools.clear();
-        this._cachedRequiredTaskTools.clear();
 
         for (const tool of tools) {
             // If the tool has an outputSchema, create and cache the validator
             if (tool.outputSchema) {
                 const toolValidator = this._jsonSchemaValidator.getValidator(tool.outputSchema as JsonSchemaType);
                 this._cachedToolOutputValidators.set(tool.name, toolValidator);
-            }
-
-            // If the tool supports task-based execution, cache that information
-            const taskSupport = tool.execution?.taskSupport;
-            if (taskSupport === 'required' || taskSupport === 'optional') {
-                this._cachedKnownTaskTools.add(tool.name);
-            }
-            if (taskSupport === 'required') {
-                this._cachedRequiredTaskTools.add(tool.name);
             }
         }
     }
@@ -968,11 +872,12 @@ export class Client extends Protocol<ClientContext> {
      * ```ts source="./client.examples.ts#Client_listTools_pagination"
      * const allTools: Tool[] = [];
      * let cursor: string | undefined;
+     * // Note: an empty-string cursor is valid and does not signal the end of results.
      * do {
      *     const { tools, nextCursor } = await client.listTools({ cursor });
      *     allTools.push(...tools);
      *     cursor = nextCursor;
-     * } while (cursor);
+     * } while (cursor !== undefined);
      * console.log(
      *     'Available tools:',
      *     allTools.map(t => t.name)
@@ -1053,7 +958,13 @@ export class Client extends Protocol<ClientContext> {
         this.setNotificationHandler(notificationMethod, handler);
     }
 
-    /** Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability. */
+    /**
+     * Notifies the server that the client's root list has changed. Requires the `roots.listChanged` capability.
+     *
+     * @deprecated Deprecated as of protocol version 2026-07-28 (SEP-2577).
+     * Remains functional during the deprecation window (at least twelve months).
+     * Migrate to passing paths via tool parameters, resource URIs, or configuration.
+     */
     async sendRootsListChanged() {
         return this.notification({ method: 'notifications/roots/list_changed' });
     }

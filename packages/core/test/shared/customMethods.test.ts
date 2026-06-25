@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v4';
 
-import { Protocol } from '../../src/shared/protocol.js';
-import type { BaseContext, JSONRPCRequest, Result, StandardSchemaV1 } from '../../src/exports/public/index.js';
-import { ProtocolError } from '../../src/types/index.js';
-import { SdkErrorCode } from '../../src/errors/sdkErrors.js';
-import { InMemoryTransport } from '../../src/util/inMemory.js';
+import { Protocol } from '../../src/shared/protocol';
+import type { BaseContext, JSONRPCRequest, Result, StandardSchemaV1 } from '../../src/exports/public/index';
+import { ProtocolError } from '../../src/types/index';
+import { SdkErrorCode } from '../../src/errors/sdkErrors';
+import { InMemoryTransport } from '../../src/util/inMemory';
 
 class TestProtocol extends Protocol<BaseContext> {
     protected buildContext(ctx: BaseContext): BaseContext {
@@ -14,8 +14,6 @@ class TestProtocol extends Protocol<BaseContext> {
     protected assertCapabilityForMethod(): void {}
     protected assertNotificationCapability(): void {}
     protected assertRequestHandlerCapability(): void {}
-    protected assertTaskCapability(): void {}
-    protected assertTaskHandlerCapability(): void {}
 }
 
 async function pair(): Promise<[TestProtocol, TestProtocol]> {

@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from './types.js';
+import type { JsonSchemaType, JsonSchemaValidator, jsonSchemaValidator } from './types';
 
 // Stub for hypothetical schema validation function
 declare function isValid(schema: JsonSchemaType, input: unknown): boolean;

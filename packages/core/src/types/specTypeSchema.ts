@@ -12,9 +12,9 @@ import {
     OAuthTokensSchema,
     OpenIdProviderDiscoveryMetadataSchema,
     OpenIdProviderMetadataSchema
-} from '../shared/auth.js';
-import type { StandardSchemaV1, StandardSchemaV1Sync } from '../util/standardSchema.js';
-import * as schemas from './schemas.js';
+} from '../shared/auth';
+import type { StandardSchemaV1, StandardSchemaV1Sync } from '../util/standardSchema';
+import * as schemas from './schemas';
 
 /**
  * Explicit allowlist of protocol Zod schemas that correspond to a public spec type in `types.ts`.
@@ -58,6 +58,8 @@ const SPEC_SCHEMA_KEYS = [
     'CreateMessageResultWithToolsSchema',
     'CreateTaskResultSchema',
     'CursorSchema',
+    'DiscoverRequestSchema',
+    'DiscoverResultSchema',
     'ElicitationCompleteNotificationSchema',
     'ElicitationCompleteNotificationParamsSchema',
     'ElicitRequestSchema',
@@ -133,6 +135,7 @@ const SPEC_SCHEMA_KEYS = [
     'RelatedTaskMetadataSchema',
     'RequestSchema',
     'RequestIdSchema',
+    'RequestMetaEnvelopeSchema',
     'RequestMetaSchema',
     'ResourceSchema',
     'ResourceContentsSchema',

@@ -7,7 +7,7 @@
  * @module
  */
 
-import { SdkError, SdkErrorCode } from './sdkErrors.js';
+import { SdkError, SdkErrorCode, SdkHttpError } from './sdkErrors';
 
 /**
  * Example: Throwing and catching SDK errors.
@@ -24,4 +24,16 @@ function SdkError_basicUsage() {
         }
     }
     //#endregion SdkError_basicUsage
+}
+
+/**
+ * Example: Checking for HTTP transport errors.
+ */
+function SdkHttpError_basicUsage(error: unknown) {
+    //#region SdkHttpError_basicUsage
+    if (error instanceof SdkHttpError) {
+        console.log(error.status); // number
+        console.log(error.statusText); // string | undefined
+    }
+    //#endregion SdkHttpError_basicUsage
 }

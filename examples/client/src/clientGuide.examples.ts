@@ -21,7 +21,9 @@ import {
     SdkError,
     SdkErrorCode,
     SSEClientTransport,
-    StreamableHTTPClientTransport
+    StreamableHTTPClientTransport,
+    TRACEPARENT_META_KEY,
+    TRACESTATE_META_KEY
 } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 //#endregion imports
@@ -490,7 +492,7 @@ async function errorHandling_timeout(client: Client) {
     //#region errorHandling_timeout
     try {
         const result = await client.callTool(
-            { name: 'slow-task', arguments: {} },
+            { name: 'slow-operation', arguments: {} },
             { timeout: 120_000 } // 2 minutes instead of the default 60 seconds
         );
         console.log(result.content);
@@ -522,6 +524,55 @@ async function middleware_basic() {
     return transport;
 }
 
+/** Example: Attach W3C Trace Context to a single request via `_meta`. */
+async function traceContext_perRequest(client: Client) {
+    //#region traceContext_perRequest
+    // Values would normally come from your tracer's active span context.
+    const result = await client.callTool({
+        name: 'calculate-bmi',
+        arguments: { weightKg: 70, heightM: 1.75 },
+        _meta: {
+            [TRACEPARENT_META_KEY]: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01',
+            [TRACESTATE_META_KEY]: 'vendor1=opaqueValue1'
+        }
+    });
+    console.log(result.content);
+    //#endregion traceContext_perRequest
+}
+
+/** Example: Client middleware that injects trace context into every outgoing request. */
+async function traceContext_middleware() {
+    //#region traceContext_middleware
+    const traceContextMiddleware = createMiddleware(async (next, input, init) => {
+        if (typeof init?.body !== 'string') {
+            return next(input, init);
+        }
+        const message = JSON.parse(init.body) as {
+            method?: string;
+            params?: { _meta?: Record<string, unknown>; [key: string]: unknown };
+        };
+        // Only requests and notifications carry params._meta; skip responses.
+        if (message.method === undefined) {
+            return next(input, init);
+        }
+        message.params = {
+            ...message.params,
+            _meta: {
+                ...message.params?._meta,
+                // Replace with values from your tracer's active span context.
+                [TRACEPARENT_META_KEY]: '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01'
+            }
+        };
+        return next(input, { ...init, body: JSON.stringify(message) });
+    });
+
+    const transport = new StreamableHTTPClientTransport(new URL('http://localhost:3000/mcp'), {
+        fetch: applyMiddlewares(traceContextMiddleware)(fetch)
+    });
+    //#endregion traceContext_middleware
+    return transport;
+}
+
 /** Example: Track resumption tokens for SSE reconnection. */
 async function resumptionToken_basic(client: Client) {
     //#region resumptionToken_basic
@@ -530,7 +581,7 @@ async function resumptionToken_basic(client: Client) {
     const result = await client.request(
         {
             method: 'tools/call',
-            params: { name: 'long-running-task', arguments: {} }
+            params: { name: 'long-running-operation', arguments: {} }
         },
         {
             resumptionToken: lastToken,
@@ -572,4 +623,6 @@ void errorHandling_toolErrors;
 void errorHandling_lifecycle;
 void errorHandling_timeout;
 void middleware_basic;
+void traceContext_perRequest;
+void traceContext_middleware;
 void resumptionToken_basic;

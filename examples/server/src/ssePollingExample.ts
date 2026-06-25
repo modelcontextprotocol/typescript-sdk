@@ -21,7 +21,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import cors from 'cors';
 import type { Request, Response } from 'express';
 
-import { InMemoryEventStore } from './inMemoryEventStore.js';
+import { InMemoryEventStore } from './inMemoryEventStore';
 
 // Create a fresh MCP server per client connection to avoid shared state between clients
 const getServer = () => {
@@ -37,14 +37,14 @@ const getServer = () => {
 
     // Register a long-running tool that demonstrates server-initiated disconnect
     server.registerTool(
-        'long-task',
+        'long-operation',
         {
-            description: 'A long-running task that sends progress updates. Server will disconnect mid-task to demonstrate polling.'
+            description: 'A long-running operation that sends progress updates. Server will disconnect mid-stream to demonstrate polling.'
         },
         async (ctx): Promise<CallToolResult> => {
             const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
-            console.log(`[${ctx.sessionId}] Starting long-task...`);
+            console.log(`[${ctx.sessionId}] Starting long-operation...`);
 
             // Send first progress notification
             await ctx.mcpReq.log('info', 'Progress: 25% - Starting work...');
@@ -70,13 +70,13 @@ const getServer = () => {
             await sleep(500);
             await ctx.mcpReq.log('info', 'Progress: 100% - Complete!');
 
-            console.log(`[${ctx.sessionId}] Task complete`);
+            console.log(`[${ctx.sessionId}] Operation complete`);
 
             return {
                 content: [
                     {
                         type: 'text',
-                        text: 'Long task completed successfully!'
+                        text: 'Long operation completed successfully!'
                     }
                 ]
             };
@@ -131,5 +131,5 @@ app.listen(PORT, () => {
     console.log('- retryInterval: 2000ms (client waits 2s before reconnecting)');
     console.log('- eventStore: InMemoryEventStore (events are persisted for replay)');
     console.log('');
-    console.log('Try calling the "long-task" tool to see server-initiated disconnect in action.');
+    console.log('Try calling the "long-operation" tool to see server-initiated disconnect in action.');
 });

@@ -14,7 +14,7 @@ export type {
     OAuthClientProvider,
     OAuthDiscoveryState,
     OAuthServerInfo
-} from './client/auth.js';
+} from './client/auth';
 export {
     auth,
     buildDiscoveryUrls,
@@ -36,7 +36,7 @@ export {
     startAuthorization,
     UnauthorizedError,
     validateClientMetadataUrl
-} from './client/auth.js';
+} from './client/auth';
 export type {
     AssertionCallback,
     ClientCredentialsProviderOptions,
@@ -44,23 +44,23 @@ export type {
     CrossAppAccessProviderOptions,
     PrivateKeyJwtProviderOptions,
     StaticPrivateKeyJwtProviderOptions
-} from './client/authExtensions.js';
+} from './client/authExtensions';
 export {
     ClientCredentialsProvider,
     createPrivateKeyJwtAuth,
     CrossAppAccessProvider,
     PrivateKeyJwtProvider,
     StaticPrivateKeyJwtProvider
-} from './client/authExtensions.js';
-export type { ClientOptions } from './client/client.js';
-export { Client } from './client/client.js';
-export { getSupportedElicitationModes } from './client/client.js';
-export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, RequestJwtAuthGrantOptions } from './client/crossAppAccess.js';
-export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess.js';
-export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware.js';
-export { applyMiddlewares, createMiddleware, withLogging, withOAuth } from './client/middleware.js';
-export type { SSEClientTransportOptions } from './client/sse.js';
-export { SSEClientTransport, SseError } from './client/sse.js';
+} from './client/authExtensions';
+export type { ClientOptions } from './client/client';
+export { Client } from './client/client';
+export { getSupportedElicitationModes } from './client/client';
+export type { DiscoverAndRequestJwtAuthGrantOptions, JwtAuthGrantResult, RequestJwtAuthGrantOptions } from './client/crossAppAccess';
+export { discoverAndRequestJwtAuthGrant, exchangeJwtAuthGrant, requestJwtAuthorizationGrant } from './client/crossAppAccess';
+export type { LoggingOptions, Middleware, RequestLogger } from './client/middleware';
+export { applyMiddlewares, createMiddleware, withLogging, withOAuth } from './client/middleware';
+export type { SSEClientTransportOptions } from './client/sse';
+export { SSEClientTransport, SseError } from './client/sse';
 // StdioClientTransport, getDefaultEnvironment, DEFAULT_INHERITED_ENV_VARS, StdioServerParameters are exported from
 // the './stdio' subpath to keep the root entry free of process-spawning runtime dependencies (child_process, cross-spawn).
 export type {
@@ -68,14 +68,11 @@ export type {
     StartSSEOptions,
     StreamableHTTPClientTransportOptions,
     StreamableHTTPReconnectionOptions
-} from './client/streamableHttp.js';
-export { StreamableHTTPClientTransport } from './client/streamableHttp.js';
-
-// experimental exports
-export { ExperimentalClientTasks } from './experimental/tasks/client.js';
+} from './client/streamableHttp';
+export { StreamableHTTPClientTransport } from './client/streamableHttp';
 
 // runtime-aware wrapper (shadows core/public's fromJsonSchema with optional validator)
-export { fromJsonSchema } from './fromJsonSchema.js';
+export { fromJsonSchema } from './fromJsonSchema';
 
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core/public';

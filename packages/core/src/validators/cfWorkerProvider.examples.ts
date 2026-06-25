@@ -7,10 +7,10 @@
  * @module
  */
 
-import { CfWorkerJsonSchemaValidator } from './cfWorkerProvider.js';
+import { CfWorkerJsonSchemaValidator } from './cfWorkerProvider';
 
 /**
- * Example: Default configuration.
+ * Example: Default configuration (draft 2020-12, shortcircuit on).
  */
 function CfWorkerJsonSchemaValidator_default() {
     //#region CfWorkerJsonSchemaValidator_default

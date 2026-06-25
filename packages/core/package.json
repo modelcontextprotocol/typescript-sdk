@@ -33,6 +33,10 @@
             "types": "./src/exports/public/index.ts",
             "import": "./src/exports/public/index.ts"
         },
+        "./validators/ajv": {
+            "types": "./src/validators/ajvProvider.ts",
+            "import": "./src/validators/ajvProvider.ts"
+        },
         "./validators/cfWorker": {
             "types": "./src/validators/cfWorkerProvider.ts",
             "import": "./src/validators/cfWorkerProvider.ts"
@@ -44,22 +48,26 @@
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "pnpm run typecheck && pnpm run lint",
         "test": "vitest run",
-        "test:watch": "vitest",
-        "server": "tsx watch --clear-screen=false scripts/cli.ts server",
-        "client": "tsx scripts/cli.ts client"
+        "test:watch": "vitest"
     },
     "dependencies": {
-        "ajv": "catalog:runtimeShared",
-        "ajv-formats": "catalog:runtimeShared",
         "json-schema-typed": "catalog:runtimeShared",
         "zod": "catalog:runtimeShared"
     },
     "peerDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
+        "ajv": "catalog:runtimeShared",
+        "ajv-formats": "catalog:runtimeShared",
         "zod": "catalog:runtimeShared"
     },
     "peerDependenciesMeta": {
         "@cfworker/json-schema": {
+            "optional": true
+        },
+        "ajv": {
+            "optional": true
+        },
+        "ajv-formats": {
             "optional": true
         },
         "zod": {
@@ -71,6 +79,8 @@
         "@modelcontextprotocol/vitest-config": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
         "@cfworker/json-schema": "catalog:runtimeShared",
+        "ajv": "catalog:runtimeShared",
+        "ajv-formats": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
         "@types/content-type": "catalog:devTools",
         "@types/cors": "catalog:devTools",
@@ -83,7 +93,6 @@
         "eslint-config-prettier": "catalog:devTools",
         "eslint-plugin-n": "catalog:devTools",
         "prettier": "catalog:devTools",
-        "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"

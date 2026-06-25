@@ -36,7 +36,7 @@ export default defineConfig(
         settings: {
             'import/resolver': {
                 typescript: {
-                    // Let the TS resolver handle NodeNext-style imports like "./foo.js"
+                    // Resolve extensionless relative imports (moduleResolution: bundler) to their TS sources
                     extensions: ['.js', '.jsx', '.ts', '.tsx', '.d.ts'],
                     // Use the tsconfig in each package root (when running ESLint from that package)
                     project: 'tsconfig.json'
@@ -96,7 +96,7 @@ export default defineConfig(
     },
     {
         // Ignore generated protocol types everywhere
-        ignores: ['**/spec.types.ts']
+        ignores: ['**/spec.types.2025-11-25.ts', '**/spec.types.2026-07-28.ts']
     },
     {
         files: ['packages/client/**/*.ts', 'packages/server/**/*.ts'],

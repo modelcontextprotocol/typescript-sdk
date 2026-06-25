@@ -3,7 +3,7 @@ import { Readable, Writable } from 'node:stream';
 import type { JSONRPCMessage } from '@modelcontextprotocol/core';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/core';
 
-import { StdioServerTransport } from '../../src/server/stdio.js';
+import { StdioServerTransport } from '../../src/server/stdio';
 
 let input: Readable;
 let outputBuffer: ReadBuffer;
@@ -178,4 +178,52 @@ test('should fire onerror before onclose on stdout error', async () => {
     output.emit('error', new Error('EPIPE'));
 
     expect(events).toEqual(['error', 'close']);
+});
+
+test('should respect custom maxBufferSize option', async () => {
+    const server = new StdioServerTransport(input, output, { maxBufferSize: 100 });
+
+    let receivedError: Error | undefined;
+    server.onerror = err => {
+        receivedError = err;
+    };
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+
+    // Push 101 bytes without a newline — exceeds the 100-byte limit
+    input.push(Buffer.alloc(101, 0x41));
+
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(receivedError?.message).toMatch(/ReadBuffer exceeded maximum size/);
+    expect(closeCount).toBe(1);
+});
+
+test('should fire onerror and close when ReadBuffer overflows', async () => {
+    const server = new StdioServerTransport(input, output);
+
+    let receivedError: Error | undefined;
+    server.onerror = err => {
+        receivedError = err;
+    };
+    let closeCount = 0;
+    server.onclose = () => {
+        closeCount++;
+    };
+
+    await server.start();
+
+    // Push data exceeding the default 10 MB limit without a newline
+    const chunk = Buffer.alloc(11 * 1024 * 1024, 0x41);
+    input.push(chunk);
+
+    // Allow the close() promise to settle
+    await new Promise(resolve => setTimeout(resolve, 10));
+
+    expect(receivedError?.message).toMatch(/ReadBuffer exceeded maximum size/);
+    expect(closeCount).toBe(1);
 });

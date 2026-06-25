@@ -1,22 +1,33 @@
 import {
+    CallToolRequestSchema,
     CallToolResultSchema,
+    CLIENT_CAPABILITIES_META_KEY,
+    CLIENT_INFO_META_KEY,
     ClientCapabilitiesSchema,
+    ClientRequestSchema,
     CompleteRequestSchema,
     ContentBlockSchema,
     CreateMessageRequestSchema,
     CreateMessageResultSchema,
     CreateMessageResultWithToolsSchema,
+    DiscoverRequestSchema,
+    DiscoverResultSchema,
     ElicitRequestFormParamsSchema,
+    EmptyResultSchema,
     LATEST_PROTOCOL_VERSION,
+    LOG_LEVEL_META_KEY,
     PromptMessageSchema,
+    PROTOCOL_VERSION_META_KEY,
+    RequestMetaEnvelopeSchema,
     ResourceLinkSchema,
+    ResultSchema,
     SamplingMessageSchema,
     SUPPORTED_PROTOCOL_VERSIONS,
     ToolChoiceSchema,
     ToolResultContentSchema,
     ToolSchema,
     ToolUseContentSchema
-} from '../src/types/index.js';
+} from '../src/types/index';
 
 describe('Types', () => {
     test('should have correct latest protocol version', () => {
@@ -1009,6 +1020,155 @@ describe('Types', () => {
                 expect(result.data.requestedSchema.$schema).toBe('https://json-schema.org/draft/2020-12/schema');
                 expect(result.data.requestedSchema.additionalProperties).toBe(false);
             }
+        });
+    });
+});
+
+describe('2025-11-25 task wire interop (task feature removed; wire types remain)', () => {
+    test('tasks/get parses through the client request union', () => {
+        const result = ClientRequestSchema.safeParse({ method: 'tasks/get', params: { taskId: 'task-123' } });
+        expect(result.success).toBe(true);
+    });
+
+    test('task-augmented tools/call params parse and retain the task field', () => {
+        const result = CallToolRequestSchema.safeParse({
+            method: 'tools/call',
+            params: { name: 'echo', arguments: {}, task: { ttl: 60000 } }
+        });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.params.task).toEqual({ ttl: 60000 });
+        }
+    });
+
+    test('tool execution.taskSupport is accepted', () => {
+        const result = ToolSchema.safeParse({
+            name: 'echo',
+            inputSchema: { type: 'object' },
+            execution: { taskSupport: 'optional' }
+        });
+        expect(result.success).toBe(true);
+    });
+
+    test('capabilities.tasks is retained, not stripped', () => {
+        const result = ClientCapabilitiesSchema.safeParse({ tasks: { list: {}, cancel: {} } });
+        expect(result.success).toBe(true);
+        if (result.success) {
+            expect(result.data.tasks).toEqual({ list: {}, cancel: {} });
+        }
+    });
+});
+
+describe('2026-07-28 wire shapes', () => {
+    describe('RequestMetaEnvelope', () => {
+        const envelope = {
+            [PROTOCOL_VERSION_META_KEY]: '2026-07-28',
+            [CLIENT_INFO_META_KEY]: { name: 'test-client', version: '1.0.0' },
+            [CLIENT_CAPABILITIES_META_KEY]: {}
+        };
+
+        test('accepts a complete envelope', () => {
+            const result = RequestMetaEnvelopeSchema.safeParse(envelope);
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data[PROTOCOL_VERSION_META_KEY]).toBe('2026-07-28');
+                expect(result.data[CLIENT_INFO_META_KEY]).toEqual({ name: 'test-client', version: '1.0.0' });
+                expect(result.data[CLIENT_CAPABILITIES_META_KEY]).toEqual({});
+            }
+        });
+
+        test('accepts the optional log level, progress token, and unknown keys', () => {
+            const result = RequestMetaEnvelopeSchema.safeParse({
+                ...envelope,
+                [LOG_LEVEL_META_KEY]: 'warning',
+                progressToken: 'token-1',
+                'com.example/custom': { anything: true }
+            });
+            expect(result.success).toBe(true);
+            if (result.success) {
+                expect(result.data[LOG_LEVEL_META_KEY]).toBe('warning');
+                expect(result.data.progressToken).toBe('token-1');
+                expect(result.data['com.example/custom']).toEqual({ anything: true });
+            }
+        });
+
+        test.each([PROTOCOL_VERSION_META_KEY, CLIENT_INFO_META_KEY, CLIENT_CAPABILITIES_META_KEY])(
+            'rejects an envelope missing %s',
+            key => {
+                const incomplete: Record<string, unknown> = { ...envelope };
+                delete incomplete[key];
+                expect(RequestMetaEnvelopeSchema.safeParse(incomplete).success).toBe(false);
+            }
+        );
+
+        test('rejects an invalid log level', () => {
+            const result = RequestMetaEnvelopeSchema.safeParse({ ...envelope, [LOG_LEVEL_META_KEY]: 'loud' });
+            expect(result.success).toBe(false);
+        });
+    });
+
+    describe('DiscoverRequest', () => {
+        test('parses a discover request with and without params', () => {
+            expect(DiscoverRequestSchema.safeParse({ method: 'server/discover' }).success).toBe(true);
+            expect(
+                DiscoverRequestSchema.safeParse({
+                    method: 'server/discover',
+                    params: { _meta: { [PROTOCOL_VERSION_META_KEY]: '2026-07-28' } }
+                }).success
+            ).toBe(true);
+        });
+
+        test('rejects other methods', () => {
+            expect(DiscoverRequestSchema.safeParse({ method: 'initialize' }).success).toBe(false);
+        });
+    });
+
+    describe('DiscoverResult', () => {
+        const result = {
+            supportedVersions: ['2026-07-28'],
+            capabilities: { tools: { listChanged: true } },
+            serverInfo: { name: 'test-server', version: '1.0.0' }
+        };
+
+        test('parses a discover result', () => {
+            const parsed = DiscoverResultSchema.safeParse({ ...result, resultType: 'complete', instructions: 'Use the echo tool.' });
+            expect(parsed.success).toBe(true);
+            if (parsed.success) {
+                expect(parsed.data.supportedVersions).toEqual(['2026-07-28']);
+                expect(parsed.data.capabilities).toEqual({ tools: { listChanged: true } });
+                expect(parsed.data.serverInfo).toEqual({ name: 'test-server', version: '1.0.0' });
+                expect(parsed.data.instructions).toBe('Use the echo tool.');
+            }
+        });
+
+        test.each(['supportedVersions', 'capabilities', 'serverInfo'])('rejects a discover result missing %s', key => {
+            const incomplete: Record<string, unknown> = { ...result };
+            delete incomplete[key];
+            expect(DiscoverResultSchema.safeParse(incomplete).success).toBe(false);
+        });
+    });
+
+    describe('Result resultType passthrough', () => {
+        test('accepts results with and without resultType (absent means "complete")', () => {
+            const withIt = ResultSchema.safeParse({ resultType: 'complete' });
+            expect(withIt.success).toBe(true);
+            if (withIt.success) {
+                expect(withIt.data.resultType).toBe('complete');
+            }
+            const withoutIt = ResultSchema.safeParse({});
+            expect(withoutIt.success).toBe(true);
+            if (withoutIt.success) {
+                expect(withoutIt.data.resultType).toBeUndefined();
+            }
+        });
+
+        test('rejects a non-string resultType', () => {
+            expect(ResultSchema.safeParse({ resultType: 42 }).success).toBe(false);
+        });
+
+        test('EmptyResult accepts resultType but still rejects unknown keys', () => {
+            expect(EmptyResultSchema.safeParse({ resultType: 'complete' }).success).toBe(true);
+            expect(EmptyResultSchema.safeParse({ unexpected: true }).success).toBe(false);
         });
     });
 });

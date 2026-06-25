@@ -28,6 +28,10 @@
             "types": "./dist/stdio.d.mts",
             "import": "./dist/stdio.mjs"
         },
+        "./validators/ajv": {
+            "types": "./dist/validators/ajv.d.mts",
+            "import": "./dist/validators/ajv.mjs"
+        },
         "./validators/cf-worker": {
             "types": "./dist/validators/cfWorker.d.mts",
             "import": "./dist/validators/cfWorker.mjs"
@@ -54,6 +58,9 @@
     "types": "./dist/index.d.mts",
     "typesVersions": {
         "*": {
+            "validators/ajv": [
+                "dist/validators/ajv.d.mts"
+            ],
             "validators/cf-worker": [
                 "dist/validators/cfWorker.d.mts"
             ],
@@ -77,15 +84,15 @@
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "pnpm run typecheck && pnpm run lint",
         "test": "vitest run",
-        "test:watch": "vitest",
-        "server": "tsx watch --clear-screen=false scripts/cli.ts server",
-        "client": "tsx scripts/cli.ts client"
+        "test:watch": "vitest"
     },
     "dependencies": {
         "zod": "catalog:runtimeShared"
     },
     "devDependencies": {
         "@cfworker/json-schema": "catalog:runtimeShared",
+        "ajv": "catalog:runtimeShared",
+        "ajv-formats": "catalog:runtimeShared",
         "@eslint/js": "catalog:devTools",
         "@modelcontextprotocol/core": "workspace:^",
         "@modelcontextprotocol/eslint-config": "workspace:^",
@@ -100,7 +107,6 @@
         "prettier": "catalog:devTools",
         "supertest": "catalog:devTools",
         "tsdown": "catalog:devTools",
-        "tsx": "catalog:devTools",
         "typescript": "catalog:devTools",
         "typescript-eslint": "catalog:devTools",
         "vitest": "catalog:devTools"

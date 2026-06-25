@@ -1,5 +1,5 @@
-import { ProtocolErrorCode } from './enums.js';
-import type { ElicitRequestURLParams } from './types.js';
+import { ProtocolErrorCode } from './enums';
+import type { ElicitRequestURLParams, UnsupportedProtocolVersionErrorData } from './types';
 
 /**
  * Protocol errors are JSON-RPC errors that cross the wire as error responses.
@@ -27,6 +27,13 @@ export class ProtocolError extends Error {
             }
         }
 
+        if (code === ProtocolErrorCode.UnsupportedProtocolVersion && data) {
+            const errorData = data as Partial<UnsupportedProtocolVersionErrorData>;
+            if (Array.isArray(errorData.supported) && typeof errorData.requested === 'string') {
+                return new UnsupportedProtocolVersionError({ supported: errorData.supported, requested: errorData.requested }, message);
+            }
+        }
+
         // Default to generic ProtocolError
         return new ProtocolError(code, message, data);
     }
@@ -45,5 +52,34 @@ export class UrlElicitationRequiredError extends ProtocolError {
 
     get elicitations(): ElicitRequestURLParams[] {
         return (this.data as { elicitations: ElicitRequestURLParams[] })?.elicitations ?? [];
+    }
+}
+
+/**
+ * Error type for the `-32004` UnsupportedProtocolVersion protocol error (protocol
+ * revision 2026-07-28): the request's protocol version is unknown to the server or
+ * unsupported by it.
+ *
+ * The error data lists the protocol versions the receiver supports (`supported`),
+ * so the sender can choose a mutually supported version and retry, and echoes the
+ * version that was requested (`requested`).
+ */
+export class UnsupportedProtocolVersionError extends ProtocolError {
+    constructor(data: UnsupportedProtocolVersionErrorData, message: string = `Unsupported protocol version: ${data.requested}`) {
+        super(ProtocolErrorCode.UnsupportedProtocolVersion, message, data);
+    }
+
+    /**
+     * Protocol versions the receiver supports.
+     */
+    get supported(): string[] {
+        return (this.data as UnsupportedProtocolVersionErrorData).supported;
+    }
+
+    /**
+     * The protocol version that was requested.
+     */
+    get requested(): string {
+        return (this.data as UnsupportedProtocolVersionErrorData).requested;
     }
 }
