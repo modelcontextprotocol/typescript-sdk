@@ -60,6 +60,20 @@ describe('resolveExternalSchemaRefs', () => {
         expect(() => assertSchemaSafeToCompile(resolved)).not.toThrow();
     });
 
+    it('matches allowlist hosts case-insensitively', async () => {
+        const schema: JsonSchemaType = { $ref: 'https://Schemas.Example.com/forecast.json' };
+        const fetchImpl = fetchStub({
+            'https://schemas.example.com/forecast.json': { type: 'array', items: { type: 'number' } }
+        });
+
+        const resolved = await resolveExternalSchemaRefs(schema, { allowlist: ['Schemas.Example.com'], fetch: fetchImpl });
+
+        expect(resolved).toEqual({
+            $ref: '#/$defs/__externalRef_0',
+            $defs: { __externalRef_0: { type: 'array', items: { type: 'number' } } }
+        });
+    });
+
     it.each([
         ['AJV', () => new AjvJsonSchemaValidator()],
         ['CfWorker', () => new CfWorkerJsonSchemaValidator()]

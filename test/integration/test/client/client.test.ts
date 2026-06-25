@@ -2007,7 +2007,7 @@ describe('outputSchema validation', () => {
      * Test: A single tool with an uncompilable outputSchema does not break listTools()
      * or the use of other tools (SEP-2106 safety-guard isolation).
      */
-    test('isolates a tool whose outputSchema fails to compile from the rest of the server', async () => {
+    test('preserves outputSchema validation metadata across paginated tool listings', async () => {
         const server = new Server({ name: 'test-server', version: '1.0.0' }, { capabilities: { tools: {} } });
 
         server.setRequestHandler('initialize', async request => ({
@@ -2016,27 +2016,46 @@ describe('outputSchema validation', () => {
             serverInfo: { name: 'test-server', version: '1.0.0' }
         }));
 
-        server.setRequestHandler('tools/list', async () => ({
-            tools: [
-                {
-                    name: 'bad-tool',
-                    description: 'advertises a non-local $ref the SEP-2106 guard rejects',
-                    inputSchema: { type: 'object', properties: {} },
-                    // Non-same-document $ref: assertSchemaSafeToCompile throws when this is compiled.
-                    outputSchema: { $ref: 'https://evil.example/schema.json' }
-                },
-                {
-                    name: 'good-tool',
-                    description: 'a normal tool that must remain usable',
-                    inputSchema: { type: 'object', properties: {} },
-                    outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] }
-                }
-            ]
-        }));
+        server.setRequestHandler('tools/list', async request => {
+            if (request.params?.cursor === 'page-2') {
+                return {
+                    tools: [
+                        {
+                            name: 'last-page-tool',
+                            description: 'a tool on the final page',
+                            inputSchema: { type: 'object', properties: {} },
+                            outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] }
+                        }
+                    ]
+                };
+            }
+
+            return {
+                tools: [
+                    {
+                        name: 'bad-tool',
+                        description: 'advertises a non-local $ref the SEP-2106 guard rejects',
+                        inputSchema: { type: 'object', properties: {} },
+                        // Non-same-document $ref: assertSchemaSafeToCompile throws when this is compiled.
+                        outputSchema: { $ref: 'https://evil.example/schema.json' }
+                    },
+                    {
+                        name: 'validated-tool',
+                        description: 'a normal earlier-page tool that must keep client-side validation',
+                        inputSchema: { type: 'object', properties: {} },
+                        outputSchema: { type: 'object', properties: { ok: { type: 'boolean' } }, required: ['ok'] }
+                    }
+                ],
+                nextCursor: 'page-2'
+            };
+        });
 
         server.setRequestHandler('tools/call', async request => {
-            if (request.params.name === 'good-tool') {
+            if (request.params.name === 'last-page-tool') {
                 return { content: [], structuredContent: { ok: true } };
+            }
+            if (request.params.name === 'validated-tool') {
+                return { content: [], structuredContent: { ok: 'not-a-boolean' } };
             }
             return { content: [], structuredContent: { irrelevant: true } };
         });
@@ -2046,14 +2065,19 @@ describe('outputSchema validation', () => {
         await Promise.all([client.connect(clientTransport), server.connect(serverTransport)]);
 
         // listTools() must NOT reject just because one tool's schema is uncompilable.
-        const listed = await client.listTools();
-        expect(listed.tools.map(t => t.name).toSorted()).toEqual(['bad-tool', 'good-tool']);
+        const firstPage = await client.listTools();
+        expect(firstPage.tools.map(t => t.name).toSorted()).toEqual(['bad-tool', 'validated-tool']);
+        const secondPage = await client.listTools({ cursor: firstPage.nextCursor });
+        expect(secondPage.tools.map(t => t.name)).toEqual(['last-page-tool']);
 
-        // The good tool is fully usable.
-        const good = await client.callTool({ name: 'good-tool' });
-        expect(good.structuredContent).toEqual({ ok: true });
+        // The final page's tool is fully usable.
+        const lastPage = await client.callTool({ name: 'last-page-tool' });
+        expect(lastPage.structuredContent).toEqual({ ok: true });
 
-        // The bad tool surfaces a scoped, descriptive error only when it is called.
+        // A valid outputSchema from an earlier page still validates structuredContent after pagination.
+        await expect(client.callTool({ name: 'validated-tool' })).rejects.toThrow(/Structured content does not match/);
+
+        // An earlier-page schema compile error also survives pagination and is scoped to that tool.
         await expect(client.callTool({ name: 'bad-tool' })).rejects.toThrow(/output schema that could not be compiled/i);
     });
 

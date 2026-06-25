@@ -142,7 +142,8 @@ function assertHostAllowed(url: URL, options: ResolvedOptions): void {
     const host = url.hostname.toLowerCase();
 
     if (options.allowlist) {
-        if (!options.allowlist.includes(host)) {
+        const allowlist = new Set(options.allowlist.map(allowedHost => allowedHost.toLowerCase()));
+        if (!allowlist.has(host)) {
             throw new Error(`Refusing to dereference "${url.href}": host "${host}" is not in the allowlist.`);
         }
         return;
