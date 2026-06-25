@@ -241,6 +241,16 @@ describe('server JSON Schema validator overrides', () => {
 
         await expect(
             server.elicitInput({
+                message: 'What is your email?',
+                requestedSchema: z.object({
+                    email: z.email({ pattern: /@corp\.com$/ })
+                })
+            })
+        ).rejects.toThrow(/properties\.email\.pattern/);
+        expect(sawElicitationRequest).toBe(false);
+
+        await expect(
+            server.elicitInput({
                 message: 'How many?',
                 requestedSchema: z.object({
                     count: z.number().multipleOf(2)
