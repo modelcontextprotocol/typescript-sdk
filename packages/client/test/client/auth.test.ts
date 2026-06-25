@@ -5261,6 +5261,56 @@ describe('SEP-2352: authorization server binding', () => {
         expect(redirectUrl.searchParams.get('client_id')).toBe('new-client-id');
     });
 
+    it('does not invalidate credentials when challenged PRM discovery transiently falls back', async () => {
+        const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
+            client_id: 'old-client-id',
+            client_secret: 'old-client-secret'
+        });
+        const resourceMetadataUrl = new URL('https://resource.example.com/.well-known/oauth-protected-resource');
+
+        provider.discoveryState = vi.fn().mockResolvedValue({
+            authorizationServerUrl: oldAuthServerUrl,
+            resourceMetadata: sameResourceMetadata,
+            authorizationServerMetadata: sameAuthMetadata
+        });
+
+        mockFetch.mockImplementation(url => {
+            const urlString = url.toString();
+
+            if (urlString === resourceMetadataUrl.toString()) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 503,
+                    statusText: 'Service Unavailable',
+                    text: async () => 'temporarily unavailable'
+                });
+            }
+
+            if (urlString.includes('/.well-known/oauth-authorization-server') || urlString.includes('/.well-known/openid-configuration')) {
+                return Promise.resolve({
+                    ok: false,
+                    status: 404,
+                    statusText: 'Not Found',
+                    text: async () => 'not found'
+                });
+            }
+
+            return Promise.reject(new Error(`Unexpected fetch: ${urlString}`));
+        });
+
+        const result = await auth(provider, {
+            serverUrl: 'https://resource.example.com',
+            resourceMetadataUrl
+        });
+
+        expect(result).toBe('REDIRECT');
+        expect(invalidateCredentials).not.toHaveBeenCalled();
+
+        const redirectUrl: URL = redirectToAuthorization.mock.calls[0]![0];
+        expect(redirectUrl.origin).toBe('https://resource.example.com');
+        expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
+    });
+
     it('does not invalidate credentials when the authorization server is unchanged', async () => {
         const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
             client_id: 'old-client-id',
@@ -5285,7 +5335,7 @@ describe('SEP-2352: authorization server binding', () => {
         expect(redirectUrl.searchParams.get('client_id')).toBe('old-client-id');
     });
 
-    it('does not invalidate CIMD (HTTPS URL) client IDs when the authorization server changes', async () => {
+    it('invalidates tokens but does not re-register CIMD (HTTPS URL) client IDs when the authorization server changes', async () => {
         const cimdClientId = 'https://client.example.com/oauth/client-metadata.json';
         const { provider, invalidateCredentials, redirectToAuthorization } = createBoundProvider({
             client_id: cimdClientId
@@ -5300,8 +5350,9 @@ describe('SEP-2352: authorization server binding', () => {
 
         expect(result).toBe('REDIRECT');
 
-        // CIMD client IDs are portable across authorization servers — no invalidation
-        expect(invalidateCredentials).not.toHaveBeenCalled();
+        // CIMD client IDs are portable across authorization servers, but tokens are still AS-bound.
+        expect(invalidateCredentials).toHaveBeenCalledWith('tokens');
+        expect(invalidateCredentials).not.toHaveBeenCalledWith('client');
 
         // No re-registration; the portable client ID is reused with the new server
         const registrationCalls = mockFetch.mock.calls.filter(call => call[0].toString().includes('/register'));
