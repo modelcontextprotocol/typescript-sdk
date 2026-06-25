@@ -117,4 +117,29 @@ describe('schema-param-removal transform', () => {
         const result = applyTransform(input);
         expect(result).not.toMatch(/import.*CallToolResultSchema/);
     });
+
+    it('removes a literal undefined schema slot from callTool when an options argument follows', () => {
+        const input = [
+            `const result = await client.callTool({ name: 'add', arguments: { a: 1 } }, undefined, { onprogress: cb });`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("client.callTool({ name: 'add', arguments: { a: 1 } }, { onprogress: cb })");
+        expect(result).not.toContain('undefined');
+    });
+
+    it('removes a literal undefined schema slot from request when an options argument follows', () => {
+        const input = [`const result = await client.request({ method: 'tools/call', params: {} }, undefined, { timeout: 5000 });`, ''].join(
+            '\n'
+        );
+        const result = applyTransform(input);
+        expect(result).toContain("client.request({ method: 'tools/call', params: {} }, { timeout: 5000 })");
+        expect(result).not.toContain('undefined');
+    });
+
+    it('leaves a 2-arg callTool(params, undefined) unchanged (already valid as options in v2)', () => {
+        const input = [`await client.callTool({ name: 'add' }, undefined);`, ''].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('undefined');
+    });
 });

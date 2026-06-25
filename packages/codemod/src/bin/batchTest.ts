@@ -111,6 +111,22 @@ function detectPm(repoRoot: string): string {
     return 'npm';
 }
 
+function installCommand(pm: string): string {
+    if (pm !== 'pnpm') return `${pm} install --ignore-scripts`;
+    // pnpm walks up to find a workspace; clones live inside this SDK's pnpm workspace, so a plain
+    // `pnpm install` targets the OUTER workspace and never populates the clone's node_modules — every
+    // downstream check (tsc base config, tsup, vitest) then fails identically at baseline and post,
+    // masking real codemod signal.
+    //   --ignore-workspace:    treat the clone as a standalone project (not part of the SDK workspace).
+    //   --no-frozen-lockfile:  the codemod rewrites package.json to swap v1 → v2 deps, so the lockfile
+    //                          must be allowed to change. CI=true (set in shell()) otherwise defaults
+    //                          pnpm to a frozen lockfile and the post-codemod reinstall silently skips
+    //                          the new v2 deps, leaving the clone on v1.
+    // npm/yarn/bun key off a `workspaces` field in package.json (absent at this repo root), so they
+    // need no equivalent flags.
+    return 'pnpm install --ignore-scripts --ignore-workspace --no-frozen-lockfile';
+}
+
 function detectCheckCmd(pkgDir: string, checkType: string): string | null {
     const pkgJsonPath = path.join(pkgDir, 'package.json');
     if (!existsSync(pkgJsonPath)) return null;
@@ -133,7 +149,11 @@ function shell(cmd: string, cwd?: string): { exitCode: number; stdout: string; s
             cwd,
             stdio: ['pipe', 'pipe', 'pipe'],
             maxBuffer: 10 * 1024 * 1024,
-            timeout: 5 * 60 * 1000
+            timeout: 5 * 60 * 1000,
+            // Commands are spawned without a TTY (piped stdio). Set CI so package managers run fully
+            // non-interactively — without it, pnpm aborts rebuilding a clone's modules dir with
+            // ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY when --ignore-workspace changes its link mode.
+            env: { ...process.env, CI: 'true' }
         }).toString();
         return { exitCode: 0, stdout, stderr: '' };
     } catch (error: unknown) {
@@ -319,7 +339,7 @@ function main(): void {
 
         // Step 3: Install
         console.log('  Installing dependencies...');
-        const installResult = shell(`${pm} install --ignore-scripts`, clonePath);
+        const installResult = shell(installCommand(pm), clonePath);
         if (installResult.exitCode !== 0) {
             console.log(`  ERROR: install failed, skipping\n  ${installResult.stderr.split('\n')[0]}`);
             continue;
@@ -367,7 +387,7 @@ function main(): void {
                 console.log(`    Rewrote ${rewrites} deps to local tarballs`);
             }
             console.log('    Re-installing dependencies...');
-            shell(`${pm} install --ignore-scripts`, clonePath);
+            shell(installCommand(pm), clonePath);
 
             // Step 7: Post-codemod checks
             console.log('    Running post-codemod checks...');

@@ -4,6 +4,7 @@ import { SyntaxKind } from 'ts-morph';
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types.js';
 import { renameAllReferences } from '../../../utils/astUtils.js';
 import { actionRequired, info, v2Gap, warning } from '../../../utils/diagnostics.js';
+import type { NamedImportSpec } from '../../../utils/importUtils.js';
 import { addOrMergeImport, getSdkExports, getSdkImports, isTypeOnlyImport } from '../../../utils/importUtils.js';
 import { resolveTypesPackage } from '../../../utils/projectAnalyzer.js';
 import type { ImportMapping } from '../mappings/importMap.js';
@@ -75,17 +76,25 @@ export const importPathsTransform: Transform = {
 
         const insertIndex = sourceFile.getImportDeclarations().indexOf(sdkImports[0]!);
 
+        // A leading file-header / JSDoc comment attaches to the first SDK import as leading trivia. When
+        // that import is removed and re-emitted (the per-symbol split/merge path calls imp.remove()),
+        // ts-morph drops the comment with it. Capture it now and restore it after emitting if it was lost.
+        const leadingCommentText = sdkImports[0]!
+            .getLeadingCommentRanges()
+            .map(r => r.getText())
+            .join('\n');
+
         interface PendingImport {
-            names: string[];
+            specs: NamedImportSpec[];
             isTypeOnly: boolean;
         }
         const pendingImports = new Map<string, PendingImport[]>();
 
-        function addPending(target: string, names: string[], isTypeOnly: boolean): void {
+        function addPending(target: string, specs: NamedImportSpec[], isTypeOnly: boolean): void {
             if (!pendingImports.has(target)) {
                 pendingImports.set(target, []);
             }
-            pendingImports.get(target)!.push({ names, isTypeOnly });
+            pendingImports.get(target)!.push({ specs, isTypeOnly });
         }
 
         for (const imp of sdkImports) {
@@ -141,26 +150,11 @@ export const importPathsTransform: Transform = {
                 }
             }
 
-            const hasAlias = namedImports.some(n => n.getAliasNode() !== undefined);
-            if (defaultImport || namespaceImport || hasAlias) {
-                let effectiveTarget = targetPackage;
-                if ((mapping.symbolTargetOverrides || mapping.schemaSymbolTarget) && !namespaceImport && !defaultImport) {
-                    const overrides = namedImports.map(n => symbolTargetOverride(n.getName(), mapping));
-                    const uniqueOverrides = new Set(overrides.filter((t): t is string => t !== undefined));
-                    const allOverridden = namedImports.length > 0 && overrides.every(t => t !== undefined);
-                    if (allOverridden && uniqueOverrides.size === 1) {
-                        effectiveTarget = [...uniqueOverrides][0]!;
-                    } else if (uniqueOverrides.size > 0) {
-                        diagnostics.push(
-                            actionRequired(
-                                filePath,
-                                imp,
-                                `Aliased import from ${specifier} mixes symbols that belong to different v2 packages. ` +
-                                    `Split the import manually so each symbol targets the correct package.`
-                            )
-                        );
-                    }
-                }
+            // Default and namespace imports cannot be split per-symbol — the whole binding moves to one
+            // package. Named imports (aliased or not) fall through to the per-symbol splitter below, so a
+            // single aliased specifier no longer forces unrelated symbols into the wrong package.
+            if (defaultImport || namespaceImport) {
+                const effectiveTarget = targetPackage;
                 // A namespace import (`import * as ns from '…/types.js'`) cannot be split per-symbol, so
                 // any `ns.<Name>Schema` accesses would silently resolve against the wrong package. Flag them.
                 if (namespaceImport && mapping.schemaSymbolTarget) {
@@ -220,11 +214,12 @@ export const importPathsTransform: Transform = {
 
             for (const n of namedImports) {
                 const name = n.getName();
+                const alias = n.getAliasNode()?.getText();
                 const resolvedName = mapping.renamedSymbols?.[name] ?? name;
                 const specifierTypeOnly = typeOnly || n.isTypeOnly();
                 const symbolTarget = symbolTargetOverride(name, mapping) ?? targetPackage;
                 usedPackages.add(symbolTarget);
-                addPending(symbolTarget, [resolvedName], specifierTypeOnly);
+                addPending(symbolTarget, [alias ? { name: resolvedName, alias } : resolvedName], specifierTypeOnly);
             }
             imp.remove();
             changesCount++;
@@ -236,26 +231,32 @@ export const importPathsTransform: Transform = {
             }
         }
 
+        const specLocal = (spec: NamedImportSpec): string => (typeof spec === 'string' ? spec : (spec.alias ?? spec.name));
         for (const [target, groups] of pendingImports) {
-            const typeOnlyNames = new Set<string>();
-            const valueNames = new Set<string>();
+            // Dedupe by local binding name (alias when present), keeping the spec so aliases survive.
+            const typeOnlySpecs = new Map<string, NamedImportSpec>();
+            const valueSpecs = new Map<string, NamedImportSpec>();
             for (const group of groups) {
-                for (const name of group.names) {
-                    if (group.isTypeOnly) {
-                        typeOnlyNames.add(name);
-                    } else {
-                        valueNames.add(name);
-                    }
+                for (const spec of group.specs) {
+                    (group.isTypeOnly ? typeOnlySpecs : valueSpecs).set(specLocal(spec), spec);
                 }
             }
 
-            if (valueNames.size > 0) {
-                addOrMergeImport(sourceFile, target, [...valueNames], false, insertIndex);
+            if (valueSpecs.size > 0) {
+                addOrMergeImport(sourceFile, target, [...valueSpecs.values()], false, insertIndex);
             }
-            if (typeOnlyNames.size > 0) {
-                const typeInsertIndex = valueNames.size > 0 ? insertIndex + 1 : insertIndex;
-                addOrMergeImport(sourceFile, target, [...typeOnlyNames], true, typeInsertIndex);
+            if (typeOnlySpecs.size > 0) {
+                const typeInsertIndex = valueSpecs.size > 0 ? insertIndex + 1 : insertIndex;
+                addOrMergeImport(sourceFile, target, [...typeOnlySpecs.values()], true, typeInsertIndex);
             }
+        }
+
+        // Restore the captured leading comment if the rewrite dropped it (guard against duplication when
+        // the first import was rewritten in place and kept its comment).
+        if (leadingCommentText && !sourceFile.getFullText().includes(leadingCommentText)) {
+            const imports = sourceFile.getImportDeclarations();
+            const anchor = imports[Math.min(insertIndex, imports.length - 1)];
+            sourceFile.insertText(anchor ? anchor.getStart() : 0, `${leadingCommentText}\n`);
         }
 
         return { changesCount, diagnostics, usedPackages };

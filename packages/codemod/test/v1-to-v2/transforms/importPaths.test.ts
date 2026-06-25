@@ -131,6 +131,45 @@ describe('import-paths transform', () => {
         expect(result).not.toContain('@modelcontextprotocol/sdk/types');
     });
 
+    it('splits an aliased types.js import: schema constant to sdk-shared, aliased type to server', () => {
+        // The presence of an alias (`Tool as SDKTool`) must not force the whole import into one package;
+        // each symbol still routes to its correct v2 target, with the alias preserved.
+        const input = [
+            `import { CreateMessageRequestSchema, ClientCapabilities, Tool as SDKTool } from '@modelcontextprotocol/sdk/types.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toMatch(/import\s*\{[^}]*\bCreateMessageRequestSchema\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/sdk-shared["']/);
+        expect(result).toMatch(/import\s*\{[^}]*\bClientCapabilities\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/server["']/);
+        expect(result).toContain('Tool as SDKTool');
+        // the schema constant must NOT end up imported from @modelcontextprotocol/server
+        expect(result).not.toMatch(/import\s*\{[^}]*CreateMessageRequestSchema[^}]*\}\s*from\s*["']@modelcontextprotocol\/server["']/);
+        expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+    });
+
+    it('does not emit a "mixes symbols" diagnostic for an aliased mixed import (it splits instead)', () => {
+        const input = `import { CreateMessageRequestSchema, Tool as SDKTool } from '@modelcontextprotocol/sdk/types.js';\n`;
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
+        expect(result.diagnostics.some(d => d.message.includes('mixes symbols'))).toBe(false);
+    });
+
+    it('preserves a leading file-header comment when rewriting the first SDK import', () => {
+        const input = [
+            `/**`,
+            ` * Web-standard transport for MCP.`,
+            ` */`,
+            `import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';`,
+            `import { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('Web-standard transport for MCP.');
+        expect(result).toContain('@modelcontextprotocol/server');
+        expect(result).not.toContain('@modelcontextprotocol/sdk/');
+    });
+
     it('does not rewrite schema .parse() usages (migrates as an import-path swap)', () => {
         const input = [
             `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
@@ -562,7 +601,7 @@ describe('import-paths transform', () => {
         expect(result.diagnostics[0]!.message).toContain('RequestHandlerExtra');
     });
 
-    it('emits warning for aliased import mixing symbols from different v2 packages', () => {
+    it('splits an aliased import mixing symbols from different v2 packages (no longer bails)', () => {
         const input = [
             `import { StreamableHTTPServerTransport as T, EventStore } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,
             ''
@@ -570,8 +609,13 @@ describe('import-paths transform', () => {
         const project = new Project({ useInMemoryFileSystem: true });
         const sourceFile = project.createSourceFile('test.ts', input);
         const result = importPathsTransform.apply(sourceFile, { projectType: 'server' });
-        expect(result.diagnostics.length).toBeGreaterThan(0);
-        expect(result.diagnostics.some(d => d.message.includes('mixes symbols') && d.message.includes('Split'))).toBe(true);
+        const output = sourceFile.getFullText();
+        // transport (aliased + renamed) → /node; companion type → /server
+        expect(output).toContain('NodeStreamableHTTPServerTransport as T');
+        expect(output).toContain('@modelcontextprotocol/node');
+        expect(output).toMatch(/import\s*\{[^}]*\bEventStore\b[^}]*\}\s*from\s*["']@modelcontextprotocol\/server["']/);
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        expect(result.diagnostics.some(d => d.message.includes('mixes symbols'))).toBe(false);
     });
 
     it('emits warning for re-export mixing symbols from different v2 packages', () => {

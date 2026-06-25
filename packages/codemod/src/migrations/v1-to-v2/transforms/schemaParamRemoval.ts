@@ -27,6 +27,19 @@ export const schemaParamRemovalTransform: Transform = {
             const secondArg = args[1]!;
             if (!Node.isIdentifier(secondArg)) continue;
 
+            // `request(req, undefined, options)` / `callTool(params, undefined, options)`: v1 passed an
+            // explicit `undefined` result schema before the trailing options argument. v2 removed the
+            // schema parameter for spec methods, so the literal `undefined` leaves the call with one
+            // argument too many (TS2554). Drop it only when a third argument follows — a 2-arg
+            // `callTool(params, undefined)` already type-checks, since `undefined` is a valid options arg.
+            if (secondArg.getText() === 'undefined') {
+                if (args.length >= 3) {
+                    call.removeArgument(1);
+                    changesCount++;
+                }
+                continue;
+            }
+
             const schemaName = secondArg.getText();
             const originalName = resolveOriginalImportName(sourceFile, schemaName) ?? schemaName;
             if (!originalName.endsWith('Schema')) continue;
