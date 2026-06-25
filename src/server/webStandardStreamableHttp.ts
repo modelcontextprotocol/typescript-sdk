@@ -72,6 +72,33 @@ interface StreamMapping {
     cleanup: () => void;
 }
 
+function acceptsMediaType(acceptHeader: string | null, mediaType: string): boolean {
+    if (!acceptHeader) {
+        return false;
+    }
+
+    const [expectedType, expectedSubtype] = mediaType.toLowerCase().split('/');
+
+    return acceptHeader.split(',').some(entry => {
+        const [rawMediaRange, ...params] = entry
+            .trim()
+            .toLowerCase()
+            .split(';')
+            .map(part => part.trim());
+        if (!rawMediaRange) {
+            return false;
+        }
+
+        const qParam = params.find(param => param.startsWith('q='));
+        if (qParam !== undefined && Number(qParam.slice(2)) === 0) {
+            return false;
+        }
+
+        const [type, subtype] = rawMediaRange.split('/');
+        return (type === expectedType || type === '*') && (subtype === expectedSubtype || subtype === '*');
+    });
+}
+
 /**
  * Configuration options for WebStandardStreamableHTTPServerTransport
  */
@@ -598,14 +625,15 @@ export class WebStandardStreamableHTTPServerTransport implements Transport {
         try {
             // Validate the Accept header
             const acceptHeader = req.headers.get('accept');
-            // The client MUST include an Accept header, listing both application/json and text/event-stream as supported content types.
-            if (!acceptHeader?.includes('application/json') || !acceptHeader.includes('text/event-stream')) {
-                this.onerror?.(new Error('Not Acceptable: Client must accept both application/json and text/event-stream'));
-                return this.createJsonErrorResponse(
-                    406,
-                    -32000,
-                    'Not Acceptable: Client must accept both application/json and text/event-stream'
-                );
+            const acceptsJson = acceptsMediaType(acceptHeader, 'application/json');
+            const acceptsEventStream = acceptsMediaType(acceptHeader, 'text/event-stream');
+
+            if (!acceptsJson || (!this._enableJsonResponse && !acceptsEventStream)) {
+                const error = this._enableJsonResponse
+                    ? 'Not Acceptable: Client must accept application/json'
+                    : 'Not Acceptable: Client must accept both application/json and text/event-stream';
+                this.onerror?.(new Error(error));
+                return this.createJsonErrorResponse(406, -32000, error);
             }
 
             const ct = req.headers.get('content-type');
