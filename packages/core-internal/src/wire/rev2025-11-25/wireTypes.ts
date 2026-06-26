@@ -20,7 +20,9 @@
  *   neutral follows 2026 (`JSONValue`-capable open schema objects).
  * - capability blobs (`experimental`, `sampling`, `elicitation`, `tasks`,
  *   `logging`, `completions`): 2025 wire `object`; neutral `JSONObject`.
- * - `extensions` capability key: 2026-only; absent from the 2025 wire view.
+ * - `extensions` capability key: absent from the 2025 wire-type view only —
+ *   the 2025 codec is identity for capability objects, so the key passes
+ *   through at runtime as an open-set member.
  * - `CreateMessageRequestParams.metadata`: 2025 wire `object`; neutral
  *   `JSONObject`.
  * - SEP-2106: `CallToolResult.structuredContent` / the `tool_result`

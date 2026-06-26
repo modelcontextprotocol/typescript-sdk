@@ -102,6 +102,16 @@ export interface McpRequestContext {
     authInfo?: AuthInfo;
     /** The original HTTP request being served, when available (HTTP only — `serveStdio` never sets it). */
     requestInfo?: Request;
+    /**
+     * The client's declared capabilities, when known **before** the factory
+     * runs. Populated on the modern HTTP path from the validated per-request
+     * envelope; `undefined` on the legacy fallback and on `serveStdio` (where
+     * capabilities arrive on `initialize`, after the factory has produced the
+     * instance). Use this to branch on extension support at construction time
+     * — for example
+     * `ctx.clientCapabilities?.extensions?.['io.modelcontextprotocol/ui']`.
+     */
+    clientCapabilities?: ClientCapabilities;
 }
 
 /**
@@ -685,7 +695,8 @@ export function createMcpHandler(factory: McpServerFactory, options: CreateMcpHa
         const product = await factory({
             era: 'modern',
             ...(authInfo !== undefined && { authInfo }),
-            requestInfo: request
+            requestInfo: request,
+            clientCapabilities: declaredClientCapabilities
         });
         const server = product instanceof McpServer ? product.server : product;
 

@@ -333,6 +333,39 @@ schema when calling a spec method.
 The return type is inferred from the method name via `ResultTypeMap` (e.g.
 `client.request({ method: 'tools/call', ... })` returns `Promise<CallToolResult>`).
 
+#### Subclassing `Protocol` → subclass `Client` or `Server`
+
+The abstract `Protocol` base class is **no longer exported** (it stays internal to
+`@modelcontextprotocol/core-internal`). Code that did `class X extends Protocol<…>` —
+typically extension runtimes that reuse the SDK's JSON-RPC engine for a second,
+non-MCP-wire link — must move to subclassing one of the two concrete peers instead:
+
+- `class X extends Client` for the side that **initiates** the link (sends the first
+  request / handshake).
+- `class X extends Server` for the side that **answers** it.
+
+What this buys you over re-exporting `Protocol`: the v2 base has a different generic
+shape (`Protocol<ContextT extends BaseContext>` instead of
+`Protocol<SendReqT, SendNotifT, SendResT>`) and a new abstract `buildContext()` member,
+so a v1 subclass would not have compiled against it anyway. `Client` and `Server`
+already implement `buildContext()` and pin `ContextT` to `ClientContext` /
+`ServerContext`, so a subclass gets the handler context for free.
+
+Mechanical changes inside the subclass:
+
+| v1 | v2 |
+| --- | --- |
+| `extends Protocol<Req, Notif, Res>` | `extends Client` (or `extends Server`) |
+| `RequestHandlerExtra<Req, Notif>` | `ClientContext` / `ServerContext` |
+| `setRequestHandler(MyZodSchema, h)` | `setRequestHandler('my/method', { params: MyParams }, h)` — the [3-arg custom form](#setrequesthandler--setnotificationhandler-use-method-strings) |
+| `Parameters<Protocol<…>['setRequestHandler']>` derivations | name `ClientContext` / `ServerContext` directly |
+
+`Transport` (the interface) and `InMemoryTransport` remain public, so a custom transport
+that the subclass connects over is unchanged. If the link is genuinely not an MCP wire,
+keep every handler on the 3-arg custom form and skip `connect()`-time version
+negotiation by leaving `versionNegotiation` at its default — the subclass then behaves
+exactly like a v1 `Protocol` subclass with string-keyed handlers.
+
 ### Server registration API
 
 The deprecated variadic `.tool()`, `.prompt()`, `.resource()` are removed. Use

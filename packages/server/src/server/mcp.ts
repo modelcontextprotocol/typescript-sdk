@@ -9,6 +9,7 @@ import type {
     Icon,
     Implementation,
     InputRequiredResult,
+    JSONObject,
     ListPromptsResult,
     ListResourcesResult,
     ListToolsResult,
@@ -154,6 +155,33 @@ export class McpServer {
      */
     async close(): Promise<void> {
         await this.server.close();
+    }
+
+    /**
+     * Advertise a protocol extension (SEP-2133) under
+     * `ServerCapabilities.extensions`. The `identifier` is the vendor-prefixed
+     * extension key (for example `'io.modelcontextprotocol/ui'`); `settings`
+     * defaults to `{}`. Thin convenience over
+     * {@linkcode Server.registerCapabilities} — call it before connecting (or
+     * inside the `createMcpHandler` factory).
+     */
+    enableExtension(identifier: string, settings: JSONObject = {}): void {
+        this.server.registerCapabilities({ extensions: { [identifier]: settings } });
+    }
+
+    /**
+     * The settings object the connected client advertised for the given
+     * extension identifier under `ClientCapabilities.extensions`, or
+     * `undefined` when the client did not declare it. Generic SEP-2133 read
+     * helper; for factory-time branching prefer
+     * `McpRequestContext.clientCapabilities`.
+     */
+    getClientExtension(identifier: string): JSONObject | undefined {
+        // The deprecated accessor remains functional in both eras (modern
+        // backfills it per request from the validated envelope), so a single
+        // read path covers stdio, legacy HTTP, and per-request modern HTTP.
+        // eslint-disable-next-line @typescript-eslint/no-deprecated
+        return this.server.getClientCapabilities()?.extensions?.[identifier];
     }
 
     private _toolHandlersInitialized = false;

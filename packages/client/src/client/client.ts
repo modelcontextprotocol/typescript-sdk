@@ -15,6 +15,7 @@ import type {
     GetPromptResult,
     Implementation,
     InputRequiredOptions,
+    JSONObject,
     JSONRPCNotification,
     JSONRPCRequest,
     JSONRPCResponse,
@@ -739,6 +740,26 @@ export class Client extends Protocol<ClientContext> {
         }
 
         this._capabilities = mergeCapabilities(this._capabilities, capabilities);
+    }
+
+    /**
+     * Advertise a protocol extension (SEP-2133) under
+     * `ClientCapabilities.extensions`. The `identifier` is the vendor-prefixed
+     * extension key (for example `'io.modelcontextprotocol/ui'`); `settings`
+     * defaults to `{}`. Thin convenience over
+     * {@linkcode Client.registerCapabilities} — call it before connecting.
+     */
+    public enableExtension(identifier: string, settings: JSONObject = {}): void {
+        this.registerCapabilities({ extensions: { [identifier]: settings } });
+    }
+
+    /**
+     * The settings object the connected server advertised for the given
+     * extension identifier under `ServerCapabilities.extensions`, or
+     * `undefined` when the server did not declare it.
+     */
+    public getServerExtension(identifier: string): JSONObject | undefined {
+        return this._serverCapabilities?.extensions?.[identifier];
     }
 
     /**

@@ -118,6 +118,20 @@ describe('createMcpHandler — modern path', () => {
         expect(state.contexts).toHaveLength(1);
         expect(state.contexts[0]?.era).toBe('modern');
         expect(state.contexts[0]?.requestInfo).toBeInstanceOf(Request);
+        expect(state.contexts[0]?.clientCapabilities).toEqual({ elicitation: { form: {} } });
+    });
+
+    it('exposes the envelope-declared extensions on McpRequestContext.clientCapabilities', async () => {
+        const { factory, state } = testFactory();
+        const handler = createMcpHandler(factory);
+
+        const envelope = {
+            ...ENVELOPE,
+            [CLIENT_CAPABILITIES_META_KEY]: { extensions: { 'io.modelcontextprotocol/ui': { version: '1' } } }
+        };
+        const response = await handler.fetch(postRequest(modernToolsCall('echo', { text: 'x' }, envelope)));
+        expect(response.status).toBe(200);
+        expect(state.contexts[0]?.clientCapabilities?.extensions?.['io.modelcontextprotocol/ui']).toEqual({ version: '1' });
     });
 
     it('serves server/discover on the modern path with the modern supported list', async () => {
