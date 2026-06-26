@@ -783,14 +783,18 @@ include task vocabulary; the deprecated `Task*` types remain importable on their
 | `JSONRPCErrorSchema` | `JSONRPCErrorResponseSchema` |
 | `isJSONRPCError` | `isJSONRPCErrorResponse` |
 | `isJSONRPCResponse` (deprecated in v1) | `isJSONRPCResultResponse` ² |
+| `JSONRPCResponseSchema` (result-only in v1) | `JSONRPCResultResponseSchema` ² |
+| `JSONRPCResponse` (result-only in v1) | `JSONRPCResultResponse` ² |
 | `ResourceReference` / `ResourceReferenceSchema` | `ResourceTemplateReference` / `ResourceTemplateReferenceSchema` |
 | `IsomorphicHeaders` | Web Standard `Headers` |
 | `RequestHandlerExtra` | `ServerContext` / `ClientContext` / `BaseContext` |
 | `ResourceTemplate` (the spec wire **type** from `sdk/types.js`) | `ResourceTemplateType` ³ |
 
-² v2 introduces a **new** `isJSONRPCResponse` with corrected semantics — it matches
-**both** result and error responses. v1's `isJSONRPCResponse` only matched results. To
-preserve v1 behavior, rename to `isJSONRPCResultResponse` (the codemod does this).
+² v2 introduces **new** `isJSONRPCResponse` / `JSONRPCResponse` / `JSONRPCResponseSchema`
+with corrected semantics — they match **both** result and error responses (the schema is
+`z.union([JSONRPCResultResponseSchema, JSONRPCErrorResponseSchema])`). v1's symbols only
+matched results. To preserve v1 behavior, rename to `isJSONRPCResultResponse` /
+`JSONRPCResultResponse` / `JSONRPCResultResponseSchema` (the codemod does this).
 
 ³ The `ResourceTemplate` URI-template helper **class** (from `sdk/server/mcp.js`) is
 **unchanged** — keep `new ResourceTemplate(...)` as-is. Only the like-named spec wire
