@@ -2609,6 +2609,78 @@ describe('OAuth Authorization', () => {
             expect(body.get('refresh_token')).toBe('refresh123');
         });
 
+        it('propagates saveTokens errors after a successful refresh (#2034)', async () => {
+            // Regression test: previously the catch block that wraps
+            // refreshAuthorization() also wrapped saveTokens(), silently
+            // swallowing any non-OAuthError thrown while persisting the new
+            // tokens and falling through to startAuthorization(). With
+            // rotating refresh tokens, that loses the freshly minted refresh
+            // token while invalidating the old one server-side.
+            mockFetch.mockImplementation(url => {
+                const urlString = url.toString();
+
+                if (urlString.includes('/.well-known/oauth-protected-resource')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            resource: 'https://api.example.com/mcp-server',
+                            authorization_servers: ['https://auth.example.com']
+                        })
+                    });
+                } else if (urlString.includes('/.well-known/oauth-authorization-server')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            issuer: 'https://auth.example.com',
+                            authorization_endpoint: 'https://auth.example.com/authorize',
+                            token_endpoint: 'https://auth.example.com/token',
+                            response_types_supported: ['code'],
+                            code_challenge_methods_supported: ['S256']
+                        })
+                    });
+                } else if (urlString.includes('/token')) {
+                    return Promise.resolve({
+                        ok: true,
+                        status: 200,
+                        json: async () => ({
+                            access_token: 'new-access',
+                            token_type: 'Bearer',
+                            expires_in: 3600,
+                            refresh_token: 'new-refresh'
+                        })
+                    });
+                }
+
+                return Promise.resolve({ ok: false, status: 404 });
+            });
+
+            (mockProvider.clientInformation as Mock).mockResolvedValue({
+                client_id: 'test-client',
+                client_secret: 'test-secret'
+            });
+            (mockProvider.tokens as Mock).mockResolvedValue({
+                access_token: 'old-access',
+                refresh_token: 'refresh123'
+            });
+            const persistError = new Error('disk full');
+            (mockProvider.saveTokens as Mock).mockRejectedValue(persistError);
+
+            await expect(
+                auth(mockProvider, {
+                    serverUrl: 'https://api.example.com/mcp-server'
+                })
+            ).rejects.toBe(persistError);
+
+            // saveTokens was called with the new tokens before throwing.
+            expect(mockProvider.saveTokens).toHaveBeenCalledWith(
+                expect.objectContaining({ access_token: 'new-access', refresh_token: 'new-refresh' })
+            );
+            // The fallthrough to a new authorization flow must NOT happen.
+            expect(mockProvider.redirectToAuthorization).not.toHaveBeenCalled();
+        });
+
         it('skips default PRM resource validation when custom validateResourceURL is provided', async () => {
             const mockValidateResourceURL = vi.fn().mockResolvedValue(undefined);
             const providerWithCustomValidation = {
