@@ -5552,6 +5552,35 @@ describe('SEP-2468: RFC 9207 authorization response iss validation', () => {
             expect(provider.saveTokens).not.toHaveBeenCalled();
         });
 
+        it('uses cached legacy no-PRM fallback metadata with an invalid issuer during code exchange', async () => {
+            const legacyAuthMetadata: AuthorizationServerMetadata = {
+                ...authServerMetadata,
+                issuer: 'auth.example.com',
+                authorization_endpoint: 'https://auth.example.com/oauth/authorize',
+                token_endpoint: 'https://auth.example.com/oauth/token'
+            };
+            const invalidateCredentials = vi.fn();
+            const provider: OAuthClientProvider = {
+                ...createMockProvider(legacyAuthMetadata),
+                discoveryState: vi.fn().mockResolvedValue({
+                    authorizationServerUrl: 'https://resource.example.com/',
+                    authorizationServerMetadata: legacyAuthMetadata
+                }),
+                invalidateCredentials
+            };
+
+            const result = await auth(provider, {
+                serverUrl: 'https://resource.example.com',
+                authorizationCode: 'code123'
+            });
+
+            expect(result).toBe('AUTHORIZED');
+            expect(invalidateCredentials).not.toHaveBeenCalled();
+            expect(tokenEndpointCalls()).toHaveLength(1);
+            expect(tokenEndpointCalls()[0]?.[0]?.toString()).toBe(legacyAuthMetadata.token_endpoint);
+            expect(provider.saveTokens).toHaveBeenCalled();
+        });
+
         it('rejects when the AS advertises iss support and the caller reports a response without iss (null)', async () => {
             const provider = createMockProvider();
 

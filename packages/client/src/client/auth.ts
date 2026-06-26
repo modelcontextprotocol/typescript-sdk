@@ -980,20 +980,46 @@ function validateAuthorizationServerMetadataIssuer(metadata: { issuer: string } 
     }
 }
 
-function isStaleLegacyFallbackDiscoveryState(
-    cachedState: OAuthDiscoveryState,
-    metadata: { issuer: string } | undefined,
-    serverUrl: string | URL
-): boolean {
-    if (!metadata || cachedState.resourceMetadata?.authorization_servers?.length) {
+function isLegacyFallbackDiscoveryState(cachedState: OAuthDiscoveryState, serverUrl: string | URL): boolean {
+    if (cachedState.resourceMetadata?.authorization_servers?.length) {
         return false;
     }
 
     try {
         const cachedIssuer = normalizeDiscoveredIssuerIdentifier(cachedState.authorizationServerUrl, 'Cached authorization server URL');
         const legacyFallbackIssuer = normalizeDiscoveredIssuerIdentifier(new URL('/', serverUrl), 'MCP server URL');
+        return cachedIssuer === legacyFallbackIssuer;
+    } catch {
+        return false;
+    }
+}
+
+function hasMalformedAuthorizationServerMetadataIssuer(metadata: { issuer: string } | undefined): boolean {
+    if (!metadata) {
+        return false;
+    }
+
+    try {
+        normalizeDiscoveredIssuerIdentifier(metadata.issuer, 'Authorization server metadata issuer');
+        return false;
+    } catch {
+        return true;
+    }
+}
+
+function isStaleLegacyFallbackDiscoveryState(
+    cachedState: OAuthDiscoveryState,
+    metadata: { issuer: string } | undefined,
+    serverUrl: string | URL
+): boolean {
+    if (!metadata || !isLegacyFallbackDiscoveryState(cachedState, serverUrl)) {
+        return false;
+    }
+
+    try {
+        const cachedIssuer = normalizeDiscoveredIssuerIdentifier(cachedState.authorizationServerUrl, 'Cached authorization server URL');
         const metadataIssuer = normalizeDiscoveredIssuerIdentifier(metadata.issuer, 'Authorization server metadata issuer');
-        return cachedIssuer === legacyFallbackIssuer && metadataIssuer !== cachedIssuer;
+        return metadataIssuer !== cachedIssuer;
     } catch {
         return false;
     }
@@ -1108,8 +1134,9 @@ async function authInternal(
                 skipIssuerValidation: skipIssuerMetadataValidation
             }));
 
-            await provider.invalidateCredentials?.('discovery');
-            useCachedDiscoveryState = false;
+                await provider.invalidateCredentials?.('discovery');
+                useCachedDiscoveryState = false;
+            }
         }
     }
 
