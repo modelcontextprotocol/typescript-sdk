@@ -135,7 +135,7 @@ describe('server JSON Schema validator overrides', () => {
 
         const schema = z.object({
             count: z.coerce.number().min(1).meta({ title: 'Registration Count', description: 'Number of registrations to process' }),
-            email: z.string().email().meta({ title: 'Email', description: 'Email address' }),
+            email: z.email().meta({ title: 'Email', description: 'Email address' }),
             startsAt: z.iso.datetime({ offset: true }).meta({ title: 'Start Time' }),
             newsletter: z.boolean().default(false)
         });
