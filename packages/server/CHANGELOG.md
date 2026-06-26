@@ -81,7 +81,7 @@
 
 - [#2275](https://github.com/modelcontextprotocol/typescript-sdk/pull/2275) [`1b53a41`](https://github.com/modelcontextprotocol/typescript-sdk/commit/1b53a415ea2c33aa11ac413fc9c2d68ccffde784) Thanks [@KKonstantinov](https://github.com/KKonstantinov)! - Add a configurable
   `maxBufferSize` (default 10 MB) to the stdio transports. When a single message would push the read buffer past the limit, the transport now emits an `onerror` and closes instead of growing the buffer unbounded. Configure via `new StdioClientTransport({ ..., maxBufferSize })` or
-  `new StdioServerTransport(stdin, stdout, { maxBufferSize })`. The default is exported from `@modelcontextprotocol/core-internal` as `STDIO_DEFAULT_MAX_BUFFER_SIZE`.
+  `new StdioServerTransport(stdin, stdout, { maxBufferSize })`. The default is exported from `@modelcontextprotocol/client` / `@modelcontextprotocol/server` as `STDIO_DEFAULT_MAX_BUFFER_SIZE`.
 
 - [#2088](https://github.com/modelcontextprotocol/typescript-sdk/pull/2088) [`16d13ab`](https://github.com/modelcontextprotocol/typescript-sdk/commit/16d13abf78b5dba5de73dfa284325b13d4219bb2) Thanks [@mattzcarey](https://github.com/mattzcarey)! - Bundle automatic JSON Schema
   validator defaults in `@modelcontextprotocol/client` and `@modelcontextprotocol/server` runtime shims.
@@ -158,7 +158,8 @@
     For raw JSON Schema (e.g. TypeBox output), use the new `fromJsonSchema` adapter:
 
     ```typescript
-    import { fromJsonSchema, AjvJsonSchemaValidator } from '@modelcontextprotocol/core-internal';
+    import { fromJsonSchema } from '@modelcontextprotocol/server';
+    import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 
     server.registerTool(
         'greet',

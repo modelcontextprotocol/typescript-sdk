@@ -76,9 +76,11 @@ In addition the codemod:
   spec methods.
 - Routes the spec Zod `*Schema` constants imported from `sdk/types.js` to
   `@modelcontextprotocol/core` (mixed imports are split; `.parse()` / `.safeParse()`
-  calls are left untouched). The task-handler schema constants
-  (`GetTaskRequestSchema` etc.) used as `setRequestHandler` args are mapped to their
-  method strings (`'tasks/get'` etc.) like every other handler schema.
+  calls are left untouched). Task-handler schema constants
+  (`GetTaskRequestSchema` etc.) used as `setRequestHandler` args are **not** rewritten
+  — the experimental tasks feature was removed (SEP-2663), so each such registration
+  is marked with an action-required diagnostic instead (see
+  [Experimental tasks interception removed](#experimental-tasks-interception-removed)).
 - Renames `ErrorCode` → `ProtocolErrorCode` and routes the local-only members
   (`RequestTimeout`, `ConnectionClosed`) to `SdkErrorCode`.
 - Renames every `StreamableHTTPError` reference to `SdkHttpError` and adds the import
