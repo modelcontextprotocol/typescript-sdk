@@ -912,6 +912,128 @@ describe('protocol tests', () => {
             expect(cancelledSent(tx.sent)).toHaveLength(0);
         });
     });
+
+    // #166 — same-chunk progress+result must not surface as an unknown-token
+    // onerror; #159 — pre-dispatch aborts must carry the caller's reason.
+    describe('progress-notification race + abort-reason preservation', () => {
+        test('tight progress loop + immediate result delivers all progress in arrival order, no onerror', async () => {
+            await protocol.connect(transport);
+            const onerror = vi.fn();
+            protocol.onerror = onerror;
+            const onprogress = vi.fn();
+
+            const pending = testRequest(protocol, { method: 'example', params: {} }, z.object({ ok: z.boolean() }), { onprogress });
+
+            // Reproduces the chat-cli race: server emits N progress
+            // notifications and the result back-to-back in the same tick.
+            for (let i = 1; i <= 5; i++) {
+                transport.onmessage?.({
+                    jsonrpc: '2.0',
+                    method: 'notifications/progress',
+                    params: { progressToken: 0, progress: i, total: 5 }
+                });
+            }
+            transport.onmessage?.({ jsonrpc: '2.0', id: 0, result: { ok: true } });
+
+            await expect(pending).resolves.toEqual({ ok: true });
+            expect(onprogress).toHaveBeenCalledTimes(5);
+            expect(onprogress).toHaveBeenNthCalledWith(1, { progress: 1, total: 5 });
+            expect(onprogress).toHaveBeenNthCalledWith(5, { progress: 5, total: 5 });
+            expect(onerror).not.toHaveBeenCalled();
+        });
+
+        test('late progress after a settled request is dropped silently (tombstoned), never-issued tokens still error', async () => {
+            const onLateProgress = vi.fn();
+            const proto = new TestProtocolImpl({ onLateProgress });
+            const tx = new MockTransport();
+            await proto.connect(tx);
+            const onerror = vi.fn();
+            proto.onerror = onerror;
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({ ok: z.boolean() }), { onprogress: vi.fn() });
+            tx.onmessage?.({ jsonrpc: '2.0', id: 0, result: { ok: true } });
+            await expect(pending).resolves.toEqual({ ok: true });
+
+            // Late progress for the now-settled request: tombstoned → onLateProgress, no onerror.
+            tx.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/progress',
+                params: { progressToken: 0, progress: 1, total: 1 }
+            });
+            expect(onerror).not.toHaveBeenCalled();
+            expect(onLateProgress).toHaveBeenCalledTimes(1);
+            expect(onLateProgress).toHaveBeenCalledWith(expect.objectContaining({ params: expect.objectContaining({ progressToken: 0 }) }));
+
+            // A token that was never issued still surfaces as the unknown-token onerror.
+            tx.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/progress',
+                params: { progressToken: 999, progress: 1, total: 1 }
+            });
+            expect(onerror).toHaveBeenCalledTimes(1);
+            expect(onerror).toHaveBeenCalledWith(expect.objectContaining({ message: expect.stringContaining('unknown token') }));
+        });
+
+        test('late progress after caller-signal cancel is tombstoned (no onerror)', async () => {
+            await protocol.connect(transport);
+            const onerror = vi.fn();
+            protocol.onerror = onerror;
+
+            const ac = new AbortController();
+            const pending = testRequest(protocol, { method: 'example', params: {} }, z.object({}), {
+                onprogress: vi.fn(),
+                signal: ac.signal
+            });
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            // The chat-cli Ctrl-C reproduction: server keeps emitting progress
+            // after the client has cancelled. Tombstoned → no onerror noise.
+            transport.onmessage?.({
+                jsonrpc: '2.0',
+                method: 'notifications/progress',
+                params: { progressToken: 0, progress: 1, total: 3 }
+            });
+            // The cancel path also sends a notifications/cancelled on the
+            // wire — onerror is reserved here for unknown-token noise only.
+            const unknownTokenErrors = onerror.mock.calls.filter(c => String(c[0]).includes('unknown token'));
+            expect(unknownTokenErrors).toHaveLength(0);
+        });
+
+        test('pre-aborted signal rejects with SdkError(RequestTimeout) carrying the abort reason (#159)', async () => {
+            await protocol.connect(transport);
+            const ac = new AbortController();
+            const reason = new Error('operator abort');
+            ac.abort(reason);
+
+            const err = await testRequest(protocol, { method: 'example', params: {} }, z.object({}), { signal: ac.signal }).catch(
+                (e: unknown) => e
+            );
+
+            expect(err).toBeInstanceOf(SdkError);
+            const sdkErr = err as SdkError;
+            expect(sdkErr.code).toBe(SdkErrorCode.RequestTimeout);
+            // Reason preserved both stringified in the message AND structurally at .data.reason.
+            expect(sdkErr.message).toContain('operator abort');
+            expect((sdkErr.data as { reason?: unknown }).reason).toBe(reason);
+            // Nothing reached the wire on a pre-dispatch abort.
+            expect(sendSpy).not.toHaveBeenCalled();
+        });
+
+        test('in-flight abort carries the reason at .data.reason (parity with the pre-dispatch path)', async () => {
+            await protocol.connect(transport);
+            const ac = new AbortController();
+            const pending = testRequest(protocol, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+            ac.abort('user cancel');
+
+            const err = await pending.catch((e: unknown) => e);
+            expect(err).toBeInstanceOf(SdkError);
+            const sdkErr = err as SdkError;
+            expect(sdkErr.code).toBe(SdkErrorCode.RequestTimeout);
+            expect(sdkErr.message).toBe('user cancel');
+            expect((sdkErr.data as { reason?: unknown }).reason).toBe('user cancel');
+        });
+    });
 });
 
 // (2025-11 experimental test suites removed under SEP-2663; see git history.)

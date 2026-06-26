@@ -87,7 +87,28 @@ export type ProtocolOptions = {
      * e.g., `['notifications/tools/list_changed']`
      */
     debouncedNotificationMethods?: string[];
+
+    /**
+     * Optional hook invoked when a `notifications/progress` arrives for a
+     * progress token whose request has already settled (response received,
+     * cancelled, timed out, or send-failed). This is a benign race — the
+     * peer emitted progress immediately before the response and the two were
+     * delivered out of order or in the same chunk — so by default such late
+     * progress is dropped silently rather than surfaced via `onerror`.
+     * Provide this hook to observe the dropped notifications. Progress for a
+     * token that was never issued at all still surfaces via `onerror`.
+     */
+    onLateProgress?: (notification: ProgressNotification) => void;
 };
+
+/**
+ * Bound on the recently-retired progress-token tombstone set. FIFO-evicted at
+ * this cap, so a long-running connection cannot accumulate unbounded state. 64
+ * comfortably covers the realistic in-flight-requests-with-progress window; a
+ * late progress for a token evicted from the set degrades to the unknown-token
+ * `onerror` it would have produced before the tombstone set existed.
+ */
+const RETIRED_PROGRESS_TOKEN_CAP = 64;
 
 /**
  * The default request timeout, in milliseconds.
@@ -522,6 +543,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
     private _notificationHandlers: Map<string, (notification: JSONRPCNotification, codec: WireCodec) => Promise<void>> = new Map();
     private _responseHandlers: Map<number, (response: JSONRPCResultResponse | Error) => void> = new Map();
     private _progressHandlers: Map<number, ProgressCallback> = new Map();
+    /**
+     * Progress tokens whose handler has been retired (response, cancel,
+     * max-timeout, or send-failure). Late `notifications/progress` for these
+     * tokens is a benign delivery race, not an unknown-token protocol error;
+     * dropped silently (or surfaced via {@linkcode ProtocolOptions.onLateProgress}).
+     * Bounded at {@linkcode RETIRED_PROGRESS_TOKEN_CAP} with FIFO eviction.
+     */
+    private _retiredProgressTokens: Set<number> = new Set();
     private _timeoutInfo: Map<number, TimeoutInfo> = new Map();
     private _pendingDebouncedNotifications = new Set<string>();
 
@@ -735,6 +764,24 @@ export abstract class Protocol<ContextT extends BaseContext> {
     }
 
     /**
+     * Retire a progress handler and record its token in the bounded tombstone
+     * set so late `notifications/progress` for this request is recognized as a
+     * benign race (dropped or routed to `onLateProgress`) instead of surfaced
+     * as an unknown-token `onerror`. Only tombstones tokens that were actually
+     * issued (`onprogress` was supplied for the request); a request that never
+     * carried a `progressToken` stays a real unknown-token case.
+     */
+    private _retireProgressHandler(messageId: number): void {
+        if (!this._progressHandlers.delete(messageId)) return;
+        this._retiredProgressTokens.add(messageId);
+        if (this._retiredProgressTokens.size > RETIRED_PROGRESS_TOKEN_CAP) {
+            // FIFO evict — Set iteration order is insertion order.
+            const oldest = this._retiredProgressTokens.values().next().value;
+            if (oldest !== undefined) this._retiredProgressTokens.delete(oldest);
+        }
+    }
+
+    /**
      * Attaches to the given transport, starts it, and starts listening for messages.
      *
      * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
@@ -785,6 +832,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
         const responseHandlers = this._responseHandlers;
         this._responseHandlers = new Map();
         this._progressHandlers.clear();
+        this._retiredProgressTokens.clear();
         this._pendingDebouncedNotifications.clear();
 
         for (const info of this._timeoutInfo.values()) {
@@ -877,10 +925,22 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
-        // Starting with Promise.resolve() puts any synchronous errors into the monad as well.
-        Promise.resolve()
-            .then(() => (handler === undefined ? fallback!(notification) : handler(notification, codec)))
-            .catch(error => this._onerror(new Error(`Uncaught error in notification handler: ${error}`)));
+        // Dispatch SYNCHRONOUSLY in arrival order. Responses are dispatched
+        // synchronously (`_onresponse`), so deferring notification handlers
+        // by a microtask (the previous `Promise.resolve().then(handler)`
+        // shape) lets a same-chunk [progress…, result] pair retire the
+        // progress handler before the trailing progress runs — surfacing as
+        // a spurious unknown-token `onerror` (#166). The defer existed only
+        // to capture synchronous throws; an explicit try/catch keeps that
+        // guarantee while restoring arrival order. Asynchronous rejections
+        // from the handler still surface via `onerror`.
+        try {
+            Promise.resolve(handler === undefined ? fallback!(notification) : handler(notification, codec)).catch(error =>
+                this._onerror(new Error(`Uncaught error in notification handler: ${error}`))
+            );
+        } catch (error) {
+            this._onerror(new Error(`Uncaught error in notification handler: ${error}`));
+        }
     }
 
     private _onrequest(rawRequest: JSONRPCRequest, extra?: MessageExtraInfo): void {
@@ -1120,6 +1180,15 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         const handler = this._progressHandlers.get(messageId);
         if (!handler) {
+            // Late progress for a request that has already settled is a
+            // benign delivery race (the peer emitted progress immediately
+            // before the response): drop silently, or surface via the
+            // optional `onLateProgress` hook. A token that was never issued
+            // — never in the tombstone set — stays a real protocol error.
+            if (this._retiredProgressTokens.has(messageId)) {
+                this._options?.onLateProgress?.(notification);
+                return;
+            }
             this._onerror(new Error(`Received a progress notification for an unknown token: ${JSON.stringify(notification)}`));
             return;
         }
@@ -1133,7 +1202,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             } catch (error) {
                 // Clean up if maxTotalTimeout was exceeded
                 this._responseHandlers.delete(messageId);
-                this._progressHandlers.delete(messageId);
+                this._retireProgressHandler(messageId);
                 this._cleanupTimeout(messageId);
                 responseHandler(error as Error);
                 return;
@@ -1160,7 +1229,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
 
         this._responseHandlers.delete(messageId);
         this._cleanupTimeout(messageId);
-        this._progressHandlers.delete(messageId);
+        this._retireProgressHandler(messageId);
 
         if (isJSONRPCResultResponse(response)) {
             handler(response);
@@ -1352,11 +1421,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
             // in-flight abort does (`SdkError(RequestTimeout, reason)` via
             // `cancel()` below). Bare `throwIfAborted()` would propagate the
             // raw `signal.reason` instead, so callers that introduce an async
-            // hop before `request()` (e.g. a cache freshness check) would see
-            // a different rejection type depending on where the abort lands.
+            // hop before `request()` (v2's `callTool()` cache/mirroring
+            // preamble) would see a different rejection type depending on
+            // where the abort lands. The original reason is carried at
+            // `.data.reason` so callers can recover it structurally rather
+            // than parsing the stringified message (#159).
             if (options?.signal?.aborted) {
                 const reason = options.signal.reason;
-                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+                throw reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason), { reason });
             }
 
             // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28):
@@ -1403,7 +1475,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 if (responseReceived) {
                     return;
                 }
-                this._progressHandlers.delete(messageId);
+                this._retireProgressHandler(messageId);
 
                 if (requestAbort === undefined) {
                     this._transport
@@ -1428,8 +1500,10 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     requestAbort.abort();
                 }
 
-                // Wrap the reason in an SdkError if it isn't already
-                const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason));
+                // Wrap the reason in an SdkError if it isn't already; carry
+                // the original at `.data.reason` so it is structurally
+                // recoverable (parity with the pre-aborted-signal path).
+                const error = reason instanceof SdkError ? reason : new SdkError(SdkErrorCode.RequestTimeout, String(reason), { reason });
                 reject(error);
             };
 
@@ -1514,7 +1588,7 @@ export abstract class Protocol<ContextT extends BaseContext> {
             this._transport
                 .send(outbound, { relatedRequestId, resumptionToken, onresumptiontoken, headers, requestSignal: requestAbort?.signal })
                 .catch(error => {
-                    this._progressHandlers.delete(messageId);
+                    this._retireProgressHandler(messageId);
                     reject(error);
                 });
         }).finally(() => {
