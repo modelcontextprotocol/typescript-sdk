@@ -629,6 +629,7 @@ export class McpServer {
         title: string | undefined,
         description: string | undefined,
         argsSchema: StandardSchemaWithJSON | undefined,
+        icons: Icon[] | undefined,
         callback: PromptCallback<StandardSchemaWithJSON | undefined>,
         icons: Icon[] | undefined,
         _meta: Record<string, unknown> | undefined
@@ -928,6 +929,7 @@ export class McpServer {
             title,
             description,
             normalizeRawShapeSchema(argsSchema),
+            icons,
             cb as PromptCallback<StandardSchemaWithJSON | undefined>,
             icons,
             _meta
