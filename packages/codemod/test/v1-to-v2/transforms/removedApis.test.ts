@@ -257,6 +257,37 @@ describe('removed-apis transform', () => {
         });
     });
 
+    // #155 — .code on a v2 SdkHttpError is the SdkErrorCode string; the HTTP status moved to .status.
+    // Renaming the class without flagging the property access leaves `error.code === 404` compiling
+    // (TS2367 at best) but always-false at runtime.
+    describe('#155 — marks .code accesses on instanceof-checked SdkHttpError', () => {
+        it('emits an action-required marker on each .code access of an instanceof-checked error', () => {
+            const input = [
+                `import { StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js';`,
+                `try { await op(); } catch (error) {`,
+                `    if (error instanceof StreamableHTTPError && error.code === 404) {}`,
+                `    if (error instanceof StreamableHTTPError && typeof error.code === 'number') {}`,
+                `}`,
+                ''
+            ].join('\n');
+            const { text, result } = applyTransform(input);
+            expect(text).toContain('instanceof SdkHttpError');
+            const markers = result.diagnostics.filter(d => d.insertComment && d.message.includes('.status'));
+            expect(markers.length).toBe(2);
+        });
+
+        it('does not flag .code on an unrelated identifier', () => {
+            const input = [
+                `import { StreamableHTTPError } from '@modelcontextprotocol/client';`,
+                `if (e instanceof StreamableHTTPError) {}`,
+                `const x = other.code;`,
+                ''
+            ].join('\n');
+            const { result } = applyTransform(input);
+            expect(result.diagnostics.some(d => d.insertComment && d.message.includes('.status'))).toBe(false);
+        });
+    });
+
     describe('IsomorphicHeaders alias', () => {
         it('handles aliased IsomorphicHeaders import', () => {
             const input = [`import { IsomorphicHeaders as IH } from '@modelcontextprotocol/server';`, `const h: IH = new IH();`, ''].join(

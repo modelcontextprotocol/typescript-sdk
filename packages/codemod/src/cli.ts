@@ -51,6 +51,7 @@ for (const [name, migration] of listMigrations()) {
         .option('-t, --transforms <ids>', 'Comma-separated transform IDs to run (default: all)')
         .option('-v, --verbose', 'Show detailed per-change output')
         .option('--ignore <patterns...>', 'Additional glob patterns to ignore')
+        .option('--prefer <side>', 'Default package (client|server) for shared types when no signal is found')
         .option('--list', 'List available transforms for this migration')
         .action((targetDir: string | undefined, opts: Record<string, unknown>) => {
             try {
@@ -87,12 +88,20 @@ for (const [name, migration] of listMigrations()) {
 
                 const transforms = opts['transforms'] ? (opts['transforms'] as string).split(',').map(s => s.trim()) : undefined;
 
+                const preferRaw = opts['prefer'] as string | undefined;
+                if (preferRaw !== undefined && preferRaw !== 'client' && preferRaw !== 'server') {
+                    console.error(`\nError: --prefer must be "client" or "server" (got "${preferRaw}").\n`);
+                    process.exitCode = 1;
+                    return;
+                }
+
                 const result = run(migration, {
                     targetDir: resolvedDir,
                     dryRun: opts['dryRun'] as boolean | undefined,
                     verbose: opts['verbose'] as boolean | undefined,
                     transforms,
-                    ignore: opts['ignore'] as string[] | undefined
+                    ignore: opts['ignore'] as string[] | undefined,
+                    prefer: preferRaw
                 });
 
                 if (result.filesChanged === 0 && result.diagnostics.length === 0 && !result.packageJsonChanges) {
@@ -150,19 +159,21 @@ for (const [name, migration] of listMigrations()) {
                 }
 
                 if (result.packageJsonChanges) {
-                    const pc = result.packageJsonChanges;
-                    if (opts['dryRun']) {
-                        console.log('package.json changes (dry run — not applied):');
-                    } else {
-                        console.log('package.json updated:');
+                    const verb = opts['dryRun'] ? 'changes (dry run — not applied)' : 'updated';
+                    for (const pc of result.packageJsonChanges) {
+                        const rel = path.relative(process.cwd(), pc.packageJsonPath) || pc.packageJsonPath;
+                        console.log(`${rel} ${verb}:`);
+                        if (pc.removed.length > 0) {
+                            console.log(`  Removed: ${pc.removed.join(', ')}`);
+                        }
+                        if (pc.added.length > 0) {
+                            console.log(`  Added:   ${pc.added.join(', ')}`);
+                        }
+                        for (const note of pc.notes ?? []) {
+                            console.log(`  Note:    ${note}`);
+                        }
+                        console.log('');
                     }
-                    if (pc.removed.length > 0) {
-                        console.log(`  Removed: ${pc.removed.join(', ')}`);
-                    }
-                    if (pc.added.length > 0) {
-                        console.log(`  Added:   ${pc.added.join(', ')}`);
-                    }
-                    console.log('');
                 }
 
                 if (result.commentCount > 0) {

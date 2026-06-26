@@ -557,6 +557,41 @@ describe('mock-paths transform', () => {
             expect(result).toContain('AjvJsonSchemaValidator');
         });
 
+        // #122 — type-position dynamic-import qualifiers (`import('…').Name`) are ImportTypeNode, not the
+        // CallExpression covered by rewriteDynamicImports. Left untouched they resolve against the removed
+        // v1 package and surface as TS2307.
+        it("#122 — rewrites a type-position import('…').Name qualifier and routes per-symbol", () => {
+            const input = [
+                `let meta: import('@modelcontextprotocol/sdk/shared/auth.js').OAuthClientMetadata;`,
+                `let schema: import('@modelcontextprotocol/sdk/types.js').CallToolResultSchema;`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input, { projectType: 'client' });
+            expect(result).toContain(`import('@modelcontextprotocol/client').OAuthClientMetadata`);
+            // Schema constants route to core (per-symbol override), matching the static-import transform.
+            expect(result).toContain(`import('@modelcontextprotocol/core').CallToolResultSchema`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
+
+        // #162 — require()/require.resolve() of a v1 SDK path is not rewritten (the v2 subpath exports
+        // have no `require` condition, so a rewrite would still fail at runtime); mark the site instead.
+        it('#162 — marks require.resolve() of a v1 SDK path (createRequire and bare require)', () => {
+            const input = [
+                `import { createRequire } from 'node:module';`,
+                `const req = createRequire(import.meta.url);`,
+                `const p = req.resolve('@modelcontextprotocol/sdk/server/sse.js');`,
+                `const q = require('@modelcontextprotocol/sdk/client/index.js');`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            const markers = result.diagnostics.filter(d => d.insertComment && d.message.includes('require'));
+            expect(markers.length).toBe(2);
+            // The specifiers are left untouched (not rewritten).
+            expect(sourceFile.getFullText()).toContain(`'@modelcontextprotocol/sdk/server/sse.js'`);
+        });
+
         it('rewrites jest.mock of validator short alias to the subpath', () => {
             const input = [
                 `jest.mock('@modelcontextprotocol/sdk/validation/cfworker', () => ({`,

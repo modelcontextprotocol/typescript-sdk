@@ -64,6 +64,8 @@ export const mockPathsTransform: Transform = {
         }
 
         changesCount += rewriteDynamicImports(sourceFile, context, diagnostics, usedPackages);
+        changesCount += rewriteImportTypeQualifiers(sourceFile, context, diagnostics, usedPackages);
+        flagRequireSpecifiers(sourceFile, diagnostics);
 
         return { changesCount, diagnostics, usedPackages };
     }
@@ -349,6 +351,120 @@ function collectModuleSchemaAccesses(
                 .map(pa => [pa.getName(), resolveRenamedName(pa.getName(), mapping)] as const)
         )
     ];
+}
+
+/**
+ * Rewrite type-position dynamic-import qualifiers — `import('@modelcontextprotocol/sdk/...').<Name>` —
+ * which TypeScript represents as `ImportTypeNode`, not the `CallExpression` covered by
+ * {@link rewriteDynamicImports}. Left untouched these resolve against a package the codemod has just
+ * removed from `package.json`, surfacing as TS2307. The qualifier names a single member, so it routes
+ * per-symbol exactly like a one-name static import.
+ */
+function rewriteImportTypeQualifiers(
+    sourceFile: SourceFile,
+    context: TransformContext,
+    diagnostics: Diagnostic[],
+    usedPackages: Set<string>
+): number {
+    let changes = 0;
+    for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.ImportType)) {
+        const argument = node.getArgument();
+        const literal = argument.getDescendantsOfKind(SyntaxKind.StringLiteral)[0];
+        if (!literal) continue;
+        const specifier = literal.getLiteralValue();
+        if (!isSdkSpecifier(specifier)) continue;
+
+        const qualifier = node.getQualifier();
+        const memberName = qualifier && Node.isIdentifier(qualifier) ? qualifier.getText() : undefined;
+        const symbols = memberName ? [memberName] : [];
+
+        const resolved = resolveTarget(specifier, context, sourceFile, symbols, {
+            filePath: sourceFile.getFilePath(),
+            line: node.getStartLineNumber(),
+            diagnostics
+        });
+        if (resolved === null) {
+            diagnostics.push(
+                actionRequired(sourceFile.getFilePath(), node, `Unknown SDK type-import path: ${specifier}. Manual migration required.`)
+            );
+            continue;
+        }
+        if ('removed' in resolved) {
+            const diagFn = resolved.isV2Gap ? v2Gap : warning;
+            diagnostics.push(
+                diagFn(
+                    sourceFile.getFilePath(),
+                    node.getStartLineNumber(),
+                    resolved.removalMessage ?? `Type-import references removed SDK path: ${specifier}. Manual migration required.`
+                )
+            );
+            continue;
+        }
+
+        let effectiveTarget = resolved.target;
+        const { target: routedTarget } = routeSymbols(symbols, resolved.mapping);
+        if (routedTarget) effectiveTarget = routedTarget;
+
+        usedPackages.add(effectiveTarget);
+        literal.setLiteralValue(effectiveTarget);
+        changes++;
+
+        if (memberName && qualifier) {
+            const newName = { ...SIMPLE_RENAMES, ...resolved.mapping.renamedSymbols }[memberName];
+            if (newName) {
+                qualifier.replaceWithText(newName);
+                changes++;
+            }
+        }
+    }
+    return changes;
+}
+
+/**
+ * Mark `require()` / `require.resolve()` calls whose argument is a v1 SDK specifier. The codemod does
+ * not rewrite these: the v2 packages' subpath exports declare no `require` condition, so a rewritten
+ * `require.resolve('@modelcontextprotocol/server-legacy/sse')` would still throw `ERR_PACKAGE_PATH_NOT_EXPORTED`
+ * at runtime. The diagnostic steers the user to `import.meta.resolve` (or path arithmetic) instead.
+ * Covers both bare `require` and a `createRequire(...)` binding.
+ */
+function flagRequireSpecifiers(sourceFile: SourceFile, diagnostics: Diagnostic[]): void {
+    // Any local binding initialised from `createRequire(...)` is treated as a require function.
+    const requireNames = new Set(['require']);
+    for (const decl of sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration)) {
+        const init = decl.getInitializer();
+        if (!init || !Node.isCallExpression(init)) continue;
+        if (init.getExpression().getText() !== 'createRequire') continue;
+        const nameNode = decl.getNameNode();
+        if (Node.isIdentifier(nameNode)) requireNames.add(nameNode.getText());
+    }
+
+    for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+        const expr = call.getExpression();
+        let isRequireCall = false;
+        if (Node.isIdentifier(expr) && requireNames.has(expr.getText())) {
+            isRequireCall = true;
+        } else if (Node.isPropertyAccessExpression(expr) && expr.getName() === 'resolve') {
+            const obj = expr.getExpression();
+            if (Node.isIdentifier(obj) && requireNames.has(obj.getText())) isRequireCall = true;
+        }
+        if (!isRequireCall) continue;
+
+        const arg = call.getArguments()[0];
+        if (!arg || !Node.isStringLiteral(arg)) continue;
+        const specifier = arg.getLiteralValue();
+        if (!isSdkSpecifier(specifier)) continue;
+
+        diagnostics.push(
+            actionRequired(
+                sourceFile.getFilePath(),
+                call,
+                `require()/require.resolve() of a v1 SDK path: ${specifier}. The v2 packages' subpath exports have no ` +
+                    `\`require\` condition, so a rewritten specifier would still fail at runtime. Switch to ` +
+                    `\`import.meta.resolve(...)\` (or restructure to avoid resolving SDK dist files) and update the ` +
+                    `specifier per docs/migration/upgrade-to-v2.md.`
+            )
+        );
+    }
 }
 
 function rewriteDynamicImports(

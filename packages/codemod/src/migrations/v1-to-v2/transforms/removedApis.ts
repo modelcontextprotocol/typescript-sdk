@@ -3,7 +3,7 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
 import { renameAllReferences } from '../../../utils/astUtils';
-import { warning } from '../../../utils/diagnostics';
+import { actionRequired, warning } from '../../../utils/diagnostics';
 import { addOrMergeImport, isAnyMcpSpecifier } from '../../../utils/importUtils';
 
 const REMOVED_ZOD_HELPERS: Record<string, string> = {
@@ -138,6 +138,34 @@ function handleStreamableHTTPError(sourceFile: SourceFile, diagnostics: Diagnost
     const localName = foundImport.getAliasNode()?.getText() ?? 'StreamableHTTPError';
     const line = foundImportDecl.getStartLineNumber();
     const moduleSpec = foundImportDecl.getModuleSpecifierValue();
+
+    // v1's `StreamableHTTPError.code` carried the HTTP status (number); v2's `SdkHttpError.code` is the
+    // `SdkErrorCode` enum string and the status moved to `.status`. The class rename below keeps
+    // `error.code === 404` compiling (TS2367 if `error` is narrowed to `SdkHttpError`, otherwise no
+    // error) but always-false at runtime — the silent-misclassification class. Mark every `.code`
+    // access on an identifier that is `instanceof`-checked against this class so the user is steered to
+    // `.status` at the exact site, not just the file-level summary warning.
+    const instanceofSubjects = new Set<string>();
+    for (const be of sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+        if (be.getOperatorToken().getKind() !== SyntaxKind.InstanceOfKeyword) continue;
+        const right = be.getRight();
+        if (!Node.isIdentifier(right) || right.getText() !== localName) continue;
+        const left = be.getLeft();
+        if (Node.isIdentifier(left)) instanceofSubjects.add(left.getText());
+    }
+    for (const pa of sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression)) {
+        if (pa.getName() !== 'code') continue;
+        const obj = pa.getExpression();
+        if (!Node.isIdentifier(obj) || !instanceofSubjects.has(obj.getText())) continue;
+        diagnostics.push(
+            actionRequired(
+                sourceFile.getFilePath(),
+                pa,
+                `\`${obj.getText()}.code\` on an SdkHttpError is the SdkErrorCode string in v2; the HTTP status is on ` +
+                    `\`${obj.getText()}.status\`. Update this check (e.g. \`.code === 404\` → \`.status === 404\`).`
+            )
+        );
+    }
 
     let hasConstructorCalls = false;
     for (const node of sourceFile.getDescendantsOfKind(SyntaxKind.NewExpression)) {

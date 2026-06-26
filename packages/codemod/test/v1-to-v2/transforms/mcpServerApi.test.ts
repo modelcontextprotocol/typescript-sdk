@@ -396,6 +396,38 @@ describe('mcp-server-api transform', () => {
         expect(result.diagnostics.some(d => d.message.includes("'taskStore'"))).toBe(true);
     });
 
+    // #161 — wrapping a raw shape with z.object() in a file that never imported `z` produces TS2304.
+    describe('#161 — adds the zod import when emitting a z.object() wrapper', () => {
+        it("adds `import { z } from 'zod'` when no z binding exists and warns about the dependency", () => {
+            const input = [
+                `server.registerTool('echo', { inputSchema: { msg: { type: 'string' } } }, async ({ msg }) => ({`,
+                `    content: [{ type: 'text', text: msg }]`,
+                `}));`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+            const result = mcpServerApiTransform.apply(sourceFile, ctx);
+            const out = sourceFile.getFullText();
+            expect(out).toContain('z.object(');
+            expect(out).toMatch(/import\s*\{\s*z\s*\}\s*from\s*["']zod["']/);
+            expect(result.diagnostics.some(d => d.message.includes('zod@^4'))).toBe(true);
+        });
+
+        it('does not add a second zod import when z is already bound', () => {
+            const input = [
+                `import { z } from 'zod';`,
+                `server.registerTool('echo', { inputSchema: { msg: z.string() } }, async ({ msg }) => ({ content: [] }));`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+            mcpServerApiTransform.apply(sourceFile, ctx);
+            const out = sourceFile.getFullText();
+            expect(out.match(/from ['"]zod['"]/g)?.length).toBe(1);
+        });
+    });
+
     it('emits no task diagnostics for McpServer options without task options', () => {
         const input = [`const server = new McpServer({ name: 'test', version: '1.0' }, { instructions: 'hi' });`, ''].join('\n');
         const project = new Project({ useInMemoryFileSystem: true });

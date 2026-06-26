@@ -2,8 +2,38 @@ import type { CallExpression, SourceFile } from 'ts-morph';
 import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Diagnostic, Transform, TransformContext, TransformResult } from '../../../types';
-import { actionRequired, info } from '../../../utils/diagnostics';
+import { actionRequired, info, warning } from '../../../utils/diagnostics';
 import { isOriginalNameImportedFromMcp, resolveLocalImportName } from '../../../utils/importUtils';
+
+/** True when `z` is already bound in the file (named, default, or namespace) by an import from `zod`. */
+function hasZodImport(sourceFile: SourceFile): boolean {
+    return sourceFile.getImportDeclarations().some(imp => {
+        const spec = imp.getModuleSpecifierValue();
+        if (spec !== 'zod' && !spec.startsWith('zod/')) return false;
+        if (imp.getDefaultImport()?.getText() === 'z') return true;
+        if (imp.getNamespaceImport()?.getText() === 'z') return true;
+        return imp.getNamedImports().some(n => (n.getAliasNode()?.getText() ?? n.getName()) === 'z');
+    });
+}
+
+/**
+ * Ensure the `z` binding exists when this transform has just emitted a `z.object(...)` wrapper.
+ * Without it the wrap turns a working v1 file into a TS2304 (`Cannot find name 'z'`). Adds
+ * `import { z } from 'zod'` and warns that `zod` may need adding to the package's dependencies — the
+ * package.json updater bumps an existing zod range but does not add zod to a package that never had it.
+ */
+function ensureZodImport(sourceFile: SourceFile, diagnostics: Diagnostic[]): void {
+    if (hasZodImport(sourceFile)) return;
+    sourceFile.insertImportDeclaration(0, { moduleSpecifier: 'zod', namedImports: ['z'] });
+    diagnostics.push(
+        warning(
+            sourceFile.getFilePath(),
+            1,
+            "Added `import { z } from 'zod'` for the z.object() wrapper(s). " +
+                'If this package does not already depend on zod, add `zod@^4` to its dependencies.'
+        )
+    );
+}
 
 export const mcpServerApiTransform: Transform = {
     name: 'McpServer API migration',
@@ -126,6 +156,11 @@ export const mcpServerApiTransform: Transform = {
 
         flagRemovedTaskOptions(sourceFile, diagnostics);
 
+        // The wrap helpers emit a fixed info note whenever they emit a `z.object(...)` wrapper; use
+        // that as the signal so the helpers don't need to thread an extra out-param.
+        const wrappedRawShape = diagnostics.some(d => d.message.startsWith(RAW_WRAP_INFO_PREFIX));
+        if (wrappedRawShape) ensureZodImport(sourceFile, diagnostics);
+
         return { changesCount, diagnostics };
     }
 };
@@ -140,6 +175,8 @@ function isZodObjectCall(node: Node): boolean {
     if (!Node.isPropertyAccessExpression(expr)) return false;
     return expr.getName() === 'object' && expr.getExpression().getText() === 'z';
 }
+
+const RAW_WRAP_INFO_PREFIX = 'Raw object literal';
 
 function wrapWithZObject(schemaText: string): string {
     return `z.object(${schemaText})`;
@@ -159,7 +196,7 @@ function emitWrapDiagnostic(node: Node, sourceFile: SourceFile, call: CallExpres
             info(
                 sourceFile.getFilePath(),
                 call.getStartLineNumber(),
-                'Raw object literal wrapped with z.object(). Verify that zod (z) is imported in this file.'
+                `${RAW_WRAP_INFO_PREFIX} wrapped with z.object(). Verify that zod (z) is imported in this file.`
             )
         );
     } else if (!isZodObjectCall(node)) {
@@ -218,7 +255,7 @@ function wrapSchemaInConfig(call: CallExpression, schemaPropertyName: string, so
             info(
                 sourceFile.getFilePath(),
                 call.getStartLineNumber(),
-                `Raw object literal in ${schemaPropertyName} wrapped with z.object(). Verify that zod (z) is imported in this file.`
+                `${RAW_WRAP_INFO_PREFIX} in ${schemaPropertyName} wrapped with z.object(). Verify that zod (z) is imported in this file.`
             )
         );
         return true;

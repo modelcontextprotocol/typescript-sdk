@@ -31,7 +31,7 @@ export function findPackageJson(startDir: string): string | undefined {
     }
 }
 
-export function analyzeProject(targetDir: string): TransformContext {
+export function analyzeProject(targetDir: string, prefer?: 'client' | 'server'): TransformContext {
     const pkgJsonPath = findPackageJson(targetDir);
     if (pkgJsonPath) {
         try {
@@ -44,9 +44,9 @@ export function analyzeProject(targetDir: string): TransformContext {
             const hasClient = '@modelcontextprotocol/client' in allDeps;
             const hasServer = '@modelcontextprotocol/server' in allDeps;
 
-            if (hasClient && hasServer) return { projectType: 'both' };
-            if (hasClient) return { projectType: 'client' };
-            if (hasServer) return { projectType: 'server' };
+            if (hasClient && hasServer) return { projectType: 'both', prefer };
+            if (hasClient) return { projectType: 'client', prefer };
+            if (hasServer) return { projectType: 'server', prefer };
             // No v2 split deps — this is almost always a v1 project mid-migration (v1 ships as the single
             // `@modelcontextprotocol/sdk` package). Fall through to inferring the type from source usage.
         } catch {
@@ -54,7 +54,7 @@ export function analyzeProject(targetDir: string): TransformContext {
         }
     }
 
-    return { projectType: inferProjectTypeFromSource(targetDir) };
+    return { projectType: inferProjectTypeFromSource(targetDir), prefer };
 }
 
 /**
@@ -149,13 +149,29 @@ export function resolveTypesPackage(
         }
         return '@modelcontextprotocol/server';
     }
+    // No signal from this file or the project scan. Honour an explicit `--prefer` so a known
+    // client-only (or server-only) tool isn't blanket-routed to the wrong package — the per-file
+    // warning is downgraded to an info note since the user told us which way to lean.
+    if (context.prefer) {
+        const target = context.prefer === 'client' ? '@modelcontextprotocol/client' : '@modelcontextprotocol/server';
+        if (diagnosticSink) {
+            diagnosticSink.diagnostics.push(
+                info(
+                    diagnosticSink.filePath,
+                    diagnosticSink.line,
+                    `Shared protocol types imported from ${target} (no client/server signal in this file; using --prefer ${context.prefer}).`
+                )
+            );
+        }
+        return target;
+    }
     if (diagnosticSink) {
         diagnosticSink.diagnostics.push(
             warning(
                 diagnosticSink.filePath,
                 diagnosticSink.line,
                 'Could not determine project type (client vs server). Defaulting to @modelcontextprotocol/server. ' +
-                    'If this is a client-only project, adjust imports manually.'
+                    'Pass --prefer client (or --prefer server) to override, or adjust imports manually.'
             )
         );
     }

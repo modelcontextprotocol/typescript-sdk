@@ -1,9 +1,10 @@
 import type { Node } from 'ts-morph';
 import { Project, SyntaxKind } from 'ts-morph';
 
-import type { Diagnostic, FileResult, Migration, RunnerOptions, RunnerResult } from './types';
+import type { Diagnostic, FileResult, Migration, PackageJsonChange, RunnerOptions, RunnerResult } from './types';
 import { CODEMOD_ERROR_PREFIX, error } from './utils/diagnostics';
-import { updatePackageJson } from './utils/packageJsonUpdater';
+import { collectSourceFiles, extractFileHeader } from './utils/fileWalk';
+import { applyPackageJsonUpdate, attributeUsedPackages } from './utils/packageJsonUpdater';
 import { analyzeProject } from './utils/projectAnalyzer';
 
 const LITERAL_NODE_KINDS = new Set([
@@ -75,12 +76,34 @@ function insertDiagnosticComments(project: Project, fileResults: FileResult[]): 
     return insertedCount;
 }
 
-function escapeGlobPath(p: string): string {
-    return p.replaceAll(/[[\]{}()*?!@#]/g, String.raw`\$&`);
+/**
+ * Restore the file's original leading comment block when a transform has dropped or displaced it.
+ *
+ * A JSDoc block header is leading trivia of the first import declaration; ts-morph drops it with
+ * the node when that import is `remove()`d (the per-symbol split path in `importPaths`, and again in
+ * `symbolRenames`/`removedApis` when the rewritten import is itself removed). A `//` line-comment
+ * header instead survives a removal by re-attaching to the next statement, and a subsequent
+ * `insertImportDeclaration(0)` lands at byte 0 — ahead of it. Both leave the file no longer prefixed
+ * by its original header. We snapshot the header before transforms and, if it is no longer the file
+ * prefix, strip any displaced copy and re-prepend the original verbatim. The per-transform restore in
+ * `importPaths` handles the common case; this is the safety net for headers a later transform touches.
+ */
+function restoreFileHeader(sourceFile: import('ts-morph').SourceFile, originalHeader: string): void {
+    if (originalHeader.trim() === '') return;
+    const newText = sourceFile.getFullText();
+    if (newText.startsWith(originalHeader)) return;
+
+    let body = newText;
+    const displacedAt = body.indexOf(originalHeader);
+    if (displacedAt !== -1) {
+        body = body.slice(0, displacedAt) + body.slice(displacedAt + originalHeader.length);
+    }
+    body = body.replace(/^[\r\n]+/, '');
+    sourceFile.replaceWithText(originalHeader + body);
 }
 
 export function run(migration: Migration, options: RunnerOptions): RunnerResult {
-    const context = analyzeProject(options.targetDir);
+    const context = analyzeProject(options.targetDir, options.prefer);
 
     let enabledTransforms = migration.transforms;
     if (options.transforms) {
@@ -104,37 +127,23 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         }
     });
 
-    const globPattern = `${escapeGlobPath(options.targetDir)}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}`;
-    const ignorePatterns = [
-        '**/node_modules/**',
-        '**/dist/**',
-        '**/.git/**',
-        '**/build/**',
-        '**/.next/**',
-        '**/.nuxt/**',
-        '**/coverage/**',
-        '**/__generated__/**',
-        '**/*.d.ts',
-        '**/*.d.mts',
-        '**/*.d.cts',
-        ...(options.ignore ?? [])
-    ];
-
-    const allPatterns = [globPattern];
-    for (const ignore of ignorePatterns) {
-        allPatterns.push(`!${ignore}`);
+    // Own walk instead of ts-morph's `addSourceFilesAtPaths` glob: the glob follows directory symlinks
+    // (so a pnpm workspace with cyclic intra-workspace dev-deps dies with ELOOP) and applies negative
+    // patterns to matched files only (so `--ignore` cannot prune the descent that crashes). The walk
+    // also discovers every workspace `package.json` so a monorepo run updates each member manifest.
+    const { sourceFiles: sourceFilePaths, packageJsonPaths } = collectSourceFiles(options.targetDir, options.ignore ?? []);
+    for (const fp of sourceFilePaths) {
+        try {
+            project.addSourceFileAtPath(fp);
+        } catch {
+            // Unreadable file — skip; matches the prior glob's silent-skip behaviour.
+        }
     }
-    project.addSourceFilesAtPaths(allPatterns);
+    const sourceFiles = project.getSourceFiles();
 
-    const sourceFiles = project.getSourceFiles().filter(sf => {
-        const fp = sf.getFilePath();
-        if (fp.includes('/node_modules/') || fp.includes('/dist/')) return false;
-        if (fp.endsWith('.d.ts') || fp.endsWith('.d.mts') || fp.endsWith('.d.cts')) return false;
-        return true;
-    });
     const fileResults: FileResult[] = [];
     const allDiagnostics: Diagnostic[] = [];
-    const allUsedPackages = new Set<string>();
+    const perFileUsedPackages = new Map<string, Set<string>>();
     let totalChanges = 0;
     let filesChanged = 0;
 
@@ -142,6 +151,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         let fileChanges = 0;
         const fileDiagnostics: Diagnostic[] = [];
         const originalText = sourceFile.getFullText();
+        const originalHeader = extractFileHeader(originalText);
 
         const fileClaimedPackages = new Set<string>();
         try {
@@ -166,11 +176,11 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
             for (const literal of sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral)) {
                 survivingSpecifiers.add(literal.getLiteralValue());
             }
+            const surviving = new Set<string>();
             for (const pkg of fileClaimedPackages) {
-                if (survivingSpecifiers.has(pkg)) {
-                    allUsedPackages.add(pkg);
-                }
+                if (survivingSpecifiers.has(pkg)) surviving.add(pkg);
             }
+            perFileUsedPackages.set(sourceFile.getFilePath(), surviving);
         } catch (error_) {
             const filePath = sourceFile.getFilePath();
             fileDiagnostics.length = 0;
@@ -179,6 +189,8 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
             fileChanges = 0;
             fileClaimedPackages.clear();
         }
+
+        if (fileChanges > 0) restoreFileHeader(sourceFile, originalHeader);
 
         for (const d of fileDiagnostics) {
             if (d.resolveCurrentLine) {
@@ -206,9 +218,16 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     }
 
     const hasImportsTransform = enabledTransforms.some(t => t.id === 'imports');
-    const packageJsonChanges = hasImportsTransform
-        ? updatePackageJson(options.targetDir, allUsedPackages, options.dryRun ?? false)
-        : undefined;
+    let packageJsonChanges: PackageJsonChange[] | undefined;
+    if (hasImportsTransform) {
+        const attributed = attributeUsedPackages(options.targetDir, packageJsonPaths, perFileUsedPackages);
+        const changes: PackageJsonChange[] = [];
+        for (const [pkgJsonPath, used] of attributed) {
+            const change = applyPackageJsonUpdate(pkgJsonPath, used, options.dryRun ?? false);
+            if (change) changes.push(change);
+        }
+        packageJsonChanges = changes.length > 0 ? changes : undefined;
+    }
 
     // Per-file mutations are atomic: if any transform fails, the file is rolled back to its
     // original state and an error diagnostic is emitted.

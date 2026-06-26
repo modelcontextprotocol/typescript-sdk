@@ -11,6 +11,29 @@ const HANDLER_METHODS = new Set(['setRequestHandler', 'setNotificationHandler'])
 
 const REGISTER_METHODS = new Set(['registerTool', 'registerPrompt', 'registerResource', 'tool', 'prompt', 'resource']);
 
+const FALLBACK_HANDLER_PROPS = new Set(['fallbackRequestHandler', 'fallbackNotificationHandler']);
+
+/** v1 context properties whose presence on a non-remapped parameter should be flagged. */
+const V1_CONTEXT_PROPS = new Set(CONTEXT_PROPERTY_MAP.filter(m => m.from !== m.to).map(m => m.from.slice(1)));
+
+/**
+ * Unwrap `as`-cast and parenthesized callback expressions so the underlying arrow/function is reached.
+ * v1 code commonly typed a `registerTool` callback via `(async (args, extra) => …) as Parameters<…>[2]`;
+ * without the unwrap the remap silently skips it and `extra.authInfo` etc. survive into v2 — which
+ * type-checks (the cast carries its own annotation) and only fails at runtime.
+ */
+function unwrapCallback(node: Node | undefined): Node | undefined {
+    let current = node;
+    while (current) {
+        if (Node.isAsExpression(current) || Node.isParenthesizedExpression(current) || Node.isSatisfiesExpression(current)) {
+            current = current.getExpression();
+            continue;
+        }
+        return current;
+    }
+    return current;
+}
+
 /**
  * Attempt to rename the second parameter of a callback from 'extra' to 'ctx'
  * and rewrite context property accesses in its body.
@@ -27,9 +50,15 @@ function processCallback(
         return -1;
 
     const params = callbackNode.getParameters();
-    if (params.length < 2) return -1;
-
-    const extraParam = params[1]!;
+    // For `setRequestHandler`/`setNotificationHandler` and the McpServer register/tool/prompt/resource
+    // methods the context is the SECOND parameter when an args/request param is present. A schema-less
+    // tool/prompt callback (`registerTool('name', {}, async (extra) => …)`) receives the context as its
+    // ONLY parameter — fall back to params[0] when the sole parameter is the v1 `extra` name.
+    let extraParam = params[1];
+    if (!extraParam && params.length === 1 && params[0]!.getName() === EXTRA_PARAM_NAME) {
+        extraParam = params[0];
+    }
+    if (!extraParam) return -1;
     const paramNameNode = extraParam.getNameNode();
     if (Node.isObjectBindingPattern(paramNameNode)) {
         diagnostics.push(
@@ -219,6 +248,7 @@ export const contextTypesTransform: Transform = {
                     callbackArg = args.at(-1);
                 }
 
+                callbackArg = unwrapCallback(callbackArg);
                 if (!callbackArg) continue;
 
                 // Handle ObjectLiteralExpression callback containers (handler maps)
@@ -252,6 +282,63 @@ export const contextTypesTransform: Transform = {
                     break;
                 }
             }
+        }
+
+        // `protocol.fallbackRequestHandler = async (request, extra) => …` — the v1 fallback handler
+        // is assigned, not registered, so the call-site scan above never sees it.
+        for (const be of sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression)) {
+            if (be.getOperatorToken().getKind() !== SyntaxKind.EqualsToken) continue;
+            const lhs = be.getLeft();
+            if (!Node.isPropertyAccessExpression(lhs) || !FALLBACK_HANDLER_PROPS.has(lhs.getName())) continue;
+            const cb = unwrapCallback(be.getRight());
+            if (!cb) continue;
+            const result = processCallback(cb, sourceFile, diagnostics, lhs.getName(), be.getStartLineNumber());
+            if (result > 0) changesCount += result;
+        }
+
+        // Catch-all marker for context parameters the remap could not reach: any function parameter
+        // annotated `ServerContext` / `ClientContext` (the symbol-renames transform has already
+        // rewritten v1's `RequestHandlerExtra` to those) whose body still accesses a v1-shaped
+        // property. Covers handlers typed via a local alias, helpers a callback forwards its context
+        // to, and any callback shape not enumerated above. Marking (not rewriting) keeps the
+        // compile-time/runtime regression visible without risking a wrong rewrite on a non-MCP type
+        // that happens to share the property name.
+        for (const param of sourceFile.getDescendantsOfKind(SyntaxKind.Parameter)) {
+            const typeNode = param.getTypeNode();
+            if (!typeNode || !Node.isTypeReference(typeNode)) continue;
+            const typeName = typeNode.getTypeName().getText();
+            if (typeName !== 'ServerContext' && typeName !== 'ClientContext') continue;
+            const nameNode = param.getNameNode();
+            if (!Node.isIdentifier(nameNode)) continue;
+            const paramName = nameNode.getText();
+            if (paramName === CTX_PARAM_NAME) continue; // already migrated form
+
+            const fn = param.getParent();
+            const body =
+                Node.isArrowFunction(fn) || Node.isFunctionExpression(fn) || Node.isFunctionDeclaration(fn) || Node.isMethodDeclaration(fn)
+                    ? fn.getBody()
+                    : undefined;
+            if (!body) continue;
+
+            const stale = new Set<string>();
+            body.forEachDescendant(node => {
+                if (!Node.isPropertyAccessExpression(node)) return;
+                const obj = node.getExpression();
+                if (!Node.isIdentifier(obj) || obj.getText() !== paramName) return;
+                if (V1_CONTEXT_PROPS.has(node.getName())) stale.add(node.getName());
+            });
+            if (stale.size === 0) continue;
+
+            diagnostics.push(
+                actionRequired(
+                    sourceFile.getFilePath(),
+                    param,
+                    `Parameter \`${paramName}: ${typeName}\` accesses v1 context propert${stale.size === 1 ? 'y' : 'ies'} ` +
+                        `(${[...stale].map(p => `.${p}`).join(', ')}) that moved in v2 ` +
+                        `(e.g. .signal → .mcpReq.signal, .authInfo → .http?.authInfo). The codemod could not remap this ` +
+                        `parameter automatically — update the property accesses manually.`
+                )
+            );
         }
 
         return { changesCount, diagnostics };

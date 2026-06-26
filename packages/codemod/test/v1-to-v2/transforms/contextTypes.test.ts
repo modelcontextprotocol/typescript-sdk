@@ -368,6 +368,72 @@ describe('context-types transform', () => {
         expect(result).not.toContain('extra');
     });
 
+    // #152 — as-cast/parenthesized callbacks were skipped (the callback arg is an AsExpression, not the
+    // arrow function), leaving `extra.authInfo` etc. in code that type-checks via the cast and only
+    // fails at runtime.
+    it('#152 — remaps an as-cast/parenthesized registerTool callback', () => {
+        const input = [
+            `server.registerTool('issue', { inputSchema: z.object({}) }, (async (args, extra) => {`,
+            `    if (!extra.authInfo) throw new Error('no auth');`,
+            `    return { content: [] };`,
+            `}) as Parameters<McpServer['registerTool']>[2]);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('(args, ctx)');
+        expect(result).toContain('ctx.http?.authInfo');
+        expect(result).not.toContain('extra.authInfo');
+    });
+
+    // #152 — `protocol.fallbackRequestHandler = async (request, extra) => …` is an assignment, not a
+    // call, so the call-site scan never reached it.
+    it('#152 — remaps a fallbackRequestHandler assignment', () => {
+        const input = [
+            `server.fallbackRequestHandler = async (request, extra) => {`,
+            `    await extra.sendNotification({ method: 'test' });`,
+            `    return {};`,
+            `};`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('(request, ctx)');
+        expect(result).toContain('ctx.mcpReq.notify');
+    });
+
+    // #152 — helpers a callback forwards its context to (or any parameter explicitly typed
+    // ServerContext/ClientContext) are not remapped automatically; emit a site-level marker so the
+    // stale property access is visible in the diff instead of silently breaking at runtime.
+    it('#152 — marks v1 property accesses on a parameter typed ServerContext that the remap could not reach', () => {
+        const input = [
+            `import type { ServerContext } from '@modelcontextprotocol/server';`,
+            `function helper(extra: ServerContext) {`,
+            `    return extra.sendRequest({ method: 'x' }, S);`,
+            `}`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = contextTypesTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics.some(d => d.insertComment && d.message.includes('.sendRequest'))).toBe(true);
+    });
+
+    // #122 — a schema-less McpServer registerTool callback receives the context as its ONLY parameter;
+    // the remap previously required a second parameter and skipped these.
+    it('#122 — remaps a single-parameter (context-only) registerTool callback', () => {
+        const input = [
+            `server.registerTool('ping', {}, async (extra) => {`,
+            `    const m = extra._meta;`,
+            `    await extra.sendNotification({ method: 'test' });`,
+            `    return { content: [] };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('async (ctx)');
+        expect(result).toContain('ctx.mcpReq._meta');
+        expect(result).toContain('ctx.mcpReq.notify');
+    });
+
     it('rewrites typeof ctx.signal in type positions', () => {
         const input = [
             `server.setRequestHandler('tools/call', async (request, extra) => {`,
