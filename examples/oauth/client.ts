@@ -115,7 +115,7 @@ try {
 } catch (error) {
     // Under `--legacy` the transport surfaces `UnauthorizedError` directly;
     // under `mode: 'auto'` the version-negotiation probe is what got 401'd
-    // and wraps it in an EraNegotiationFailed `SdkError` whose `data.cause`
+    // and wraps it in an VersionNegotiationFailed `SdkError` whose `data.cause`
     // is the original `UnauthorizedError`. Either way the auth driver has
     // already run by the time we land here — DCR done, auth URL captured.
     const root = error instanceof UnauthorizedError ? error : (error as { data?: { cause?: unknown } }).data?.cause;

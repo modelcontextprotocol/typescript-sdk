@@ -25,6 +25,7 @@ import {
     SUPPORTED_MODERN_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 
+import { UnauthorizedError } from './auth';
 import type { ProbeEnvironment, ProbeOutcome, ProbeTransportKind, ProbeVerdict } from './probeClassifier';
 import { classifyProbeOutcome } from './probeClassifier';
 
@@ -293,11 +294,6 @@ function normalizeReply(reply: RawProbeReply, timeoutMs: number): ProbeOutcome {
                 const text = (error.data as { text?: unknown } | undefined)?.text;
                 return { kind: 'http-error', status: error.data.status, body: typeof text === 'string' ? text : undefined };
             }
-            if (error instanceof Error && error.name === 'UnauthorizedError') {
-                // Auth-gated server: not era evidence — the conservative legacy
-                // fallback re-runs the auth flow through the plain connect path.
-                return { kind: 'http-error', status: 401 };
-            }
             return { kind: 'network-error', error };
         }
         case 'closed': {
@@ -355,6 +351,17 @@ export async function negotiateEra(
                 timeoutMs
             );
 
+            if (reply.kind === 'send-error' && reply.error instanceof UnauthorizedError) {
+                // Authorization required: not era evidence and not a negotiation
+                // failure — surface the same UnauthorizedError the legacy connect
+                // path throws so callers can finishAuth() and reconnect. (The
+                // alternative — treating 401 as a legacy-fallback signal — would
+                // re-run the entire OAuth flow on the initialize send before
+                // throwing the same error.) Downstream cleanup (window detach,
+                // transport close) is the existing throw path.
+                throw reply.error;
+            }
+
             if (reply.kind === 'timeout' && timeoutRetriesRemaining > 0) {
                 timeoutRetriesRemaining--;
                 continue;
@@ -385,7 +392,7 @@ export async function negotiateEra(
                 case 'legacy': {
                     if (negotiation.kind === 'pin') {
                         throw new SdkError(
-                            SdkErrorCode.EraNegotiationFailed,
+                            SdkErrorCode.VersionNegotiationFailed,
                             `Version negotiation failed: the server did not offer pinned protocol version ${negotiation.version} ` +
                                 `via server/discover (no fallback in pin mode)`
                         );
@@ -394,7 +401,7 @@ export async function negotiateEra(
                         // Modern-only client: the legacy initialize fallback is
                         // unavailable and must never carry a 2026-era version string.
                         throw new SdkError(
-                            SdkErrorCode.EraNegotiationFailed,
+                            SdkErrorCode.VersionNegotiationFailed,
                             'Version negotiation failed: the server gave no modern evidence and this client supports no ' +
                                 'pre-2026-07-28 protocol version to fall back to'
                         );

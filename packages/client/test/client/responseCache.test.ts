@@ -419,11 +419,18 @@ describe('Client response-cache substrate', () => {
         expect(store.get({ method: 'tools/list', partition: part() })).toBeUndefined();
         expect(listCount()).toBe(1);
 
+        // allPages: false → first page only, raw nextCursor preserved, NO cache write.
+        const firstPage = await client.listTools(undefined, { allPages: false });
+        expect(firstPage.tools.map(t => t.name)).toEqual(['a']);
+        expect(firstPage.nextCursor).toBe('1');
+        expect(store.get({ method: 'tools/list', partition: part() })).toBeUndefined();
+        expect(listCount()).toBe(2);
+
         // No cursor → aggregates every page and writes one entry.
         const { tools, nextCursor } = await client.listTools();
         expect(tools.map(t => t.name)).toEqual(['a', 'b']);
         expect(nextCursor).toBeUndefined();
-        expect(listCount()).toBe(3);
+        expect(listCount()).toBe(4);
 
         const entry = store.get({ method: 'tools/list', partition: part() });
         expect((entry?.value as { tools: Tool[] }).tools.map(t => t.name)).toEqual(['a', 'b']);

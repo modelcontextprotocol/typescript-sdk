@@ -39,7 +39,7 @@ describe('plain client with a modern-only supported-versions list', () => {
         const client = new Client({ name: 'modern-only-client', version: '1.0.0' }, { supportedProtocolVersions });
 
         await expect(client.connect(transport)).rejects.toSatisfy(
-            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+            error => error instanceof SdkError && error.code === SdkErrorCode.VersionNegotiationFailed
         );
 
         expect(transport.sent.filter(message => 'method' in message && message.method === 'initialize')).toHaveLength(0);

@@ -294,7 +294,7 @@ async function auth_finishAuth(url: URL, provider: OAuthClientProvider & { lastS
         return client;
     } catch (error) {
         // With version negotiation, the connect-time 401 may surface wrapped as
-        // SdkError(EraNegotiationFailed) whose .data.cause is the UnauthorizedError.
+        // SdkError(VersionNegotiationFailed) whose .data.cause is the UnauthorizedError.
         const root = error instanceof UnauthorizedError ? error : (error as { data?: { cause?: unknown } }).data?.cause;
         if (!(root instanceof UnauthorizedError)) throw error;
         // The transport called redirectToAuthorization(); fall through to the browser callback.

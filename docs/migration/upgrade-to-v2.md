@@ -493,11 +493,12 @@ if (error instanceof SdkHttpError) {
 | `ConnectionClosed` | Connection was closed |
 | `SendFailed` | Failed to send message |
 | `InvalidResult` | Response result failed local schema validation |
+| `ResultProtocolMismatch` | The peer returned a result whose shape does not match the negotiated protocol version's schema (e.g. a 2026-07-28 peer omitted the REQUIRED `resultType` discriminator) |
 | `UnsupportedResultType` | A 2026-era response carried an unrecognized `resultType` |
 | `InputRequiredRoundsExceeded` | Multi-round-trip auto-fulfilment hit `maxRounds` |
 | `ListPaginationExceeded` | No-arg `list*()` aggregate walk hit `listMaxPages` |
 | `MethodNotSupportedByProtocolVersion` | Outbound spec method does not exist on the negotiated protocol version |
-| `EraNegotiationFailed` | `connect()` could not negotiate a protocol era (probe failed / no overlap) |
+| `VersionNegotiationFailed` | `connect()` could not negotiate a protocol version (probe failed / no overlap). Auth-required connects throw `UnauthorizedError` directly in every negotiation mode — `VersionNegotiationFailed` is reserved for genuine negotiation failures |
 | `ClientHttpNotImplemented` | HTTP POST request failed |
 | `ClientHttpAuthentication` | Server returned 401 after re-authentication |
 | `ClientHttpForbidden` | Server returned 403 `insufficient_scope` after step-up retry cap |

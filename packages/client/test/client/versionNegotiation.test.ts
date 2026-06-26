@@ -18,6 +18,7 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
+import { UnauthorizedError } from '../../src/client/auth';
 import { Client } from '../../src/client/client';
 import type { StreamableHTTPClientTransportOptions } from '../../src/client/streamableHttp';
 import type { StdioServerParameters } from '../../src/client/stdio';
@@ -312,7 +313,7 @@ describe('auto mode against a legacy server (fallback)', () => {
         );
 
         await expect(client.connect(transport)).rejects.toSatisfy(
-            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+            error => error instanceof SdkError && error.code === SdkErrorCode.VersionNegotiationFailed
         );
         // The fallback never ran: no initialize carrying any version was sent.
         expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
@@ -393,7 +394,7 @@ describe('probe timeout policy (transport-aware)', () => {
         const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN }, probe: { timeoutMs: 30 } } });
 
         await expect(client.connect(transport)).rejects.toSatisfy(
-            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+            error => error instanceof SdkError && error.code === SdkErrorCode.VersionNegotiationFailed
         );
         expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
     });
@@ -582,7 +583,7 @@ describe('pin mode', () => {
         const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
 
         await expect(client.connect(transport)).rejects.toSatisfy(
-            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+            error => error instanceof SdkError && error.code === SdkErrorCode.VersionNegotiationFailed
         );
         expect(transport.sent.some(m => 'method' in m && m.method === 'initialize')).toBe(false);
     });
@@ -607,7 +608,7 @@ describe('pin mode', () => {
         const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
 
         await expect(client.connect(transport)).rejects.toSatisfy(
-            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+            error => error instanceof SdkError && error.code === SdkErrorCode.VersionNegotiationFailed
         );
 
         // The probe window's one-shot start() pass-through must not stay armed
@@ -704,5 +705,64 @@ describe('era scope discipline', () => {
         type NotAKeyOf<T, K extends string> = K extends keyof T ? false : true;
         const noCachedEra: NotAKeyOf<NonNullable<ConstructorParameters<typeof Client>[1]>, 'cachedEra'> = true;
         expect(noCachedEra).toBe(true);
+    });
+});
+
+/* ------------------------------------------------------------------------- *
+ * Connect-time 401 from the auth provider: short-circuit rethrow.
+ * ------------------------------------------------------------------------- */
+
+describe("connect-time UnauthorizedError under 'auto' / pin", () => {
+    /** A transport whose `send()` rejects every call with the given error (emulates a 401 from the auth layer at probe time). */
+    class RejectingTransport implements Transport {
+        onclose?: () => void;
+        onerror?: (error: Error) => void;
+        onmessage?: (message: JSONRPCMessage) => void;
+        sent: JSONRPCMessage[] = [];
+        closed = false;
+        constructor(private readonly error: unknown) {}
+        async start(): Promise<void> {}
+        async send(message: JSONRPCMessage): Promise<void> {
+            this.sent.push(message);
+            throw this.error;
+        }
+        async close(): Promise<void> {
+            this.closed = true;
+            this.onclose?.();
+        }
+    }
+
+    test("'auto': UnauthorizedError from the probe send rejects connect() directly — no VersionNegotiationFailed wrapping, no initialize", async () => {
+        const transport = new RejectingTransport(new UnauthorizedError());
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+
+        const rejection = await client.connect(transport).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(UnauthorizedError);
+        expect((rejection as Error).name).toBe('UnauthorizedError');
+        // Exactly one probe was attempted; the legacy initialize fallback never ran.
+        expect(transport.sent).toHaveLength(1);
+        expect((transport.sent[0] as JSONRPCRequest).method).toBe('server/discover');
+        // _connectNegotiated's catch closes the transport on a typed connect error.
+        expect(transport.closed).toBe(true);
+    });
+
+    test('pin mode: UnauthorizedError is rethrown directly (not a pin-miss)', async () => {
+        const transport = new RejectingTransport(new UnauthorizedError('redirect required'));
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
+        await expect(client.connect(transport)).rejects.toBeInstanceOf(UnauthorizedError);
+    });
+
+    test('a non-auth network failure on the probe send still rejects with SdkError(VersionNegotiationFailed)', async () => {
+        const transport = new RejectingTransport(new Error('ECONNREFUSED'));
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: 'auto' } });
+        const rejection = await client.connect(transport).then(
+            () => undefined,
+            (error: unknown) => error
+        );
+        expect(rejection).toBeInstanceOf(SdkError);
+        expect((rejection as SdkError).code).toBe(SdkErrorCode.VersionNegotiationFailed);
     });
 });

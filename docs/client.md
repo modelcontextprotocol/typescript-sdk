@@ -137,7 +137,7 @@ await worker.connect(new StreamableHTTPClientTransport(url), { prior: JSON.parse
 ```
 
 {@linkcode @modelcontextprotocol/client!client/client.Client#getDiscoverResult | client.getDiscoverResult()} returns the value that the `'auto'`/pinned probe path, an explicit {@linkcode @modelcontextprotocol/client!client/client.Client#discover | client.discover()} call, or a
-prior `connect({ prior })` recorded; it round-trips through `JSON.stringify`/`JSON.parse`. `connect({ prior })` is **2026-07-28+ only** — it rejects with `SdkError(EraNegotiationFailed)` when the supplied result and the client share no modern revision. Only reuse a persisted
+prior `connect({ prior })` recorded; it round-trips through `JSON.stringify`/`JSON.parse`. `connect({ prior })` is **2026-07-28+ only** — it rejects with `SdkError(VersionNegotiationFailed)` when the supplied result and the client share no modern revision. Only reuse a persisted
 `DiscoverResult` across clients that present the **same authorization context** as the one that obtained it. See the [`gateway/` example](../examples/gateway/README.md) for the full probe-once / connect-many pattern with a server-side proof.
 
 ### Disconnecting
@@ -298,7 +298,7 @@ try {
     return client;
 } catch (error) {
     // With version negotiation, the connect-time 401 may surface wrapped as
-    // SdkError(EraNegotiationFailed) whose .data.cause is the UnauthorizedError.
+    // SdkError(VersionNegotiationFailed) whose .data.cause is the UnauthorizedError.
     const root = error instanceof UnauthorizedError ? error : (error as { data?: { cause?: unknown } }).data?.cause;
     if (!(root instanceof UnauthorizedError)) throw error;
     // The transport called redirectToAuthorization(); fall through to the browser callback.

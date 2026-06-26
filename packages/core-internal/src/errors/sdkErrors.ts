@@ -29,6 +29,16 @@ export enum SdkErrorCode {
     /** Response result failed local schema validation */
     InvalidResult = 'INVALID_RESULT',
     /**
+     * The peer returned a result whose shape does not match the negotiated
+     * protocol version's schema — e.g. a 2026-07-28 peer omitted (or
+     * malformed) the REQUIRED `resultType` discriminator. Distinct from
+     * {@linkcode InvalidResult} (a result that fails the per-method schema)
+     * so downstream tooling can classify "the peer is non-conformant for the
+     * negotiated revision" separately from a malformed payload. `data.method`
+     * carries the method, `data.violation` the rule.
+     */
+    ResultProtocolMismatch = 'RESULT_PROTOCOL_MISMATCH',
+    /**
      * The response carried a `resultType` discriminator (protocol revision
      * 2026-07-28) naming a result kind this client cannot consume yet, e.g.
      * `input_required`. The kind is carried in `data.resultType`.
@@ -61,14 +71,16 @@ export enum SdkErrorCode {
      */
     MethodNotSupportedByProtocolVersion = 'METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION',
     /**
-     * Protocol-era negotiation at connect time failed without producing either a
-     * usable modern (2026-07-28+) era or a definitive legacy fallback signal —
-     * e.g. the negotiation mode forbids falling back (`pin`), or the probe hit a
-     * network failure (a typed connect error, never an era verdict).
+     * Protocol version negotiation at connect time failed without producing
+     * either a usable modern (2026-07-28+) revision or a definitive legacy
+     * fallback signal — e.g. the negotiation mode forbids falling back
+     * (`pin`), or the probe hit a network failure (a typed connect error,
+     * never a verdict).
      *
-     * Negotiation-phase only: this code is never used once an era is established.
+     * Negotiation-phase only: this code is never used once a protocol version
+     * is established.
      */
-    EraNegotiationFailed = 'ERA_NEGOTIATION_FAILED',
+    VersionNegotiationFailed = 'VERSION_NEGOTIATION_FAILED',
 
     // Transport errors
     ClientHttpNotImplemented = 'CLIENT_HTTP_NOT_IMPLEMENTED',

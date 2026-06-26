@@ -172,7 +172,7 @@ verifies('typescript:client:raw-result-type-first', async ({ transport }: TestAr
             const rejection = (outcome as { rejected: unknown }).rejected;
             expect(rejection).toBeInstanceOf(SdkError);
             const typed = rejection as SdkError;
-            expect(typed.code).toBe(SdkErrorCode.InvalidResult);
+            expect(typed.code).toBe(SdkErrorCode.ResultProtocolMismatch);
             expect(String(typed.message)).toContain('missing required resultType');
         } finally {
             await client.close();

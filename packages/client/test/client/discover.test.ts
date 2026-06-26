@@ -84,6 +84,43 @@ describe('Client.discover()', () => {
         await client.close();
     });
 
+    test('absent ttlMs/cacheScope default to 0/private (spec receiver-side SHOULD — caching §TTL); not the resultType posture', async () => {
+        // The 2026-07-28 spec marks ttlMs/cacheScope REQUIRED on the SENDER side
+        // ("Servers MUST provide a ttlMs value that is >= 0") but tells receivers:
+        // "If ttlMs is absent, clients SHOULD assume a default of 0". The SDK
+        // applies the receiver-side SHOULD: a non-conformant server's discover
+        // result is accepted with safe defaults, unlike a missing resultType
+        // (ResultProtocolMismatch). The sender obligation is enforced by
+        // the SDK server's encode step, not by parse here.
+        const lenientScript = (message: JSONRPCMessage, t: ScriptedTransport) => {
+            if (!isJSONRPCRequest(message)) return;
+            if (message.method === 'server/discover') {
+                t.reply({
+                    jsonrpc: '2.0',
+                    id: message.id,
+                    result: {
+                        // ttlMs, cacheScope and resultType deliberately omitted.
+                        supportedVersions: [MODERN],
+                        capabilities: { tools: {} },
+                        serverInfo: { name: 'nonconformant-server', version: '1.0.0' }
+                    }
+                });
+            }
+        };
+        const transport = new ScriptedTransport(lenientScript);
+        const client = new Client({ name: 'c', version: '0' }, { versionNegotiation: { mode: { pin: MODERN } } });
+        await client.connect(transport);
+
+        // The connect-time probe classifier parses with the wire schema, which
+        // applies the spec receiver-side SHOULD defaults — so connect succeeds
+        // and getDiscoverResult() reports the defaulted values.
+        const advertisement = client.getDiscoverResult();
+        expect(advertisement?.ttlMs).toBe(0);
+        expect(advertisement?.cacheScope).toBe('private');
+
+        await client.close();
+    });
+
     test('is rejected locally with a typed error on a 2025-era connection (the method does not exist on that era)', async () => {
         const transport = new ScriptedTransport(legacyScript);
         const client = new Client({ name: 'c', version: '0' });

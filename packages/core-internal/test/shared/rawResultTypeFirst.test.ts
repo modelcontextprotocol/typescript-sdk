@@ -104,7 +104,7 @@ describe('raw-first resultType discrimination — 2026 era (codec decode step 1)
         expect('rejected' in outcome).toBe(true);
         const rejection = (outcome as { rejected: unknown }).rejected as SdkError;
         expect(rejection).toBeInstanceOf(SdkError);
-        expect(rejection.code).toBe(SdkErrorCode.InvalidResult);
+        expect(rejection.code).toBe(SdkErrorCode.ResultProtocolMismatch);
         expect(rejection.message).toContain('missing required resultType');
         expect(rejection.data).toMatchObject({ method: 'tools/call', violation: 'missing-resultType' });
 
@@ -118,7 +118,7 @@ describe('raw-first resultType discrimination — 2026 era (codec decode step 1)
         expect('rejected' in outcome).toBe(true);
         const rejection = (outcome as { rejected: unknown }).rejected as SdkError;
         expect(rejection).toBeInstanceOf(SdkError);
-        expect(rejection.code).toBe(SdkErrorCode.InvalidResult);
+        expect(rejection.code).toBe(SdkErrorCode.ResultProtocolMismatch);
         expect(rejection.data).toMatchObject({ resultType: 42 });
 
         await protocol.close();

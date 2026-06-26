@@ -193,7 +193,7 @@ describe('typed connect errors (Q12) over real sockets', () => {
         const transport = new StreamableHTTPClientTransport(url);
 
         await expect(client.connect(transport)).rejects.toSatisfy(
-            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+            error => error instanceof SdkError && error.code === SdkErrorCode.VersionNegotiationFailed
         );
     });
 

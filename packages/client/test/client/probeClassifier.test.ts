@@ -262,7 +262,7 @@ describe('row: network outage → typed connect error (Node)', () => {
         expect(verdict.kind).toBe('error');
         if (verdict.kind === 'error') {
             expect(verdict.error).toBeInstanceOf(SdkError);
-            expect((verdict.error as SdkError).code).toBe(SdkErrorCode.EraNegotiationFailed);
+            expect((verdict.error as SdkError).code).toBe(SdkErrorCode.VersionNegotiationFailed);
         }
     });
 

@@ -2,7 +2,7 @@
  * `connect({ prior: DiscoverResult })` — zero-round-trip reconnect for the
  * gateway / distributed-client pattern (issue #79). A previously-obtained
  * `DiscoverResult` adopted directly: on a modern overlap nothing reaches the
- * wire during connect; no modern overlap throws `EraNegotiationFailed` (no
+ * wire during connect; no modern overlap throws `VersionNegotiationFailed` (no
  * legacy fallback). Populates `getDiscoverResult()` (alongside the
  * `'auto'`-mode probe path) and round-trips through JSON.
  */
@@ -104,13 +104,13 @@ describe('connect({ prior }) — modern overlap: zero round trips', () => {
 });
 
 describe('connect({ prior }) — no modern overlap: throws (no legacy fallback)', () => {
-    test('legacy-only prior → SdkError(EraNegotiationFailed) steering to mode: auto', async () => {
+    test('legacy-only prior → SdkError(VersionNegotiationFailed) steering to mode: auto', async () => {
         const transport = new ScriptedTransport();
         const client = new Client({ name: 'worker', version: '0' });
         await expect(client.connect(transport, { prior: prior(['2025-06-18']) })).rejects.toSatisfy(
             error =>
                 error instanceof SdkError &&
-                error.code === SdkErrorCode.EraNegotiationFailed &&
+                error.code === SdkErrorCode.VersionNegotiationFailed &&
                 /2026-07-28\+ mutual/.test(error.message) &&
                 /mode: 'auto'/.test(error.message)
         );
@@ -119,11 +119,11 @@ describe('connect({ prior }) — no modern overlap: throws (no legacy fallback)'
         expect(client.getDiscoverResult()).toBeUndefined();
     });
 
-    test('disjoint modern lists → SdkError(EraNegotiationFailed)', async () => {
+    test('disjoint modern lists → SdkError(VersionNegotiationFailed)', async () => {
         const transport = new ScriptedTransport();
         const client = new Client({ name: 'worker', version: '0' });
         await expect(client.connect(transport, { prior: prior(['2099-01-01']) })).rejects.toSatisfy(
-            error => error instanceof SdkError && error.code === SdkErrorCode.EraNegotiationFailed
+            error => error instanceof SdkError && error.code === SdkErrorCode.VersionNegotiationFailed
         );
         expect(transport.sent).toHaveLength(0);
     });

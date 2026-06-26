@@ -12,6 +12,7 @@ import {
     CLIENT_INFO_META_KEY,
     InMemoryTransport,
     LATEST_PROTOCOL_VERSION,
+    LOG_LEVEL_META_KEY,
     PROTOCOL_VERSION_META_KEY
 } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
@@ -32,7 +33,7 @@ function metaOf(message: JSONRPCMessage): Record<string, unknown> | undefined {
  * negotiating client lands on the modern era) or `initialize` (legacy era), and
  * records everything the client writes.
  */
-async function scriptedServerSide(era: 'modern' | 'legacy', answerToolsList = true) {
+async function scriptedServerSide(era: 'modern' | 'legacy', answerToolsList = true, withLogging = false) {
     const [clientTx, serverTx] = InMemoryTransport.createLinkedPair();
     const written: JSONRPCMessage[] = [];
     serverTx.onmessage = message => {
@@ -46,7 +47,7 @@ async function scriptedServerSide(era: 'modern' | 'legacy', answerToolsList = tr
                     result: {
                         resultType: 'complete',
                         supportedVersions: [MODERN],
-                        capabilities: { tools: {} },
+                        capabilities: { tools: {}, ...(withLogging && { logging: {} }) },
                         serverInfo: { name: 'scripted-modern-server', version: '1.0.0' }
                     }
                 });
@@ -61,10 +62,14 @@ async function scriptedServerSide(era: 'modern' | 'legacy', answerToolsList = tr
                 id: request.id,
                 result: {
                     protocolVersion: LATEST_PROTOCOL_VERSION,
-                    capabilities: { tools: {} },
+                    capabilities: { tools: {}, ...(withLogging && { logging: {} }) },
                     serverInfo: { name: 'scripted-legacy-server', version: '1.0.0' }
                 }
             });
+            return;
+        }
+        if (request.method === 'logging/setLevel' && request.id !== undefined) {
+            void serverTx.send({ jsonrpc: '2.0', id: request.id, result: {} });
             return;
         }
         if (request.method === 'tools/list' && request.id !== undefined && answerToolsList) {
@@ -226,6 +231,79 @@ describe('setVersionNegotiation()', () => {
         client.setVersionNegotiation(undefined);
         await client.connect(clientTx);
         expect(client.getProtocolEra()).toBe('legacy');
+        await client.close();
+    });
+});
+
+describe('ClientOptions.logLevel', () => {
+    it('attaches the LOG_LEVEL_META_KEY envelope key to every outgoing request on a modern connection', async () => {
+        const { clientTx, written } = await scriptedServerSide('modern');
+        const client = new Client(
+            { name: 'envelope-client', version: '1.0.0' },
+            { versionNegotiation: { mode: { pin: MODERN } }, logLevel: 'info' }
+        );
+        await client.connect(clientTx);
+
+        await client.listTools();
+        await flush();
+
+        const listToolsMessage = written.find(m => (m as { method?: string }).method === 'tools/list');
+        expect(metaOf(listToolsMessage!)?.[LOG_LEVEL_META_KEY]).toBe('info');
+
+        await client.close();
+    });
+
+    it('a per-call _meta[LOG_LEVEL_META_KEY] overrides the option default', async () => {
+        const { clientTx, written } = await scriptedServerSide('modern');
+        const client = new Client(
+            { name: 'envelope-client', version: '1.0.0' },
+            { versionNegotiation: { mode: { pin: MODERN } }, logLevel: 'info' }
+        );
+        await client.connect(clientTx);
+
+        await client.request({ method: 'tools/list', params: { _meta: { [LOG_LEVEL_META_KEY]: 'debug' } } });
+        const listToolsMessage = written.find(m => (m as { method?: string }).method === 'tools/list');
+        expect(metaOf(listToolsMessage!)?.[LOG_LEVEL_META_KEY]).toBe('debug');
+
+        await client.close();
+    });
+
+    it('without the option set, no LOG_LEVEL_META_KEY is attached (unchanged default)', async () => {
+        const { clientTx, written } = await scriptedServerSide('modern');
+        const client = new Client({ name: 'envelope-client', version: '1.0.0' }, { versionNegotiation: { mode: { pin: MODERN } } });
+        await client.connect(clientTx);
+
+        await client.listTools();
+        const listToolsMessage = written.find(m => (m as { method?: string }).method === 'tools/list');
+        expect(metaOf(listToolsMessage!)?.[LOG_LEVEL_META_KEY]).toBeUndefined();
+
+        await client.close();
+    });
+
+    it('on a legacy connection: no envelope key, but a single best-effort logging/setLevel is sent when the server advertises logging', async () => {
+        const { clientTx, written } = await scriptedServerSide('legacy', true, /* withLogging */ true);
+        const client = new Client({ name: 'envelope-client', version: '1.0.0' }, { logLevel: 'warning' });
+        await client.connect(clientTx);
+        await flush();
+
+        const setLevel = written.find(m => (m as { method?: string }).method === 'logging/setLevel');
+        expect(setLevel).toBeDefined();
+        expect((setLevel as { params?: { level?: string } }).params?.level).toBe('warning');
+
+        await client.listTools();
+        const listToolsMessage = written.find(m => (m as { method?: string }).method === 'tools/list');
+        // The 2025 codec emits no envelope at all, so the key never rides legacy traffic.
+        expect(metaOf(listToolsMessage!)?.[LOG_LEVEL_META_KEY]).toBeUndefined();
+
+        await client.close();
+    });
+
+    it('on a legacy connection without the logging capability, no logging/setLevel is sent', async () => {
+        const { clientTx, written } = await scriptedServerSide('legacy');
+        const client = new Client({ name: 'envelope-client', version: '1.0.0' }, { logLevel: 'info' });
+        await client.connect(clientTx);
+        await flush();
+        expect(written.some(m => (m as { method?: string }).method === 'logging/setLevel')).toBe(false);
         await client.close();
     });
 });

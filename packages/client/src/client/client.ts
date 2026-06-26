@@ -206,6 +206,24 @@ export type ClientOptions = ProtocolOptions & {
     versionNegotiation?: VersionNegotiationOptions;
 
     /**
+     * Per-request log opt-in. On 2026-07-28 connections the level is attached
+     * to every outgoing request as the `io.modelcontextprotocol/logLevel`
+     * `_meta` envelope key (without it, servers MUST NOT emit
+     * `notifications/message` for the request). On 2025-era connections the
+     * client sends a single best-effort `logging/setLevel` after the handshake
+     * when the server advertises the `logging` capability. A per-call
+     * `params._meta[LOG_LEVEL_META_KEY]` still overrides this default.
+     *
+     * The envelope key rides every outgoing message (notifications included);
+     * it is inert on messages that are not request-scoped logs.
+     *
+     * Note: MCP-level logging is in the SEP-2577 deprecation window; this
+     * option fronts that vocabulary deliberately because it is currently the
+     * only way to receive request-tied server logs on 2026-07-28 connections.
+     */
+    logLevel?: LoggingLevel;
+
+    /**
      * Multi-round-trip auto-fulfilment (protocol revision 2026-07-28).
      *
      * On the 2026-07-28 era, servers obtain client input (elicitation,
@@ -329,7 +347,7 @@ export type ConnectOptions = RequestOptions & {
      * A previously-obtained {@linkcode DiscoverResult} (see
      * {@linkcode Client.getDiscoverResult}). When supplied, `connect()` adopts
      * it directly — zero round trips. 2026-07-28+ only: throws
-     * `SdkError(EraNegotiationFailed)` when there is no modern overlap. Only
+     * `SdkError(VersionNegotiationFailed)` when there is no modern overlap. Only
      * reuse across clients presenting the same authorization context.
      */
     prior?: DiscoverResult;
@@ -349,6 +367,21 @@ export type CacheableRequestOptions = RequestOptions & {
      * elsewhere.
      */
     cacheMode?: CacheMode;
+};
+
+/**
+ * {@linkcode CacheableRequestOptions} extended with a per-call opt-out of the
+ * list verbs' auto-aggregating walk.
+ */
+export type ListRequestOptions = CacheableRequestOptions & {
+    /**
+     * Set to `false` to fetch only the first page (with its raw `nextCursor`)
+     * instead of walking and aggregating every page. Equivalent to passing an
+     * explicit `{ cursor }` for page 1, which the typed verbs cannot otherwise
+     * express because page 1 has no cursor. The single-page path does not
+     * consult or write the response cache. Default: `true` (auto-aggregate).
+     */
+    allPages?: boolean;
 };
 
 /**
@@ -503,6 +536,7 @@ export class Client extends Protocol<ClientContext> {
     private readonly _listChangedConfig?: ListChangedHandlers;
     private _enforceStrictCapabilities: boolean;
     private _versionNegotiation?: VersionNegotiationOptions;
+    private readonly _logLevel?: LoggingLevel;
     private _supportedProtocolVersionsOption?: string[];
     private _inputRequiredDriverConfig: ResolvedInputRequiredDriverConfig;
     /**
@@ -585,6 +619,7 @@ export class Client extends Protocol<ClientContext> {
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._enforceStrictCapabilities = options?.enforceStrictCapabilities ?? false;
         this._versionNegotiation = options?.versionNegotiation;
+        this._logLevel = options?.logLevel;
         this._supportedProtocolVersionsOption = options?.supportedProtocolVersions;
         // Multi-round-trip auto-fulfilment driver (2026-07-28): on by default,
         // configurable via ClientOptions.inputRequired.
@@ -653,7 +688,8 @@ export class Client extends Protocol<ClientContext> {
         return this._wireCodec().outboundEnvelope({
             protocolVersion: version,
             clientInfo: this._clientInfo,
-            clientCapabilities: this._capabilities
+            clientCapabilities: this._capabilities,
+            logLevel: this._logLevel
         });
     }
 
@@ -978,7 +1014,7 @@ export class Client extends Protocol<ClientContext> {
             const offeredVersion = legacyVersions[0];
             if (offeredVersion === undefined) {
                 throw new SdkError(
-                    SdkErrorCode.EraNegotiationFailed,
+                    SdkErrorCode.VersionNegotiationFailed,
                     'Cannot run the initialize handshake: supportedProtocolVersions contains no pre-2026-07-28 protocol version'
                 );
             }
@@ -1028,6 +1064,18 @@ export class Client extends Protocol<ClientContext> {
             // Set up list changed handlers now that we know server capabilities
             if (this._listChangedConfig) {
                 this._setupListChangedHandlers(this._listChangedConfig);
+            }
+
+            // Legacy half of ClientOptions.logLevel: a single best-effort
+            // logging/setLevel after the handshake when the server advertises
+            // logging. A failure here must not fail connect(). The connect-time
+            // signal/onprogress are deliberately NOT propagated — this request
+            // outlives connect() and a post-resolve abort would surface as a
+            // spurious onerror.
+            if (this._logLevel !== undefined && this._serverCapabilities?.logging) {
+                void this.setLoggingLevel(this._logLevel).catch(error_ =>
+                    this.onerror?.(error_ instanceof Error ? error_ : new Error(String(error_)))
+                );
             }
         } catch (error) {
             // Disconnect if initialization fails.
@@ -1187,7 +1235,7 @@ export class Client extends Protocol<ClientContext> {
 
     /**
      * Connect from a previously-obtained {@linkcode DiscoverResult}. Always
-     * zero-round-trip; throws `EraNegotiationFailed` when there is no
+     * zero-round-trip; throws `VersionNegotiationFailed` when there is no
      * 2026-07-28+ overlap (no legacy fallback). See {@linkcode ConnectOptions}.
      */
     private async _connectFromPrior(transport: Transport, prior: DiscoverResult): Promise<void> {
@@ -1199,7 +1247,7 @@ export class Client extends Protocol<ClientContext> {
         const version = clientModern.find(v => prior.supportedVersions.includes(v));
         if (version === undefined) {
             throw new SdkError(
-                SdkErrorCode.EraNegotiationFailed,
+                SdkErrorCode.VersionNegotiationFailed,
                 "connect({ prior }) requires a 2026-07-28+ mutual protocol version; the supplied DiscoverResult and this client's " +
                     "supportedProtocolVersions have no modern overlap. Use versionNegotiation: { mode: 'auto' } for legacy-era fallback."
             );
@@ -1286,6 +1334,16 @@ export class Client extends Protocol<ClientContext> {
      * The {@linkcode DiscoverResult} from the last `'auto'`/pinned probe,
      * {@linkcode discover} call, or `connect({ prior })`. Persistable via
      * `JSON.stringify`; feed to {@linkcode ConnectOptions} `prior`.
+     *
+     * Note on receiver-side leniency: per the 2026-07-28 spec
+     * (caching §TTL — "If `ttlMs` is absent, clients SHOULD assume a default
+     * of `0`"; "If `ttlMs` is negative, clients SHOULD ignore it and treat it
+     * as `0`"), the SDK's discover decoder defaults absent or malformed
+     * `ttlMs` / `cacheScope` to `0` / `'private'` rather than rejecting. This
+     * is deliberately less strict than the `resultType` posture (which has no
+     * such receiver-side SHOULD and rejects when missing). The sender
+     * obligation — `ttlMs >= 0` and `cacheScope` MUST be present — is still
+     * REQUIRED on the wire and is enforced by the SDK server's encode step.
      */
     getDiscoverResult(): DiscoverResult | undefined {
         return this._discoverResult;
@@ -1497,13 +1555,13 @@ export class Client extends Protocol<ClientContext> {
      * );
      * ```
      */
-    async listPrompts(params?: ListPromptsRequest['params'], options?: CacheableRequestOptions): Promise<ListPromptsResult> {
+    async listPrompts(params?: ListPromptsRequest['params'], options?: ListRequestOptions): Promise<ListPromptsResult> {
         if (!this._serverCapabilities?.prompts && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support prompts
             console.debug('Client.listPrompts() called but server does not advertise prompts capability - returning empty list');
             return { prompts: [] };
         }
-        if (params?.cursor !== undefined) {
+        if (params?.cursor !== undefined || options?.allPages === false) {
             return this.request({ method: 'prompts/list', params }, options);
         }
         const hit = await this._serveFromCache<ListPromptsResult>('prompts/list', undefined, options);
@@ -1537,13 +1595,13 @@ export class Client extends Protocol<ClientContext> {
      * );
      * ```
      */
-    async listResources(params?: ListResourcesRequest['params'], options?: CacheableRequestOptions): Promise<ListResourcesResult> {
+    async listResources(params?: ListResourcesRequest['params'], options?: ListRequestOptions): Promise<ListResourcesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
             console.debug('Client.listResources() called but server does not advertise resources capability - returning empty list');
             return { resources: [] };
         }
-        if (params?.cursor !== undefined) {
+        if (params?.cursor !== undefined || options?.allPages === false) {
             return this.request({ method: 'resources/list', params }, options);
         }
         const hit = await this._serveFromCache<ListResourcesResult>('resources/list', undefined, options);
@@ -1567,7 +1625,7 @@ export class Client extends Protocol<ClientContext> {
      */
     async listResourceTemplates(
         params?: ListResourceTemplatesRequest['params'],
-        options?: CacheableRequestOptions
+        options?: ListRequestOptions
     ): Promise<ListResourceTemplatesResult> {
         if (!this._serverCapabilities?.resources && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support resources
@@ -1576,7 +1634,7 @@ export class Client extends Protocol<ClientContext> {
             );
             return { resourceTemplates: [] };
         }
-        if (params?.cursor !== undefined) {
+        if (params?.cursor !== undefined || options?.allPages === false) {
             return this.request({ method: 'resources/templates/list', params }, options);
         }
         const hit = await this._serveFromCache<ListResourceTemplatesResult>('resources/templates/list', undefined, options);
@@ -2392,13 +2450,13 @@ export class Client extends Protocol<ClientContext> {
      * );
      * ```
      */
-    async listTools(params?: ListToolsRequest['params'], options?: CacheableRequestOptions): Promise<ListToolsResult> {
+    async listTools(params?: ListToolsRequest['params'], options?: ListRequestOptions): Promise<ListToolsResult> {
         if (!this._serverCapabilities?.tools && !this._enforceStrictCapabilities) {
             // Respect capability negotiation: server does not support tools
             console.debug('Client.listTools() called but server does not advertise tools capability - returning empty list');
             return { tools: [] };
         }
-        if (params?.cursor !== undefined) {
+        if (params?.cursor !== undefined || options?.allPages === false) {
             // Per-page: single request, never written to the response cache.
             // SEP-2243: the spec's MUST has no carve-out for paginated reads,
             // so the per-page result is filtered (on a non-stdio modern

@@ -187,7 +187,7 @@ export const rev2026Codec: WireCodec & {
             return {
                 kind: 'invalid',
                 error: new SdkError(
-                    SdkErrorCode.InvalidResult,
+                    SdkErrorCode.ResultProtocolMismatch,
                     `Invalid result for ${method}: missing required resultType — servers implementing protocol revision 2026-07-28 ` +
                         `MUST include it (the absent-means-complete bridge applies only to earlier-revision servers)`,
                     { method, violation: 'missing-resultType' }
@@ -197,8 +197,9 @@ export const rev2026Codec: WireCodec & {
         if (typeof rawResultType !== 'string') {
             return {
                 kind: 'invalid',
-                error: new SdkError(SdkErrorCode.InvalidResult, `Invalid result for ${method}: non-string resultType`, {
+                error: new SdkError(SdkErrorCode.ResultProtocolMismatch, `Invalid result for ${method}: non-string resultType`, {
                     method,
+                    violation: 'non-string-resultType',
                     resultType: rawResultType
                 })
             };

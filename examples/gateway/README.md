@@ -47,4 +47,4 @@ The server exposes a `request_count` tool returning how many MCP requests reache
 Only reuse a persisted `DiscoverResult` across workers that present the **same authorization context** as the bootstrap client (key the blob on a credential hash). Adopting a wider `prior` does not grant access — the server authorizes every request — but it can mislead
 client-side capability gating.
 
-`connect({ prior })` is **modern-only**: no mutual 2026-07-28+ revision → `SdkError(EraNegotiationFailed)`. Use `versionNegotiation: { mode: 'auto' }` for legacy-era fallback.
+`connect({ prior })` is **modern-only**: no mutual 2026-07-28+ revision → `SdkError(VersionNegotiationFailed)`. Use `versionNegotiation: { mode: 'auto' }` for legacy-era fallback.
