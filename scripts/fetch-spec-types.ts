@@ -12,7 +12,7 @@ const PROJECT_ROOT = join(__dirname, '..');
  * - `2025-11-25`: the frozen, released schema.
  * - `2026-07-28`: the upcoming protocol revision.
  *
- * Each is written to `packages/core/src/types/spec.types.<version>.ts`.
+ * Each is written to `packages/core-internal/src/types/spec.types.<version>.ts`.
  */
 const SUPPORTED_VERSIONS = ['2025-11-25', '2026-07-28'] as const;
 type SpecVersion = (typeof SUPPORTED_VERSIONS)[number];
@@ -38,7 +38,7 @@ const UPSTREAM_SCHEMA_DIRS: Record<SpecVersion, string> = {
  * Draft-tracking revisions have no entry and float to the latest upstream
  * commit via the nightly workflow's refresh PRs.
  *
- * See `packages/core/src/types/README.md` for the full lifecycle policy.
+ * See `packages/core-internal/src/types/README.md` for the full lifecycle policy.
  */
 const RELEASED_REVISION_PINS: Partial<Record<SpecVersion, string>> = {
     '2025-11-25': '0168c57fc74aba6e6dcf8f0b7191db3caaa5ad65'
@@ -111,13 +111,13 @@ async function updateSpecTypes(version: SpecVersion, providedSHA?: string): Prom
     const fullContent = header + specContent;
 
     // Format with prettier using the project's config so the output passes lint
-    const outputPath = join(PROJECT_ROOT, 'packages', 'core', 'src', 'types', `spec.types.${version}.ts`);
+    const outputPath = join(PROJECT_ROOT, 'packages', 'core-internal', 'src', 'types', `spec.types.${version}.ts`);
     const prettierConfig = await prettier.resolveConfig(outputPath);
     const formatted = await prettier.format(fullContent, { ...prettierConfig, filepath: outputPath });
 
     writeFileSync(outputPath, formatted, 'utf-8');
 
-    console.log(`[${version}] Successfully updated packages/core/src/types/spec.types.${version}.ts`);
+    console.log(`[${version}] Successfully updated packages/core-internal/src/types/spec.types.${version}.ts`);
 }
 
 function isSupportedVersion(value: string): value is SpecVersion {

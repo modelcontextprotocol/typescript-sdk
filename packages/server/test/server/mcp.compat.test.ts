@@ -1,10 +1,10 @@
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, isStandardSchema, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, expectTypeOf, it, vi } from 'vitest';
 import * as z from 'zod/v4';
-import { McpServer } from '../../src/index.js';
-import type { InferRawShape } from '../../src/server/mcp.js';
-import { completable } from '../../src/server/completable.js';
+import { McpServer } from '../../src/index';
+import type { InferRawShape } from '../../src/server/mcp';
+import { completable } from '../../src/server/completable';
 
 describe('registerTool/registerPrompt accept raw Zod shape (auto-wrapped)', () => {
     it('registerTool accepts a raw shape for inputSchema and auto-wraps it', () => {

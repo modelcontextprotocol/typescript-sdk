@@ -35,7 +35,7 @@ import type {
     InboundLegacyRoute,
     InboundModernRoute,
     RequestId
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
@@ -54,17 +54,17 @@ import {
     UnsupportedProtocolVersionError,
     validateMcpParamHeaders,
     validateStandardRequestHeaders
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 
-import { invoke } from './invoke.js';
-import { createListenRouter, DEFAULT_LISTEN_KEEPALIVE_MS, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter.js';
-import { McpServer } from './mcp.js';
-import type { PerRequestResponseMode } from './perRequestTransport.js';
-import type { Server } from './server.js';
-import { installModernOnlyHandlers, seedClientIdentityFromEnvelope } from './server.js';
-import type { ServerEventBus, ServerNotifier } from './serverEventBus.js';
-import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus.js';
-import { WebStandardStreamableHTTPServerTransport } from './streamableHttp.js';
+import { invoke } from './invoke';
+import { createListenRouter, DEFAULT_LISTEN_KEEPALIVE_MS, DEFAULT_MAX_SUBSCRIPTIONS } from './listenRouter';
+import { McpServer } from './mcp';
+import type { PerRequestResponseMode } from './perRequestTransport';
+import type { Server } from './server';
+import { installModernOnlyHandlers, seedClientIdentityFromEnvelope } from './server';
+import type { ServerEventBus, ServerNotifier } from './serverEventBus';
+import { createServerNotifier, InMemoryServerEventBus } from './serverEventBus';
+import { WebStandardStreamableHTTPServerTransport } from './streamableHttp';
 
 /* ------------------------------------------------------------------------ *
  * Factory and handler types

@@ -22,10 +22,10 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import type { Wired } from '../helpers/index.js';
-import { wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import type { Wired } from '../helpers/index';
+import { wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const MODERN = '2026-07-28';
 

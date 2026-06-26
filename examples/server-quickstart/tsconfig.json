@@ -1,23 +1,20 @@
 {
+    "extends": "@modelcontextprotocol/tsconfig",
     "compilerOptions": {
-        "target": "ES2022",
-        "module": "Node16",
-        "moduleResolution": "Node16",
         "outDir": "./build",
         "rootDir": "./src",
-        "strict": true,
-        "esModuleInterop": true,
-        "skipLibCheck": true,
-        "forceConsistentCasingInFileNames": true,
+        "declaration": false,
+        "declarationMap": false,
+        "types": ["node"],
         "paths": {
             "@modelcontextprotocol/server": ["./node_modules/@modelcontextprotocol/server/src/index.ts"],
             "@modelcontextprotocol/server/stdio": ["./node_modules/@modelcontextprotocol/server/src/stdio.ts"],
             "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],
-            "@modelcontextprotocol/core": [
-                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/index.ts"
+            "@modelcontextprotocol/core-internal": [
+                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/index.ts"
             ],
-            "@modelcontextprotocol/core/public": [
-                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core/src/exports/public/index.ts"
+            "@modelcontextprotocol/core-internal/public": [
+                "./node_modules/@modelcontextprotocol/server/node_modules/@modelcontextprotocol/core-internal/src/exports/public/index.ts"
             ]
         }
     },

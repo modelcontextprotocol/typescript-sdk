@@ -11,12 +11,12 @@
  * claim where the envelope does not participate (the reserved keys are lifted
  * from `_meta`, exactly as for any legacy request carrying them).
  */
-import type { MessageExtraInfo } from '@modelcontextprotocol/core';
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import type { MessageExtraInfo } from '@modelcontextprotocol/core-internal';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
-import { Server } from '../../src/server/server.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
+import { Server } from '../../src/server/server';
+import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp';
 
 const MODERN = '2026-07-28';
 

@@ -5,7 +5,7 @@
  * enumerated table of era-mandated differences. Anything outside that table
  * is a parity regression.
  */
-import type { CallToolResult, JSONRPCRequest, MessageClassification } from '@modelcontextprotocol/core';
+import type { CallToolResult, JSONRPCRequest, MessageClassification } from '@modelcontextprotocol/core-internal';
 import {
     classifyInboundRequest,
     CLIENT_CAPABILITIES_META_KEY,
@@ -13,13 +13,13 @@ import {
     PROTOCOL_VERSION_META_KEY,
     ProtocolError,
     setNegotiatedProtocolVersion
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport.js';
-import { Server } from '../../src/server/server.js';
-import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp.js';
+import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport';
+import { Server } from '../../src/server/server';
+import { WebStandardStreamableHTTPServerTransport } from '../../src/server/streamableHttp';
 
 const MODERN_REVISION = '2026-07-28';
 const MODERN: MessageClassification = { era: 'modern', revision: MODERN_REVISION };

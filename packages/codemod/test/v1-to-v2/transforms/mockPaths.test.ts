@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { mockPathsTransform } from '../../../src/migrations/v1-to-v2/transforms/mockPaths.js';
-import type { TransformContext } from '../../../src/types.js';
+import { mockPathsTransform } from '../../../src/migrations/v1-to-v2/transforms/mockPaths';
+import type { TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 
@@ -54,6 +54,19 @@ describe('mock-paths transform', () => {
         it('rewrites sdk/types.js path', () => {
             const input = [
                 `vi.doMock('@modelcontextprotocol/sdk/types.js', async importOriginal => {`,
+                `    const original = await importOriginal();`,
+                `    return { ...original, isInitializeRequest: mockFn };`,
+                `});`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/server'`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk');
+        });
+
+        it('rewrites extensionless sdk/types path (no .js suffix)', () => {
+            const input = [
+                `vi.doMock('@modelcontextprotocol/sdk/types', async importOriginal => {`,
                 `    const original = await importOriginal();`,
                 `    return { ...original, isInitializeRequest: mockFn };`,
                 `});`,
@@ -322,6 +335,190 @@ describe('mock-paths transform', () => {
             const result = applyTransform(input);
             expect(result).toContain('ProtocolError: MyError');
             expect(result).toContain('new MyError(');
+        });
+    });
+
+    describe('schema constant routing (schemaSymbolTarget)', () => {
+        it('routes a vi.mock factory of only spec *Schema constants to core', () => {
+            const input = [`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`, `    CallToolResultSchema: vi.fn()`, `}));`, ''].join(
+                '\n'
+            );
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/core'`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+            // The schema constant lives in core, never the context (server) package.
+            expect(result).not.toContain(`'@modelcontextprotocol/server'`);
+        });
+
+        it('routes a vi.mock factory of only auth *Schema constants to core', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/shared/auth.js', () => ({`,
+                `    OAuthTokensSchema: vi.fn()`,
+                `}));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/core'`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk/shared/auth');
+        });
+
+        it('routes a destructured dynamic import of only *Schema constants to core', () => {
+            const input = [`const { CallToolResultSchema } = await import('@modelcontextprotocol/sdk/types.js');`, ''].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`import('@modelcontextprotocol/core')`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+        });
+
+        it('renames JSONRPCResponseSchema and routes it to core in a mock factory', () => {
+            const input = [`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`, `    JSONRPCResponseSchema: vi.fn()`, `}));`, ''].join(
+                '\n'
+            );
+            const result = applyTransform(input);
+            expect(result).toContain(`'@modelcontextprotocol/core'`);
+            expect(result).toContain('JSONRPCResultResponseSchema');
+            expect(result).not.toMatch(/(?<!Result)JSONRPCResponseSchema/);
+        });
+
+        it('flags a vi.mock factory mixing a *Schema constant and a type (cannot be split)', () => {
+            const input = [
+                `vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`,
+                `    CallToolResultSchema: vi.fn(),`,
+                `    McpError: vi.fn()`,
+                `}));`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.some(d => d.message.includes('mixes symbols that belong to different v2 packages'))).toBe(true);
+        });
+
+        it('flags a destructured dynamic import mixing a *Schema constant and a type', () => {
+            const input = [`const { CallToolResultSchema, McpError } = await import('@modelcontextprotocol/sdk/types.js');`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.some(d => d.message.includes('belong to different v2 packages'))).toBe(true);
+        });
+
+        it('routes a destructured .then() param of only *Schema constants to core', () => {
+            const input = [
+                `import('@modelcontextprotocol/sdk/types.js').then(({ CallToolResultSchema }) => CallToolResultSchema.parse(value));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`import('@modelcontextprotocol/core')`);
+            expect(result).not.toContain('@modelcontextprotocol/sdk/types');
+        });
+
+        it('renames a *Schema in a destructured .then() param and routes it to core', () => {
+            const input = [
+                `import('@modelcontextprotocol/sdk/types.js').then(({ JSONRPCResponseSchema }) => JSONRPCResponseSchema.parse(value));`,
+                ''
+            ].join('\n');
+            const result = applyTransform(input);
+            expect(result).toContain(`import('@modelcontextprotocol/core')`);
+            expect(result).toContain('JSONRPCResultResponseSchema');
+        });
+
+        it('flags a destructured .then() param mixing a *Schema constant and a type', () => {
+            const input = [
+                `import('@modelcontextprotocol/sdk/types.js').then(({ CallToolResultSchema, McpError }) => CallToolResultSchema.parse(value));`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.some(d => d.message.includes('belong to different v2 packages'))).toBe(true);
+        });
+    });
+
+    describe('lazy context resolution (no spurious project-type diagnostic)', () => {
+        it('does not warn about project type for a schema-only vi.mock factory (unknown project)', () => {
+            // The factory routes entirely to core, so the context package is never used — resolveTypesPackage
+            // must not emit a "could not determine project type" warning.
+            const input = [`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`, `    CallToolResultSchema: vi.fn()`, `}));`, ''].join(
+                '\n'
+            );
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, { projectType: 'unknown' });
+            expect(result.diagnostics.some(d => /determine project type/i.test(d.message))).toBe(false);
+            expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/core');
+        });
+
+        it('does not emit a both-project note for a schema-only destructured dynamic import (both project)', () => {
+            const input = [`const { OAuthTokensSchema } = await import('@modelcontextprotocol/sdk/shared/auth.js');`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, { projectType: 'both' });
+            expect(result.diagnostics.some(d => /both client and server|determine project type/i.test(d.message))).toBe(false);
+            expect(sourceFile.getFullText()).toContain('@modelcontextprotocol/core');
+        });
+
+        it('still warns about project type for a non-schema vi.mock factory (unknown project)', () => {
+            // Control: isInitializeRequest is a guard (not a schema constant), so the factory falls through to
+            // context resolution — the warning must still fire (lazy resolution must not suppress real fall-throughs).
+            const input = [`vi.mock('@modelcontextprotocol/sdk/types.js', () => ({`, `    isInitializeRequest: vi.fn()`, `}));`, ''].join(
+                '\n'
+            );
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, { projectType: 'unknown' });
+            expect(result.diagnostics.some(d => /determine project type/i.test(d.message))).toBe(true);
+        });
+    });
+
+    describe('non-destructured / .then dynamic import schema access (schemaSymbolTarget)', () => {
+        it('flags schema access on a non-destructured awaited dynamic import (types.js)', () => {
+            const input = [
+                `const mod = await import('@modelcontextprotocol/sdk/types.js');`,
+                `const r = mod.CallToolResultSchema.parse(value);`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(
+                result.diagnostics.some(d => d.message.includes('@modelcontextprotocol/core') && d.message.includes('CallToolResultSchema'))
+            ).toBe(true);
+        });
+
+        it('flags schema access in a .then() chain (shared/auth.js)', () => {
+            const input = [`import('@modelcontextprotocol/sdk/shared/auth.js').then(m => m.OAuthTokensSchema.parse(value));`, ''].join(
+                '\n'
+            );
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(
+                result.diagnostics.some(d => d.message.includes('@modelcontextprotocol/core') && d.message.includes('OAuthTokensSchema'))
+            ).toBe(true);
+        });
+
+        it('notes the rename for a renamed schema accessed in a .then() chain', () => {
+            const input = [`import('@modelcontextprotocol/sdk/types.js').then(m => m.JSONRPCResponseSchema.parse(value));`, ''].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(
+                result.diagnostics.some(
+                    d => d.message.includes('JSONRPCResponseSchema') && d.message.includes('JSONRPCResultResponseSchema')
+                )
+            ).toBe(true);
+        });
+
+        it('does not flag a non-destructured dynamic import with no schema access', () => {
+            // Control: `mod` is only used for a guard (not a schema constant), so no schema-moved-to-core note.
+            const input = [
+                `const mod = await import('@modelcontextprotocol/sdk/types.js');`,
+                `const ok = mod.isInitializeRequest(value);`,
+                ''
+            ].join('\n');
+            const project = new Project({ useInMemoryFileSystem: true });
+            const sourceFile = project.createSourceFile('test.ts', input);
+            const result = mockPathsTransform.apply(sourceFile, ctx);
+            expect(result.diagnostics.some(d => d.message.includes('moved to @modelcontextprotocol/core'))).toBe(false);
         });
     });
 

@@ -7,19 +7,19 @@
  * negotiated-version hook, standing in for the HTTP entry that will own that
  * write in production.
  */
-import type { JSONRPCNotification, JSONRPCRequest, MessageClassification } from '@modelcontextprotocol/core';
+import type { JSONRPCNotification, JSONRPCRequest, MessageClassification } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     setNegotiatedProtocolVersion
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { invoke } from '../../src/server/invoke.js';
-import { McpServer } from '../../src/server/mcp.js';
-import { Server } from '../../src/server/server.js';
+import { invoke } from '../../src/server/invoke';
+import { McpServer } from '../../src/server/mcp';
+import { Server } from '../../src/server/server';
 
 const MODERN_REVISION = '2026-07-28';
 const MODERN: MessageClassification = { era: 'modern', revision: MODERN_REVISION };

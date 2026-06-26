@@ -5,12 +5,12 @@ import type {
     OAuthTokens,
     StoredOAuthClientInformation,
     StoredOAuthTokens
-} from '@modelcontextprotocol/core';
-import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
+import { LATEST_PROTOCOL_VERSION, OAuthError, OAuthErrorCode } from '@modelcontextprotocol/core-internal';
 import type { Mock } from 'vitest';
 import { expect, vi } from 'vitest';
 
-import type { OAuthClientProvider } from '../../src/client/auth.js';
+import type { OAuthClientProvider } from '../../src/client/auth';
 import {
     assertSecureTokenEndpoint,
     auth,
@@ -39,9 +39,9 @@ import {
     UnauthorizedError,
     validateAuthorizationResponseIssuer,
     validateClientMetadataUrl
-} from '../../src/client/auth.js';
-import type { OAuthClientInformationContext, OAuthDiscoveryState } from '../../src/client/auth.js';
-import { ClientCredentialsProvider, createPrivateKeyJwtAuth } from '../../src/client/authExtensions.js';
+} from '../../src/client/auth';
+import type { OAuthClientInformationContext, OAuthDiscoveryState } from '../../src/client/auth';
+import { ClientCredentialsProvider, createPrivateKeyJwtAuth } from '../../src/client/authExtensions';
 
 // Mock pkce-challenge
 vi.mock('pkce-challenge', () => ({
@@ -153,6 +153,25 @@ describe('OAuth Authorization', () => {
             } as unknown as Response;
 
             expect(extractWWWAuthenticateParams(mockResponse)).toEqual({ error: 'insufficient_scope', scope: 'admin' });
+        });
+
+        it('parses invalid_token challenges with protected resource metadata', async () => {
+            const resourceUrl = 'https://resource.example.com/.well-known/oauth-protected-resource/mcp';
+            const mockResponse = {
+                headers: {
+                    get: vi.fn(name =>
+                        name === 'WWW-Authenticate'
+                            ? `Bearer resource_metadata="${resourceUrl}", error="invalid_token", error_description="The access token expired"`
+                            : null
+                    )
+                }
+            } as unknown as Response;
+
+            expect(extractWWWAuthenticateParams(mockResponse)).toEqual({
+                resourceMetadataUrl: new URL(resourceUrl),
+                error: 'invalid_token',
+                errorDescription: 'The access token expired'
+            });
         });
 
         it('returns error_description when present', async () => {
@@ -3850,7 +3869,7 @@ describe('OAuth Authorization', () => {
 
     describe('RequestInit headers passthrough', () => {
         it('custom headers from RequestInit are passed to auth discovery requests', async () => {
-            const { createFetchWithInit } = await import('@modelcontextprotocol/core');
+            const { createFetchWithInit } = await import('@modelcontextprotocol/core-internal');
 
             const customFetch = vi.fn().mockResolvedValue({
                 ok: true,
@@ -3883,7 +3902,7 @@ describe('OAuth Authorization', () => {
         });
 
         it('auth-specific headers override base headers from RequestInit', async () => {
-            const { createFetchWithInit } = await import('@modelcontextprotocol/core');
+            const { createFetchWithInit } = await import('@modelcontextprotocol/core-internal');
 
             const customFetch = vi.fn().mockResolvedValue({
                 ok: true,
@@ -3921,7 +3940,7 @@ describe('OAuth Authorization', () => {
         });
 
         it('other RequestInit options are passed through', async () => {
-            const { createFetchWithInit } = await import('@modelcontextprotocol/core');
+            const { createFetchWithInit } = await import('@modelcontextprotocol/core-internal');
 
             const customFetch = vi.fn().mockResolvedValue({
                 ok: true,

@@ -20,7 +20,7 @@ import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
-import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';

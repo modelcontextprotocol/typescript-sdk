@@ -26,7 +26,7 @@ import type {
     ToolExecution,
     Transport,
     Variables
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     assertCompleteRequestPrompt,
     assertCompleteRequestResourceTemplate,
@@ -43,12 +43,12 @@ import {
     UriTemplate,
     validateAndWarnToolName,
     validateStandardSchema
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import type * as z from 'zod/v4';
 
-import { getCompleter, isCompletable } from './completable.js';
-import type { ServerOptions } from './server.js';
-import { Server } from './server.js';
+import { getCompleter, isCompletable } from './completable';
+import type { ServerOptions } from './server';
+import { Server } from './server';
 
 /**
  * High-level MCP server that provides a simpler API for working with resources, tools, and prompts.

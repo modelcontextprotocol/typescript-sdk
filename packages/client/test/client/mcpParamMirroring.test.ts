@@ -7,13 +7,18 @@
  * byte-untouched); stdio MAY-ignore (no headers on a single-channel
  * transport); the one-evict-refetch-retry on `HEADER_MISMATCH`.
  */
-import type { JSONRPCMessage, JSONRPCRequest, Tool, TransportSendOptions } from '@modelcontextprotocol/core';
-import { encodeMcpParamValue, HEADER_MISMATCH_ERROR_CODE, InMemoryTransport, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, Tool, TransportSendOptions } from '@modelcontextprotocol/core-internal';
+import {
+    encodeMcpParamValue,
+    HEADER_MISMATCH_ERROR_CODE,
+    InMemoryTransport,
+    PROTOCOL_VERSION_META_KEY
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
-import { InMemoryResponseCacheStore, type ResponseCacheStore } from '../../src/client/responseCache.js';
-import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
+import { Client } from '../../src/client/client';
+import { InMemoryResponseCacheStore, type ResponseCacheStore } from '../../src/client/responseCache';
+import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
 const MODERN = '2026-07-28';
 /** Partition the `Client` derives for the scripted server (`serverInfo.name@version`, default `cachePartition`). */

@@ -7,12 +7,17 @@
  * serving the 2026-07-28 revision on stdio goes through the `serveStdio`
  * entry (covered in `serveStdio.test.ts`).
  */
-import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core';
-import { InMemoryTransport, isJSONRPCErrorResponse, isJSONRPCResultResponse, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCNotification, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
+import {
+    InMemoryTransport,
+    isJSONRPCErrorResponse,
+    isJSONRPCResultResponse,
+    LATEST_PROTOCOL_VERSION
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { McpServer } from '../../src/server/mcp.js';
+import { McpServer } from '../../src/server/mcp';
 
 function buildServer() {
     const server = new McpServer(

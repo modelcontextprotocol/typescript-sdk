@@ -33,7 +33,7 @@ import { check, parseExampleArgs } from '@mcp-examples/shared';
 import type { OAuthClientMetadata } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 
-import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
+import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider';
 
 // The redirect target the AS will 302 back to with `?code=...`. In the real
 // browser flow (`simpleOAuthClient.ts`) a tiny HTTP server listens here so the

@@ -12,11 +12,11 @@ import {
     CLIENT_INFO_META_KEY,
     PROTOCOL_VERSION_META_KEY,
     SUBSCRIPTION_ID_META_KEY
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 
-import { createMcpHandler } from '../../src/server/createMcpHandler.js';
-import { McpServer } from '../../src/server/mcp.js';
+import { createMcpHandler } from '../../src/server/createMcpHandler';
+import { McpServer } from '../../src/server/mcp';
 
 const ENVELOPE = {
     [PROTOCOL_VERSION_META_KEY]: '2026-07-28',

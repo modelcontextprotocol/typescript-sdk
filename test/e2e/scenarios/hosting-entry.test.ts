@@ -9,15 +9,15 @@
  * still rides the harness-hosted entry.
  */
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import { PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import type { McpRequestContext } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/server';
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { modernEnvelopeMeta, wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { modernEnvelopeMeta, wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 const LEGACY = '2025-11-25';
 const MODERN = '2026-07-28';

@@ -36,7 +36,7 @@ import type {
     ServerContext,
     ToolResultContent,
     ToolUseContent
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import {
     assertValidCacheHint,
     attachCacheHintFallback,
@@ -59,7 +59,7 @@ import {
     requiredClientCapabilitiesForInputRequest,
     SdkError,
     SdkErrorCode
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
 /**

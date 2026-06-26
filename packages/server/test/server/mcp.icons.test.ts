@@ -1,7 +1,7 @@
-import type { Icon, JSONRPCMessage } from '@modelcontextprotocol/core';
-import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core';
+import type { Icon, JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, LATEST_PROTOCOL_VERSION } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
-import { McpServer, ResourceTemplate } from '../../src/index.js';
+import { McpServer, ResourceTemplate } from '../../src/index';
 
 const ICONS: Icon[] = [
     { src: 'https://example.com/icon.png', mimeType: 'image/png', sizes: ['48x48', '96x96'] },

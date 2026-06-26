@@ -6,11 +6,11 @@
  * itself. The connection-level version slot is never consulted or mutated for
  * those sends, and envelope-less (2025-era) traffic gets no new headers.
  */
-import type { JSONRPCMessage } from '@modelcontextprotocol/core';
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage } from '@modelcontextprotocol/core-internal';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp.js';
+import { StreamableHTTPClientTransport } from '../../src/client/streamableHttp';
 
 describe('body-derived probe headers', () => {
     let transport: StreamableHTTPClientTransport;

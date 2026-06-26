@@ -1,8 +1,8 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
-import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
-import { localhostOriginValidation, originValidation } from './middleware/originValidation.js';
+import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation';
+import { localhostOriginValidation, originValidation } from './middleware/originValidation';
 
 /**
  * Options for creating an MCP Hono application.

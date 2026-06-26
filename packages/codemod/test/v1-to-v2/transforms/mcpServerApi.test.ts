@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { Project } from 'ts-morph';
 
-import { mcpServerApiTransform } from '../../../src/migrations/v1-to-v2/transforms/mcpServerApi.js';
-import type { TransformContext } from '../../../src/types.js';
+import { mcpServerApiTransform } from '../../../src/migrations/v1-to-v2/transforms/mcpServerApi';
+import type { TransformContext } from '../../../src/types';
 
 const ctx: TransformContext = { projectType: 'server' };
 const MCP_IMPORT = `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';\n`;

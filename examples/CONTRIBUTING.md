@@ -79,14 +79,14 @@ timeout is reported as a hang — investigate it as a possible unclosed handle).
 
 Stories may import from:
 
-- `@modelcontextprotocol/{server,client,node,express,hono}` and their published
+- `@modelcontextprotocol/{server,client,core,node,express,hono}` and their published
   subpath exports (e.g. `@modelcontextprotocol/server/stdio`)
 - `@mcp-examples/shared` (args/assert) and `@mcp-examples/shared/auth` (demo OAuth + `InMemoryEventStore`)
 - third-party packages a consumer would `npm install`
 
 Stories may **not** import from:
 
-- `@modelcontextprotocol/core` or `@modelcontextprotocol/core/*` (internal barrel)
+- `@modelcontextprotocol/core-internal` or `@modelcontextprotocol/core-internal/*` (internal barrel)
 - `@modelcontextprotocol/*/src/*` or `@modelcontextprotocol/*/dist/*` (deep paths)
 - `@modelcontextprotocol/test-helpers`
 - any relative path that hides the SDK transport setup behind a shared helper

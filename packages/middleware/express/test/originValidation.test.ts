@@ -2,8 +2,8 @@ import type { NextFunction, Request, Response } from 'express';
 import supertest from 'supertest';
 import { vi } from 'vitest';
 
-import { createMcpExpressApp } from '../src/express.js';
-import { localhostOriginValidation, originValidation } from '../src/middleware/originValidation.js';
+import { createMcpExpressApp } from '../src/express';
+import { localhostOriginValidation, originValidation } from '../src/middleware/originValidation';
 
 // Helper to create mock Express request/response/next
 function createMockReqResNext(origin?: string) {

@@ -1,5 +1,5 @@
 ---
-'@modelcontextprotocol/core': major
+'@modelcontextprotocol/core-internal': major
 '@modelcontextprotocol/server': major
 '@modelcontextprotocol/client': major
 ---

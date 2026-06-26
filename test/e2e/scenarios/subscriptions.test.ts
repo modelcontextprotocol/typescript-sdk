@@ -11,9 +11,9 @@ import { createMcpHandler, McpServer, SUBSCRIPTION_ID_META_KEY } from '@modelcon
 import { expect } from 'vitest';
 import { z } from 'zod/v4';
 
-import { modernEnvelopeMeta, wire } from '../helpers/index.js';
-import { verifies } from '../helpers/verifies.js';
-import type { TestArgs } from '../types.js';
+import { modernEnvelopeMeta, wire } from '../helpers/index';
+import { verifies } from '../helpers/verifies';
+import type { TestArgs } from '../types';
 
 function makeServer() {
     const server = new McpServer({ name: 'subs-e2e', version: '1' });

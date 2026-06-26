@@ -7,7 +7,7 @@ import {
     UnauthorizedError
 } from '@modelcontextprotocol/client';
 
-import { ConformanceOAuthProvider } from './conformanceOAuthProvider.js';
+import { ConformanceOAuthProvider } from './conformanceOAuthProvider';
 
 export const handle401 = async (
     response: Response,

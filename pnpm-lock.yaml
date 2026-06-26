@@ -413,6 +413,9 @@ importers:
         specifier: workspace:^
         version: link:../../packages/client
     devDependencies:
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
       '@types/node':
         specifier: ^24.10.1
         version: 24.12.0
@@ -876,6 +879,9 @@ importers:
         specifier: catalog:runtimeShared
         version: 4.3.6
     devDependencies:
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
       '@types/node':
         specifier: ^24.10.1
         version: 24.12.0
@@ -885,9 +891,6 @@ importers:
 
   examples/shared:
     dependencies:
-      '@modelcontextprotocol/core':
-        specifier: workspace:^
-        version: link:../../packages/core
       '@modelcontextprotocol/express':
         specifier: workspace:^
         version: link:../../packages/middleware/express
@@ -946,9 +949,6 @@ importers:
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -1152,9 +1152,9 @@ importers:
       '@eslint/js':
         specifier: catalog:devTools
         version: 9.39.4
-      '@modelcontextprotocol/core':
+      '@modelcontextprotocol/core-internal':
         specifier: workspace:^
-        version: link:../core
+        version: link:../core-internal
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
@@ -1200,9 +1200,6 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -1267,6 +1264,55 @@ importers:
 
   packages/core:
     dependencies:
+      zod:
+        specifier: catalog:runtimeShared
+        version: 4.3.6
+    devDependencies:
+      '@eslint/js':
+        specifier: catalog:devTools
+        version: 9.39.4
+      '@modelcontextprotocol/core-internal':
+        specifier: workspace:^
+        version: link:../core-internal
+      '@modelcontextprotocol/eslint-config':
+        specifier: workspace:^
+        version: link:../../common/eslint-config
+      '@modelcontextprotocol/tsconfig':
+        specifier: workspace:^
+        version: link:../../common/tsconfig
+      '@modelcontextprotocol/vitest-config':
+        specifier: workspace:^
+        version: link:../../common/vitest-config
+      '@typescript/native-preview':
+        specifier: catalog:devTools
+        version: 7.0.0-dev.20260327.2
+      eslint:
+        specifier: catalog:devTools
+        version: 9.39.4
+      eslint-config-prettier:
+        specifier: catalog:devTools
+        version: 10.1.8(eslint@9.39.4)
+      eslint-plugin-n:
+        specifier: catalog:devTools
+        version: 17.24.0(eslint@9.39.4)(typescript@5.9.3)
+      prettier:
+        specifier: catalog:devTools
+        version: 3.6.2
+      tsdown:
+        specifier: catalog:devTools
+        version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
+      typescript:
+        specifier: catalog:devTools
+        version: 5.9.3
+      typescript-eslint:
+        specifier: catalog:devTools
+        version: 8.57.2(eslint@9.39.4)(typescript@5.9.3)
+      vitest:
+        specifier: catalog:devTools
+        version: 4.1.2(@opentelemetry/api@1.9.1)(@types/node@25.5.0)(vite@7.3.0(@types/node@25.5.0)(tsx@4.21.0)(yaml@2.8.3))
+
+  packages/core-internal:
+    dependencies:
       json-schema-typed:
         specifier: catalog:runtimeShared
         version: 8.0.2
@@ -1328,9 +1374,6 @@ importers:
       prettier:
         specifier: catalog:devTools
         version: 3.6.2
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -1518,9 +1561,9 @@ importers:
       '@eslint/js':
         specifier: catalog:devTools
         version: 9.39.4
-      '@modelcontextprotocol/core':
+      '@modelcontextprotocol/core-internal':
         specifier: workspace:^
-        version: link:../../core
+        version: link:../../core-internal
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../../common/eslint-config
@@ -1554,9 +1597,6 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -1579,9 +1619,9 @@ importers:
       '@eslint/js':
         specifier: catalog:devTools
         version: 9.39.4
-      '@modelcontextprotocol/core':
+      '@modelcontextprotocol/core-internal':
         specifier: workspace:^
-        version: link:../core
+        version: link:../core-internal
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
@@ -1624,9 +1664,6 @@ importers:
       tsdown:
         specifier: catalog:devTools
         version: 0.18.4(@typescript/native-preview@7.0.0-dev.20260327.2)(typescript@5.9.3)
-      tsx:
-        specifier: catalog:devTools
-        version: 4.21.0
       typescript:
         specifier: catalog:devTools
         version: 5.9.3
@@ -1664,9 +1701,9 @@ importers:
       '@eslint/js':
         specifier: catalog:devTools
         version: 9.39.4
-      '@modelcontextprotocol/core':
+      '@modelcontextprotocol/core-internal':
         specifier: workspace:^
-        version: link:../core
+        version: link:../core-internal
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
@@ -1730,9 +1767,9 @@ importers:
       '@modelcontextprotocol/conformance':
         specifier: 0.2.0-alpha.7
         version: 0.2.0-alpha.7(@cfworker/json-schema@4.1.1)
-      '@modelcontextprotocol/core':
+      '@modelcontextprotocol/core-internal':
         specifier: workspace:^
-        version: link:../../packages/core
+        version: link:../../packages/core-internal
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
@@ -1775,9 +1812,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: workspace:^
         version: link:../../packages/client
-      '@modelcontextprotocol/core':
+      '@modelcontextprotocol/core-internal':
         specifier: workspace:^
-        version: link:../../packages/core
+        version: link:../../packages/core-internal
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
@@ -1853,9 +1890,9 @@ importers:
 
   test/helpers:
     devDependencies:
-      '@modelcontextprotocol/core':
+      '@modelcontextprotocol/core-internal':
         specifier: workspace:^
-        version: link:../../packages/core
+        version: link:../../packages/core-internal
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config
@@ -1880,9 +1917,9 @@ importers:
       '@modelcontextprotocol/client':
         specifier: workspace:^
         version: link:../../packages/client
-      '@modelcontextprotocol/core':
+      '@modelcontextprotocol/core-internal':
         specifier: workspace:^
-        version: link:../../packages/core
+        version: link:../../packages/core-internal
       '@modelcontextprotocol/eslint-config':
         specifier: workspace:^
         version: link:../../common/eslint-config

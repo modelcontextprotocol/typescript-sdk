@@ -7,14 +7,14 @@
  * faces, the per-request era write + client-identity backfill, notification
  * routing, the response-mode knob, and close() teardown of the modern leg.
  */
-import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core';
+import { CLIENT_CAPABILITIES_META_KEY, CLIENT_INFO_META_KEY, PROTOCOL_VERSION_META_KEY } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
-import type { McpRequestContext } from '../../src/server/createMcpHandler.js';
-import { createMcpHandler, isLegacyRequest } from '../../src/server/createMcpHandler.js';
-import { McpServer } from '../../src/server/mcp.js';
-import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport.js';
+import type { McpRequestContext } from '../../src/server/createMcpHandler';
+import { createMcpHandler, isLegacyRequest } from '../../src/server/createMcpHandler';
+import { McpServer } from '../../src/server/mcp';
+import { PerRequestHTTPServerTransport } from '../../src/server/perRequestTransport';
 
 const MODERN_REVISION = '2026-07-28';
 

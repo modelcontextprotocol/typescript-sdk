@@ -14,7 +14,7 @@ import type { Server as HttpServer } from 'node:http';
 import { createServer } from 'node:http';
 
 import { Client, StreamableHTTPClientTransport } from '@modelcontextprotocol/client';
-import { SdkError, SdkErrorCode, setNegotiatedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core';
+import { SdkError, SdkErrorCode, setNegotiatedProtocolVersion, SUPPORTED_PROTOCOL_VERSIONS } from '@modelcontextprotocol/core-internal';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 import { listenOnRandomPort } from '@modelcontextprotocol/test-helpers';

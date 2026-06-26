@@ -1,4 +1,4 @@
-import type { ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core';
+import type { ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core-internal';
 
 /**
  * A change event a server publishes for delivery on open `subscriptions/listen`

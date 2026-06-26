@@ -5,12 +5,12 @@
  * (never wrapped) inputResponses, multi-round flows, the round cap, manual
  * mode, and the synthesized handler context contract.
  */
-import type { ElicitResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core';
-import { InMemoryTransport, SdkError, SdkErrorCode } from '@modelcontextprotocol/core';
+import type { ElicitResult, JSONRPCMessage, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport, SdkError, SdkErrorCode } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
-import type { ClientOptions } from '../../src/client/client.js';
+import { Client } from '../../src/client/client';
+import type { ClientOptions } from '../../src/client/client';
 
 const MODERN = '2026-07-28';
 

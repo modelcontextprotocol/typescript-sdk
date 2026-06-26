@@ -9,21 +9,21 @@
  *    `{ ttlMs: 0, cacheScope: 'private' }`,
  *  - and the era boundary: 2025-era responses never gain any of it.
  */
-import type { JSONRPCMessage, JSONRPCRequest, MessageClassification } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, MessageClassification } from '@modelcontextprotocol/core-internal';
 import {
     CLIENT_CAPABILITIES_META_KEY,
     CLIENT_INFO_META_KEY,
     InMemoryTransport,
     PROTOCOL_VERSION_META_KEY,
     setNegotiatedProtocolVersion
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { invoke } from '../../src/server/invoke.js';
-import { McpServer, ResourceTemplate } from '../../src/server/mcp.js';
-import type { ServerOptions } from '../../src/server/server.js';
-import { installModernOnlyHandlers, Server } from '../../src/server/server.js';
+import { invoke } from '../../src/server/invoke';
+import { McpServer, ResourceTemplate } from '../../src/server/mcp';
+import type { ServerOptions } from '../../src/server/server';
+import { installModernOnlyHandlers, Server } from '../../src/server/server';
 
 const MODERN_REVISION = '2026-07-28';
 const MODERN: MessageClassification = { era: 'modern', revision: MODERN_REVISION };

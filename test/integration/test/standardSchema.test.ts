@@ -4,8 +4,8 @@
  */
 
 import { Client } from '@modelcontextprotocol/client';
-import type { TextContent } from '@modelcontextprotocol/core';
-import { InMemoryTransport } from '@modelcontextprotocol/core';
+import type { TextContent } from '@modelcontextprotocol/core-internal';
+import { InMemoryTransport } from '@modelcontextprotocol/core-internal';
 import { completable, fromJsonSchema as serverFromJsonSchema, McpServer } from '@modelcontextprotocol/server';
 import { toStandardJsonSchema } from '@valibot/to-json-schema';
 import { type } from 'arktype';

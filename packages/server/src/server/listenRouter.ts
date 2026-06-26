@@ -23,11 +23,11 @@
  *   transport close carries no response and the client treats it as a
  *   disconnect.
  */
-import type { JSONRPCRequest, RequestId, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core';
-import { codecForVersion, MODERN_WIRE_REVISION, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core';
+import type { JSONRPCRequest, RequestId, ServerCapabilities, SubscriptionFilter } from '@modelcontextprotocol/core-internal';
+import { codecForVersion, MODERN_WIRE_REVISION, SUBSCRIPTION_ID_META_KEY } from '@modelcontextprotocol/core-internal';
 
-import type { ServerEventBus } from './serverEventBus.js';
-import { honoredSubset, listenFilterAccepts, serverEventToNotification } from './serverEventBus.js';
+import type { ServerEventBus } from './serverEventBus';
+import { honoredSubset, listenFilterAccepts, serverEventToNotification } from './serverEventBus';
 
 /** Default SSE comment-frame keepalive interval for listen streams. */
 export const DEFAULT_LISTEN_KEEPALIVE_MS = 15_000;
@@ -394,7 +394,7 @@ export class StdioListenRouter {
     }
 }
 
-function notificationToServerEvent(method: string, uri: string | undefined): import('./serverEventBus.js').ServerEvent {
+function notificationToServerEvent(method: string, uri: string | undefined): import('./serverEventBus').ServerEvent {
     switch (method) {
         case 'notifications/tools/list_changed': {
             return { kind: 'tools_list_changed' };

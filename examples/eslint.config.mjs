@@ -31,7 +31,7 @@ export default [
                             message: 'Examples must not reach into workspace source.'
                         },
                         {
-                            group: ['@modelcontextprotocol/core', '@modelcontextprotocol/core/*'],
+                            group: ['@modelcontextprotocol/core-internal', '@modelcontextprotocol/core-internal/*'],
                             message: 'Examples must import from @modelcontextprotocol/{server,client}, not the internal core barrel.'
                         },
                         {

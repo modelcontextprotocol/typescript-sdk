@@ -22,9 +22,9 @@ import {
 } from '@modelcontextprotocol/client';
 import * as z from 'zod/v4';
 
-import { ConformanceOAuthProvider } from './helpers/conformanceOAuthProvider.js';
-import { logger } from './helpers/logger.js';
-import { handle401, withOAuthRetry } from './helpers/withOAuthRetry.js';
+import { ConformanceOAuthProvider } from './helpers/conformanceOAuthProvider';
+import { logger } from './helpers/logger';
+import { handle401, withOAuthRetry } from './helpers/withOAuthRetry';
 
 /**
  * Fixed client metadata URL for CIMD conformance tests.

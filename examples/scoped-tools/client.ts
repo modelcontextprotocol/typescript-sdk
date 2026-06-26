@@ -17,7 +17,7 @@ import { check, parseExampleArgs } from '@mcp-examples/shared';
 import type { OAuthClientMetadata } from '@modelcontextprotocol/client';
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 
-import { InMemoryOAuthClientProvider } from '../oauth/simpleOAuthClientProvider.js';
+import { InMemoryOAuthClientProvider } from '../oauth/simpleOAuthClientProvider';
 
 const CALLBACK_URL = 'http://127.0.0.1:8091/callback';
 

@@ -12,7 +12,7 @@
  */
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { DEFAULT_INHERITED_ENV_VARS, getDefaultEnvironment } from '../../src/client/stdio.js';
+import { DEFAULT_INHERITED_ENV_VARS, getDefaultEnvironment } from '../../src/client/stdio';
 
 // Frozen copy of the documented safelist. The expectation side is a literal,
 // not derived from src, so any edit to DEFAULT_INHERITED_ENV_VARS goes red

@@ -1,7 +1,7 @@
 import Fastify from 'fastify';
 
-import { createMcpFastifyApp } from '../src/fastify.js';
-import { localhostOriginValidation, originValidation } from '../src/middleware/originValidation.js';
+import { createMcpFastifyApp } from '../src/fastify';
+import { localhostOriginValidation, originValidation } from '../src/middleware/originValidation';
 
 describe('@modelcontextprotocol/fastify origin validation', () => {
     describe('originValidation', () => {

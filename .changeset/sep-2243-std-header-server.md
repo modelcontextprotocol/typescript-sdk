@@ -1,5 +1,5 @@
 ---
-'@modelcontextprotocol/core': minor
+'@modelcontextprotocol/core-internal': minor
 '@modelcontextprotocol/server': minor
 ---
 
@@ -7,4 +7,4 @@ SEP-2243 standard-header server-side validation (protocol revision 2026-07-28). 
 
 New public surface:
 
-- `@modelcontextprotocol/core`: `validateStandardRequestHeaders` (function), `MCP_NAME_HEADER_SOURCE` (const), the `mcpNameHeader` field on `InboundHttpRequest`, and the `'standard-header-validation'` member of `InboundValidationRung` (with `client-capabilities` / `param-header-validation` renumbered).
+- `@modelcontextprotocol/server`: the `mcpNameHeader` field on `InboundHttpRequest`, and the `'standard-header-validation'` member of `InboundValidationRung` (with `client-capabilities` / `param-header-validation` renumbered).

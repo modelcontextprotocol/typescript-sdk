@@ -1,3 +1,3 @@
-export * from './hono.js';
-export * from './middleware/hostHeaderValidation.js';
-export * from './middleware/originValidation.js';
+export * from './hono';
+export * from './middleware/hostHeaderValidation';
+export * from './middleware/originValidation';

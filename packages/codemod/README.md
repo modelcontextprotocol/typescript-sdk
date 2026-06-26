@@ -29,8 +29,8 @@ The mechanical rename mappings are the source of truth — see
 Transforms in `src/migrations/v1-to-v2/transforms/` also rewrite `.tool()` →
 `registerTool` (wrapping `inputSchema` / `outputSchema` / `argsSchema` / `uriSchema`
 raw shapes with `z.object()`), drop the result-schema argument from `client.request()`
-/ `client.callTool()` for spec methods, rewrite spec-`*Schema`
-constant accesses (`.safeParse` → `isSpecType` / `specTypeSchemas`), rename
+/ `client.callTool()` for spec methods, route spec `*Schema` imports to
+`@modelcontextprotocol/core`, rename
 `StreamableHTTPError` → `SdkHttpError` / `IsomorphicHeaders` → `Headers`, rewrite
 `SchemaInput<T>` → `StandardSchemaWithJSON.InferInput<T>`, route
 `ErrorCode.{RequestTimeout,ConnectionClosed}` to `SdkErrorCode`, and rewrite `vi.mock`

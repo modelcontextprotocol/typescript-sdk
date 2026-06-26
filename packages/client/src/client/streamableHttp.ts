@@ -1,6 +1,6 @@
 import type { ReadableWritablePair } from 'node:stream/web';
 
-import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core';
+import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
     createFetchWithInit,
     encodeMcpParamValue,
@@ -15,10 +15,10 @@ import {
     SdkError,
     SdkErrorCode,
     SdkHttpError
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { EventSourceParserStream } from 'eventsource-parser/stream';
 
-import type { AuthProvider, OAuthClientProvider } from './auth.js';
+import type { AuthProvider, OAuthClientProvider } from './auth';
 import {
     adaptOAuthProvider,
     auth,
@@ -28,10 +28,10 @@ import {
     isStrictScopeSuperset,
     resolveAuthorizationCallbackParams,
     UnauthorizedError
-} from './auth.js';
+} from './auth';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced via {@linkcode} in finishAuth JSDoc
-import type { IssuerMismatchError } from './authErrors.js';
-import { InsufficientScopeError } from './authErrors.js';
+import type { IssuerMismatchError } from './authErrors';
+import { InsufficientScopeError } from './authErrors';
 
 /** Default cap on step-up re-authorization retries within a single send/stream-open. */
 const DEFAULT_MAX_STEP_UP_RETRIES = 1;

@@ -6,7 +6,7 @@
  * the failure mode without string-matching messages.
  */
 
-import type { OAuthClientMetadata } from '@modelcontextprotocol/core';
+import type { OAuthClientMetadata } from '@modelcontextprotocol/core-internal';
 
 /**
  * Base class for the OAuth-client-flow error family. Concrete subclasses are

@@ -25,9 +25,9 @@ CI pass — that reopens the silent-drift hole the pin exists to close.
 
 | Surface | File |
 | --- | --- |
-| Wire error-code tables, error classes, version constants | `packages/core/test/types/errorSurfacePins.test.ts` |
-| Schema strict/strip/loose boundaries, key existence | `packages/core/test/types/schemaBoundaryPins.test.ts` |
-| Published package set, export maps, ESM-only topology | `packages/core/test/packageTopologyPins.test.ts` |
+| Wire error-code tables, error classes, version constants | `packages/core-internal/test/types/errorSurfacePins.test.ts` |
+| Schema strict/strip/loose boundaries, key existence | `packages/core-internal/test/types/schemaBoundaryPins.test.ts` |
+| Published package set, export maps, ESM-only topology | `packages/core-internal/test/packageTopologyPins.test.ts` |
 | stdio environment-inheritance safelist | `packages/client/test/client/stdioEnvPins.test.ts` |
 
 ## Writing a new pin

@@ -1,10 +1,10 @@
 /**
  * Vendors the draft-revision (2026-07-28) example corpus from the spec
- * repository into `packages/core/test/corpus/fixtures/2026-07-28/`.
+ * repository into `packages/core-internal/test/corpus/fixtures/2026-07-28/`.
  *
  * The spec repository ships canonical example instances for the draft schema
  * (`schema/draft/examples/<TypeName>/*.json`). The corpus harness
- * (`packages/core/test/corpus/specCorpus.test.ts`) parses every vendored
+ * (`packages/core-internal/test/corpus/specCorpus.test.ts`) parses every vendored
  * example through the SDK's wire schemas, so accept-side drift between the
  * SDK and the specification turns CI red.
  *
@@ -33,7 +33,7 @@ const SPEC_REPO = 'modelcontextprotocol/modelcontextprotocol';
 /** The upcoming protocol revision; its examples live in the spec repo's draft directory. */
 const DRAFT_REVISION = '2026-07-28';
 const EXAMPLES_PATH = 'schema/draft/examples';
-const OUTPUT_DIR = join(PROJECT_ROOT, 'packages', 'core', 'test', 'corpus', 'fixtures', DRAFT_REVISION);
+const OUTPUT_DIR = join(PROJECT_ROOT, 'packages', 'core-internal', 'test', 'corpus', 'fixtures', DRAFT_REVISION);
 
 interface ExampleFile {
     /** `<TypeName>/<file>.json` relative to the examples root. */

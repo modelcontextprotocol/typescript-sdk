@@ -1,8 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import Fastify from 'fastify';
 
-import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation.js';
-import { localhostOriginValidation, originValidation } from './middleware/originValidation.js';
+import { hostHeaderValidation, localhostHostValidation } from './middleware/hostHeaderValidation';
+import { localhostOriginValidation, originValidation } from './middleware/originValidation';
 
 /**
  * Options for creating an MCP Fastify application.

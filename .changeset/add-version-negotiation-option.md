@@ -1,6 +1,6 @@
 ---
 '@modelcontextprotocol/client': minor
-'@modelcontextprotocol/core': minor
+'@modelcontextprotocol/core-internal': minor
 ---
 
 Add opt-in protocol version negotiation on `ClientOptions.versionNegotiation`. The default is unchanged: without the option (or with `mode: 'legacy'`) the client performs today's 2025 connect sequence byte-identically. `mode: 'auto'` probes the server with `server/discover` at

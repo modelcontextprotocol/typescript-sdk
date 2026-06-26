@@ -8,7 +8,7 @@ import type { ListToolsRequest, OAuthClientMetadata } from '@modelcontextprotoco
 import { Client, StreamableHTTPClientTransport, UnauthorizedError } from '@modelcontextprotocol/client';
 import open from 'open';
 
-import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider.js';
+import { InMemoryOAuthClientProvider } from './simpleOAuthClientProvider';
 
 // Configuration
 const DEFAULT_SERVER_URL = 'http://127.0.0.1:3000/mcp';

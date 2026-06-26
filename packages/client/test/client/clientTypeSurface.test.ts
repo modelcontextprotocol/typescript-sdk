@@ -6,10 +6,10 @@
  * unreachable from its API) and no wire-only members (`resultType` is
  * consumed at the protocol layer and never reaches consumers).
  */
-import type { CallToolResult, EmptyResult, ListToolsResult, ReadResourceResult } from '@modelcontextprotocol/core';
+import type { CallToolResult, EmptyResult, ListToolsResult, ReadResourceResult } from '@modelcontextprotocol/core-internal';
 import { describe, expectTypeOf, test } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
+import { Client } from '../../src/client/client';
 
 type KnownKeyOf<T> = keyof { [K in keyof T as string extends K ? never : number extends K ? never : K]: T[K] };
 

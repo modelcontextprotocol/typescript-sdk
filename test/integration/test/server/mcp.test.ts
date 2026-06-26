@@ -1,6 +1,12 @@
 import { Client } from '@modelcontextprotocol/client';
-import type { Notification, TextContent } from '@modelcontextprotocol/core';
-import { getDisplayName, InMemoryTransport, ProtocolErrorCode, UriTemplate, UrlElicitationRequiredError } from '@modelcontextprotocol/core';
+import type { Notification, TextContent } from '@modelcontextprotocol/core-internal';
+import {
+    getDisplayName,
+    InMemoryTransport,
+    ProtocolErrorCode,
+    UriTemplate,
+    UrlElicitationRequiredError
+} from '@modelcontextprotocol/core-internal';
 import { completable, McpServer, ResourceTemplate } from '@modelcontextprotocol/server';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import * as z from 'zod/v4';

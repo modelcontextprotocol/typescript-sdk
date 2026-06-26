@@ -15,12 +15,12 @@ import {
     CLIENT_INFO_META_KEY,
     encodeMcpParamValue,
     PROTOCOL_VERSION_META_KEY
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, it, vi } from 'vitest';
 
-import { fromJsonSchema } from '../../src/fromJsonSchema.js';
-import { createMcpHandler } from '../../src/server/createMcpHandler.js';
-import { McpServer } from '../../src/server/mcp.js';
+import { fromJsonSchema } from '../../src/fromJsonSchema';
+import { createMcpHandler } from '../../src/server/createMcpHandler';
+import { McpServer } from '../../src/server/mcp';
 
 const MODERN = '2026-07-28';
 const ENVELOPE = {

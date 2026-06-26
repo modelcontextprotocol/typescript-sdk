@@ -8,20 +8,20 @@
  * required 400) are exercised against real server transports in
  * test/integration/test/client/versionNegotiation.test.ts.
  */
-import type { JSONRPCMessage, JSONRPCRequest, Transport } from '@modelcontextprotocol/core';
+import type { JSONRPCMessage, JSONRPCRequest, Transport } from '@modelcontextprotocol/core-internal';
 import {
     isJSONRPCRequest,
     PROTOCOL_VERSION_META_KEY,
     SdkError,
     SdkErrorCode,
     UnsupportedProtocolVersionError
-} from '@modelcontextprotocol/core';
+} from '@modelcontextprotocol/core-internal';
 import { describe, expect, test } from 'vitest';
 
-import { Client } from '../../src/client/client.js';
-import type { StreamableHTTPClientTransportOptions } from '../../src/client/streamableHttp.js';
-import type { StdioServerParameters } from '../../src/client/stdio.js';
-import { resolveVersionNegotiation } from '../../src/client/versionNegotiation.js';
+import { Client } from '../../src/client/client';
+import type { StreamableHTTPClientTransportOptions } from '../../src/client/streamableHttp';
+import type { StdioServerParameters } from '../../src/client/stdio';
+import { resolveVersionNegotiation } from '../../src/client/versionNegotiation';
 
 const MODERN = '2026-07-28';
 
