@@ -1155,7 +1155,7 @@ async function authInternal(
         await provider.saveDiscoveryState?.(freshDiscoveryState);
     }
 
-    const resource: URL | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
+    const resource: URL | string | undefined = await selectResourceURL(serverUrl, provider, resourceMetadata);
 
     // Save resource URL for providers that need it (e.g., CrossAppAccessProvider)
     if (resource) {
@@ -1360,7 +1360,7 @@ export async function selectResourceURL(
     serverUrl: string | URL,
     provider: OAuthClientProvider,
     resourceMetadata?: OAuthProtectedResourceMetadata
-): Promise<URL | undefined> {
+): Promise<URL | string | undefined> {
     const defaultResource = resourceUrlFromServerUrl(serverUrl);
 
     // If provider has custom validation, delegate to it
@@ -1377,8 +1377,10 @@ export async function selectResourceURL(
     if (!checkResourceAllowed({ requestedResource: defaultResource, configuredResource: resourceMetadata.resource })) {
         throw new Error(`Protected resource ${resourceMetadata.resource} does not match expected ${defaultResource} (or origin)`);
     }
-    // Prefer the resource from metadata since it's what the server is telling us to request
-    return new URL(resourceMetadata.resource);
+    // Prefer the resource from metadata since it's what the server is telling us to request.
+    // Return the original string to preserve the exact value from metadata (e.g. avoid adding
+    // a trailing slash to a pathless URI like "https://example.com" via URL.href normalization).
+    return resourceMetadata.resource;
 }
 
 /**
@@ -1938,7 +1940,7 @@ export async function startAuthorization(
         redirectUrl: string | URL;
         scope?: string;
         state?: string;
-        resource?: URL;
+        resource?: URL | string;
     }
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
     let authorizationUrl: URL;
@@ -1986,7 +1988,7 @@ export async function startAuthorization(
     }
 
     if (resource) {
-        authorizationUrl.searchParams.set('resource', resource.href);
+        authorizationUrl.searchParams.set('resource', String(resource));
     }
 
     return { authorizationUrl, codeVerifier };
@@ -2034,7 +2036,7 @@ export async function executeTokenRequest(
         tokenRequestParams: URLSearchParams;
         clientInformation?: OAuthClientInformationMixed;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
-        resource?: URL;
+        resource?: URL | string;
         fetchFn?: FetchLike;
     }
 ): Promise<OAuthTokens> {
@@ -2046,7 +2048,7 @@ export async function executeTokenRequest(
     });
 
     if (resource) {
-        tokenRequestParams.set('resource', resource.href);
+        tokenRequestParams.set('resource', String(resource));
     }
 
     if (addClientAuthentication) {
@@ -2117,7 +2119,7 @@ export async function exchangeAuthorization(
         iss?: string;
         codeVerifier: string;
         redirectUri: string | URL;
-        resource?: URL;
+        resource?: URL | string;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -2165,7 +2167,7 @@ export async function refreshAuthorization(
         metadata?: AuthorizationServerMetadata;
         clientInformation: OAuthClientInformationMixed;
         refreshToken: string;
-        resource?: URL;
+        resource?: URL | string;
         addClientAuthentication?: OAuthClientProvider['addClientAuthentication'];
         fetchFn?: FetchLike;
     }
@@ -2227,7 +2229,7 @@ export async function fetchToken(
         fetchFn
     }: {
         metadata?: AuthorizationServerMetadata;
-        resource?: URL;
+        resource?: URL | string;
         /** Authorization code for the default `authorization_code` grant flow */
         authorizationCode?: string;
         /**
