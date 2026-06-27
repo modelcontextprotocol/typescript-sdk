@@ -1467,7 +1467,10 @@ function extractFieldFromWwwAuth(response: Response, fieldName: string): string 
         return null;
     }
 
-    const pattern = new RegExp(String.raw`${fieldName}=(?:"([^"]+)"|([^\s,]+))`);
+    // Require the parameter name to start at the header start or after a separator (whitespace
+    // or comma) so it is not matched as a substring of another auth-param name (e.g. searching
+    // "scope" must not match the value of "error_scope").
+    const pattern = new RegExp(String.raw`(?:^|[\s,])${fieldName}=(?:"([^"]+)"|([^\s,]+))`);
     const match = wwwAuthHeader.match(pattern);
 
     if (match) {
