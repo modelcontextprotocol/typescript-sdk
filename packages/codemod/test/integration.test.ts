@@ -88,6 +88,32 @@ describe('integration', () => {
         expect(output).not.toContain('extra');
     });
 
+    it('preserves a leading #! shebang on a migrated file', () => {
+        // Regression: the imports transform consumed the line-1 shebang (leading trivia of the first
+        // import), silently breaking CLI packages whose `bin` points at the compiled entry.
+        const dir = createTempDir();
+        const input = [
+            `#!/usr/bin/env node`,
+            ``,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            ``
+        ].join('\n');
+
+        writeFileSync(path.join(dir, 'cli.ts'), input);
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.filesChanged).toBe(1);
+
+        const output = readFileSync(path.join(dir, 'cli.ts'), 'utf8');
+        // Imports were migrated...
+        expect(output).toContain('@modelcontextprotocol/server');
+        expect(output).not.toContain('@modelcontextprotocol/sdk');
+        // ...and the shebang on line 1 — plus the blank line that separated it from the code — must survive.
+        expect(output.startsWith('#!/usr/bin/env node\n\n')).toBe(true);
+    });
+
     it('dry-run mode does not modify files', () => {
         const dir = createTempDir();
         const input = [

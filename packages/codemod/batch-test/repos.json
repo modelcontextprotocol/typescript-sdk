@@ -1,13 +1,13 @@
 [
     {
-        "repo": "firebase/firebase-tools",
-        "ref": "main",
+        "repo": "KKonstantinov/context7-fork",
+        "ref": "master",
         "packages": [
             {
-                "dir": ".",
-                "sourceDir": "src/mcp",
+                "dir": "packages/mcp",
+                "sourceDir": "src",
                 "checks": {
-                    "typecheck": "npx tsc -p tsconfig.compile.json",
+                    "typecheck": "pnpm install --ignore-workspace --no-frozen-lockfile --ignore-scripts && npx tsc --noEmit",
                     "build": null,
                     "test": null,
                     "lint": null

@@ -10,7 +10,7 @@ For each repo in `repos.json`, the batch test:
 2. Installs dependencies
 3. Runs baseline checks (typecheck, build, test, lint) to confirm the repo is healthy
 4. Runs the codemod using the programmatic API
-5. Packs local SDK packages as tarballs and rewrites `package.json` deps to use them (so the test runs against the current SDK branch, not published npm versions)
+5. Packs local SDK packages as tarballs and rewrites `package.json` deps to use them, so the test runs against the current SDK branch — only when `--sdk=local` (the default); with `--sdk=published` the v2 deps are installed from npm instead (see [Modes](#modes))
 6. Re-installs dependencies
 7. Re-runs the same checks
 8. Writes structured JSON reports
@@ -30,12 +30,47 @@ pnpm --filter @modelcontextprotocol/codemod batch-test
 pnpm --filter @modelcontextprotocol/codemod batch-test:clean
 ```
 
+## Modes
+
+Each run independently chooses where the **SDK packages** and the **codemod** come from:
+
+| Flag                       | Values                 | Default   | Effect                                                                                                              |
+| -------------------------- | ---------------------- | --------- | ------------------------------------------------------------------------------------------------------------------- |
+| `--sdk`                    | `local` \| `published` | `local`   | `local`: pack local packages and rewrite deps to `file:` tarballs. `published`: install the v2 deps from npm.       |
+| `--codemod`                | `local` \| `published` | `local`   | `local`: run the working-copy codemod in-process. `published`: `npx` the published CLI.                             |
+| `--codemod-version <spec>` | npm version/tag/range  | `latest`  | Only with `--codemod=published`.                                                                                    |
+| `--sdk-version <spec>`     | npm version/tag/range  | _(unset)_ | Only with `--sdk=published`. Pins each v2 dep to its own resolved version. Unset = use whatever the codemod writes. |
+
+Both `--flag value` and `--flag=value` forms work.
+
+```bash
+# default (today's behavior)
+pnpm --filter @modelcontextprotocol/codemod batch-test
+
+# both from npm @latest
+pnpm --filter @modelcontextprotocol/codemod batch-test -- --sdk=published --codemod=published
+```
+
+Published specs are resolved to concrete versions via `npm view` at startup (a failure aborts the run). Each `@modelcontextprotocol/*` package is resolved **independently** — they are not released in lockstep. Results are written to a per-run directory keyed on the resolved
+versions; the SDK segment is the resolved `@modelcontextprotocol/server` version used as a representative label, while the full per-package set is recorded in `summary.json` → `sdkVersions`:
+
+```
+results/codemod-local__sdk-local/                  # default (--sdk=local --codemod=local)
+results/codemod-2.0.0-alpha.2__sdk-2.0.0-alpha.2/  # --codemod=published --sdk=published --sdk-version=2.0.0-alpha.2
+results/codemod-2.0.0-alpha.2__sdk-from-codemod/   # --codemod=published --sdk=published  (no --sdk-version)
+```
+
+The segment `sdk-from-codemod` appears when `--sdk=published` with no `--sdk-version` and `--codemod=published` (the SDK version is baked into the published codemod and only known after install; the installed versions are recorded in `summary.json` → `sdkVersions`).
+
+**Limitation:** in published-codemod mode the CLI emits text, not structured diagnostics, so `codemod.diagnostics` is empty and the raw CLI output is captured under `codemod.cli` instead. Diagnostics categorization applies only to local-codemod runs.
+
 ## Output
 
-Results are written to `batch-test/results/`:
+Results are written to a per-run directory keyed on the resolved versions, `batch-test/results/<config>/`, where `<config>` is the `codemod-…__sdk-…` leaf (distinct `--codemod-version`/`--sdk-version` values produce distinct directories even within the same `--sdk`/`--codemod`
+mode; see [Modes](#modes)):
 
-- `summary.json` — overview across all repos: which passed, which failed, error counts
-- `<repo-slug>/report.json` — per-repo detail: baseline vs post-codemod check results, codemod diagnostics, change counts
+- `results/<config>/summary.json` — overview across all repos: which passed, which failed, error counts, plus the run `config` and the resolved per-package `sdkVersions`
+- `results/<config>/<repo-slug>/report.json` — per-repo detail: baseline vs post-codemod check results, codemod diagnostics, change counts
 
 ## Repo manifest (`repos.json`)
 
@@ -86,7 +121,7 @@ When `checks` is omitted, the runner auto-detects commands from the package's `p
 
 1. Edit `repos.json` and add an entry
 2. Run `pnpm --filter @modelcontextprotocol/codemod batch-test`
-3. Check `results/<repo-slug>/report.json` for new findings
+3. Check `results/<config>/<repo-slug>/report.json` for new findings
 
 For monorepos, list each package that uses `@modelcontextprotocol/sdk` as a separate entry in `packages`.
 

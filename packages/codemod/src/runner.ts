@@ -135,6 +135,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     const fileResults: FileResult[] = [];
     const allDiagnostics: Diagnostic[] = [];
     const allUsedPackages = new Set<string>();
+    const shebangs = new Map<string, string>();
     let totalChanges = 0;
     let filesChanged = 0;
 
@@ -142,6 +143,15 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         let fileChanges = 0;
         const fileDiagnostics: Diagnostic[] = [];
         const originalText = sourceFile.getFullText();
+
+        // A leading `#!` shebang is leading trivia of the first import; some transforms drop it when
+        // they rewrite that import, silently breaking CLI packages whose `bin` points at the compiled
+        // entry. Capture it now and restore it after transforms, before saving. Include any blank lines
+        // that followed it (also part of the same dropped trivia) so the original spacing round-trips.
+        const shebangMatch = originalText.match(/^#![^\n]*\n(?:[ \t]*\n)*/);
+        if (shebangMatch) {
+            shebangs.set(sourceFile.getFilePath(), shebangMatch[0]);
+        }
 
         const fileClaimedPackages = new Set<string>();
         try {
@@ -215,6 +225,14 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     let commentCount = 0;
     if (!options.dryRun) {
         commentCount = insertDiagnosticComments(project, fileResults);
+        // Restore any shebang a transform dropped. Done after comment insertion so the inserted
+        // comments (positioned against the post-transform text) shift down with the code uniformly.
+        for (const [filePath, shebang] of shebangs) {
+            const sf = project.getSourceFile(filePath);
+            if (sf && !sf.getFullText().startsWith('#!')) {
+                sf.insertText(0, shebang);
+            }
+        }
         project.saveSync();
     }
 
