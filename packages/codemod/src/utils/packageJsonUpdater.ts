@@ -10,7 +10,7 @@ import { findPackageJson } from './projectAnalyzer';
 const V1_PACKAGE = '@modelcontextprotocol/sdk';
 const PRIVATE_PACKAGES = new Set(['@modelcontextprotocol/core-internal']);
 
-/** A zod range segment that can only resolve below 4.2 fails at runtime under v2 (the first registration throws). */
+/** A zod range segment that can only resolve below 4.2 fails at runtime under v2 (surfaces on the first tools/list). */
 const ZOD_TOO_OLD = /^(?:workspace:|npm:)?[\s=v~^><]*(3|4\.0|4\.1)(\.|\s|$)/;
 
 /** Every `||` alternative must be too old before we warn — `^3.25 || ^4.5` resolves fine. */
@@ -137,7 +137,7 @@ function zodWarning(deps: Record<string, string> | undefined, devDeps: Record<st
         return (
             `zod range '${range}' cannot satisfy v2's floor: zod >=4.2.0 is required. ` +
             `An older range installs and typechecks cleanly and only fails at runtime ` +
-            `(the first schema registration throws).`
+            `(the server starts normally and the first tools/list reports the failure).`
         );
     }
     return undefined;
