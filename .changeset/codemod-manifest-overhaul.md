@@ -1,0 +1,5 @@
+---
+'@modelcontextprotocol/codemod': patch
+---
+
+Overhaul the manifest handling. The dependency swap now updates every workspace-member `package.json` (npm/yarn/bun `workspaces` and `pnpm-workspace.yaml`), not just the manifest nearest the target directory, and the v2 additions are derived from each package's **post-transform** import state rather than from what this run rewrote — so an already-migrated package whose v1 dependency is being removed still gets the v2 packages its imports need. File collection now uses fast-glob directly: symbolic links are never followed (pnpm `node_modules` layouts contain symlink cycles that previously crashed the walker with `ELOOP`) and ignore patterns — including `--ignore` — apply during directory descent. The codemod also warns when a manifest declares a zod range below v2's `>=4.2.0` floor (an older range installs and typechecks cleanly and only fails at runtime). `RunnerResult.packageJsonChanges` is now an array of per-manifest changes with optional `warnings`.

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { updatePackageJson } from '../src/utils/packageJsonUpdater';
+import { discoverManifests, updatePackageJson } from '../src/utils/packageJsonUpdater';
 
 let tempDir: string;
 
@@ -36,11 +36,15 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/server']), false);
+        const result = updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/server'])]]),
+            false
+        );
 
-        expect(result).toBeDefined();
-        expect(result!.removed).toContain('@modelcontextprotocol/sdk');
-        expect(result!.added).toContain('@modelcontextprotocol/server');
+        expect(result).toHaveLength(1);
+        expect(result[0]!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result[0]!.added).toContain('@modelcontextprotocol/server');
 
         const pkg = readPkgJson(dir);
         const deps = pkg.dependencies as Record<string, string>;
@@ -57,9 +61,13 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/client']), false);
+        const result = updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/client'])]]),
+            false
+        );
 
-        expect(result).toBeDefined();
+        expect(result).toHaveLength(1);
         const pkg = readPkgJson(dir);
         const devDeps = pkg.devDependencies as Record<string, string>;
         expect(devDeps['@modelcontextprotocol/sdk']).toBeUndefined();
@@ -77,9 +85,13 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/server']), false);
+        const result = updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/server'])]]),
+            false
+        );
 
-        expect(result).toBeDefined();
+        expect(result).toHaveLength(1);
         const pkg = readPkgJson(dir);
         const deps = pkg.dependencies as Record<string, string>;
         const devDeps = pkg.devDependencies as Record<string, string>;
@@ -98,11 +110,15 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/server', '@modelcontextprotocol/node']), false);
+        const result = updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/server', '@modelcontextprotocol/node'])]]),
+            false
+        );
 
-        expect(result).toBeDefined();
-        expect(result!.added).toContain('@modelcontextprotocol/node');
-        expect(result!.added).not.toContain('@modelcontextprotocol/server');
+        expect(result).toHaveLength(1);
+        expect(result[0]!.added).toContain('@modelcontextprotocol/node');
+        expect(result[0]!.added).not.toContain('@modelcontextprotocol/server');
     });
 
     it('returns undefined when no package.json exists', () => {
@@ -110,8 +126,8 @@ describe('updatePackageJson', () => {
         mkdirSync(path.join(dir, '.git'), { recursive: true });
         mkdirSync(path.join(dir, 'src'), { recursive: true });
 
-        const result = updatePackageJson(path.join(dir, 'src'), new Set(['@modelcontextprotocol/server']), false);
-        expect(result).toBeUndefined();
+        const result = updatePackageJson(discoverManifests(path.join(dir, 'src')), new Map(), false);
+        expect(result).toHaveLength(0);
     });
 
     it('returns undefined when v1 SDK is not in package.json', () => {
@@ -122,8 +138,12 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/server']), false);
-        expect(result).toBeUndefined();
+        const result = updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/server'])]]),
+            false
+        );
+        expect(result).toHaveLength(0);
     });
 
     it('does not write file in dry-run mode', () => {
@@ -134,10 +154,14 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/server']), true);
+        const result = updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/server'])]]),
+            true
+        );
 
-        expect(result).toBeDefined();
-        expect(result!.added).toContain('@modelcontextprotocol/server');
+        expect(result).toHaveLength(1);
+        expect(result[0]!.added).toContain('@modelcontextprotocol/server');
 
         const pkg = readPkgJson(dir);
         const deps = pkg.dependencies as Record<string, string>;
@@ -153,11 +177,15 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/core-internal', '@modelcontextprotocol/server']), false);
+        const result = updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/core-internal', '@modelcontextprotocol/server'])]]),
+            false
+        );
 
-        expect(result).toBeDefined();
-        expect(result!.added).not.toContain('@modelcontextprotocol/core-internal');
-        expect(result!.added).toContain('@modelcontextprotocol/server');
+        expect(result).toHaveLength(1);
+        expect(result[0]!.added).not.toContain('@modelcontextprotocol/core-internal');
+        expect(result[0]!.added).toContain('@modelcontextprotocol/server');
 
         const pkg = readPkgJson(dir);
         const deps = pkg.dependencies as Record<string, string>;
@@ -176,7 +204,11 @@ describe('updatePackageJson', () => {
             4
         );
 
-        updatePackageJson(dir, new Set(['@modelcontextprotocol/server']), false);
+        updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/server'])]]),
+            false
+        );
 
         const raw = readFileSync(path.join(dir, 'package.json'), 'utf8');
         expect(raw).toContain('    "dependencies"');
@@ -190,7 +222,11 @@ describe('updatePackageJson', () => {
             }
         });
 
-        updatePackageJson(dir, new Set(['@modelcontextprotocol/server']), false);
+        updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/server'])]]),
+            false
+        );
 
         const raw = readFileSync(path.join(dir, 'package.json'), 'utf8');
         expect(raw.endsWith('\n')).toBe(true);
@@ -206,11 +242,11 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(), false);
+        const result = updatePackageJson(discoverManifests(dir), new Map([[path.join(dir, 'package.json'), new Set()]]), false);
 
-        expect(result).toBeDefined();
-        expect(result!.removed).toContain('@modelcontextprotocol/sdk');
-        expect(result!.added).toEqual([]);
+        expect(result).toHaveLength(1);
+        expect(result[0]!.removed).toContain('@modelcontextprotocol/sdk');
+        expect(result[0]!.added).toEqual([]);
 
         const pkg = readPkgJson(dir);
         const deps = pkg.dependencies as Record<string, string>;
@@ -226,7 +262,11 @@ describe('updatePackageJson', () => {
             }
         });
 
-        updatePackageJson(dir, new Set(['@modelcontextprotocol/server']), false);
+        updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/server'])]]),
+            false
+        );
 
         const pkg = readPkgJson(dir);
         const deps = pkg.dependencies as Record<string, string>;
@@ -237,8 +277,12 @@ describe('updatePackageJson', () => {
         const dir = createTempDir();
         writeFileSync(path.join(dir, 'package.json'), '{ invalid json }');
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/server']), false);
-        expect(result).toBeUndefined();
+        const result = updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/server'])]]),
+            false
+        );
+        expect(result).toHaveLength(0);
     });
 
     it('normalizes subpath packages to root before adding to package.json', () => {
@@ -249,10 +293,14 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/client/stdio']), false);
+        const result = updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/client/stdio'])]]),
+            false
+        );
 
-        expect(result).toBeDefined();
-        expect(result!.added).toContain('@modelcontextprotocol/client');
+        expect(result).toHaveLength(1);
+        expect(result[0]!.added).toContain('@modelcontextprotocol/client');
 
         const pkg = readPkgJson(dir);
         const deps = pkg.dependencies as Record<string, string>;
@@ -267,10 +315,14 @@ describe('updatePackageJson', () => {
             }
         });
 
-        const result = updatePackageJson(dir, new Set(['@modelcontextprotocol/client', '@modelcontextprotocol/client/stdio']), false);
+        const result = updatePackageJson(
+            discoverManifests(dir),
+            new Map([[path.join(dir, 'package.json'), new Set(['@modelcontextprotocol/client', '@modelcontextprotocol/client/stdio'])]]),
+            false
+        );
 
-        expect(result).toBeDefined();
-        expect(result!.added.filter(p => p === '@modelcontextprotocol/client')).toHaveLength(1);
+        expect(result).toHaveLength(1);
+        expect(result[0]!.added.filter(p => p === '@modelcontextprotocol/client')).toHaveLength(1);
     });
 
     it('adds multiple v2 packages', () => {
@@ -282,13 +334,18 @@ describe('updatePackageJson', () => {
         });
 
         const result = updatePackageJson(
-            dir,
-            new Set(['@modelcontextprotocol/server', '@modelcontextprotocol/node', '@modelcontextprotocol/express']),
+            discoverManifests(dir),
+            new Map([
+                [
+                    path.join(dir, 'package.json'),
+                    new Set(['@modelcontextprotocol/server', '@modelcontextprotocol/node', '@modelcontextprotocol/express'])
+                ]
+            ]),
             false
         );
 
-        expect(result).toBeDefined();
-        expect(result!.added).toEqual(['@modelcontextprotocol/express', '@modelcontextprotocol/node', '@modelcontextprotocol/server']);
+        expect(result).toHaveLength(1);
+        expect(result[0]!.added).toEqual(['@modelcontextprotocol/express', '@modelcontextprotocol/node', '@modelcontextprotocol/server']);
 
         const pkg = readPkgJson(dir);
         const deps = pkg.dependencies as Record<string, string>;

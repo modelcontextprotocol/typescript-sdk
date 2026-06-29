@@ -56,6 +56,8 @@ export interface PackageJsonChange {
     added: string[];
     removed: string[];
     packageJsonPath: string;
+    /** Manifest-level findings that need the user's attention (e.g. an incompatible zod range). */
+    warnings?: string[];
 }
 
 export interface RunnerResult {
@@ -63,6 +65,6 @@ export interface RunnerResult {
     totalChanges: number;
     diagnostics: Diagnostic[];
     fileResults: FileResult[];
-    packageJsonChanges?: PackageJsonChange;
+    packageJsonChanges?: PackageJsonChange[];
     commentCount: number;
 }

@@ -1,9 +1,13 @@
+import path from 'node:path';
+
+import fg from 'fast-glob';
 import type { Node } from 'ts-morph';
 import { Project, SyntaxKind } from 'ts-morph';
 
-import type { Diagnostic, FileResult, Migration, RunnerOptions, RunnerResult } from './types';
+import { MOCK_CALLERS, MOCK_METHODS } from './migrations/v1-to-v2/transforms/mockPaths';
+import type { Diagnostic, FileResult, Migration, PackageJsonChange, RunnerOptions, RunnerResult } from './types';
 import { CODEMOD_ERROR_PREFIX, error } from './utils/diagnostics';
-import { updatePackageJson } from './utils/packageJsonUpdater';
+import { discoverManifests, ownerManifest, updatePackageJson } from './utils/packageJsonUpdater';
 import { analyzeProject } from './utils/projectAnalyzer';
 
 const LITERAL_NODE_KINDS = new Set([
@@ -75,10 +79,6 @@ function insertDiagnosticComments(project: Project, fileResults: FileResult[]): 
     return insertedCount;
 }
 
-function escapeGlobPath(p: string): string {
-    return p.replaceAll(/[[\]{}()*?!@#]/g, String.raw`\$&`);
-}
-
 export function run(migration: Migration, options: RunnerOptions): RunnerResult {
     const context = analyzeProject(options.targetDir);
 
@@ -104,7 +104,17 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         }
     });
 
-    const globPattern = `${escapeGlobPath(options.targetDir)}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}`;
+    const targetBase = fg.convertPathToPattern(path.resolve(options.targetDir));
+    const globPattern = `${targetBase}/**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}`;
+    // The positive pattern is absolute, so fast-glob compares ignore patterns against
+    // absolute paths — a bare-relative --ignore would silently match nothing. Rebase
+    // relative user patterns onto the target directory.
+    const userIgnores = (options.ignore ?? []).map(pattern => {
+        if (pattern.startsWith('**') || path.isAbsolute(pattern)) {
+            return path.isAbsolute(pattern) ? fg.convertPathToPattern(pattern) : pattern;
+        }
+        return `${targetBase}/${pattern}`;
+    });
     const ignorePatterns = [
         '**/node_modules/**',
         '**/dist/**',
@@ -117,14 +127,22 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         '**/*.d.ts',
         '**/*.d.mts',
         '**/*.d.cts',
-        ...(options.ignore ?? [])
+        ...userIgnores
     ];
 
-    const allPatterns = [globPattern];
-    for (const ignore of ignorePatterns) {
-        allPatterns.push(`!${ignore}`);
+    // Collect files with fast-glob directly instead of ts-morph's glob handling:
+    // symbolic links are never followed (pnpm node_modules layouts contain symlink
+    // cycles that ELOOP a following walker) and ignore patterns — including the
+    // user's --ignore — apply during directory descent, not as a post-filter.
+    const files = fg.sync(globPattern, {
+        ignore: ignorePatterns,
+        followSymbolicLinks: false,
+        suppressErrors: true,
+        absolute: true
+    });
+    for (const filePath of files) {
+        project.addSourceFileAtPathIfExists(filePath);
     }
-    project.addSourceFilesAtPaths(allPatterns);
 
     const sourceFiles = project.getSourceFiles().filter(sf => {
         const fp = sf.getFilePath();
@@ -134,7 +152,6 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     });
     const fileResults: FileResult[] = [];
     const allDiagnostics: Diagnostic[] = [];
-    const allUsedPackages = new Set<string>();
     let totalChanges = 0;
     let filesChanged = 0;
 
@@ -143,33 +160,11 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         const fileDiagnostics: Diagnostic[] = [];
         const originalText = sourceFile.getFullText();
 
-        const fileClaimedPackages = new Set<string>();
         try {
             for (const transform of enabledTransforms) {
                 const result = transform.apply(sourceFile, context);
                 fileChanges += result.changesCount;
                 fileDiagnostics.push(...result.diagnostics);
-                if (result.usedPackages) {
-                    for (const pkg of result.usedPackages) {
-                        fileClaimedPackages.add(pkg);
-                    }
-                }
-            }
-            // A transform records a package as "used" when it routes a binding there — but importPaths does
-            // so the moment it rewrites an import, and later transforms (handlerRegistration,
-            // schemaParamRemoval) routinely rewrite the schema usage away and delete that very import.
-            // Honouring a claim whose import did not survive would add an unused dependency to package.json,
-            // so a claim counts only when the FINAL file still references the specifier. Every claim
-            // originates from a string literal the transform wrote (an import/export module specifier, or a
-            // vi.mock()/dynamic import() argument), so a surviving string-literal match is the ground truth.
-            const survivingSpecifiers = new Set<string>();
-            for (const literal of sourceFile.getDescendantsOfKind(SyntaxKind.StringLiteral)) {
-                survivingSpecifiers.add(literal.getLiteralValue());
-            }
-            for (const pkg of fileClaimedPackages) {
-                if (survivingSpecifiers.has(pkg)) {
-                    allUsedPackages.add(pkg);
-                }
             }
         } catch (error_) {
             const filePath = sourceFile.getFilePath();
@@ -177,7 +172,6 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
             fileDiagnostics.push(error(filePath, 1, `Transform failed: ${error_ instanceof Error ? error_.message : String(error_)}`));
             sourceFile.replaceWithText(originalText);
             fileChanges = 0;
-            fileClaimedPackages.clear();
         }
 
         for (const d of fileDiagnostics) {
@@ -205,10 +199,45 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         }
     }
 
+    // The v2 dependency set for each manifest is derived from the POST-transform
+    // import state of the files it owns (longest-prefix match against the
+    // discovered manifests). Reading the final state — rather than what this run
+    // rewrote — means an already-migrated package whose v1 dependency is being
+    // removed still gets the v2 packages its imports need.
     const hasImportsTransform = enabledTransforms.some(t => t.id === 'imports');
-    const packageJsonChanges = hasImportsTransform
-        ? updatePackageJson(options.targetDir, allUsedPackages, options.dryRun ?? false)
-        : undefined;
+    let packageJsonChanges: PackageJsonChange[] | undefined;
+    if (hasImportsTransform) {
+        const manifests = discoverManifests(options.targetDir);
+        const usedByManifest = new Map<string, Set<string>>();
+        for (const sourceFile of sourceFiles) {
+            const owner = ownerManifest(sourceFile.getFilePath(), manifests);
+            if (!owner) continue;
+            let used = usedByManifest.get(owner.path);
+            if (!used) {
+                used = new Set();
+                usedByManifest.set(owner.path, used);
+            }
+            for (const decl of sourceFile.getImportDeclarations()) {
+                const spec = decl.getModuleSpecifierValue();
+                if (spec.startsWith('@modelcontextprotocol/')) used.add(spec);
+            }
+            for (const decl of sourceFile.getExportDeclarations()) {
+                const spec = decl.getModuleSpecifierValue();
+                if (spec !== undefined && spec.startsWith('@modelcontextprotocol/')) used.add(spec);
+            }
+            for (const call of sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)) {
+                const exprText = call.getExpression().getText();
+                const dot = exprText.indexOf('.');
+                const isMockCall = dot !== -1 && MOCK_CALLERS.has(exprText.slice(0, dot)) && MOCK_METHODS.has(exprText.slice(dot + 1));
+                const isModuleRef = call.getExpression().getKind() === SyntaxKind.ImportKeyword || exprText === 'require' || isMockCall;
+                if (!isModuleRef) continue;
+                const spec = call.getArguments()[0]?.asKind(SyntaxKind.StringLiteral)?.getLiteralValue();
+                if (spec !== undefined && spec.startsWith('@modelcontextprotocol/')) used.add(spec);
+            }
+        }
+        const changes = updatePackageJson(manifests, usedByManifest, options.dryRun ?? false);
+        packageJsonChanges = changes.length > 0 ? changes : undefined;
+    }
 
     // Per-file mutations are atomic: if any transform fails, the file is rolled back to its
     // original state and an error diagnostic is emitted.

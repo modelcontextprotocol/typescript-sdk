@@ -28,7 +28,7 @@ function routeSymbols(symbols: string[], mapping: ImportMapping): { target?: str
     return { mixed: false };
 }
 
-const MOCK_METHODS = new Set([
+export const MOCK_METHODS: ReadonlySet<string> = new Set([
     'mock',
     'doMock',
     'unmock',
@@ -39,7 +39,7 @@ const MOCK_METHODS = new Set([
     'requireMock',
     'createMockFromModule'
 ]);
-const MOCK_CALLERS = new Set(['vi', 'jest']);
+export const MOCK_CALLERS: ReadonlySet<string> = new Set(['vi', 'jest']);
 
 export const mockPathsTransform: Transform = {
     name: 'Mock and dynamic import path rewrites',

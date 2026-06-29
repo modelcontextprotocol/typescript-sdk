@@ -150,17 +150,35 @@ for (const [name, migration] of listMigrations()) {
                 }
 
                 if (result.packageJsonChanges) {
-                    const pc = result.packageJsonChanges;
-                    if (opts['dryRun']) {
-                        console.log('package.json changes (dry run — not applied):');
-                    } else {
-                        console.log('package.json updated:');
+                    const updated = result.packageJsonChanges.filter(pc => pc.added.length > 0 || pc.removed.length > 0);
+                    const warningOnly = result.packageJsonChanges.filter(pc => pc.added.length === 0 && pc.removed.length === 0);
+                    if (updated.length > 0) {
+                        if (opts['dryRun']) {
+                            console.log('package.json changes (dry run — not applied):');
+                        } else {
+                            console.log('package.json updated:');
+                        }
                     }
-                    if (pc.removed.length > 0) {
-                        console.log(`  Removed: ${pc.removed.join(', ')}`);
+                    for (const pc of updated) {
+                        console.log(`  ${path.relative(process.cwd(), pc.packageJsonPath) || pc.packageJsonPath}`);
+                        if (pc.removed.length > 0) {
+                            console.log(`    Removed: ${pc.removed.join(', ')}`);
+                        }
+                        if (pc.added.length > 0) {
+                            console.log(`    Added:   ${pc.added.join(', ')}`);
+                        }
+                        for (const w of pc.warnings ?? []) {
+                            console.log(`    Warning: ${w}`);
+                        }
                     }
-                    if (pc.added.length > 0) {
-                        console.log(`  Added:   ${pc.added.join(', ')}`);
+                    if (warningOnly.length > 0) {
+                        console.log('Manifest warnings:');
+                        for (const pc of warningOnly) {
+                            console.log(`  ${path.relative(process.cwd(), pc.packageJsonPath) || pc.packageJsonPath}`);
+                            for (const w of pc.warnings ?? []) {
+                                console.log(`    Warning: ${w}`);
+                            }
+                        }
                     }
                     console.log('');
                 }
