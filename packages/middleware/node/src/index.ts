@@ -6,6 +6,7 @@ export type {
     NodeIncomingMessageLike,
     NodeMcpRequestHandler,
     NodeServerResponseLike,
-    ToNodeHandlerOptions
+    ToNodeHandlerOptions,
+    ToWebRequestOptions
 } from './toNodeHandler';
-export { toNodeHandler } from './toNodeHandler';
+export { toNodeHandler, toWebRequest } from './toNodeHandler';
