@@ -8,7 +8,7 @@ This guide covers the TypeScript SDK APIs for building MCP servers. For protocol
 
 Building a server takes three steps:
 
-1. Create an {@linkcode @modelcontextprotocol/server!server/mcp.McpServer | McpServer} and register your [tools](#tools), [resources](#resources), and [prompts](#prompts).
+1. Create an `McpServer` and register your [tools](#tools), [resources](#resources), and [prompts](#prompts).
 2. Create a transport — [Streamable HTTP](#streamable-http) for remote servers or [stdio](#stdio) for local integrations.
 3. Connect them with `server.connect(transport)`.
 
@@ -52,7 +52,7 @@ MCP supports two transport mechanisms (see [Transport layer](https://modelcontex
 
 ### Streamable HTTP
 
-Create a {@linkcode @modelcontextprotocol/node!streamableHttp.NodeStreamableHTTPServerTransport | NodeStreamableHTTPServerTransport} and connect it to your server:
+Create a `NodeStreamableHTTPServerTransport` and connect it to your server:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#streamableHttp_stateful"
 const server = new McpServer({ name: 'my-server', version: '1.0.0' });
@@ -96,7 +96,7 @@ To keep an existing sessionful 2025 deployment serving legacy traffic, route wit
 
 ### stdio
 
-For local, process-spawned integrations, use {@linkcode @modelcontextprotocol/server!server/stdio.StdioServerTransport | StdioServerTransport}:
+For local, process-spawned integrations, use `StdioServerTransport`:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#stdio_basic"
 const server = new McpServer({ name: 'my-server', version: '1.0.0' });
@@ -142,7 +142,7 @@ const server = new McpServer(
 
 Tools let clients invoke actions on your server — they are usually the main way LLMs call into your application (see [Tools](https://modelcontextprotocol.io/docs/learn/server-concepts#tools) in the MCP overview).
 
-Register a tool with {@linkcode @modelcontextprotocol/server!server/mcp.McpServer#registerTool | registerTool}. Provide an `inputSchema` (any Standard Schema library that supports JSON Schema conversion: Zod v4 shown here; ArkType and Valibot also conform) to validate
+Register a tool with `registerTool`. Provide an `inputSchema` (any Standard Schema library that supports JSON Schema conversion: Zod v4 shown here; ArkType and Valibot also conform) to validate
 arguments, and optionally an `outputSchema` for structured return values.
 
 > On the 2026-07-28 draft serving path, a tool whose `inputSchema` carries an `x-mcp-header` annotation has that argument mirrored into an `Mcp-Param-{Name}` HTTP request header by conforming clients. `createMcpHandler` validates those headers before dispatch and rejects a
@@ -309,7 +309,7 @@ server.registerResource(
 );
 ```
 
-Dynamic resources use {@linkcode @modelcontextprotocol/server!server/mcp.ResourceTemplate | ResourceTemplate} with URI patterns. The `list` callback lets clients discover available instances:
+Dynamic resources use `ResourceTemplate` with URI patterns. The `list` callback lets clients discover available instances:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#registerResource_template"
 server.registerResource(
@@ -375,7 +375,7 @@ server.registerPrompt(
 
 ## Completions
 
-Both prompts and resources can support argument completions. Wrap a field in the `argsSchema` with {@linkcode @modelcontextprotocol/server!server/completable.completable | completable()} to provide autocompletion suggestions:
+Both prompts and resources can support argument completions. Wrap a field in the `argsSchema` with `completable()` to provide autocompletion suggestions:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#registerPrompt_completion"
 server.registerPrompt(
@@ -408,7 +408,7 @@ For resource templates, pass a `complete` callback map to the `ResourceTemplate`
 ## Extension capabilities
 
 A server advertises support for [MCP extensions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#capability-negotiation) through `capabilities.extensions` — a map from extension identifier to that extension's settings object. Declare entries with
-{@linkcode @modelcontextprotocol/server!server/server.Server#registerCapabilities | server.server.registerCapabilities()} before connecting:
+`server.server.registerCapabilities()` before connecting:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#extensionCapabilities_register"
 server.server.registerCapabilities({
@@ -419,14 +419,14 @@ server.server.registerCapabilities({
 The map is advertised in the `initialize` result on legacy connections and in the `server/discover` response on 2026-07-28 ones. Identifiers are prefix-qualified per the spec's `_meta` key naming rules (e.g. `com.example/feature-flags`); each value is free-form JSON for
 that extension's settings — `{}` means supported with no settings.
 
-For a runnable pair, see the [`extension-capabilities/` example](../examples/extension-capabilities/README.md); reading the map client-side is covered in the [client guide](./client.md#extension-capabilities).
+For a runnable pair, see the [`extension-capabilities/` example](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/extension-capabilities/README.md); reading the map client-side is covered in the [client guide](./client.md#extension-capabilities).
 
 ## Cache hints (2026-07-28 draft)
 
 The 2026-07-28 revision requires `ttlMs` and `cacheScope` on the cacheable results (`tools/list`, `prompts/list`, `resources/list`, `resources/templates/list`, `resources/read`, and `server/discover`) so clients and intermediaries know how long a response stays fresh and
 whether it may be shared (SEP-2549). The SDK fills both fields automatically when serving that revision, defaulting to `ttlMs: 0` and `cacheScope: 'private'` (immediately stale, never shared). Responses to 2025-era requests are never affected.
 
-To advertise a real cache policy, set {@linkcode @modelcontextprotocol/server!server/server.ServerOptions | ServerOptions.cacheHints} per operation, and/or `cacheHint` on an individual resource registration:
+To advertise a real cache policy, set `ServerOptions.cacheHints` per operation, and/or `cacheHint` on an individual resource registration:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#cacheHints_basic"
 const server = new McpServer(
@@ -467,7 +467,7 @@ Use `cacheScope: 'public'` only for results that are identical for every caller:
 
 Logging lets your server send structured diagnostics — debug traces, progress updates, warnings — to the connected client as notifications (see [Logging](https://modelcontextprotocol.io/specification/latest/server/utilities/logging) in the MCP specification).
 
-Declare the `logging` capability, then call `ctx.mcpReq.log(level, data)` (from {@linkcode @modelcontextprotocol/server!index.ServerContext | ServerContext}) inside any handler:
+Declare the `logging` capability, then call `ctx.mcpReq.log(level, data)` (from `ServerContext`) inside any handler:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#logging_capability"
 const server = new McpServer({ name: 'my-server', version: '1.0.0' }, { capabilities: { logging: {} } });
@@ -499,7 +499,7 @@ On a 2026-07-28 request, `ctx.mcpReq.log()` reads its level filter from the requ
 
 Progress notifications let a tool report incremental status updates during long-running operations (see [Progress](https://modelcontextprotocol.io/specification/latest/basic/utilities/progress) in the MCP specification).
 
-If the client includes a `progressToken` in the request `_meta`, send `notifications/progress` via `ctx.mcpReq.notify()` (from {@linkcode @modelcontextprotocol/server!index.BaseContext | BaseContext}):
+If the client includes a `progressToken` in the request `_meta`, send `notifications/progress` via `ctx.mcpReq.notify()` (from `BaseContext`):
 
 ```ts source="../examples/guides/serverGuide.examples.ts#registerTool_progress"
 server.registerTool(
@@ -539,10 +539,10 @@ server.registerTool(
 Servers can signal that their tool, prompt, or resource lists changed, or that a specific resource's content changed, so clients can refresh.
 
 **List changes** are emitted automatically: registering, enabling, disabling, updating, or removing a tool, prompt, or resource sends the matching `notifications/*/list_changed` (`McpServer` advertises the corresponding `listChanged: true` capability on registration;
-declare it up front only when using the low-level `Server`). You can also send them explicitly with {@linkcode @modelcontextprotocol/server!server/mcp.McpServer#sendToolListChanged | sendToolListChanged()}, `sendPromptListChanged()`, and `sendResourceListChanged()`.
+declare it up front only when using the low-level `Server`). You can also send them explicitly with `sendToolListChanged()`, `sendPromptListChanged()`, and `sendResourceListChanged()`.
 
 **Per-resource updates** (2025-era connections) require hand-wiring; `registerResource` has no subscribe option. Declare `resources: { subscribe: true }`, register the `resources/subscribe`/`resources/unsubscribe` handlers on the underlying low-level server, and push
-{@linkcode @modelcontextprotocol/server!server/server.Server#sendResourceUpdated | sendResourceUpdated()} when the data changes:
+`sendResourceUpdated()` when the data changes:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#subscriptions_legacy"
 const server = new McpServer(
@@ -569,7 +569,7 @@ async function onConfigChanged() {
 ```
 
 **On the 2026-07-28 revision** clients receive change notifications only on a `subscriptions/listen` stream they open, and the serving entries handle that method themselves (nothing to register). Over HTTP, publish through the handler's typed
-{@linkcode @modelcontextprotocol/server!server/serverEventBus.ServerNotifier | notify} facade; each call reaches every open subscription that opted in:
+`notify` facade; each call reaches every open subscription that opted in:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#subscriptions_notify"
 const handler = createMcpHandler(() => buildServer());
@@ -579,8 +579,8 @@ handler.notify.resourceUpdated('config://app');
 handler.notify.toolsChanged();
 ```
 
-The default in-process {@linkcode @modelcontextprotocol/server!server/serverEventBus.InMemoryServerEventBus | InMemoryServerEventBus} covers single-process deployments; multi-process deployments supply their own
-{@linkcode @modelcontextprotocol/server!server/serverEventBus.ServerEventBus | ServerEventBus} via the `bus` option. On stdio, `serveStdio` pins one instance per connection and routes its ordinary `send*ListChanged()` calls onto open subscriptions automatically. Per-resource updates need one change on a 2026 connection: the subscription bookkeeping lives at the entry (the client's listen filter), so the hand-wired `resources/subscribe` handlers above never run. Publish
+The default in-process `InMemoryServerEventBus` covers single-process deployments; multi-process deployments supply their own
+`ServerEventBus` via the `bus` option. On stdio, `serveStdio` pins one instance per connection and routes its ordinary `send*ListChanged()` calls onto open subscriptions automatically. Per-resource updates need one change on a 2026 connection: the subscription bookkeeping lives at the entry (the client's listen filter), so the hand-wired `resources/subscribe` handlers above never run. Publish
 `sendResourceUpdated()` unconditionally when the data changes and let the entry deliver it only to subscriptions that listed the URI.
 
 On the 2026-07-28 revision delivery is capability-gated per type: the entry honors `resourceSubscriptions` only when the server advertises `resources: { subscribe: true }`, and each list-changed type only with the matching `listChanged` capability (on 2025-era connections
@@ -624,13 +624,13 @@ To propagate context onward (for example on a server-initiated sampling request,
 MCP is bidirectional: servers can request input _from_ the client during tool execution, as long as the client declares matching capabilities (see [Architecture](https://modelcontextprotocol.io/docs/learn/architecture) in the MCP overview). On 2025-era connections the server pushes a JSON-RPC request to the client (the sections below). On the 2026-07-28 revision there is no server→client request channel: the handler **returns** an `input_required` result carrying the embedded requests,
 and the client retries the call with the responses.
 
-On a connection pinned to the 2026-07-28 draft revision (served via `serveStdio` or `createMcpHandler`), the push-style channels below throw an {@linkcode @modelcontextprotocol/server!index.SdkError | SdkError} with
-code {@linkcode @modelcontextprotocol/server!index.SdkErrorCode.MethodNotSupportedByProtocolVersion | METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION} before anything reaches the wire (see the [2026-07-28 support guide](./migration/support-2026-07-28.md)).
+On a connection pinned to the 2026-07-28 draft revision (served via `serveStdio` or `createMcpHandler`), the push-style channels below throw an `SdkError` with
+code `METHOD_NOT_SUPPORTED_BY_PROTOCOL_VERSION` before anything reaches the wire (see the [2026-07-28 support guide](./migration/support-2026-07-28.md)).
 
 ### Requesting input on 2026-07-28: `input_required`
 
-On the 2026-07-28 revision a `tools/call`, `prompts/get`, or `resources/read` handler requests client input by returning {@linkcode @modelcontextprotocol/server!index.inputRequired | inputRequired(...)}. The result names one or more
-embedded requests, built with `inputRequired.elicit(...)` (form elicitation), `inputRequired.elicitUrl(...)` (URL elicitation), `inputRequired.createMessage(...)` (sampling), or `inputRequired.listRoots()`. Write the handler **write-once**: on every entry, first read what has already arrived via {@linkcode @modelcontextprotocol/server!index.acceptedContent | acceptedContent(ctx.mcpReq.inputResponses, key)}, and only ask for what is still missing:
+On the 2026-07-28 revision a `tools/call`, `prompts/get`, or `resources/read` handler requests client input by returning `inputRequired(...)`. The result names one or more
+embedded requests, built with `inputRequired.elicit(...)` (form elicitation), `inputRequired.elicitUrl(...)` (URL elicitation), `inputRequired.createMessage(...)` (sampling), or `inputRequired.listRoots()`. Write the handler **write-once**: on every entry, first read what has already arrived via `acceptedContent(ctx.mcpReq.inputResponses, key)`, and only ask for what is still missing:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#registerTool_inputRequired"
 server.registerTool(
@@ -674,7 +674,7 @@ and the handler reads it back with the typed `ctx.mcpReq.requestState<State>()` 
 
 > [!IMPORTANT]
 > `requestState` round-trips through the client and comes back as **attacker-controlled input**. State that influences authorization, resource access, or business logic must be integrity-protected; the SDK applies no protection of its own. Use
-> {@linkcode @modelcontextprotocol/server!index.createRequestStateCodec | createRequestStateCodec}, an HMAC-SHA256 codec whose `verify` drops directly into the `ServerOptions.requestState` hook, which runs before the handler and answers tampered or expired state with a
+> `createRequestStateCodec`, an HMAC-SHA256 codec whose `verify` drops directly into the `ServerOptions.requestState` hook, which runs before the handler and answers tampered or expired state with a
 > wire-level `-32602` (frozen message `"Invalid or expired requestState"`). The codec is signed, not encrypted. Do not put secrets in the payload.
 
 ```ts source="../examples/guides/serverGuide.examples.ts#requestState_codec"
@@ -746,7 +746,7 @@ See [`mrtr/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/bl
 Sampling lets a tool handler request an LLM completion from the connected client — the handler describes a prompt and the client returns the model's response (see [Sampling](https://modelcontextprotocol.io/docs/learn/client-concepts#sampling) in the MCP overview). Use sampling
 when a tool needs the model to generate or transform text mid-execution.
 
-Call `ctx.mcpReq.requestSampling(params)` (from {@linkcode @modelcontextprotocol/server!index.ServerContext | ServerContext}) inside a tool handler:
+Call `ctx.mcpReq.requestSampling(params)` (from `ServerContext`) inside a tool handler:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#registerTool_sampling"
 server.registerTool(
@@ -796,7 +796,7 @@ Elicitation lets a tool handler request direct input from the user — form fiel
 > `ctx.mcpReq.elicitInput` is the 2025-era push channel and **throws a typed error on a 2026-07-28-era request**. Return `inputRequired.elicit(...)` (form) or `inputRequired.elicitUrl(...)` (URL) via `inputRequired({ inputRequests: { … } })` instead; see
 > [Requesting input on 2026-07-28](#requesting-input-on-2026-07-28-input_required). The throw-style `UrlElicitationRequiredError` (`-32042`) also fails loudly toward 2026-era requests.
 
-Call `ctx.mcpReq.elicitInput(params)` (from {@linkcode @modelcontextprotocol/server!index.ServerContext | ServerContext}) inside a tool handler:
+Call `ctx.mcpReq.elicitInput(params)` (from `ServerContext`) inside a tool handler:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#registerTool_elicitation"
 server.registerTool(
@@ -851,8 +851,7 @@ For runnable examples, see [`elicitation/server.ts`](https://github.com/modelcon
 > `server.server.listRoots()` **throws a typed error on a 2026-07-28-era instance**. Return `inputRequired({ inputRequests: { roots: inputRequired.listRoots() } })` and read the response from `ctx.mcpReq.inputResponses` on re-entry; see
 > [Requesting input on 2026-07-28](#requesting-input-on-2026-07-28-input_required).
 
-Roots let a tool handler discover the client's workspace directories — for example, to scope a file search or identify project boundaries (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Call {@linkcode
-@modelcontextprotocol/server!server/server.Server#listRoots | server.server.listRoots()} (requires the client to declare the `roots` capability):
+Roots let a tool handler discover the client's workspace directories — for example, to scope a file search or identify project boundaries (see [Roots](https://modelcontextprotocol.io/docs/learn/client-concepts#roots) in the MCP overview). Call `server.server.listRoots()` (requires the client to declare the `roots` capability):
 
 ```ts source="../examples/guides/serverGuide.examples.ts#registerTool_roots"
 server.registerTool(
@@ -889,9 +888,9 @@ process.on('SIGINT', async () => {
 });
 ```
 
-Calling {@linkcode @modelcontextprotocol/server!index.Transport#close | transport.close()} closes SSE streams and rejects any pending outbound requests. In-flight tool handlers are not automatically drained — they are terminated when the process exits.
+Calling `transport.close()` closes SSE streams and rejects any pending outbound requests. In-flight tool handlers are not automatically drained — they are terminated when the process exits.
 
-For stdio servers, {@linkcode @modelcontextprotocol/server!server/mcp.McpServer#close | server.close()} is sufficient:
+For stdio servers, `server.close()` is sufficient:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#shutdown_stdio"
 process.on('SIGINT', async () => {
@@ -909,7 +908,7 @@ For a complete multi-session server with shutdown handling, see [`repl/server.ts
 Under normal circumstances, cross-origin browser restrictions limit what a malicious website can do to your localhost server. [DNS rebinding attacks](https://en.wikipedia.org/wiki/DNS_rebinding) get around those restrictions entirely by making the requests appear as same-origin,
 since the attacking domain resolves to localhost. Validating the host header on the server side protects against this scenario. **All localhost MCP servers should use DNS rebinding protection.**
 
-The recommended approach is to use {@linkcode @modelcontextprotocol/express!express.createMcpExpressApp | createMcpExpressApp()} (from `@modelcontextprotocol/express`) or {@linkcode @modelcontextprotocol/hono!hono.createMcpHonoApp | createMcpHonoApp()} (from
+The recommended approach is to use `createMcpExpressApp()` (from `@modelcontextprotocol/express`) or `createMcpHonoApp()` (from
 `@modelcontextprotocol/hono`), which enable Host header validation by default:
 
 ```ts source="../examples/guides/serverGuide.examples.ts#dnsRebinding_basic"

@@ -20,13 +20,13 @@ working tree so you can review the diff.
 The mechanical rename mappings are the source of truth — see
 `src/migrations/v1-to-v2/mappings/`:
 
-- [`importMap.ts`](./src/migrations/v1-to-v2/mappings/importMap.ts) —
+- [`importMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts) —
   `@modelcontextprotocol/sdk/...` import paths → v2 packages
-- [`symbolMap.ts`](./src/migrations/v1-to-v2/mappings/symbolMap.ts) —
+- [`symbolMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/symbolMap.ts) —
   symbol renames (`McpError` → `ProtocolError`, …)
-- [`schemaToMethodMap.ts`](./src/migrations/v1-to-v2/mappings/schemaToMethodMap.ts) —
+- [`schemaToMethodMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/schemaToMethodMap.ts) —
   `setRequestHandler(Schema, …)` → `setRequestHandler('method/string', …)`
-- [`contextPropertyMap.ts`](./src/migrations/v1-to-v2/mappings/contextPropertyMap.ts) —
+- [`contextPropertyMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/contextPropertyMap.ts) —
   `extra.*` → `ctx.mcpReq.*` / `ctx.http?.*`
 
 Transforms in `src/migrations/v1-to-v2/transforms/` also rewrite `.tool()` →
@@ -68,10 +68,10 @@ bracket access → `.get()`; sending plain-record headers keeps working), OAuth
 error-class consolidation (`instanceof InvalidGrantError` → `OAuthError` +
 `OAuthErrorCode`), per-scenario `SdkErrorCode` branch selection, `ctx.mcpReq.send()`
 schema-arg drop, and behavioral adaptation are manual — see the
-[migration guide](../../docs/migration/upgrade-to-v2.md) for what to do after the
+[migration guide](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/migration/upgrade-to-v2.md) for what to do after the
 codemod runs.
 
 The codemod handles the v1→v2 SDK surface upgrade only. Adopting the 2026-07-28
 protocol revision (`createMcpHandler`, multi-round-trip requests, `versionNegotiation`)
 is architectural and not codemod-automatable — see
-[docs/migration/support-2026-07-28.md](../../docs/migration/support-2026-07-28.md).
+[docs/migration/support-2026-07-28.md](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/docs/migration/support-2026-07-28.md).

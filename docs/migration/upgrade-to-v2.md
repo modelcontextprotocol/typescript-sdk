@@ -60,16 +60,16 @@ Migrating a large codebase gradually instead of in one pass? See
 
 ## What the codemod handles
 
-The codemod ([`@modelcontextprotocol/codemod`](../../packages/codemod/README.md))
+The codemod ([`@modelcontextprotocol/codemod`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/README.md))
 mechanically applies every rename whose mapping is fixed. The mappings are the
 **source of truth** — they live in the codemod package and are not reproduced here:
 
 | Mapping                                                                                   | Source file                                                                                                       |
 | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| `@modelcontextprotocol/sdk/...` import paths → v2 packages                                | [`mappings/importMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts)                   |
-| Symbol renames (`McpError` → `ProtocolError`, `JSONRPCError` → `JSONRPCErrorResponse`, …) | [`mappings/symbolMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/symbolMap.ts)                   |
-| `setRequestHandler(Schema, …)` → `setRequestHandler('method/string', …)`                  | [`mappings/schemaToMethodMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/schemaToMethodMap.ts)   |
-| `extra.*` → `ctx.mcpReq.*` / `ctx.http?.*` property remap                                 | [`mappings/contextPropertyMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/contextPropertyMap.ts) |
+| `@modelcontextprotocol/sdk/...` import paths → v2 packages                                | [`mappings/importMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts)                   |
+| Symbol renames (`McpError` → `ProtocolError`, `JSONRPCError` → `JSONRPCErrorResponse`, …) | [`mappings/symbolMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/symbolMap.ts)                   |
+| `setRequestHandler(Schema, …)` → `setRequestHandler('method/string', …)`                  | [`mappings/schemaToMethodMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/schemaToMethodMap.ts)   |
+| `extra.*` → `ctx.mcpReq.*` / `ctx.http?.*` property remap                                 | [`mappings/contextPropertyMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/contextPropertyMap.ts) |
 
 In addition the codemod:
 
@@ -365,7 +365,7 @@ coexist under different names.
 ### Imports & transports
 
 The codemod rewrites every `@modelcontextprotocol/sdk/...` import path via
-[`importMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts).
+[`importMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts).
 A few transports need a decision the codemod can't make:
 
 - **`StreamableHTTPServerTransport` → which runtime?** The codemod renames it to
@@ -431,7 +431,7 @@ A few transports need a decision the codemod can't make:
   (deprecated, frozen v1 copy); migrate AS to a dedicated IdP/OAuth library. `AuthInfo`
   is now re-exported by `@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
 
-    The codemod's [`importMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts)
+    The codemod's [`importMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/importMap.ts)
     routes every `…/server/auth/**` deep path (including
     `…/server/auth/middleware/{bearerAuth,allowedMethods,clientAuth}.js`,
     `…/server/auth/handlers/*.js`, `…/server/auth/providers/proxyProvider.js`) to
@@ -452,7 +452,7 @@ object named `extra` — is now a structured **context** object named `ctx`. Thi
 `ctx` that appears throughout the rest of this guide.
 
 The codemod renames the parameter and remaps property access via
-[`contextPropertyMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/contextPropertyMap.ts).
+[`contextPropertyMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/contextPropertyMap.ts).
 A few mappings need optional-chaining adjustment (the `http` group is `undefined` on
 stdio):
 
@@ -522,7 +522,7 @@ wire behavior, and remains functional for at least the twelve-month deprecation 
 
 The low-level handler registration takes a **method string** instead of a Zod schema.
 The codemod rewrites every spec-method registration via
-[`schemaToMethodMap.ts`](../../packages/codemod/src/migrations/v1-to-v2/mappings/schemaToMethodMap.ts).
+[`schemaToMethodMap.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/src/migrations/v1-to-v2/mappings/schemaToMethodMap.ts).
 
 ```typescript
 // v1
@@ -1807,7 +1807,7 @@ where an entry notes its own signature change:
 
 ## Need help?
 
-- The codemod's [`@mcp-codemod-error`](../../packages/codemod/README.md) markers point
+- The codemod's [`@mcp-codemod-error`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/packages/codemod/README.md) markers point
   at every site it could not safely rewrite.
 - The [FAQ](../faq.md) covers common v2 questions.
 - Runnable [examples](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples)

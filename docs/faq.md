@@ -67,7 +67,7 @@ For production use, you can either:
 
 ### Where can I find runnable server examples?
 
-The [server quickstart](./server-quickstart.md) walks you through building a weather server from scratch. Its complete source lives in [`examples/server-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server-quickstart/). For more advanced examples (OAuth, streaming, sessions, etc.), see the server examples index in [`examples/README.md`](../examples/README.md).
+The [server quickstart](./server-quickstart.md) walks you through building a weather server from scratch. Its complete source lives in [`examples/server-quickstart/`](https://github.com/modelcontextprotocol/typescript-sdk/tree/main/examples/server-quickstart/). For more advanced examples (OAuth, streaming, sessions, etc.), see the server examples index in [`examples/README.md`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/README.md).
 
 ### Where are the server auth helpers?
 

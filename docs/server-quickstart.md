@@ -207,7 +207,7 @@ interface ForecastResponse {
 
 ### Registering tools
 
-Each tool is registered with {@linkcode @modelcontextprotocol/server!server/mcp.McpServer#registerTool | server.registerTool()}, which takes the tool name, a configuration object (with description and input schema), and a callback that implements the tool logic. Create the server inside a `createServer()` factory and register both weather tools on it. The serving entry in the next step builds the instance it serves by calling this factory, so keep it cheap and side-effect-free:
+Each tool is registered with `server.registerTool()`, which takes the tool name, a configuration object (with description and input schema), and a callback that implements the tool logic. Create the server inside a `createServer()` factory and register both weather tools on it. The serving entry in the next step builds the instance it serves by calling this factory, so keep it cheap and side-effect-free:
 
 ```ts source="../examples/server-quickstart/src/index.ts#registerTools"
 // Create a server with both weather tools registered. The serving entry calls
@@ -352,7 +352,7 @@ function createServer(): McpServer {
 
 ### Running the server
 
-Finally, serve the factory on stdio with {@linkcode @modelcontextprotocol/server!server/serveStdio.serveStdio | serveStdio}. The entry owns the transport and negotiates the protocol revision with each client, so the same factory serves current hosts (such as VS Code) and clients that speak the 2026-07-28 draft revision; see [Serving the 2026-07-28 draft revision on stdio](./server.md#serving-the-2026-07-28-draft-revision-on-stdio) in the server guide for the options:
+Finally, serve the factory on stdio with `serveStdio`. The entry owns the transport and negotiates the protocol revision with each client, so the same factory serves current hosts (such as VS Code) and clients that speak the 2026-07-28 draft revision; see [Serving the 2026-07-28 draft revision on stdio](./server.md#serving-the-2026-07-28-draft-revision-on-stdio) in the server guide for the options:
 
 ```ts source="../examples/server-quickstart/src/index.ts#main"
 void serveStdio(createServer);
