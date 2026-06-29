@@ -38,7 +38,8 @@ type BrainstormState =
 /**
  * HMAC-signs the `requestState` round-tripped through brainstorm_tasks' multi-round flow so a
  * client cannot forge or mutate the carried step/theme/count. The seam runs `verify` before the
- * handler (rejecting tampered state with -32602); the handler calls `verify` again to decode.
+ * handler (rejecting tampered state with -32602) and the handler reads the decoded payload via
+ * the typed `ctx.mcpReq.requestState<BrainstormState>()` accessor — no second decode.
  * The key comes from the environment for real deployments and falls back to a per-process
  * random one for the zero-setup demo (which is fine because one process serves every round).
  */
