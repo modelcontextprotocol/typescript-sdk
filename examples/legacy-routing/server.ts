@@ -72,14 +72,9 @@ app.use(
 );
 
 app.post('/mcp', async (req: Request, res: Response) => {
-    // `toWebRequest` converts the Node request into the web-standard `Request`
-    // the predicate inspects. Express owns the body here, so always hand the
-    // conversion a parsed body (`?? {}` — `express.json()` leaves `req.body`
-    // undefined for a body it does not parse) rather than letting it read a
-    // stream the legacy arm may still need. The predicate takes just the
-    // request; a body Express could not parse as JSON does not classify as
-    // legacy and falls through to the strict modern arm.
-    const probe = await toWebRequest(req, req.body ?? {});
+    // `toWebRequest` builds the web-standard `Request` the predicate takes.
+    // Express has already parsed (and consumed) the JSON body — pass it along.
+    const probe = await toWebRequest(req, req.body);
     await ((await isLegacyRequest(probe)) ? handleLegacy(req, res) : modernNode(req, res, req.body));
 });
 // GET (standalone SSE stream / reconnect with Last-Event-ID) and DELETE
