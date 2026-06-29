@@ -152,6 +152,15 @@ export function inputRequiredRoundsExceededMessage(method: string, maxRounds: nu
 }
 
 /**
+ * The per-round liveness message both loops emit — the client driver via the
+ * caller's `onprogress`, the server-side legacy shim as a wire progress
+ * notification. One formatter so the texts cannot drift.
+ */
+export function inputRequiredRoundMessage(method: string, round: number): string {
+    return `Fulfilling input required by '${method}' (round ${round})`;
+}
+
+/**
  * Abortable delay: resolves after `ms`, or rejects with the signal's reason
  * (wrapped in an `SdkError` when it isn't already one) if the signal aborts
  * first. Aborting after resolution is a no-op. Shared with the server-side
@@ -239,7 +248,7 @@ export async function runInputRequiredDriver(args: {
         // Surface the round as synthetic progress: long interactive flows stay
         // observable, and consumers composing `resetTimeoutOnProgress`-style
         // watchdogs around the call see liveness instead of silence.
-        requestOptions.onprogress?.({ progress: round, message: `Fulfilling input required by '${method}' (round ${round})` });
+        requestOptions.onprogress?.({ progress: round, message: inputRequiredRoundMessage(method, round) });
 
         const entries = Object.entries(payload.inputRequests ?? {});
         let responses: Record<string, unknown> | undefined;

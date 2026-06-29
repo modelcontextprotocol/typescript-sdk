@@ -42,6 +42,7 @@ import {
     attachCacheHintFallback,
     CLIENT_CAPABILITIES_META_KEY,
     codecForVersion,
+    inputRequiredRoundMessage,
     inputRequiredRoundsExceededMessage,
     isInputRequiredResult,
     isModernProtocolVersion,
@@ -1021,7 +1022,7 @@ export class Server extends Protocol<ServerContext> {
                     params: {
                         progressToken,
                         progress: syntheticProgress.floor,
-                        message: `Fulfilling input required by '${method}' (round ${round})`
+                        message: inputRequiredRoundMessage(method, round)
                     }
                 });
             }
