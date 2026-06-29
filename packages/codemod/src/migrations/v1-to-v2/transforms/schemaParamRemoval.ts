@@ -3,22 +3,27 @@ import { Node, SyntaxKind } from 'ts-morph';
 
 import type { Transform, TransformContext, TransformResult } from '../../../types';
 import { hasMcpImports, isImportedFromMcp, removeUnusedImport, resolveOriginalImportName } from '../../../utils/importUtils';
+import { SCHEMA_TO_METHOD } from '../mappings/schemaToMethodMap';
 
 const TARGET_METHODS = new Set(['request', 'callTool']);
 
+/** Spec request methods — the only methods whose result schema v2 resolves by name. */
+const SPEC_REQUEST_METHODS: ReadonlySet<string> = new Set(Object.values(SCHEMA_TO_METHOD));
+
 // `request()` keeps its result-schema parameter in v2 (custom methods, passthrough
-// forwarding); only calls whose method the codemod can PROVE is a literal string may
-// safely lose it. A dynamic method — `request({ method, params }, schema)` in a
-// proxy/forwarder — must keep the schema: schema-less v2 `request()` enforces the
-// spec result schema for known methods and resolves `undefined` for unknown ones.
-function hasLiteralMethod(arg: Node): boolean {
-    if (!Node.isObjectLiteralExpression(arg)) return false;
+// forwarding); only calls whose method the codemod can PROVE is a literal spec method
+// may safely lose it. Schema-less v2 `request()` enforces the spec result schema for
+// spec methods and throws a TypeError for non-spec methods, so dropping the schema
+// from a dynamic-method call (`request({ method, params }, schema)` in a
+// proxy/forwarder) or from a custom-method call breaks the call site.
+function literalMethodOf(arg: Node): string | undefined {
+    if (!Node.isObjectLiteralExpression(arg)) return undefined;
     const prop = arg.getProperty('method');
-    if (!prop || !Node.isPropertyAssignment(prop)) return false;
+    if (!prop || !Node.isPropertyAssignment(prop)) return undefined;
     // A spread after the `method` property can override it at runtime — not provably literal.
     const props = arg.getProperties();
     const spreadAfterMethod = props.slice(props.indexOf(prop) + 1).some(p => Node.isSpreadAssignment(p));
-    if (spreadAfterMethod) return false;
+    if (spreadAfterMethod) return undefined;
     let initializer = prop.getInitializer();
     // Unwrap `'tools/call' as const` / `satisfies` / parenthesized forms.
     while (
@@ -27,7 +32,9 @@ function hasLiteralMethod(arg: Node): boolean {
     ) {
         initializer = initializer.getExpression();
     }
-    return initializer !== undefined && (Node.isStringLiteral(initializer) || Node.isNoSubstitutionTemplateLiteral(initializer));
+    if (initializer === undefined) return undefined;
+    if (!Node.isStringLiteral(initializer) && !Node.isNoSubstitutionTemplateLiteral(initializer)) return undefined;
+    return initializer.getLiteralValue();
 }
 
 export const schemaParamRemovalTransform: Transform = {
@@ -76,11 +83,13 @@ export const schemaParamRemovalTransform: Transform = {
 
             // v2 `callTool()` has no schema parameter at all, so the argument always goes.
             // v2 `request()` still accepts one — only drop it when the method is a literal
-            // (see hasLiteralMethod) and the schema is method-specific: the generic
-            // `ResultSchema` is the v1 passthrough idiom, and dropping it would silently
-            // switch the call from passthrough to spec-schema enforcement.
+            // SPEC method (schema-less request() throws a TypeError for anything else) and
+            // the schema is method-specific: the generic `ResultSchema` is the v1
+            // passthrough idiom, and dropping it would silently switch the call from
+            // passthrough to spec-schema enforcement.
             if (methodName === 'request') {
-                if (!hasLiteralMethod(args[0]!)) continue;
+                const literal = literalMethodOf(args[0]!);
+                if (literal === undefined || !SPEC_REQUEST_METHODS.has(literal)) continue;
                 if (originalName === 'ResultSchema') continue;
             }
 

@@ -222,6 +222,17 @@ describe('schema-param-removal transform', () => {
         expect(result).toContain("request({ method: 'tools/call' }, RS)");
     });
 
+    it('keeps the schema for a literal NON-spec method (custom methods need their schema)', () => {
+        // Schema-less v2 request() throws a TypeError for non-spec methods.
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await client.request({ method: 'acme/search', params: {} }, CallToolResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("request({ method: 'acme/search', params: {} }, CallToolResultSchema)");
+    });
+
     it('still removes the schema for a no-substitution template-literal method', () => {
         const input = [
             `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
