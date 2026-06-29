@@ -560,6 +560,17 @@ Replace the literal with the named code. Loud (`TS2367`) when the compared value
 typed `SdkErrorCode`; silent when the left side is `unknown` or a cast — grep for
 `=== -32000` / `=== -32001`.
 
+**Dual-role processes: `instanceof` does not cross the packages.**
+`@modelcontextprotocol/client` and `@modelcontextprotocol/server` each bundle their own
+copy of these error classes, so in a process that uses both — a gateway, a host, an
+in-process test — an error constructed by one package fails `instanceof` against the
+class imported from the other, silently. When an error may originate from the other
+package, match on stable fields instead of class identity: `error.code` values
+(`SdkErrorCode` strings for SDK errors, numeric JSON-RPC codes for protocol errors,
+`OAuthErrorCode` strings for OAuth errors) plus presence checks like `'status' in e`,
+or reconstruct typed protocol errors with `ProtocolError.fromError(code, message, data)`
+— it exists precisely because `instanceof` does not survive bundle boundaries.
+
 **Constructing the error (test stubs, custom transports).** v1
 `new StreamableHTTPError(code, message)` becomes
 `new SdkHttpError(code, message, data)`: the first argument is now a `SdkErrorCode`
