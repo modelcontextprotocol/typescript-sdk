@@ -465,6 +465,21 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
  * Whether {@linkcode createMcpHandler} would route this request to its legacy
  * (2025-era) serving rather than the modern (2026-07-28) path.
  *
+ * Call it with just the request: `await isLegacyRequest(request)`. For a
+ * `POST` the body is read from an internal clone, so the request you pass
+ * stays fully readable for whichever handler you route it to — no second
+ * argument is needed. (In a Node `(req, res)` handler, build that `Request`
+ * with `toWebRequest(req)` from `@modelcontextprotocol/node`; behind a body
+ * parser, which has already drained the Node stream, build it as
+ * `toWebRequest(req, req.body)` so the bytes come from the parsed body —
+ * either way the predicate still takes just the request.) The optional
+ * `parsedBody` is a perf escape hatch for a body you already hold parsed:
+ * pass it and the predicate classifies from the value directly, reading and
+ * cloning nothing. It is needed, not just faster, when the request's own
+ * body was already read — the internal clone is then impossible (cloning a
+ * used body throws a `TypeError`), so such a single-argument call rejects
+ * instead of guessing.
+ *
  * This is the entry's own classification step exported as a predicate — it
  * runs exactly the code `createMcpHandler` runs to make the routing decision,
  * not a re-implementation — so a hand-wired composition that branches on it
@@ -509,13 +524,6 @@ async function classifyEntryRequest(request: Request, providedParsedBody?: unkno
  *   envelope claim, so they are never legacy; a hand-built claim-less POST to
  *   a method named `server/discover` has no claim and classifies legacy,
  *   exactly as the entry itself routes it.
- *
- * The body is read from a clone, so the passed request stays readable for
- * whichever handler the caller routes it to. If the body has already been
- * consumed (for example behind `express.json()`), pass the parsed body as the
- * second argument and no body read happens at all — without it the predicate
- * cannot classify a consumed POST body (cloning a used body throws a
- * `TypeError`), so the call rejects instead of guessing.
  */
 export async function isLegacyRequest(request: Request, parsedBody?: unknown): Promise<boolean> {
     // Classify a clone so the caller's request body stays readable; with a
