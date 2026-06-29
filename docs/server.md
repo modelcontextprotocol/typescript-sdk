@@ -663,6 +663,8 @@ server.registerTool(
 Every `input_required` result must carry at least one of `inputRequests` or `requestState`: the builder throws a `TypeError` otherwise, and the seam re-checks the rule for hand-built results. Each embedded request is checked against the capabilities the client declared on
 the request's `_meta` envelope; a missing capability rejects the call with `-32021` before anything reaches the wire. The responses in `ctx.mcpReq.inputResponses` come from the client; treat them as untrusted input.
 
+On 2025-era connections you don't need to branch: the SDK's legacy shim (on by default) fulfils `input_required` returns by issuing real elicitation/sampling/roots requests over the session, so handlers stay write-once. Knobs and limits are described in [the legacy shim section of the 2026-07-28 support guide](./migration/support-2026-07-28.md#legacy-shim-for-input_required).
+
 For the full multi-step pattern (confirmation, then URL-mode sign-in), see [`mrtr/server.ts`](https://github.com/modelcontextprotocol/typescript-sdk/blob/main/examples/mrtr/server.ts).
 
 #### Carrying state across rounds: `requestState`
