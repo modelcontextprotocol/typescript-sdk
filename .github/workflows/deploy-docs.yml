@@ -37,8 +37,11 @@ jobs:
                   cache: pnpm
                   cache-dependency-path: pnpm-lock.yaml
 
-            - name: Generate multi-version docs
-              run: bash scripts/generate-multidoc.sh tmp/docs-combined
+            - name: Install dependencies
+              run: pnpm install
+
+            - name: Build multi-version docs site
+              run: bash scripts/build-docs-site.sh tmp/docs-combined
 
             - name: Configure Pages
               uses: actions/configure-pages@v6

@@ -150,14 +150,16 @@ The complete code for each tutorial is in [`examples/server-quickstart/`](https:
 
 ### Building docs locally
 
-To generate the API reference documentation locally:
+To work on the documentation site locally:
 
 ```bash
-pnpm docs          # Generate V2 docs only (output: tmp/docs/)
-pnpm docs:multi    # Generate combined V1 + V2 docs (output: tmp/docs-combined/)
+pnpm docs:api      # Generate the API reference markdown (output: docs/api/)
+pnpm docs:dev      # Start the VitePress dev server for the V2 site
+pnpm docs:build    # Build the V2 site (output: docs/.vitepress/dist/)
+pnpm docs:multi    # Build the combined V1 + V2 site (output: tmp/docs-combined/)
 ```
 
-The `docs:multi` script checks out both the `v1.x` and `main` branches via git worktrees, builds each, and produces a combined site with V1 docs at the root and V2 docs under `/v2/`.
+The `docs:multi` script builds the V2 site from the current checkout, checks out the `v1.x` branch via a git worktree to build the V1 site, and produces a combined site with V1 docs at the root and V2 docs under `/v2/`.
 
 ## v1 (legacy) documentation and fixes
 
