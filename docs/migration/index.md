@@ -22,7 +22,8 @@ Start by running the codemod:
 npx @modelcontextprotocol/codemod@alpha v1-to-v2 .
 ```
 
-Run it at the package root — it also rewrites `package.json`.
+Run it at the package root (`.`) — the dependency swap updates the `package.json` at
+the target directory only.
 
 The codemod handles most mechanical renames. The guide covers what it can't. The
 codemod handles the v1→v2 SDK surface upgrade only — adopting the 2026-07-28 protocol

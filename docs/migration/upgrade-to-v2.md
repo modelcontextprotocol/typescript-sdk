@@ -148,9 +148,10 @@ whichever package you already depend on. `@modelcontextprotocol/core-internal` i
 only); see [Zod `*Schema` constants moved to `@modelcontextprotocol/core`](#zod-schema-constants-moved-to-modelcontextprotocolcore) below.
 
 After the codemod runs, verify `@modelcontextprotocol/sdk` is gone from `package.json`:
-the dependency swap keys off v1 imports rewritten in the same pass, so on sources that
-were already (partially) migrated the codemod reports no changes and leaves the old
-dependency behind — remove it by hand once nothing imports it.
+the dependency swap only updates the manifest found at the **target directory** (another
+reason to run at the package root, not `./src`), and workspace-member manifests in a
+monorepo are not visited — remove the v1 dependency from those by hand once nothing
+imports it.
 
 The framework adapter packages declare their framework as a **peer dependency**
 (`express`, `hono`, `fastify`); v1 shipped them as direct deps. The codemod adds the
@@ -342,7 +343,8 @@ schema when calling a spec method.
 semantics, not just the signature: a schema-less spec-method call now **enforces** the
 spec result schema (a non-conforming upstream result is rejected locally with
 `SdkError(SdkErrorCode.InvalidResult)` and a conforming one is re-serialized in schema
-key order), and a schema-less call for an **unknown** method resolves to `undefined`.
+key order), and a schema-less call for a **non-spec** method throws a `TypeError` at
+the call site (`'…' is not a spec method; pass a result schema`).
 A relay that forwards `{ method, params }` it does not understand must keep passing an
 explicit result schema. The v1 idiom survives with an import-path change:
 
@@ -784,10 +786,13 @@ same handling as the POST send path.
 methods plus `tokens()` / `clientInformation()`. On read, a stored value whose `issuer`
 names a different AS is treated as `undefined` and the flow re-registers / re-authorizes.
 **Round-trip the stored object verbatim and you're protected** — single-slot storage
-works. The failure mode is silent: a `saveTokens()` implementation that rebuilds the
-object field-by-field and **drops `issuer`** makes every read look foreign — the refresh
-path quietly escalates to a full re-authorization (plus a per-read `console.warn`). If
-your users re-consent on every restart after upgrading, check this first. To hold credentials for several authorization servers at once, key your storage
+works. The failure modes differ: a stamp naming a **different** AS reads back as
+`undefined` and the flow re-registers / re-authorizes. A **missing** stamp (a
+`saveTokens()` that rebuilds the object field-by-field and drops `issuer`, or
+pre-upgrade storage) is used **as-is** with a `[mcp-sdk]` console warning — SEP-2352
+isolation is silently inactive for that read; `auth()` re-stamps on first use where the
+provider can persist it. If you see that warning repeatedly, your provider is not
+round-tripping the stored object. To hold credentials for several authorization servers at once, key your storage
 on `ctx.issuer` (treat **`ctx === undefined` as "return the most-recently-saved token
 set"** — the transport's per-request `Authorization: Bearer` read calls `tokens()` with
 no `ctx`). New TypeScript-only aliases `StoredOAuthTokens` / `StoredOAuthClientInformation`
@@ -915,9 +920,9 @@ The `Protocol` base class itself is no longer exported (it is internal engine). 
 were reaching into protocol internals — rare, mostly debugging tools —
 `client.fallbackRequestHandler` / `server.fallbackRequestHandler` receives every
 inbound request that no registered handler matches, before capability gating. Delete
-the v1 `shared/protocol.js` import: `Protocol` has no v2 import path (early codemod
-versions rewrote it to a named import from `@modelcontextprotocol/client` that does
-not exist — remove that import if you find it).
+the v1 `shared/protocol.js` import: `Protocol` has no v2 import path. The codemod
+currently rewrites it to a named import from `@modelcontextprotocol/client` that does
+not exist (a codemod fix is tracked) — delete that import.
 
 #### JSON Schema 2020-12 posture (SEP-1613, SEP-2106)
 
@@ -986,12 +991,15 @@ rewrite required unless noted.
   silently skips initialization: `getServerCapabilities()` stays `undefined` and the
   list verbs return empty results. Expose `sessionId` only after the first request has
   been sent.
-- **Request dispatch is asynchronous inside `request()` / `callTool()`.** v1 wrote the
-  JSON-RPC frame to the transport before the first `await`, so an abort fired in the
-  same tick cancelled an in-flight request and emitted `notifications/cancelled`. v2
-  sends after an async hop: an abort in that window means the request is **never sent**
-  and no cancellation notification is emitted. Once the frame is on the wire, aborting
-  still sends `notifications/cancelled` before rejecting.
+- **The typed verbs dispatch after async pre-work.** `Protocol.request()` itself still
+  hands the frame to the transport before its first `await` (v1-compatible). The typed
+  verbs on top of it — `callTool()` and the cacheable list verbs — perform async work
+  first (header-mirroring scan, response-cache freshness, output-validator resolution),
+  so an abort fired in the same tick can land before the frame is ever sent: the call
+  rejects with `SdkError(RequestTimeout, reason)` and **no `notifications/cancelled` is
+  emitted** (nothing was in flight). v1 sent the frame synchronously from these verbs.
+  Once the frame is on the wire, aborting still sends `notifications/cancelled` before
+  rejecting.
 - **Protocol-version pinning is a first-class option.**
   `ProtocolOptions.supportedProtocolVersions` controls which versions the legacy
   `initialize` handshake offers (the highest pre-2026 entry), which counter-offers are
