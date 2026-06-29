@@ -42,7 +42,6 @@ import {
     attachCacheHintFallback,
     CLIENT_CAPABILITIES_META_KEY,
     codecForVersion,
-    inputRequiredRoundMessage,
     inputRequiredRoundsExceededMessage,
     isInputRequiredResult,
     isModernProtocolVersion,
@@ -256,42 +255,6 @@ function withRequestStateValue(ctx: ServerContext, value: unknown): ServerContex
 
 /** The embedded input-request kinds the 2026-07-28 revision defines. */
 type EmbeddedInputRequestMethod = 'elicitation/create' | 'sampling/createMessage' | 'roots/list';
-
-/**
- * Tracks the highest progress value emitted against the originating request's
- * progressToken, so the legacy shim's synthetic per-round ticks stay
- * monotonic even when the handler reports its own progress on the same token
- * (the spec requires progress to increase per token).
- */
-interface SyntheticProgressState {
-    floor: number;
-}
-
-/**
- * Wraps `ctx.mcpReq.notify` to observe handler-emitted progress against the
- * given token (pass-through otherwise). Installed by the seam on legacy-era
- * multi-round-trip requests that carry a progressToken, BEFORE the first
- * handler entry, so the shim's synthetic ticks can continue above anything
- * the handler emitted.
- */
-function withProgressTracking(ctx: ServerContext, progressToken: string | number, state: SyntheticProgressState): ServerContext {
-    const notify = ctx.mcpReq.notify;
-    return {
-        ...ctx,
-        mcpReq: {
-            ...ctx.mcpReq,
-            notify: notification => {
-                if (notification.method === 'notifications/progress') {
-                    const params = notification.params as { progressToken?: unknown; progress?: unknown } | undefined;
-                    if (params?.progressToken === progressToken && typeof params.progress === 'number' && params.progress > state.floor) {
-                        state.floor = params.progress;
-                    }
-                }
-                return notify(notification);
-            }
-        }
-    };
-}
 
 /**
  * Synthesizes the `elicitationId` the 2025-11-25 URL-mode elicitation shape
@@ -711,17 +674,6 @@ export class Server extends Protocol<ServerContext> {
             }
         }
 
-        // When the legacy shim may engage and the originating request asked
-        // for progress, observe handler-emitted progress from the FIRST entry
-        // on, so the shim's synthetic per-round ticks stay monotonic above
-        // anything the handler reports against the same token.
-        const progressToken = ctx.mcpReq._meta?.progressToken;
-        let syntheticProgress: SyntheticProgressState | undefined;
-        if (!servedModern && this._inputRequiredServing.legacyShim && progressToken !== undefined) {
-            syntheticProgress = { floor: 0 };
-            ctxForHandler = withProgressTracking(ctxForHandler, progressToken, syntheticProgress);
-        }
-
         let result: Result;
         try {
             result = await handler(request, ctxForHandler);
@@ -767,7 +719,7 @@ export class Server extends Protocol<ServerContext> {
             // server→client requests over the live 2025-era session and
             // re-enter the handler until it returns a final result —
             // write-once handlers served to deployed 2025 clients.
-            return await this._fulfillInputRequiredOnLegacy(method, handler, request, ctxForHandler, result, syntheticProgress);
+            return await this._fulfillInputRequiredOnLegacy(method, handler, request, ctxForHandler, result);
         }
 
         // F7 at-least-one re-check (hand-built results are legal; the rule is
@@ -897,11 +849,9 @@ export class Server extends Protocol<ServerContext> {
         handler: (request: JSONRPCRequest, ctx: ServerContext) => Promise<Result>,
         request: JSONRPCRequest,
         ctx: ServerContext,
-        firstResult: Result,
-        syntheticProgress: SyntheticProgressState | undefined
+        firstResult: Result
     ): Promise<Result> {
         const { maxRounds, roundTimeoutMs } = this._inputRequiredServing;
-        const progressToken = ctx.mcpReq._meta?.progressToken;
         const outerSignal = ctx.mcpReq.signal;
         let current = firstResult;
         let round = 0;
@@ -1005,26 +955,6 @@ export class Server extends Protocol<ServerContext> {
                 // the loop never hot-spins; counted in the same round cap
                 // (mirrors the modern client driver).
                 await sleep(REQUEST_STATE_ONLY_LEG_PACING_MS, outerSignal);
-            }
-
-            // One synthetic progress tick per completed round against the
-            // ORIGINATING request, only when it asked for progress. Rides the
-            // related-notification path (free relatedRequestId stamp), so a
-            // deployed 2025 client composing `resetTimeoutOnProgress` around
-            // its call sees liveness instead of silence between rounds. The
-            // tick continues above any progress the handler emitted against
-            // the same token (tracked since the first entry), so the per-token
-            // stream stays monotonic.
-            if (progressToken !== undefined && syntheticProgress !== undefined) {
-                syntheticProgress.floor += 1;
-                await ctx.mcpReq.notify({
-                    method: 'notifications/progress',
-                    params: {
-                        progressToken,
-                        progress: syntheticProgress.floor,
-                        message: inputRequiredRoundMessage(method, round)
-                    }
-                });
             }
 
             // Byte-exact requestState echo. The re-entry context carries this

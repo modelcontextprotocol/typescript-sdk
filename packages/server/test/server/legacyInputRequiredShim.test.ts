@@ -22,9 +22,9 @@
  *   prompts/get and resources/read → JSON-RPC errors;
  * - every leg carries the explicit human-paced timeout (600s default, NOT
  *   the 60s protocol default) with resetTimeoutOnProgress;
- * - one synthetic progress notification per completed round rides the
- *   related-notification path, only when the originating request carried a
- *   progressToken.
+ * - the shim emits NO progress of its own: the originating token is the
+ *   handler's single must-increase stream, and the shim never adds a second
+ *   author to it.
  */
 import type { JSONRPCRequest, RequestId } from '@modelcontextprotocol/core-internal';
 import { acceptedContent, inputRequired, inputResponse } from '@modelcontextprotocol/core-internal';
@@ -594,8 +594,13 @@ describe('legacy shim: timeouts (per-leg 600s default, NOT the 60s protocol defa
     });
 });
 
-describe('legacy shim: synthetic progress (per completed round, progressToken-gated)', () => {
-    it('emits one notifications/progress per completed round against the originating token', async () => {
+describe('legacy shim: progress (the shim never writes to the originating token)', () => {
+    it('emits NO synthetic progress, even across a multi-round flow whose originating request carried a progressToken', async () => {
+        // The originating token is the handler's single must-increase stream.
+        // The shim deliberately adds no second author to it: a 2025 client
+        // watching a multi-round flow sees exactly what a hand-written 2025
+        // push-style handler would have produced — silence unless the handler
+        // itself reports progress.
         const server = new McpServer({ name: 's', version: '1.0.0' }, { capabilities: { tools: {} } });
         server.registerTool('two-rounds', { inputSchema: z.object({}) }, async (_args, ctx) => {
             const state = ctx.mcpReq.requestState<string>();
@@ -625,30 +630,22 @@ describe('legacy shim: synthetic progress (per completed round, progressToken-ga
         });
 
         expect(toolText(answer)).toBe('done');
-        const progress = wire.notifications.filter(notification => notification.method === 'notifications/progress');
-        expect(progress).toHaveLength(2);
-        expect(progress[0]!.params).toMatchObject({
-            progressToken: 'tok-7',
-            progress: 1,
-            message: "Fulfilling input required by 'tools/call' (round 1)"
-        });
-        expect(progress[1]!.params).toMatchObject({ progressToken: 'tok-7', progress: 2 });
+        expect(wire.notifications.filter(notification => notification.method === 'notifications/progress')).toHaveLength(0);
 
         await wire.close();
     });
 
-    it('synthetic ticks stay monotonic above progress the handler emits against the same token', async () => {
+    it("the handler's own progress on the originating token passes through untouched across re-entries", async () => {
         const server = new McpServer({ name: 's', version: '1.0.0' }, { capabilities: { tools: {} } });
         server.registerTool('working', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            const progressToken = ctx.mcpReq._meta?.progressToken as string;
             if (ctx.mcpReq.inputResponses === undefined) {
-                // The handler reports its own progress on the originating
-                // token during the FIRST entry, before asking for input.
-                const progressToken = ctx.mcpReq._meta?.progressToken as string;
-                await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken, progress: 100 } });
+                await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken, progress: 1 } });
                 return inputRequired({
                     inputRequests: { q: inputRequired.elicit({ message: 'q?', requestedSchema: { type: 'object', properties: {} } }) }
                 });
             }
+            await ctx.mcpReq.notify({ method: 'notifications/progress', params: { progressToken, progress: 2 } });
             return { content: [{ type: 'text', text: 'done' }] };
         });
         const wire = await wireLegacy(server);
@@ -665,22 +662,9 @@ describe('legacy shim: synthetic progress (per completed round, progressToken-ga
         const progress = wire.notifications
             .filter(notification => notification.method === 'notifications/progress')
             .map(notification => (notification.params as { progress: number }).progress);
-        // Handler's own 100, then the synthetic round tick ABOVE it — never a
-        // regression on the per-token stream.
-        expect(progress).toEqual([100, 101]);
-
-        await wire.close();
-    });
-
-    it('emits nothing when the originating request carried no progressToken', async () => {
-        const { server } = await elicitingToolServer();
-        const wire = await wireLegacy(server);
-        wire.respond('elicitation/create', () => ({ action: 'accept', content: { confirm: true } }));
-
-        await wire.request(legacyInitialize(1, { elicitation: { form: {} } }));
-        await wire.request(callDeploy(2));
-
-        expect(wire.notifications.filter(notification => notification.method === 'notifications/progress')).toHaveLength(0);
+        // Exactly the handler's values, in order, with nothing interleaved —
+        // the stream stays monotonic because it has one author.
+        expect(progress).toEqual([1, 2]);
 
         await wire.close();
     });

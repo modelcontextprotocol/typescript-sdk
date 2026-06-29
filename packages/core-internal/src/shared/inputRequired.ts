@@ -6,11 +6,12 @@
  * `prompts/get`, `resources/read`) requests additional client input by
  * returning an {@linkcode InputRequiredResult} instead of a final result. The
  * helpers here build that return value and its embedded requests as NEUTRAL
- * values; only the 2026-07-28 wire codec maps them to/from the wire (the
+ * values; only the 2026-07-28 wire codec maps them to/from the wire. The
  * 2025-era codec has no input-required vocabulary — on a 2025-era request the
- * server seam fails such a return loudly; a handler that serves both eras
- * branches on the served era and uses the push-style APIs toward 2025-era
- * requests).
+ * server's legacy shim (on by default) fulfils the embedded requests as real
+ * server→client requests and re-enters the handler, so the same return shape
+ * serves both eras; `ServerOptions.inputRequired.legacyShim: false` restores
+ * the pre-shim loud failure.
  *
  * There is no nominal brand: `resultType: 'input_required'` is the
  * discriminator, and hand-built result literals are equally legal — the
