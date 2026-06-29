@@ -17,6 +17,7 @@ import type {
     CompleteRequestResourceTemplate,
     InitializedNotification,
     InitializeRequest,
+    InputRequiredResult,
     JSONRPCErrorResponse,
     JSONRPCMessage,
     JSONRPCNotification,
@@ -72,6 +73,12 @@ export const isJSONRPCResponse = (value: unknown): value is JSONRPCResponse => J
 
 /**
  * Checks if a value is a valid {@linkcode CallToolResult}.
+ *
+ * This is a consumer-side VALUE check against the neutral model, not a wire
+ * validator: a raw wire object that additionally carries wire-only members
+ * (e.g. `resultType`) still passes through the loose index signature. Use a
+ * transport-level parse to validate raw wire traffic.
+ *
  * @param value - The value to check.
  *
  * @returns True if the value is a valid {@linkcode CallToolResult}, false otherwise.
@@ -82,10 +89,31 @@ export const isCallToolResult = (value: unknown): value is CallToolResult => {
 };
 
 /**
+ * Checks whether a value is an input-required result (protocol revision
+ * 2026-07-28): the multi-round-trip return shape discriminated by
+ * `resultType: 'input_required'`.
+ *
+ * This is a discriminator check, not a full validator — the at-least-one rule
+ * (`inputRequests` or `requestState`) is enforced by the `inputRequired()`
+ * builder and re-checked by the server seam for hand-built values.
+ *
+ * @param value - The value to check.
+ * @returns True if the value carries the `input_required` discriminator.
+ */
+export const isInputRequiredResult = (value: unknown): value is InputRequiredResult =>
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    (value as { resultType?: unknown }).resultType === 'input_required';
+
+/**
  * Checks if a value is a valid {@linkcode TaskAugmentedRequestParams}.
  * @param value - The value to check.
  *
  * @returns True if the value is a valid {@linkcode TaskAugmentedRequestParams}, false otherwise.
+ *
+ * @deprecated Recognizes 2025-11-25 task wire vocabulary, which has no SDK
+ * runtime; kept importable for interoperability only.
  */
 export const isTaskAugmentedRequestParams = (value: unknown): value is TaskAugmentedRequestParams =>
     TaskAugmentedRequestParamsSchema.safeParse(value).success;

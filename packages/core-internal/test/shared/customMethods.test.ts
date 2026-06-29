@@ -42,7 +42,15 @@ describe('Protocol custom-method support', () => {
             expect(result.items).toEqual(['result for hello']);
         });
 
-        it('strips _meta from params before validation', async () => {
+        it('passes _meta to custom-handler validation, minus the reserved envelope keys (deliberate flip)', async () => {
+            // BEHAVIOR MIGRATION (Q1 increment 2, ledgered): custom handlers
+            // used to have _meta DELETED before their params validation. They
+            // now receive it present-minus-reserved — the wire-only lift has
+            // already removed the io.modelcontextprotocol/* envelope keys —
+            // making the custom path consistent with the spec-method path.
+            // Strict consumer schemas that reject unknown keys must now model
+            // (or strip) _meta. Changeset: codec-split-wire-break;
+            // docs/migration/upgrade-to-v2.md "Wire tightening (every era)".
             const [a, b] = await pair();
             const Strict = z.strictObject({ x: z.number() });
             b.setRequestHandler('acme/strict', { params: Strict }, async params => {
@@ -50,8 +58,20 @@ describe('Protocol custom-method support', () => {
                 return {};
             });
 
-            const result = await a.request({ method: 'acme/strict', params: { x: 1, _meta: { progressToken: 't' } } }, z.object({}));
-            expect(result).toEqual({});
+            // A strict schema now sees the metadata and rejects it…
+            await expect(
+                a.request({ method: 'acme/strict', params: { x: 1, _meta: { progressToken: 't' } } }, z.object({}))
+            ).rejects.toThrow(ProtocolError);
+
+            // …while a schema that models _meta receives it verbatim.
+            const WithMeta = z.strictObject({ x: z.number(), _meta: z.record(z.string(), z.unknown()).optional() });
+            let seenParams: unknown;
+            b.setRequestHandler('acme/withMeta', { params: WithMeta }, async params => {
+                seenParams = params;
+                return {};
+            });
+            await a.request({ method: 'acme/withMeta', params: { x: 2, _meta: { progressToken: 't' } } }, z.object({}));
+            expect(seenParams).toEqual({ x: 2, _meta: { progressToken: 't' } });
         });
 
         it('rejects invalid params with ProtocolError(InvalidParams)', async () => {
@@ -112,17 +132,22 @@ describe('Protocol custom-method support', () => {
             expect(seen).toEqual([{ stage: 'fetch', pct: 0.5 }]);
         });
 
-        it('passes the raw notification (with _meta) as the second handler argument', async () => {
+        it('passes _meta through custom-notification validation, minus reserved keys (deliberate flip)', async () => {
+            // Same behavior migration as the request path: _meta is no longer
+            // deleted before the consumer schema runs (ledgered; changeset:
+            // codec-split-wire-break).
             const [a, b] = await pair();
-            const Strict = z.strictObject({ stage: z.string() });
+            const WithMeta = z.strictObject({ stage: z.string(), _meta: z.record(z.string(), z.unknown()).optional() });
+            let seenParams: unknown;
             let seenMeta: unknown;
-            b.setNotificationHandler('acme/searchProgress', { params: Strict }, (params, notification) => {
-                expect(params).toEqual({ stage: 'fetch' });
+            b.setNotificationHandler('acme/searchProgress', { params: WithMeta }, (params, notification) => {
+                seenParams = params;
                 seenMeta = notification.params?._meta;
             });
 
             await a.notification({ method: 'acme/searchProgress', params: { stage: 'fetch', _meta: { traceId: 't1' } } });
             await new Promise(r => setTimeout(r, 0));
+            expect(seenParams).toEqual({ stage: 'fetch', _meta: { traceId: 't1' } });
             expect(seenMeta).toEqual({ traceId: 't1' });
         });
     });

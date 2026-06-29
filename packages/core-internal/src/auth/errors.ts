@@ -84,6 +84,11 @@ export enum OAuthErrorCode {
     InvalidClientMetadata = 'invalid_client_metadata',
 
     /**
+     * The value of one or more redirection URIs is invalid. (Dynamic client registration - RFC 7591 §3.2.2)
+     */
+    InvalidRedirectUri = 'invalid_redirect_uri',
+
+    /**
      * The request requires higher privileges than provided by the access token.
      */
     InsufficientScope = 'insufficient_scope',

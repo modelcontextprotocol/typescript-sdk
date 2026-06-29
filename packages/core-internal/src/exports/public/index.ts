@@ -31,7 +31,9 @@ export type {
     OAuthTokenRevocationRequest,
     OAuthTokens,
     OpenIdProviderDiscoveryMetadata,
-    OpenIdProviderMetadata
+    OpenIdProviderMetadata,
+    StoredOAuthClientInformation,
+    StoredOAuthTokens
 } from '../../shared/auth';
 
 // Auth utilities
@@ -86,16 +88,26 @@ export {
     PARSE_ERROR,
     PROTOCOL_VERSION_META_KEY,
     RELATED_TASK_META_KEY,
+    SUBSCRIPTION_ID_META_KEY,
     SUPPORTED_PROTOCOL_VERSIONS,
     TRACEPARENT_META_KEY,
     TRACESTATE_META_KEY
 } from '../../types/constants';
 
+// Protocol-era helpers
+export type { ProtocolEra } from '../../shared/protocolEras';
+
 // Enums
 export { ProtocolErrorCode } from '../../types/enums';
 
 // Error classes
-export { ProtocolError, UnsupportedProtocolVersionError, UrlElicitationRequiredError } from '../../types/errors';
+export {
+    MissingRequiredClientCapabilityError,
+    ProtocolError,
+    ResourceNotFoundError,
+    UnsupportedProtocolVersionError,
+    UrlElicitationRequiredError
+} from '../../types/errors';
 
 // Type guards and message parsing
 export {
@@ -104,6 +116,7 @@ export {
     isCallToolResult,
     isInitializedNotification,
     isInitializeRequest,
+    isInputRequiredResult,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,

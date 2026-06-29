@@ -15,7 +15,7 @@ import { OAuthError, OAuthErrorCode } from '@modelcontextprotocol/server';
 import { toNodeHandler } from 'better-auth/node';
 import { oAuthDiscoveryMetadata, oAuthProtectedResourceMetadata } from 'better-auth/plugins';
 import cors from 'cors';
-import type { Request, Response as ExpressResponse, Router } from 'express';
+import type { NextFunction, Request, Response as ExpressResponse, Router } from 'express';
 import express from 'express';
 
 import type { DemoAuth } from './auth';
@@ -34,6 +34,22 @@ export interface SetupAuthServerOptions {
      * Only use for debugging purposes.
      */
     dangerousLoggingEnabled?: boolean;
+    /**
+     * DEMO ONLY. When `true`, the `/api/auth/mcp/authorize` endpoint skips the
+     * consent screen entirely and immediately 302s back to the client's
+     * `redirect_uri` with an authorization `code` — exactly what would happen
+     * after a real user clicked **Approve**. Mechanically this strips the OIDC
+     * `prompt` parameter from the request before it reaches better-auth, so the
+     * MCP plugin's authorize handler takes its no-consent fast path. Combined
+     * with the `/sign-in` page that auto-signs-in the demo user, the entire
+     * authorization-code flow becomes a deterministic chain of 302s a headless
+     * client can follow with `fetch(..., { redirect: 'manual' })`.
+     *
+     * The `examples/oauth/` server enables this when
+     * `OAUTH_DEMO_AUTO_CONSENT=1` so the CI client (`client.ts`) can drive the
+     * full browser flow without a browser. NEVER enable in production.
+     */
+    autoConsent?: boolean;
 }
 
 // Store auth instance globally so it can be used for token verification
@@ -88,7 +104,7 @@ async function ensureDemoUserExists(auth: DemoAuth): Promise<void> {
  * @param options - Server configuration
  */
 export function setupAuthServer(options: SetupAuthServerOptions): void {
-    const { authServerUrl, mcpServerUrl, demoMode, dangerousLoggingEnabled = false } = options;
+    const { authServerUrl, mcpServerUrl, demoMode, dangerousLoggingEnabled = false, autoConsent = false } = options;
 
     // Create better-auth instance with MCP plugin
     const auth = createDemoAuth({
@@ -115,6 +131,58 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
     // Create better-auth handler
     // toNodeHandler bypasses Express methods
     const betterAuthHandler = toNodeHandler(auth);
+
+    // The issuer identifier this AS publishes in its metadata; must exactly match the
+    // `issuer` value better-auth emits at /.well-known/oauth-authorization-server.
+    const issuer = authServerUrl.toString().replace(/\/$/, '');
+    const issuerOrigin = new URL(issuer).origin;
+
+    // RFC 9207 (SEP-2468): append `iss` to every authorization-response redirect (success
+    // and error) that targets the client's redirect_uri. better-auth does not emit `iss`
+    // itself yet, so intercept the 302 Location header. Internal hops (to /sign-in or back
+    // to /api/auth/mcp/authorize) are left untouched.
+    authApp.use('/api/auth/mcp/authorize', (_req: Request, res: ExpressResponse, next: NextFunction) => {
+        const originalWriteHead = res.writeHead.bind(res);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        res.writeHead = function (statusCode: number, ...args: any[]) {
+            const headers = args.find(a => typeof a === 'object' && a !== null) as Record<string, string> | undefined;
+            const loc = headers?.location ?? headers?.Location ?? (res.getHeader('Location') as string | undefined);
+            if (statusCode >= 300 && statusCode < 400 && loc && !loc.startsWith('/') && new URL(loc).origin !== issuerOrigin) {
+                const u = new URL(loc);
+                u.searchParams.set('iss', issuer);
+                if (headers && 'location' in headers) headers.location = u.href;
+                else if (headers && 'Location' in headers) headers.Location = u.href;
+                else res.setHeader('Location', u.href);
+            }
+            return originalWriteHead(statusCode, ...args);
+        } as typeof res.writeHead;
+        next();
+    });
+
+    // DEMO ONLY: simulate the user clicking "Approve" on the consent screen.
+    // The SDK auth driver appends `prompt=consent` whenever it requests the
+    // `offline_access` scope (per OIDC §11). With a real user, better-auth
+    // would render a consent UI and wait for an explicit Approve; here we drop
+    // `prompt` from the query before it reaches better-auth so its authorize
+    // handler takes the no-consent fast path and 302s straight back to
+    // `redirect_uri?code=...`. See {@link SetupAuthServerOptions.autoConsent}.
+    if (autoConsent) {
+        authApp.use((req: Request, _res: ExpressResponse, next: NextFunction) => {
+            const qmark = req.url.indexOf('?');
+            if (req.path === '/api/auth/mcp/authorize' && qmark !== -1) {
+                const search = new URLSearchParams(req.url.slice(qmark + 1));
+                if (search.has('prompt')) {
+                    search.delete('prompt');
+                    const qs = search.toString();
+                    // toNodeHandler reconstructs the Fetch Request from req.url
+                    // (req.baseUrl is empty at the app level), so rewriting it
+                    // here is what better-auth's handler will see.
+                    req.url = `/api/auth/mcp/authorize${qs ? `?${qs}` : ''}`;
+                }
+            }
+            next();
+        });
+    }
 
     // Mount better-auth handler BEFORE body parsers
     // toNodeHandler reads the raw request body, so Express must not consume it first
@@ -166,7 +234,15 @@ export function setupAuthServer(options: SetupAuthServerOptions): void {
     // OAuth metadata endpoints using better-auth's built-in handlers
     // Add explicit OPTIONS handler for CORS preflight
     authApp.options('/.well-known/oauth-authorization-server', cors());
-    authApp.get('/.well-known/oauth-authorization-server', cors(), toNodeHandler(oAuthDiscoveryMetadata(auth)));
+    // Wrap better-auth's metadata to advertise RFC 9207 support (the `iss` middleware
+    // above makes that claim true).
+    const discoveryHandler = oAuthDiscoveryMetadata(auth);
+    authApp.get('/.well-known/oauth-authorization-server', cors(), async (req: Request, res: ExpressResponse) => {
+        const upstream = await discoveryHandler(new Request(new URL(req.originalUrl, issuer)));
+        const body = (await upstream.json()) as Record<string, unknown>;
+        body.authorization_response_iss_parameter_supported = true;
+        res.status(upstream.status).json(body);
+    });
 
     // Body parsers for non-better-auth routes (like /sign-in)
     authApp.use(express.json());

@@ -22,6 +22,7 @@
             "@modelcontextprotocol/server/_shims": ["./node_modules/@modelcontextprotocol/server/src/shimsNode.ts"],
             "@modelcontextprotocol/server/validators/ajv": ["./node_modules/@modelcontextprotocol/server/src/validators/ajv.ts"],
             "@modelcontextprotocol/server/validators/cf-worker": ["./node_modules/@modelcontextprotocol/server/src/validators/cfWorker.ts"],
+            "@modelcontextprotocol/server-legacy": ["./node_modules/@modelcontextprotocol/server-legacy/src/index.ts"],
             "@modelcontextprotocol/server-legacy/sse": ["./node_modules/@modelcontextprotocol/server-legacy/src/sse/index.ts"],
             "@modelcontextprotocol/express": ["./node_modules/@modelcontextprotocol/express/src/index.ts"],
             "@modelcontextprotocol/fastify": ["./node_modules/@modelcontextprotocol/fastify/src/index.ts"],

@@ -6,6 +6,7 @@ import {
     ProtocolErrorCode,
     SdkError,
     SdkErrorCode,
+    setNegotiatedProtocolVersion,
     SUPPORTED_PROTOCOL_VERSIONS
 } from '@modelcontextprotocol/core-internal';
 import { McpServer, Server } from '@modelcontextprotocol/server';
@@ -169,6 +170,64 @@ test('should restore negotiated protocol version on transport when reconnecting 
     expect(reconnectTransport.send).not.toHaveBeenCalledWith(expect.objectContaining({ method: 'initialize' }), expect.anything());
     // But the protocol version MUST have been restored onto the new transport
     expect(reconnectSetProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
+});
+
+/***
+ * Test: The negotiated protocol version (and with it the wire era) is connection state — it must
+ * not survive into a fresh connect. A client whose previous connection negotiated the modern
+ * revision (2026-07-28) via server/discover must still be able to run a FRESH legacy initialize
+ * handshake: `initialize` is legacy-era vocabulary by definition (it is physically absent from
+ * the modern registry), so a negotiated version left over from the dead connection would
+ * otherwise kill the handshake locally before it reaches the transport.
+ *
+ * The modern era is reached through the real negotiation path (versionNegotiation + the
+ * server/discover probe) — never via initialize, which only negotiates legacy versions.
+ */
+test('should run a fresh initialize handshake after close() when the previous connection negotiated the modern era', async () => {
+    const MODERN_REVISION = '2026-07-28';
+    const supportedProtocolVersions = [MODERN_REVISION, ...SUPPORTED_PROTOCOL_VERSIONS];
+
+    const connectModern = async (client: Client) => {
+        const server = new Server({ name: 'modern server', version: '1.0' }, { capabilities: {}, supportedProtocolVersions });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        // Stand-in for the modern-era server entry (instance binding): mark the server instance
+        // as serving the modern era so it can answer the client's server/discover probe.
+        setNegotiatedProtocolVersion(server, MODERN_REVISION);
+        await client.connect(clientTransport);
+    };
+
+    const connectLegacy = async (client: Client) => {
+        const server = new Server({ name: 'legacy server', version: '1.0' }, { capabilities: {} });
+        const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+        await server.connect(serverTransport);
+        await client.connect(clientTransport);
+    };
+
+    // The client opts into negotiation: server/discover probe first, legacy initialize fallback.
+    const client = new Client({ name: 'test client', version: '1.0' }, { supportedProtocolVersions, versionNegotiation: { mode: 'auto' } });
+
+    // First connection negotiates the modern revision via server/discover: the instance now
+    // speaks the modern wire era.
+    await connectModern(client);
+    expect(client.getNegotiatedProtocolVersion()).toBe(MODERN_REVISION);
+
+    await client.close();
+
+    // Fresh connect (new transport, no sessionId): the stale negotiated version is cleared and
+    // the connection re-negotiates from scratch — modern again here.
+    await connectModern(client);
+    expect(client.getNegotiatedProtocolVersion()).toBe(MODERN_REVISION);
+
+    await client.close();
+
+    // A fresh connect against a legacy-only server still runs the legacy initialize fallback:
+    // a leftover modern negotiated version would kill `initialize` locally (it is physically
+    // absent from the modern registry).
+    await connectLegacy(client);
+    expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
+
+    await client.close();
 });
 
 /***
@@ -1769,6 +1828,9 @@ describe('outputSchema validation', () => {
         server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'test-tool') {
                 return {
+                    // content is spec-required (the wire default([]) was removed
+                    // - ledgered; changeset codec-split-wire-break)
+                    content: [],
                     structuredContent: { result: 'success', count: 42 }
                 };
             }
@@ -1844,6 +1906,7 @@ describe('outputSchema validation', () => {
             if (request.params.name === 'test-tool') {
                 // Return invalid structured content (count is string instead of number)
                 return {
+                    content: [],
                     structuredContent: { result: 'success', count: 'not a number' }
                 };
             }
@@ -2071,6 +2134,7 @@ describe('outputSchema validation', () => {
         server.setRequestHandler('tools/call', async request => {
             if (request.params.name === 'complex-tool') {
                 return {
+                    content: [],
                     structuredContent: {
                         name: 'John Doe',
                         age: 30,
@@ -2156,6 +2220,7 @@ describe('outputSchema validation', () => {
             if (request.params.name === 'strict-tool') {
                 // Return structured content with extra property
                 return {
+                    content: [],
                     structuredContent: {
                         name: 'John',
                         extraField: 'not allowed'

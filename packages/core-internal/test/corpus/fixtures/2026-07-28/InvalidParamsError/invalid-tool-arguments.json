@@ -1,0 +1,4 @@
+{
+  "code": -32602,
+  "message": "Invalid arguments for tool calculate: Missing required property 'expression'"
+}

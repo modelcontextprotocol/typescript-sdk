@@ -1,0 +1,23 @@
+{
+    "name": "@mcp-examples/sampling",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "dual",
+        "//": "2025-era push-style ctx.mcpReq.requestSampling is exercised on stdio/legacy (createMcpHandler's stateless-legacy posture has no return path for the client's response POST — see ../legacy-routing/ for the sessionful composition); 2026-07-28 inputRequired.createMessage runs on both transports."
+    }
+}

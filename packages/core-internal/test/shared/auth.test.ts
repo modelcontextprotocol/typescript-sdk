@@ -119,4 +119,19 @@ describe('OAuthClientMetadataSchema', () => {
 
         expect(() => OAuthClientMetadataSchema.parse(metadata)).toThrow('URL cannot use javascript:, data:, or vbscript: scheme');
     });
+
+    it('parses application_type when native or web', () => {
+        for (const value of ['native', 'web'] as const) {
+            const parsed = OAuthClientMetadataSchema.parse({ redirect_uris: ['https://app.example.com/cb'], application_type: value });
+            expect(parsed.application_type).toBe(value);
+        }
+    });
+
+    it('passes through a non-enum application_type rather than rejecting (tolerant of AS extension values)', () => {
+        const parsed = OAuthClientMetadataSchema.parse({
+            redirect_uris: ['https://app.example.com/cb'],
+            application_type: 'service'
+        });
+        expect(parsed.application_type).toBe('service');
+    });
 });

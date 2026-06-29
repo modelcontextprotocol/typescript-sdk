@@ -1,0 +1,22 @@
+{
+    "name": "@mcp-examples/caching",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "modern",
+        "//": "cacheHints (ttlMs / cacheScope on cacheable results) are emitted only toward 2026-era clients."
+    }
+}

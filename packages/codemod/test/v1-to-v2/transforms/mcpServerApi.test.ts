@@ -240,6 +240,43 @@ describe('mcp-server-api transform', () => {
         expect(result).not.toContain('inputSchema: { msg:');
     });
 
+    it('wraps raw outputSchema in .registerTool() config', () => {
+        const input = [
+            `server.registerTool("echo", { outputSchema: { result: z.string() } }, async () => {`,
+            `    return { content: [], structuredContent: { result: 'ok' } };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('outputSchema: z.object({ result: z.string() })');
+        expect(result).not.toContain('outputSchema: { result:');
+    });
+
+    it('wraps both raw inputSchema and outputSchema in the same .registerTool() config', () => {
+        const input = [
+            `server.registerTool("echo", { inputSchema: { msg: z.string() }, outputSchema: { result: z.string() } }, async ({ msg }) => {`,
+            `    return { content: [], structuredContent: { result: msg } };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('inputSchema: z.object({ msg: z.string() })');
+        expect(result).toContain('outputSchema: z.object({ result: z.string() })');
+        expect(result).not.toContain('z.object(z.object(');
+    });
+
+    it('does not double-wrap z.object() outputSchema in .registerTool() config', () => {
+        const input = [
+            `server.registerTool("echo", { outputSchema: z.object({ result: z.string() }) }, async () => {`,
+            `    return { content: [], structuredContent: { result: 'ok' } };`,
+            `});`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('outputSchema: z.object({ result: z.string() })');
+        expect(result).not.toContain('z.object(z.object(');
+    });
+
     it('does not double-wrap z.object() in .registerTool() config', () => {
         const input = [
             `server.registerTool("echo", { inputSchema: z.object({ msg: z.string() }) }, async ({ msg }) => {`,
@@ -306,5 +343,64 @@ describe('mcp-server-api transform', () => {
         const result = applyTransform(input);
         expect(result).toContain('registerTool("ping", {}');
         expect(result).not.toContain('z.object');
+    });
+
+    it('flags taskStore in McpServer options as removed without modifying code', () => {
+        const input = [
+            `const server = new McpServer(`,
+            `    { name: 'test', version: '1.0' },`,
+            `    { taskStore: new InMemoryTaskStore() }`,
+            `);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toBe(MCP_IMPORT + input);
+        const taskDiags = result.diagnostics.filter(d => d.message.includes("'taskStore'"));
+        expect(taskDiags).toHaveLength(1);
+        expect(taskDiags[0]!.message).toContain('experimental tasks removed in v2 (SEP-2663');
+        expect(taskDiags[0]!.message).toContain('No v2 equivalent');
+        expect(taskDiags[0]!.insertComment).toBe(true);
+    });
+
+    it('flags each task option separately when both are present', () => {
+        const input = [
+            `const server = new McpServer(`,
+            `    { name: 'test', version: '1.0' },`,
+            `    { taskStore: store, taskMessageQueue: queue }`,
+            `);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toBe(MCP_IMPORT + input);
+        expect(result.diagnostics.some(d => d.message.includes("'taskStore'"))).toBe(true);
+        expect(result.diagnostics.some(d => d.message.includes("'taskMessageQueue'"))).toBe(true);
+    });
+
+    it('does not move task options into capabilities.tasks even when present', () => {
+        const input = [
+            `const server = new McpServer(`,
+            `    { name: 'test', version: '1.0' },`,
+            `    { taskStore: store, capabilities: { tasks: {} } }`,
+            `);`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(sourceFile.getFullText()).toBe(MCP_IMPORT + input);
+        expect(sourceFile.getFullText()).toContain('taskStore: store');
+        expect(result.diagnostics.some(d => d.message.includes("'taskStore'"))).toBe(true);
+    });
+
+    it('emits no task diagnostics for McpServer options without task options', () => {
+        const input = [`const server = new McpServer({ name: 'test', version: '1.0' }, { instructions: 'hi' });`, ''].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', MCP_IMPORT + input);
+        const result = mcpServerApiTransform.apply(sourceFile, ctx);
+        expect(result.diagnostics).toHaveLength(0);
     });
 });

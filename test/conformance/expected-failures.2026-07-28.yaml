@@ -1,0 +1,34 @@
+# Expected failures for the carried-forward x 2026-07-28 legs
+# (`test:conformance:client:2026` and `test:conformance:server:2026`, both
+# `--suite all --spec-version 2026-07-28`).
+#
+# This baseline is separate from expected-failures.yaml because entries are
+# keyed by scenario name only: a scenario that passes at its default version
+# in the 2025 legs but fails when forced to 2026-07-28 (or vice versa) cannot
+# be expressed in a shared file (the passing leg would flag the entry as
+# stale). Like expected-failures.yaml, this single file covers both
+# directions: the client 2026 leg reads the `client:` section and the server
+# 2026 leg reads the `server:` section. Both burn down independently of the
+# 2025 legs.
+#
+# Baseline established against the published @modelcontextprotocol/conformance
+# release pinned in package.json. Newer conformance releases are adopted by
+# deliberately bumping the pin and reconciling this file in the same change.
+#
+# NOTE: the SDK's modern-path rejection codes are aligned with what this
+# referee asserts — both sides have adopted the spec#2907 / conformance#353
+# renumber (-32020 / -32021 / -32022) on emission and recognition.
+#
+# Entries are grouped by what unblocks them. As each gap closes the
+# corresponding scenarios start passing and MUST be removed from this list
+# (the runner fails on stale entries), so the baseline burns down per
+# milestone.
+
+client: []
+    # --- Same gaps as the 2025 baseline (fail identically when forced to 2026-07-28) ---
+    # (empty: SEP-2468/2352/2350/837 burned by the auth bundle; SEP-2106 burned earlier)
+
+server: []
+    # --- Carried-forward scenarios (also run by the 2025 legs) ---
+    # (empty: json-schema-2020-12 burned by SEP-2106 fixture; sep-2164-resource-not-found
+    # burned by the spec#2907 error-code renumber + alpha.5 referee.)

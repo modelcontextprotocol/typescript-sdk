@@ -467,6 +467,38 @@ describe('import-paths transform', () => {
         expect(result).toContain(`from "@modelcontextprotocol/express"`);
     });
 
+    it('rewrites server/express.js import to @modelcontextprotocol/express', () => {
+        const input = `import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/express"`);
+        expect(result).toContain('createMcpExpressApp');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('rewrites deep middleware/hostHeaderValidation.js import to @modelcontextprotocol/express', () => {
+        const input = `import { hostHeaderValidation } from '@modelcontextprotocol/sdk/server/middleware/hostHeaderValidation.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/express"`);
+        expect(result).toContain('hostHeaderValidation');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('rewrites client/auth-extensions.js import to @modelcontextprotocol/client', () => {
+        const input = `import { discoverAuthorizationServerMetadata } from '@modelcontextprotocol/sdk/client/auth-extensions.js';\n`;
+        const result = applyTransform(input);
+        expect(result).toContain(`from "@modelcontextprotocol/client"`);
+        expect(result).toContain('discoverAuthorizationServerMetadata');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
+    it('moves deep server/auth/middleware/bearerAuth.js to server-legacy/auth via catch-all', () => {
+        const input = `import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middleware/bearerAuth.js';\n`;
+        const result = applyTransform(input, { projectType: 'server' });
+        expect(result).toContain('@modelcontextprotocol/server-legacy/auth');
+        expect(result).toContain('requireBearerAuth');
+        expect(result).not.toContain('@modelcontextprotocol/sdk');
+    });
+
     it('renames body references when renamedSymbols applies', () => {
         const input = [
             `import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';`,

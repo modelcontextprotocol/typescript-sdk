@@ -4,7 +4,7 @@ import * as z from 'zod/v4';
 import type { ZodType } from 'zod/v4';
 
 import type { BaseContext } from '../../src/shared/protocol';
-import { mergeCapabilities, Protocol } from '../../src/shared/protocol';
+import { mergeCapabilities, Protocol, setNegotiatedProtocolVersion } from '../../src/shared/protocol';
 import type { Transport, TransportSendOptions } from '../../src/shared/transport';
 import type {
     ClientCapabilities,
@@ -22,6 +22,8 @@ import type {
 } from '../../src/types/index';
 import { ProtocolError, ProtocolErrorCode } from '../../src/types/index';
 import { SdkError, SdkErrorCode } from '../../src/errors/sdkErrors';
+import { InMemoryTransport } from '../../src/util/inMemory';
+import { rev2025Codec } from '../../src/wire/rev2025-11-25/codec';
 
 // Test Protocol subclass for testing
 class TestProtocolImpl extends Protocol<BaseContext> {
@@ -818,6 +820,98 @@ describe('protocol tests', () => {
             expect(wasAborted).toBe(true);
         });
     });
+
+    // Spec basic/patterns/cancellation §Transport-Specific (2026-07-28): on a
+    // per-request-stream transport (Streamable HTTP), closing that stream IS
+    // the cancel signal — no `notifications/cancelled` is sent. Legacy era and
+    // single-channel transports keep the `notifications/cancelled` POST path.
+    describe('outbound request cancellation: stream-close vs notifications/cancelled', () => {
+        /** Mock transport that records the requestSignal it was handed and every outbound message. */
+        class PerRequestStreamTransport extends MockTransport {
+            readonly hasPerRequestStream = true;
+            sent: JSONRPCMessage[] = [];
+            lastRequestSignal: AbortSignal | undefined;
+            override async send(message: JSONRPCMessage, options?: TransportSendOptions): Promise<void> {
+                this.sent.push(message);
+                this.lastRequestSignal = options?.requestSignal;
+            }
+        }
+
+        const cancelledSent = (sent: JSONRPCMessage[]): JSONRPCMessage[] =>
+            sent.filter(m => 'method' in m && m.method === 'notifications/cancelled');
+
+        test('modern era + per-request-stream transport: abort closes the stream, NO notifications/cancelled', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2026-07-28');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+
+            // The transport was handed a per-request requestSignal.
+            expect(tx.lastRequestSignal).toBeInstanceOf(AbortSignal);
+            expect(tx.lastRequestSignal?.aborted).toBe(false);
+
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            // Stream-close IS the signal: requestSignal aborted, no cancelled notification on the wire.
+            expect(tx.lastRequestSignal?.aborted).toBe(true);
+            expect(cancelledSent(tx.sent)).toHaveLength(0);
+        });
+
+        test('modern era + single-channel transport (no hasPerRequestStream): POSTs notifications/cancelled', async () => {
+            // stdio / in-memory shape: hasPerRequestStream is undefined.
+            const sent: JSONRPCMessage[] = [];
+            const tx = new MockTransport();
+            tx.send = async (m: JSONRPCMessage, _opts?: TransportSendOptions) => {
+                sent.push(m);
+            };
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2026-07-28');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            // stdio MUST send notifications/cancelled (spec).
+            expect(cancelledSent(sent)).toHaveLength(1);
+        });
+
+        test('legacy era + per-request-stream transport: behavior unchanged — POSTs notifications/cancelled, no requestSignal', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2025-11-25');
+
+            const ac = new AbortController();
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { signal: ac.signal });
+
+            // Legacy path is byte-identical to before: no requestSignal threaded.
+            expect(tx.lastRequestSignal).toBeUndefined();
+
+            ac.abort('user cancel');
+            await expect(pending).rejects.toThrow();
+
+            expect(cancelledSent(tx.sent)).toHaveLength(1);
+        });
+
+        test('modern era + per-request-stream transport: timeout aborts the stream, NO notifications/cancelled', async () => {
+            const tx = new PerRequestStreamTransport();
+            const proto = createTestProtocol();
+            await proto.connect(tx);
+            setNegotiatedProtocolVersion(proto, '2026-07-28');
+
+            const pending = testRequest(proto, { method: 'example', params: {} }, z.object({}), { timeout: 0 });
+            await expect(pending).rejects.toThrow();
+
+            expect(tx.lastRequestSignal?.aborted).toBe(true);
+            expect(cancelledSent(tx.sent)).toHaveLength(0);
+        });
+    });
 });
 
 // (2025-11 experimental test suites removed under SEP-2663; see git history.)
@@ -908,5 +1002,171 @@ describe('mergeCapabilities', () => {
         const additional = {};
         const merged = mergeCapabilities(base, additional);
         expect(merged).toEqual({});
+    });
+});
+
+describe('codec-seam hardening in the protocol funnels', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+
+    test('a throw inside codec.encodeResult answers −32603 on the wire — the peer is never stranded', async () => {
+        const [peerTx, protocolTx] = InMemoryTransport.createLinkedPair();
+        const sent: JSONRPCMessage[] = [];
+        peerTx.onmessage = message => void sent.push(message);
+        await peerTx.start();
+
+        const protocol = createTestProtocol();
+        const errors: Error[] = [];
+        protocol.onerror = error => void errors.push(error);
+        protocol.setRequestHandler('acme/op', { params: z.looseObject({}) }, () => ({ ok: true }) as Result);
+        await protocol.connect(protocolTx);
+
+        // The encode hop is the only throw-capable step between handler
+        // success and the transport send (and it grows stamping content in
+        // M3.2). Force it to throw once.
+        vi.spyOn(rev2025Codec, 'encodeResult').mockImplementationOnce(() => {
+            throw new Error('stamp exploded');
+        });
+
+        await peerTx.send({ jsonrpc: '2.0', id: 1, method: 'acme/op', params: {} });
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        expect((sent[0] as JSONRPCErrorResponse).error).toMatchObject({ code: ProtocolErrorCode.InternalError });
+        // Surfaced locally too.
+        expect(errors.some(error => error.message.includes('Failed to encode result'))).toBe(true);
+
+        // The connection stays serviceable: the next request round-trips.
+        await peerTx.send({ jsonrpc: '2.0', id: 2, method: 'acme/op', params: {} });
+        await flush();
+        expect(sent).toHaveLength(2);
+        expect((sent[1] as JSONRPCResultResponse).result).toMatchObject({ ok: true });
+
+        await protocol.close();
+    });
+
+    test('a synchronous throw out of codec.decodeResult rejects the request instead of escaping into transport.onmessage', async () => {
+        const [protocolTx, peerTx] = InMemoryTransport.createLinkedPair();
+        peerTx.onmessage = message => {
+            const request = message as JSONRPCRequest;
+            void peerTx.send({ jsonrpc: '2.0', id: request.id, result: {} });
+        };
+        await peerTx.start();
+
+        const protocol = createTestProtocol();
+        await protocol.connect(protocolTx);
+
+        // The response callback runs synchronously inside _onresponse; an
+        // unguarded throw here would propagate into the transport instead of
+        // failing the request. (The concrete production vector is the 2026
+        // codec's method-keyed schema lookup — see the own-key guard in
+        // rev2026-07-28/codec.ts.)
+        vi.spyOn(rev2025Codec, 'decodeResult').mockImplementationOnce(() => {
+            throw new Error('decode exploded');
+        });
+
+        await expect(protocol.request({ method: 'ping' })).rejects.toThrow('decode exploded');
+
+        await protocol.close();
+    });
+});
+
+describe('inbound validation precedence: −32601 outranks envelope −32602', () => {
+    afterEach(() => {
+        vi.restoreAllMocks();
+    });
+
+    const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+
+    async function wireWithFailingEnvelope(setup?: (protocol: TestProtocolImpl) => void) {
+        const [peerTx, protocolTx] = InMemoryTransport.createLinkedPair();
+        const sent: JSONRPCMessage[] = [];
+        peerTx.onmessage = message => void sent.push(message);
+        await peerTx.start();
+
+        const protocol = createTestProtocol();
+        setup?.(protocol);
+        await protocol.connect(protocolTx);
+
+        // Force the era's envelope check to fail for every request, so the
+        // test pins WHERE in the ladder it runs, independent of era wiring.
+        vi.spyOn(rev2025Codec, 'checkInboundEnvelope').mockImplementation(() => 'Request is missing the required _meta envelope');
+
+        return { peerTx, sent, flush };
+    }
+
+    test('a genuinely unknown method answers −32601 even when the envelope check would also fail', async () => {
+        const { peerTx, sent } = await wireWithFailingEnvelope();
+
+        await peerTx.send({ jsonrpc: '2.0', id: 1, method: 'acme/no-such-method', params: {} });
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        expect((sent[0] as JSONRPCErrorResponse).error).toMatchObject({
+            code: ProtocolErrorCode.MethodNotFound,
+            message: 'Method not found'
+        });
+    });
+
+    test('a served method still answers −32602 when the envelope check fails', async () => {
+        const { peerTx, sent } = await wireWithFailingEnvelope(protocol => {
+            protocol.setRequestHandler('acme/known', { params: z.looseObject({}) }, () => ({}) as Result);
+        });
+
+        await peerTx.send({ jsonrpc: '2.0', id: 1, method: 'acme/known', params: {} });
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        expect((sent[0] as JSONRPCErrorResponse).error).toMatchObject({
+            code: ProtocolErrorCode.InvalidParams,
+            message: 'Request is missing the required _meta envelope'
+        });
+    });
+});
+
+describe('inbound protocol-version mismatch (−32022): the error data lists every supported version', () => {
+    const flush = () => new Promise(resolve => setTimeout(resolve, 10));
+
+    test('a request classified for a protocol version this connection does not serve is rejected with the full supported list', async () => {
+        const supportedProtocolVersions = ['2025-11-25', '2025-06-18', '2025-03-26'];
+        const [peerTx, protocolTx] = InMemoryTransport.createLinkedPair();
+        const sent: JSONRPCMessage[] = [];
+        peerTx.onmessage = message => void sent.push(message);
+        await peerTx.start();
+
+        const protocol = new TestProtocolImpl({ supportedProtocolVersions });
+        const errors: Error[] = [];
+        protocol.onerror = error => void errors.push(error);
+        await protocol.connect(protocolTx);
+
+        // Deliver a request whose transport-edge classification names a
+        // protocol version this connection does not serve. The rejection's
+        // `data.supported` must list every protocol version the receiver
+        // supports — not just the version the connection is on — so the peer
+        // can pick a mutually supported version from the error alone.
+        protocolTx.onmessage?.(
+            { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} } as JSONRPCMessage,
+            // The in-memory transport's onmessage declares the narrower
+            // pre-classification extra type; the protocol layer reads the
+            // full MessageExtraInfo (same cast as the era-gate suite).
+            { classification: { era: 'modern' } } as never
+        );
+        await flush();
+
+        expect(sent).toHaveLength(1);
+        const error = (sent[0] as JSONRPCErrorResponse).error as {
+            code: number;
+            message: string;
+            data?: { supported?: string[]; requested?: string };
+        };
+        expect(error.code).toBe(-32022);
+        expect(error.message).toContain('Unsupported protocol version');
+        expect(error.data?.supported).toEqual(supportedProtocolVersions);
+        expect(error.data?.requested).toBe('2026-07-28');
+
+        await protocol.close();
     });
 });

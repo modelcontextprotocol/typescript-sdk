@@ -11,7 +11,16 @@ import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
 
 import type { AuthProvider, OAuthClientProvider } from './auth';
-import { adaptOAuthProvider, auth, extractWWWAuthenticateParams, isOAuthClientProvider, UnauthorizedError } from './auth';
+import {
+    adaptOAuthProvider,
+    auth,
+    extractWWWAuthenticateParams,
+    isOAuthClientProvider,
+    resolveAuthorizationCallbackParams,
+    UnauthorizedError
+} from './auth';
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- referenced in JSDoc {@linkcode}
+import type { IssuerMismatchError } from './authErrors';
 
 export class SseError extends Error {
     constructor(
@@ -43,6 +52,15 @@ export type SSEClientTransportOptions = {
      * {@linkcode SSEClientTransport.finishAuth | finishAuth} with the authorization code before reconnecting.
      */
     authProvider?: AuthProvider | OAuthClientProvider;
+
+    /**
+     * Opt-out for the RFC 8414 §3.3 issuer-echo check during authorization-server
+     * metadata discovery. **Security-weakening** — see
+     * {@linkcode index.AuthOptions.skipIssuerMetadataValidation | AuthOptions.skipIssuerMetadataValidation}.
+     * Only honoured when {@linkcode SSEClientTransportOptions.authProvider | authProvider}
+     * is an `OAuthClientProvider`.
+     */
+    skipIssuerMetadataValidation?: boolean;
 
     /**
      * Customizes the initial SSE request to the server (the request that begins the stream).
@@ -81,6 +99,7 @@ export class SSEClientTransport implements Transport {
     private _requestInit?: RequestInit;
     private _authProvider?: AuthProvider;
     private _oauthProvider?: OAuthClientProvider;
+    private _skipIssuerMetadataValidation?: boolean;
     private _fetch?: FetchLike;
     private _fetchWithInit: FetchLike;
     private _protocolVersion?: string;
@@ -95,9 +114,12 @@ export class SSEClientTransport implements Transport {
         this._scope = undefined;
         this._eventSourceInit = opts?.eventSourceInit;
         this._requestInit = opts?.requestInit;
+        this._skipIssuerMetadataValidation = opts?.skipIssuerMetadataValidation;
         if (isOAuthClientProvider(opts?.authProvider)) {
             this._oauthProvider = opts.authProvider;
-            this._authProvider = adaptOAuthProvider(opts.authProvider);
+            this._authProvider = adaptOAuthProvider(opts.authProvider, {
+                skipIssuerMetadataValidation: opts.skipIssuerMetadataValidation
+            });
         } else {
             this._authProvider = opts?.authProvider;
         }
@@ -228,18 +250,47 @@ export class SSEClientTransport implements Transport {
 
     /**
      * Call this method after the user has finished authorizing via their user agent and is redirected back to the MCP client application. This will exchange the authorization code for an access token, enabling the next connection attempt to successfully auth.
+     *
+     * **Preferred:** pass the callback URL's `searchParams` directly. The SDK extracts `code`
+     * and `iss`, validates `iss` against the recorded issuer (RFC 9207) **before** reading any
+     * other parameter, and on mismatch throws an {@linkcode IssuerMismatchError} that carries
+     * none of the callback's `error`/`error_description`/`error_uri` text. The `(code, iss?)`
+     * positional form remains supported for back-compat.
+     *
+     * The SDK does **not** validate `state`; compare it to your stored value before calling
+     * `finishAuth`.
+     *
+     * @param callbackParams - The `URLSearchParams` from the authorization callback URL
+     *   (e.g. `new URL(callbackUrl).searchParams`). `code` and `iss` are read from it.
      */
-    async finishAuth(authorizationCode: string): Promise<void> {
+    async finishAuth(callbackParams: URLSearchParams): Promise<void>;
+    /**
+     * @param authorizationCode - The `code` query parameter from the authorization callback URL.
+     * @param iss - The form-urldecoded `iss` query parameter from the same callback URL, if
+     *   present. Validated per RFC 9207 against the recorded issuer before the code is redeemed.
+     */
+    async finishAuth(authorizationCode: string, iss?: string): Promise<void>;
+    async finishAuth(codeOrParams: string | URLSearchParams, iss?: string): Promise<void> {
         if (!this._oauthProvider) {
             throw new UnauthorizedError('finishAuth requires an OAuthClientProvider');
         }
 
+        const { authorizationCode, iss: issParam } = await resolveAuthorizationCallbackParams(
+            codeOrParams,
+            iss,
+            this._oauthProvider,
+            this._url,
+            { fetchFn: this._fetchWithInit, resourceMetadataUrl: this._resourceMetadataUrl }
+        );
+
         const result = await auth(this._oauthProvider, {
             serverUrl: this._url,
             authorizationCode,
+            iss: issParam,
             resourceMetadataUrl: this._resourceMetadataUrl,
             scope: this._scope,
-            fetchFn: this._fetchWithInit
+            fetchFn: this._fetchWithInit,
+            skipIssuerMetadataValidation: this._skipIssuerMetadataValidation
         });
         if (result !== 'AUTHORIZED') {
             throw new UnauthorizedError('Failed to authorize');

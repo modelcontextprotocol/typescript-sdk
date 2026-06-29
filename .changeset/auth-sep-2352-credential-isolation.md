@@ -1,0 +1,5 @@
+---
+'@modelcontextprotocol/client': minor
+---
+
+Per-authorization-server credential isolation (SEP-2352). `auth()` now stamps an `issuer` field onto every value it passes to `saveTokens()` / `saveClientInformation()` and threads `{ issuer }` to `tokens()` / `clientInformation()`; on read, a stored credential whose stamp names a different authorization server is treated as `undefined`, so a `client_id` / `refresh_token` issued by one AS is never sent to another. Providers that round-trip stored values verbatim are protected with no code change; multi-AS providers may key storage on `ctx.issuer`. New `AuthorizationServerMismatchError` (callback-leg gate). `OAuthClientProvider.saveAuthorizationServerUrl()` / `authorizationServerUrl()` are deprecated (still written, never read). `ClientCredentialsProvider`, `PrivateKeyJwtProvider`, `StaticPrivateKeyJwtProvider`, and `CrossAppAccessProvider` gain `expectedIssuer` and no longer define `saveClientInformation()`.

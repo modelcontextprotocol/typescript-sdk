@@ -9,7 +9,7 @@ import path from 'node:path';
 
 import { vi } from 'vitest';
 
-import { AjvJsonSchemaValidator } from '../../src/validators/ajvProvider';
+import { Ajv, AjvJsonSchemaValidator } from '../../src/validators/ajvProvider';
 import { CfWorkerJsonSchemaValidator } from '../../src/validators/cfWorkerProvider';
 import type { JsonSchemaType } from '../../src/validators/types';
 
@@ -621,5 +621,63 @@ describe('Missing dependencies', () => {
 
             expect(content).toContain('@cfworker/json-schema');
         });
+    });
+});
+
+/**
+ * SEP-1613 declares JSON Schema 2020-12 the dialect for tool schemas. The built-in providers
+ * validate as 2020-12 only: a schema with no `$schema` (or `$schema: …2020-12…`) compiles; a
+ * schema declaring any other `$schema` is rejected with a clear `Error`. The escape hatch is
+ * the existing custom-engine constructor (caller-supplied Ajv instance / explicit `{draft}`).
+ *
+ * Discriminator: `prefixItems` is a 2020-12 keyword that the draft-07 Ajv class silently
+ * ignores under `strict:false`, so it proves the default engine is `Ajv2020`.
+ */
+describe('SEP-1613 $schema dialect handling (2020-12 only)', () => {
+    const DRAFT_07_URI = 'http://json-schema.org/draft-07/schema#';
+    const DRAFT_2020_URI = 'https://json-schema.org/draft/2020-12/schema';
+    const prefixItemsSchema = ($schema?: string): JsonSchemaType => ({
+        ...($schema ? { $schema } : {}),
+        type: 'array',
+        prefixItems: [{ type: 'number' }, { type: 'string' }]
+    });
+    /** Violates `prefixItems` (positions swapped). */
+    const PREFIX_ITEMS_BAD: unknown = ['x', 1];
+
+    describe.each(validators)('$name', ({ provider }) => {
+        it('default → Ajv2020 / 2020-12 (prefixItems is enforced)', () => {
+            const v = provider.getValidator(prefixItemsSchema());
+            expect(v(PREFIX_ITEMS_BAD).valid).toBe(false);
+            expect(v([1, 'x']).valid).toBe(true);
+        });
+
+        it('$schema: 2020-12 → compiles, prefixItems enforced', () => {
+            const v = provider.getValidator(prefixItemsSchema(DRAFT_2020_URI));
+            expect(v(PREFIX_ITEMS_BAD).valid).toBe(false);
+        });
+
+        it('$schema: draft-07 → graceful Error', () => {
+            expect(() => provider.getValidator(prefixItemsSchema(DRAFT_07_URI))).toThrow(/unsupported dialect.*2020-12 only/);
+        });
+
+        it('$schema: 2019-09 → graceful Error', () => {
+            expect(() => provider.getValidator(prefixItemsSchema('https://json-schema.org/draft/2019-09/schema'))).toThrow(
+                /unsupported dialect/
+            );
+        });
+    });
+
+    it('AJV: custom Ajv instance bypasses the $schema check (caller owns dialect)', () => {
+        // A draft-07 Ajv passed explicitly: even with `$schema: draft-07`, the provider does not
+        // throw — and `prefixItems` is unknown to draft-07 Ajv and silently ignored.
+        const draft07 = new Ajv({ strict: false, validateSchema: false, allErrors: true });
+        const custom = new AjvJsonSchemaValidator(draft07);
+        const v = custom.getValidator(prefixItemsSchema(DRAFT_07_URI));
+        expect(v(PREFIX_ITEMS_BAD).valid).toBe(true);
+    });
+
+    it('CfWorker: explicit {draft} bypasses the $schema check (caller owns dialect)', () => {
+        const custom = new CfWorkerJsonSchemaValidator({ draft: '7' });
+        expect(() => custom.getValidator(prefixItemsSchema(DRAFT_07_URI))).not.toThrow();
     });
 });

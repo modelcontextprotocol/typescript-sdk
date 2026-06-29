@@ -8,6 +8,7 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import type { Transport } from '@modelcontextprotocol/server';
 import {
+    isInputRequiredResult,
     isJSONRPCErrorResponse,
     isJSONRPCNotification,
     isJSONRPCRequest,
@@ -22,6 +23,13 @@ export interface SnifferOptions {
     allowCustomMethods?: boolean;
     /** `false` → envelope check only (for tests that deliberately send malformed messages). */
     strictValidation?: boolean;
+    /**
+     * Permit `input_required` results as server output. Set automatically by
+     * the wiring for the modern-era (2026-07-28) arms — multi-round-trip
+     * results are not legal vocabulary on the 2025-era wire, so an
+     * `input_required` leaking onto a legacy cell is flagged.
+     */
+    allowInputRequiredResults?: boolean;
 }
 
 const OUTBOUND = {
@@ -87,6 +95,12 @@ export function assertWireMessage(msg: unknown, party: WireParty, opts: SnifferO
 
     if (isJSONRPCResultResponse(msg)) {
         const result = (msg as { result: unknown }).result;
+        // Multi-round-trip results (protocol revision 2026-07-28) are valid
+        // server output but deliberately NOT part of the neutral result union
+        // (InputRequiredResultSchema lives alongside, never widening it).
+        // Era-gated: only cells wired for the modern era opt in, so an
+        // input_required on a 2025-era cell's wire is still flagged.
+        if (party === 'server' && opts.allowInputRequiredResults === true && isInputRequiredResult(result)) return;
         const r = schemas.result.safeParse(result);
         if (!r.success) {
             // A result for a vendor-extension request legitimately won't match the spec union.

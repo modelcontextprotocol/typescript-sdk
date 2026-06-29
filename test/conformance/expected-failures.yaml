@@ -2,92 +2,40 @@
 # CI exits 0 if only these fail, exits 1 on unexpected failures or stale entries.
 #
 # Baseline established against the published @modelcontextprotocol/conformance
-# release pinned in package.json (0.2.0-alpha.3). Newer conformance releases
+# release pinned in package.json (0.2.0-alpha.7). Newer conformance releases
 # are adopted by deliberately bumping the package.json pin and reconciling
-# this file in the same change. 0.2.0-alpha.3 fixes the draft wire version
-# (2026-07-28). Several auth scenarios in this baseline (auth/iss-*,
-# auth/authorization-server-migration, auth/enterprise-managed-authorization)
-# are still not shipped in the published release — the runner reports them
-# unknown/failed; their entries below cover them either way.
+# this file in the same change.
 #
-# NOTE: the draft error-code assignments exercised by the SEP-2243 server
-# scenarios (-32001 HeaderMismatch) and their neighbours (-32602, -32004) are
-# still under discussion upstream (pending conformance #336). Those cells are
-# treated as parameterized, not settled: the entries below record today's
-# referee behavior and are re-derived when a #336-containing referee is pinned.
+# NOTE: the SDK's modern-path rejection codes are aligned with what this
+# referee asserts — both sides have adopted the spec#2907 / conformance#353
+# renumber (-32020 HeaderMismatch / -32021 MissingRequiredClientCapability /
+# -32022 UnsupportedProtocolVersion) on emission and recognition. A missing
+# _meta envelope (or missing protocolVersion key) still answers -32602 on
+# both sides.
 #
 # Entries are grouped by SEP. As each SEP/milestone is implemented in the SDK the
 # corresponding scenarios start passing and MUST be removed from this list (the
 # runner fails on stale entries), so the baseline burns down per milestone.
 
-client:
+client: []
     # --- Draft-spec scenarios (in `--suite draft`, also part of `--suite all`) ---
-    # SEP-2575 (request metadata / _meta envelope): client does not populate the
-    # _meta envelope or the MCP-Protocol-Version header semantics yet.
-    - request-metadata
-    # SEP-2322 (multi-round-trip requests): client does not echo requestState /
-    # handle IncompleteResult yet.
-    - sep-2322-client-request-state
-    # SEP-2243 (HTTP standardization): no fixture handler / client header support yet.
-    - http-custom-headers
-    - http-invalid-tool-headers
-    # SEP-2106 (JSON Schema $ref handling): client still dereferences network $refs.
-    - json-schema-ref-no-deref
-    # SEP-2468 (authorization response iss parameter): not implemented in the client.
-    - auth/iss-supported
-    - auth/iss-not-advertised
-    - auth/iss-supported-missing
-    - auth/iss-wrong-issuer
-    - auth/iss-unexpected
-    - auth/iss-normalized
-    - auth/metadata-issuer-mismatch
-    # SEP-2352 (authorization server migration): client does not re-register when
-    # PRM authorization_servers changes.
-    - auth/authorization-server-migration
-    # SEP-837 (application_type during DCR): the check only fires on draft-version
-    # runs; this draft scenario is the one place the client still hits it.
-    - auth/offline-access-not-supported
-
-    # --- Pre-existing scenarios that fail on checks added after conformance 0.1.15 ---
-    # SEP-2350 (scope step-up): WARNING-only — client does not compute the union of
-    # previously requested and newly challenged scopes on re-authorization; the
-    # expected-failures evaluator counts WARNINGs as failures.
-    - auth/scope-step-up
-    # SEP-990 (enterprise-managed authorization extension): no fixture handler /
-    # client support for the token-exchange + JWT bearer flow.
-    - auth/enterprise-managed-authorization
+    # (empty: SEP-2468/2352/2350/837/2207/990 burned by the auth bundle; the
+    # last referee-side gap — conformance#361 callback-iss — closed at alpha.6)
 
 server:
-    # --- Draft-spec scenarios (in `--suite draft`; the default `active` suite is green) ---
-    # SEP-2575 (stateless HTTP / _meta envelope): server has no stateless mode,
-    # _meta-derived capabilities, error-code mappings, or server/discover yet.
-    - server-stateless
-    # SEP-2322 (multi-round-trip requests / IncompleteResult): not implemented;
-    # most scenarios currently fail early with "Session ID required" because the
-    # fixture only runs in stateful mode.
-    - input-required-result-basic-elicitation
-    - input-required-result-basic-sampling
-    - input-required-result-basic-list-roots
-    - input-required-result-request-state
-    - input-required-result-multiple-input-requests
-    - input-required-result-multi-round
-    - input-required-result-non-tool-request
-    - input-required-result-result-type
-    - input-required-result-tampered-state
-    - input-required-result-capability-check
-    # SEP-2549 (caching): no ttlMs/cacheScope support; scenario also hits the
-    # stateful-mode "Session ID required" error.
-    - caching
-    # SEP-2243 (HTTP header standardization): -32001 HeaderMismatch handling and
-    # case-insensitive/whitespace-trimmed header validation not implemented.
-    # (Error-code cells parameterized pending conformance #336 — see header note.)
-    - http-header-validation
-    - http-custom-header-server-validation
-    # WARNING-only entries: these scenarios emit no FAILURE checks, only SHOULD-level
-    # WARNINGs, but the expected-failures evaluator counts WARNINGs as failures.
-    # SEP-2164: server returns -32002 without the requested URI in error.data.
-    - sep-2164-resource-not-found
-    # SEP-2322 SHOULD-level behaviours (re-request missing inputResponses, ignore
-    # unrecognized inputResponses keys).
-    - input-required-result-missing-input-response
-    - input-required-result-ignore-extra-params
+    # --- SEP-2663 (io.modelcontextprotocol/tasks) — server SDK does not implement the tasks extension ---
+    # Extension-tagged scenarios; selected only by `--suite all` (the alpha.7 referee
+    # has no server-side `--suite extensions`). The active/draft/2026 legs never select
+    # them, so they cannot flag these entries as stale. `tasks-status-notifications` is
+    # intentionally absent: the referee SKIPs it unconditionally (harness rewrite pending
+    # against the SEP-2575 subscriptions/listen channel), so a baseline entry would be
+    # flagged stale.
+    - tasks-lifecycle
+    - tasks-capability-negotiation
+    - tasks-wire-fields
+    - tasks-request-state-removal
+    - tasks-mrtr-input
+    - tasks-request-headers
+    - tasks-dispatch-and-envelope
+    - tasks-required-task-error
+    - tasks-mrtr-composition
