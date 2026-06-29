@@ -114,6 +114,34 @@ describe('integration', () => {
         expect(output.startsWith('#!/usr/bin/env node\n\n')).toBe(true);
     });
 
+    it('preserves a leading #! shebang and its blank line on a CRLF file', () => {
+        // Same regression as the LF case, but with Windows line endings: the blank-line group in the
+        // shebang capture must accept CRLF, or the blank line separating the shebang from the code is
+        // dropped when the trivia is restored.
+        const dir = createTempDir();
+        const input = [
+            `#!/usr/bin/env node`,
+            ``,
+            `import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';`,
+            `const server = new McpServer({ name: 'test', version: '1.0' });`,
+            ``
+        ].join('\r\n');
+
+        writeFileSync(path.join(dir, 'cli.ts'), input);
+
+        const result = run(migration, { targetDir: dir });
+
+        expect(result.filesChanged).toBe(1);
+
+        const output = readFileSync(path.join(dir, 'cli.ts'), 'utf8');
+        expect(output).toContain('@modelcontextprotocol/server');
+        // The shebang plus the blank line that followed it must survive. ts-morph normalizes the line
+        // endings of the region it rewrites to LF, so assert against normalized text — the point is that
+        // the blank line is preserved (the old capture regex dropped it on CRLF files).
+        const normalized = output.replace(/\r\n/g, '\n');
+        expect(normalized.startsWith('#!/usr/bin/env node\n\n')).toBe(true);
+    });
+
     it('dry-run mode does not modify files', () => {
         const dir = createTempDir();
         const input = [

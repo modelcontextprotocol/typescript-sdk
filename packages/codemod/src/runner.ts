@@ -147,8 +147,9 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         // A leading `#!` shebang is leading trivia of the first import; some transforms drop it when
         // they rewrite that import, silently breaking CLI packages whose `bin` points at the compiled
         // entry. Capture it now and restore it after transforms, before saving. Include any blank lines
-        // that followed it (also part of the same dropped trivia) so the original spacing round-trips.
-        const shebangMatch = originalText.match(/^#![^\n]*\n(?:[ \t]*\n)*/);
+        // that followed it (also part of the same dropped trivia) so the original spacing round-trips —
+        // the `\r?` keeps that working for CRLF files, where a blank line is `\r\n`.
+        const shebangMatch = originalText.match(/^#![^\n]*\n(?:[ \t]*\r?\n)*/);
         if (shebangMatch) {
             shebangs.set(sourceFile.getFilePath(), shebangMatch[0]);
         }
