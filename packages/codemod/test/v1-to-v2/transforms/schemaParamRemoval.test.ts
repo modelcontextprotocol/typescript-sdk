@@ -166,4 +166,113 @@ describe('schema-param-removal transform', () => {
         const result = applyTransform(input);
         expect(result).toContain('undefined');
     });
+
+    it('keeps the schema (and its import) when request() has a shorthand dynamic method', () => {
+        // The proxy/forwarder shape: schema-less v2 request() would enforce spec result
+        // schemas and resolve `undefined` for unknown methods — the schema must survive.
+        const input = [
+            `import { ResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await upstream.request({ method, params }, ResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('request({ method, params }, ResultSchema)');
+        expect(result).toMatch(/import.*ResultSchema/);
+    });
+
+    it('keeps the schema when request() has a variable method property', () => {
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await client.request({ method: m, params: {} }, CallToolResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('CallToolResultSchema)');
+    });
+
+    it('keeps the schema when the request object is not an object literal', () => {
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await relay.request(inbound, CallToolResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('relay.request(inbound, CallToolResultSchema)');
+    });
+
+    it('keeps the generic passthrough ResultSchema even for a literal spec method', () => {
+        // Dropping it would switch the call from passthrough validation to spec-schema
+        // enforcement — a silent semantic change.
+        const input = [
+            `import { ResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await client.request({ method: 'ping' }, ResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("request({ method: 'ping' }, ResultSchema)");
+    });
+
+    it('keeps an aliased passthrough ResultSchema', () => {
+        const input = [
+            `import { ResultSchema as RS } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await client.request({ method: 'tools/call' }, RS);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("request({ method: 'tools/call' }, RS)");
+    });
+
+    it('keeps the schema for a literal NON-spec method (custom methods need their schema)', () => {
+        // Schema-less v2 request() throws a TypeError for non-spec methods.
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await client.request({ method: 'acme/search', params: {} }, CallToolResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain("request({ method: 'acme/search', params: {} }, CallToolResultSchema)");
+    });
+
+    it('still removes the schema for a no-substitution template-literal method', () => {
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            'const result = await client.request({ method: `tools/call`, params: {} }, CallToolResultSchema);',
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).not.toContain('CallToolResultSchema)');
+    });
+
+    it('still removes the schema when the literal method is wrapped in `as const`', () => {
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await client.request({ method: 'tools/call' as const, params: {} }, CallToolResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).not.toContain('CallToolResultSchema)');
+    });
+
+    it('keeps the schema when a spread follows the method property', () => {
+        // `{ method: 'tools/call', ...rest }` — rest can override method at runtime.
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await client.request({ method: 'tools/call', ...rest }, CallToolResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('CallToolResultSchema)');
+    });
+
+    it('still removes the schema from callTool() with a variable params object', () => {
+        // v2 callTool() has no schema parameter — the argument goes regardless of shape.
+        const input = [
+            `import { CallToolResultSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `const result = await client.callTool(callParams, CallToolResultSchema);`,
+            ''
+        ].join('\n');
+        const result = applyTransform(input);
+        expect(result).toContain('client.callTool(callParams)');
+        expect(result).not.toContain('CallToolResultSchema');
+    });
 });
