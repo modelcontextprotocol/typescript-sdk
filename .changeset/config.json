@@ -9,8 +9,6 @@
     "updateInternalDependencies": "patch",
     "ignore": [
         "@modelcontextprotocol/examples",
-        "@modelcontextprotocol/examples-client-quickstart",
-        "@modelcontextprotocol/examples-server-quickstart",
         "@mcp-examples/*"
     ]
 }

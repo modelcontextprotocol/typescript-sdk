@@ -116,12 +116,11 @@ import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import readline from 'readline/promises';
 
-const ANTHROPIC_MODEL = 'claude-sonnet-4-5';
+const ANTHROPIC_MODEL = 'claude-sonnet-4-6';
 
 class MCPClient {
   private mcp: Client;
   private _anthropic: Anthropic | null = null;
-  private transport: StdioClientTransport | null = null;
   private tools: Anthropic.Tool[] = [];
 
   constructor() {
@@ -153,8 +152,8 @@ Next, we'll implement the method to connect to an MCP server:
         : process.execPath;
 
       // Initialize transport and connect to server
-      this.transport = new StdioClientTransport({ command, args: [serverScriptPath] });
-      await this.mcp.connect(this.transport);
+      const transport = new StdioClientTransport({ command, args: [serverScriptPath] });
+      await this.mcp.connect(transport);
 
       // List available tools
       const toolsResult = await this.mcp.listTools();
@@ -185,29 +184,40 @@ Now let's add the core functionality for processing queries and handling tool ca
     ];
 
     // Initial Claude API call
-    const response = await this.anthropic.messages.create({
+    let response = await this.anthropic.messages.create({
       model: ANTHROPIC_MODEL,
       max_tokens: 1000,
       messages,
       tools: this.tools,
     });
 
-    // Process response and handle tool calls
+    // Process responses, executing tool calls until Claude stops requesting them
     const finalText = [];
 
-    for (const content of response.content) {
-      if (content.type === 'text') {
-        finalText.push(content.text);
-      } else if (content.type === 'tool_use') {
-        // Execute tool call
-        const toolName = content.name;
-        const toolArgs = content.input as Record<string, unknown> | undefined;
+    while (true) {
+      const toolUses: Anthropic.ToolUseBlock[] = [];
+      for (const content of response.content) {
+        if (content.type === 'text') {
+          finalText.push(content.text);
+        } else if (content.type === 'tool_use') {
+          toolUses.push(content);
+        }
+      }
+
+      if (toolUses.length === 0) {
+        break;
+      }
+
+      // Execute every requested tool call and collect the results
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const toolUse of toolUses) {
+        const toolArgs = toolUse.input as Record<string, unknown>;
         const result = await this.mcp.callTool({
-          name: toolName,
+          name: toolUse.name,
           arguments: toolArgs,
         });
 
-        finalText.push(`[Calling tool ${toolName} with args ${JSON.stringify(toolArgs)}]`);
+        finalText.push(`[Calling tool ${toolUse.name} with args ${JSON.stringify(toolArgs)}]`);
 
         // Extract text from tool result content blocks
         const toolResultText = result.content
@@ -215,30 +225,33 @@ Now let's add the core functionality for processing queries and handling tool ca
           .map((block) => block.text)
           .join('\n');
 
-        // Continue conversation with tool results
-        messages.push({
-          role: 'assistant',
-          content: response.content,
+        toolResults.push({
+          type: 'tool_result',
+          tool_use_id: toolUse.id,
+          content: toolResultText,
+          // Tell Claude when the tool call failed
+          ...(result.isError ? { is_error: true } : {}),
         });
-        messages.push({
-          role: 'user',
-          content: [{
-            type: 'tool_result',
-            tool_use_id: content.id,
-            content: toolResultText,
-          }],
-        });
-
-        // Get next response from Claude
-        const followUp = await this.anthropic.messages.create({
-          model: ANTHROPIC_MODEL,
-          max_tokens: 1000,
-          messages,
-        });
-
-        const firstBlock = followUp.content[0];
-        finalText.push(firstBlock?.type === 'text' ? firstBlock.text : '');
       }
+
+      // Continue the conversation: the assistant turn, then ALL tool
+      // results together in a single user turn
+      messages.push({
+        role: 'assistant',
+        content: response.content,
+      });
+      messages.push({
+        role: 'user',
+        content: toolResults,
+      });
+
+      // Get next response from Claude
+      response = await this.anthropic.messages.create({
+        model: ANTHROPIC_MODEL,
+        max_tokens: 1000,
+        messages,
+        tools: this.tools,
+      });
     }
 
     return finalText.join('\n');
@@ -364,13 +377,16 @@ When you submit a query:
 5. Claude provides a natural language response
 6. The response is displayed to you
 
+> [!NOTE]
+> By default, the client uses the legacy 2025-era `initialize` handshake, so it works with any 2025-era server, including the weather server from the server quickstart. To opt into the 2026-07-28 draft revision, see [Protocol version negotiation](./client.md#protocol-version-negotiation-2026-07-28-revision).
+
 ## Troubleshooting
 
 ### Server Path Issues
 
 - Double-check the path to your server script is correct
 - Use the absolute path if the relative path isn't working
-- For Windows users, make sure to use forward slashes (`/`) or escaped backslashes (`\\`) in the path
+- On Windows, both backslashes (`\`) and forward slashes (`/`) work as path separators
 - Verify the server file has the correct extension (`.js` for Node.js or `.py` for Python)
 
 Example of correct path usage:
@@ -411,7 +427,7 @@ node build/index.js C:/projects/mcp-server/build/index.js
 If you see:
 
 - `Error: Cannot find module`: Check your build folder and ensure TypeScript compilation succeeded
-- `Connection refused`: Ensure the server is running and the path is correct
+- `Error: spawn ... ENOENT` or an immediate exit: check the server script path and that `node` / `python3` can run it (the client spawns the server, so don't start it yourself)
 - `Tool execution failed`: Verify the tool's required environment variables are set
 - `ANTHROPIC_API_KEY is not set`: Check your environment variables (e.g., `export ANTHROPIC_API_KEY=...`)
 - `TypeError`: Ensure you're using the correct types for tool arguments
