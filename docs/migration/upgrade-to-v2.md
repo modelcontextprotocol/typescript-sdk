@@ -147,11 +147,12 @@ whichever package you already depend on. `@modelcontextprotocol/core-internal` i
 `@modelcontextprotocol/core` is the public Zod-schema package (raw `*Schema` constants
 only); see [Zod `*Schema` constants moved to `@modelcontextprotocol/core`](#zod-schema-constants-moved-to-modelcontextprotocolcore) below.
 
-After the codemod runs, verify `@modelcontextprotocol/sdk` is gone from `package.json`:
-the dependency swap only updates the manifest found at the **target directory** (another
-reason to run at the package root, not `./src`), and workspace-member manifests in a
-monorepo are not visited — remove the v1 dependency from those by hand once nothing
-imports it.
+After the codemod runs, verify the dependencies in `package.json`: the swap rewrites
+the **nearest** manifest found walking up from the target directory — one manifest
+total, so workspace-member manifests in a monorepo are not visited (remove the v1
+dependency from those by hand once nothing imports it). On already-migrated sources
+the codemod still removes the v1 dependency but may not add the v2 packages you need
+— check both directions.
 
 The framework adapter packages declare their framework as a **peer dependency**
 (`express`, `hono`, `fastify`); v1 shipped them as direct deps. The codemod adds the
@@ -1001,13 +1002,16 @@ rewrite required unless noted.
   Once the frame is on the wire, aborting still sends `notifications/cancelled` before
   rejecting.
 - **Protocol-version pinning is a first-class option.**
-  `ProtocolOptions.supportedProtocolVersions` controls which versions the legacy
-  `initialize` handshake offers (the highest pre-2026 entry), which counter-offers are
-  accepted, and which revisions `versionNegotiation` may select
-  (see [support-2026-07-28.md](./support-2026-07-28.md#client-side-versionnegotiation)). v1 had no
-  public equivalent (`SUPPORTED_PROTOCOL_VERSIONS` was a fixed constant) — replace any
-  workaround that patched the offered version with this option. A list with no
-  pre-2026-07-28 entry makes the legacy handshake throw.
+  `ProtocolOptions.supportedProtocolVersions` pins the legacy `initialize` handshake:
+  the **first** pre-2026 entry in the list is offered (list order is preference order),
+  a counter-offer is accepted only if it is one of the list's pre-2026 entries, and a
+  list with no pre-2026 entry makes the handshake throw. Under
+  `versionNegotiation: 'auto'` the modern probe candidates are the list's modern
+  entries when it has any (otherwise the SDK's default modern set); a `{ pin }` is
+  honored as given and is not checked against the list (see
+  [support-2026-07-28.md](./support-2026-07-28.md#client-side-versionnegotiation)).
+  v1 had no public equivalent (`SUPPORTED_PROTOCOL_VERSIONS` was a fixed constant) —
+  replace any workaround that patched the offered version with this option.
 
 #### stdio transport
 
