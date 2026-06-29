@@ -62,7 +62,7 @@ import {
 } from '@modelcontextprotocol/core-internal';
 import { DefaultJsonSchemaValidator } from '@modelcontextprotocol/server/_shims';
 
-import { coerceEmbeddedInputRequest, LegacyInputRequiredShim } from './legacyInputRequiredShim';
+import { coerceEmbeddedInputRequest, LegacyInputRequiredShim, resolveLegacyShimOptions } from './legacyInputRequiredShim';
 
 /**
  * The request methods whose 2026-07-28 result vocabulary includes
@@ -70,20 +70,6 @@ import { coerceEmbeddedInputRequest, LegacyInputRequiredShim } from './legacyInp
  * input-required result from any other handler is a server bug.
  */
 const INPUT_REQUIRED_CAPABLE_METHODS: ReadonlySet<string> = new Set(['tools/call', 'prompts/get', 'resources/read']);
-
-/**
- * Default round cap for the legacy `input_required` shim (handler re-entries
- * per originating request). Deliberately tighter than the modern client
- * driver's default of 10: the shim holds a live wire request open per flow.
- */
-const DEFAULT_LEGACY_SHIM_MAX_ROUNDS = 8;
-
-/**
- * Default per-leg timeout for the embedded server→client requests the legacy
- * shim sends, paired with `resetTimeoutOnProgress: true`. The 60s protocol
- * default is wrong for human-in-the-loop legs (form fills, sign-ins).
- */
-const DEFAULT_LEGACY_SHIM_ROUND_TIMEOUT_MS = 600_000;
 
 export type ServerOptions = ProtocolOptions & {
     /**
@@ -321,8 +307,8 @@ export class Server extends Protocol<ServerContext> {
             // authoritative, and elicitation accepted content passes through
             // UNVALIDATED for parity with the modern client driver.
             sendElicitation: (params, options) => this._sendElicitationLeg(params, options, { validateAcceptedContent: false }),
-            sendSampling: (params, options) => this._sendSamplingLeg(params, options),
-            listRoots: (params, options) => this.request({ method: 'roots/list', params }, options)
+            sendSampling: (params, options) => this.createMessage(params, options),
+            listRoots: (params, options) => this.listRoots(params, options)
         }));
     }
 
@@ -344,25 +330,7 @@ export class Server extends Protocol<ServerContext> {
         this._jsonSchemaValidator = options?.jsonSchemaValidator ?? new DefaultJsonSchemaValidator();
         this._requestStateVerify = options?.requestState?.verify;
 
-        // Configured multi-round-trip knobs fail loudly at construction time.
-        const inputRequiredOptions = options?.inputRequired;
-        if (
-            inputRequiredOptions?.maxRounds !== undefined &&
-            (!Number.isInteger(inputRequiredOptions.maxRounds) || inputRequiredOptions.maxRounds < 1)
-        ) {
-            throw new RangeError(`inputRequired.maxRounds must be a positive integer (got ${inputRequiredOptions.maxRounds})`);
-        }
-        if (
-            inputRequiredOptions?.roundTimeoutMs !== undefined &&
-            (!Number.isFinite(inputRequiredOptions.roundTimeoutMs) || inputRequiredOptions.roundTimeoutMs <= 0)
-        ) {
-            throw new RangeError(`inputRequired.roundTimeoutMs must be a positive number (got ${inputRequiredOptions.roundTimeoutMs})`);
-        }
-        this._inputRequiredServing = {
-            maxRounds: inputRequiredOptions?.maxRounds ?? DEFAULT_LEGACY_SHIM_MAX_ROUNDS,
-            roundTimeoutMs: inputRequiredOptions?.roundTimeoutMs ?? DEFAULT_LEGACY_SHIM_ROUND_TIMEOUT_MS,
-            legacyShim: inputRequiredOptions?.legacyShim ?? true
-        };
+        this._inputRequiredServing = resolveLegacyShimOptions(options?.inputRequired);
 
         // Configured cache hints fail loudly at construction time (before any
         // handler registration consults them).
@@ -1116,20 +1084,6 @@ export class Server extends Protocol<ServerContext> {
             throw new SdkError(SdkErrorCode.CapabilityNotSupported, 'Client does not support sampling tools capability.');
         }
 
-        return this._sendSamplingLeg(params, options);
-    }
-
-    /**
-     * The capability-check-free core of {@linkcode createMessage}: message
-     * structure validation, the wire request, and result-variant validation.
-     * Shared by the public push API (which applies its era and capability
-     * checks first) and the legacy `input_required` shim (whose own
-     * capability gate has already run).
-     */
-    private async _sendSamplingLeg(
-        params: CreateMessageRequest['params'],
-        options?: RequestOptions
-    ): Promise<CreateMessageResult | CreateMessageResultWithTools> {
         // Message structure validation - always validate tool_use/tool_result pairs.
         // These may appear even without tools/toolChoice in the current request when
         // a previous sampling request returned tool_use and this is a follow-up with results.

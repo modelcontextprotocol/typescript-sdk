@@ -58,6 +58,49 @@ import {
     withRequestStateValue
 } from '@modelcontextprotocol/core-internal';
 
+/**
+ * Default round cap for the legacy `input_required` shim (handler re-entries
+ * per originating request). Deliberately tighter than the modern client
+ * driver's default of 10: the shim holds a live wire request open per flow.
+ */
+const DEFAULT_LEGACY_SHIM_MAX_ROUNDS = 8;
+
+/**
+ * Default per-leg timeout for the embedded server→client requests the legacy
+ * shim sends, paired with `resetTimeoutOnProgress: true`. The 60s protocol
+ * default is wrong for human-in-the-loop legs (form fills, sign-ins).
+ */
+const DEFAULT_LEGACY_SHIM_ROUND_TIMEOUT_MS = 600_000;
+
+/** The `ServerOptions.inputRequired` bag with defaults applied. */
+export interface ResolvedLegacyShimOptions {
+    maxRounds: number;
+    roundTimeoutMs: number;
+    legacyShim: boolean;
+}
+
+/**
+ * Resolves and validates `ServerOptions.inputRequired` (fail-loud at
+ * construction time, like the sibling cacheHints validation) — the shim
+ * module owns its knobs the same way the client driver owns
+ * `resolveInputRequiredDriverConfig`.
+ */
+export function resolveLegacyShimOptions(
+    options: { maxRounds?: number; roundTimeoutMs?: number; legacyShim?: boolean } | undefined
+): ResolvedLegacyShimOptions {
+    if (options?.maxRounds !== undefined && (!Number.isInteger(options.maxRounds) || options.maxRounds < 1)) {
+        throw new RangeError(`inputRequired.maxRounds must be a positive integer (got ${options.maxRounds})`);
+    }
+    if (options?.roundTimeoutMs !== undefined && (!Number.isFinite(options.roundTimeoutMs) || options.roundTimeoutMs <= 0)) {
+        throw new RangeError(`inputRequired.roundTimeoutMs must be a positive number (got ${options.roundTimeoutMs})`);
+    }
+    return {
+        maxRounds: options?.maxRounds ?? DEFAULT_LEGACY_SHIM_MAX_ROUNDS,
+        roundTimeoutMs: options?.roundTimeoutMs ?? DEFAULT_LEGACY_SHIM_ROUND_TIMEOUT_MS,
+        legacyShim: options?.legacyShim ?? true
+    };
+}
+
 /** The embedded input-request kinds the 2026-07-28 revision defines. */
 export type EmbeddedInputRequestMethod = 'elicitation/create' | 'sampling/createMessage' | 'roots/list';
 
