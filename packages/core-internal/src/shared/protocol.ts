@@ -313,6 +313,22 @@ export function requestStateAccessor(value: unknown): RequestStateAccessor {
 const NO_REQUEST_STATE = requestStateAccessor(undefined);
 
 /**
+ * Returns a context whose `requestState` accessor reads the given value —
+ * how the server seam hands a verify hook's decoded payload (or the legacy
+ * shim's per-round echo) to the handler without mutating the original
+ * context.
+ */
+export function withRequestStateValue<ContextT extends BaseContext>(ctx: ContextT, value: unknown): ContextT {
+    return {
+        ...ctx,
+        mcpReq: {
+            ...ctx.mcpReq,
+            requestState: requestStateAccessor(value)
+        }
+    };
+}
+
+/**
  * Base context provided to all request handlers.
  */
 export type BaseContext = {
