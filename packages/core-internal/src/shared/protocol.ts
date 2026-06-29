@@ -284,6 +284,43 @@ function codecResultValidator(codec: WireCodec, method: string): StandardSchemaV
 }
 
 /**
+ * The type of `ctx.mcpReq.requestState`. The type parameter is
+ * caller-asserted (no validation, like the two-argument `acceptedContent<T>`)
+ * — pair with `createRequestStateCodec<T>` so the claim is backed by the
+ * codec's verification.
+ */
+export type RequestStateAccessor = <T = unknown>() => T | undefined;
+
+/**
+ * Builds the `ctx.mcpReq.requestState` accessor for a resolved value. The
+ * `as T` below is the one place {@linkcode RequestStateAccessor}'s
+ * caller-asserted typing is implemented — no implementation can produce an
+ * arbitrary `T` from a runtime value honestly.
+ */
+export function requestStateAccessor(value: unknown): RequestStateAccessor {
+    return <T>(): T | undefined => value as T | undefined;
+}
+
+/** Shared no-state accessor: the common case allocates nothing per request. */
+const NO_REQUEST_STATE = requestStateAccessor(undefined);
+
+/**
+ * Returns a context whose `requestState` accessor reads the given value —
+ * how the server seam hands a verify hook's decoded payload (or the legacy
+ * shim's per-round echo) to the handler without mutating the original
+ * context.
+ */
+export function withRequestStateValue<ContextT extends BaseContext>(ctx: ContextT, value: unknown): ContextT {
+    return {
+        ...ctx,
+        mcpReq: {
+            ...ctx.mcpReq,
+            requestState: requestStateAccessor(value)
+        }
+    };
+}
+
+/**
  * Base context provided to all request handlers.
  */
 export type BaseContext = {
@@ -346,19 +383,22 @@ export type BaseContext = {
         droppedInputResponseKeys?: string[];
 
         /**
-         * Multi-round-trip request state echoed by a retried request
-         * (protocol revision 2026-07-28), lifted out of the params the
-         * handler sees. Driver material — present verbatim when sent.
+         * Reads the multi-round-trip request state for the current round:
+         * the value the configured `ServerOptions.requestState.verify` hook
+         * resolved with (e.g. `createRequestStateCodec.verify`'s decoded
+         * payload — `mint<T>`/`requestState<T>()` are the typed pair), the
+         * raw wire string when no hook is configured, or `undefined` when
+         * the round carried no state. The type parameter is a compile-time
+         * cast only.
          *
-         * SECURITY: `requestState` round-trips through the client and MUST be
-         * treated as attacker-controlled input. The SDK applies no integrity
-         * protection: if this value influences authorization, resource
-         * access, or business logic, the server MUST integrity-protect it
-         * (e.g. HMAC or AEAD) when minting it and MUST verify it here,
-         * rejecting state that fails verification (spec:
+         * SECURITY: `requestState` round-trips through the client and MUST
+         * be treated as attacker-controlled input. The SDK applies no
+         * integrity protection by default — servers whose state influences
+         * authorization or business logic MUST integrity-protect it and
+         * verify via the `requestState.verify` hook (spec:
          * basic/patterns/mrtr, server requirements 4–5).
          */
-        requestState?: string;
+        requestState: RequestStateAccessor;
 
         /**
          * An abort signal used to communicate if the request was cancelled from the sender's side.
@@ -1020,7 +1060,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     partitionedInputResponses.droppedKeys.length > 0 && {
                         droppedInputResponseKeys: partitionedInputResponses.droppedKeys
                     }),
-                ...(lifted.requestState !== undefined && { requestState: lifted.requestState }),
+                // The accessor surfaces the raw lifted value (captured as the
+                // string primitive so the lift record stays collectable); the
+                // server seam swaps in the verify hook's decoded payload
+                // before the handler runs.
+                requestState: lifted.requestState === undefined ? NO_REQUEST_STATE : requestStateAccessor(lifted.requestState),
                 signal: abortController.signal,
                 // BaseContext.mcpReq.send is declared with two overloads (spec-method-keyed and explicit-schema). Arrow
                 // literals can't carry overload signatures, so the inferred single-signature type isn't assignable to

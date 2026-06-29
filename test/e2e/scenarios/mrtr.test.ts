@@ -480,6 +480,43 @@ verifies('roots:mrtr:list:empty', async ({ transport }: TestArgs) => {
     expect(result.structuredContent).toEqual({ count: 0 });
 });
 
+verifies('typescript:mrtr:legacy-shim:write-once-on-2025', async ({ transport }: TestArgs) => {
+    const makeServer = () => {
+        const server = new McpServer({ name: 'shim-server', version: '1.0.0' }, { capabilities: { tools: {} } });
+        // The SAME write-once shape as the 2026 cell — no era branch: the
+        // legacy shim converts the embedded request into a real
+        // elicitation/create over the session and re-enters the handler.
+        server.registerTool('deploy', { inputSchema: z.object({ env: z.string() }) }, async ({ env }, ctx) => {
+            const confirmed = acceptedContent<{ confirm: boolean }>(ctx.mcpReq.inputResponses, 'confirm');
+            if (!confirmed?.confirm) {
+                return inputRequired({
+                    inputRequests: { confirm: inputRequired.elicit({ message: `Deploy to ${env}?`, requestedSchema: CONFIRM_SCHEMA }) },
+                    requestState: 'shim-opaque-state'
+                });
+            }
+            return { content: [{ type: 'text', text: `deployed to ${env} (state ${ctx.mcpReq.requestState<string>()})` }] };
+        });
+        return server;
+    };
+
+    const client = new Client({ name: 'shim-client', version: '1.0.0' }, { capabilities: { elicitation: { form: {} } } });
+    const elicitations: Array<Record<string, unknown>> = [];
+    client.setRequestHandler('elicitation/create', async request => {
+        elicitations.push(request.params as Record<string, unknown>);
+        return { action: 'accept', content: { confirm: true } };
+    });
+
+    await using _ = await wire(transport, makeServer, client);
+
+    const result = await client.callTool({ name: 'deploy', arguments: { env: 'prod' } });
+    expect(result.isError).toBeUndefined();
+    expect((result.content as Array<{ text: string }>)[0]!.text).toBe('deployed to prod (state shim-opaque-state)');
+
+    // A REAL elicitation/create reached the client's registered handler.
+    expect(elicitations).toHaveLength(1);
+    expect(elicitations[0]).toMatchObject({ mode: 'form', message: 'Deploy to prod?' });
+});
+
 verifies('typescript:mrtr:legacy-32042-freeze', async ({ transport }: TestArgs) => {
     const URL_PARAMS = {
         mode: 'url' as const,

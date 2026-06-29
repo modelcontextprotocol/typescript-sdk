@@ -24,6 +24,7 @@ import type {
 } from './inputRequiredDriver';
 import { runInputRequiredDriver } from './inputRequiredDriver';
 import type { BaseContext, NonCompleteResultFlow, RequestOptions } from './protocol';
+import { requestStateAccessor } from './protocol';
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
     return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -88,6 +89,8 @@ export function synthesizeInputRequestContext(
             id: key,
             method,
             _meta: params?.['_meta'] as RequestMeta | undefined,
+            // Embedded input requests never carry multi-round-trip state.
+            requestState: requestStateAccessor(undefined),
             signal,
             send: (() => relatedMessagingUnavailable('send')) as BaseContext['mcpReq']['send'],
             notify: () => relatedMessagingUnavailable('notify')

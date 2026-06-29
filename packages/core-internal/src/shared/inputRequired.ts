@@ -6,11 +6,12 @@
  * `prompts/get`, `resources/read`) requests additional client input by
  * returning an {@linkcode InputRequiredResult} instead of a final result. The
  * helpers here build that return value and its embedded requests as NEUTRAL
- * values; only the 2026-07-28 wire codec maps them to/from the wire (the
+ * values; only the 2026-07-28 wire codec maps them to/from the wire. The
  * 2025-era codec has no input-required vocabulary — on a 2025-era request the
- * server seam fails such a return loudly; a handler that serves both eras
- * branches on the served era and uses the push-style APIs toward 2025-era
- * requests).
+ * server's legacy shim (on by default) fulfils the embedded requests as real
+ * server→client requests and re-enters the handler, so the same return shape
+ * serves both eras; `ServerOptions.inputRequired.legacyShim: false` restores
+ * the pre-shim loud failure.
  *
  * There is no nominal brand: `resultType: 'input_required'` is the
  * discriminator, and hand-built result literals are equally legal — the
@@ -19,13 +20,15 @@
 import { isInputRequiredResult } from '../types/guards';
 import type {
     CreateMessageRequestParams,
+    CreateMessageResult,
+    CreateMessageResultWithTools,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
-    ElicitResult,
     InputRequest,
     InputRequests,
     InputRequiredResult,
-    InputResponses
+    InputResponses,
+    Root
 } from '../types/types';
 import type { StandardSchemaV1 } from '../util/standardSchema';
 
@@ -144,14 +147,87 @@ export const inputRequired: InputRequiredBuilder = Object.assign(buildInputRequi
 export function acceptedContent<T extends Record<string, unknown> = Record<string, unknown>>(
     responses: InputResponses | Record<string, unknown> | undefined,
     key: string
-): T | undefined {
-    if (responses === undefined || typeof responses !== 'object' || responses === null) return undefined;
+): T | undefined;
+
+/**
+ * Schema-aware overload: validates the accepted content against the given
+ * schema (any Standard Schema, e.g. a zod object) before returning it, so the
+ * untrusted client value arrives in the handler already validated and typed.
+ *
+ * Returns `undefined` when the response is missing/declined/of another kind
+ * (as the two-argument form does) AND when the accepted content fails schema
+ * validation — handlers treat both the same way (re-issue the request or
+ * give up). Only synchronous schemas are supported (zod schemas without async
+ * refinements are synchronous); an asynchronously-validating schema throws a
+ * `TypeError`.
+ */
+export function acceptedContent<S extends StandardSchemaV1>(
+    responses: InputResponses | Record<string, unknown> | undefined,
+    key: string,
+    schema: S
+): StandardSchemaV1.InferOutput<S> | undefined;
+
+export function acceptedContent(
+    responses: InputResponses | Record<string, unknown> | undefined,
+    key: string,
+    schema?: StandardSchemaV1
+): unknown {
+    const view = inputResponse(responses, key);
+    if (view.kind !== 'elicit' || view.action !== 'accept' || view.content === undefined) return undefined;
+    if (schema === undefined) return view.content;
+    const outcome = schema['~standard'].validate(view.content);
+    if (outcome instanceof Promise) {
+        throw new TypeError('acceptedContent(responses, key, schema) requires a synchronously-validating schema');
+    }
+    return outcome.issues === undefined ? outcome.value : undefined;
+}
+
+/**
+ * The discriminated view {@linkcode inputResponse} returns: which kind of
+ * embedded response (if any) a retried request carried for a key. Bare
+ * response objects are discriminated structurally — an `action` member means
+ * an elicitation result, a `roots` array a roots listing, a `role` + `content`
+ * pair a sampling result. A missing key or an entry that matches none of the
+ * three shapes reads as `{ kind: 'missing' }`.
+ */
+export type InputResponseView =
+    | { kind: 'missing' }
+    | { kind: 'elicit'; action: 'accept' | 'decline' | 'cancel'; content?: Record<string, unknown> }
+    | { kind: 'sampling'; result: CreateMessageResult | CreateMessageResultWithTools }
+    | { kind: 'roots'; roots: Root[] };
+
+/**
+ * Reads one entry of a retried request's `inputResponses`
+ * (`ctx.mcpReq.inputResponses`) as a discriminated view, covering
+ * decline/cancel detection and the non-elicitation response kinds that
+ * {@linkcode acceptedContent} does not surface.
+ *
+ * The values arrive from the client and are not re-validated here — treat
+ * them as untrusted input (validate elicitation content with the
+ * schema-aware {@linkcode acceptedContent} overload where it matters).
+ */
+export function inputResponse(responses: InputResponses | Record<string, unknown> | undefined, key: string): InputResponseView {
+    if (responses === undefined || typeof responses !== 'object' || responses === null) return { kind: 'missing' };
     const entry = (responses as Record<string, unknown>)[key];
-    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return undefined;
-    const candidate = entry as Partial<ElicitResult> & Record<string, unknown>;
-    if (candidate.action !== 'accept') return undefined;
-    if (candidate.content === undefined || typeof candidate.content !== 'object' || candidate.content === null) return undefined;
-    return candidate.content as T;
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return { kind: 'missing' };
+    const candidate = entry as Record<string, unknown>;
+    if (candidate['action'] === 'accept' || candidate['action'] === 'decline' || candidate['action'] === 'cancel') {
+        const content = candidate['content'];
+        return {
+            kind: 'elicit',
+            action: candidate['action'],
+            ...(content !== null &&
+                typeof content === 'object' &&
+                !Array.isArray(content) && { content: content as Record<string, unknown> })
+        };
+    }
+    if (Array.isArray(candidate['roots'])) {
+        return { kind: 'roots', roots: candidate['roots'] as Root[] };
+    }
+    if (typeof candidate['role'] === 'string' && candidate['content'] !== undefined) {
+        return { kind: 'sampling', result: candidate as unknown as CreateMessageResult | CreateMessageResultWithTools };
+    }
+    return { kind: 'missing' };
 }
 
 /**

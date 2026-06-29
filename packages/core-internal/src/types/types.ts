@@ -636,8 +636,10 @@ export interface InputResponses {
  * authorization, resource access, or business logic, the server MUST protect
  * its integrity (e.g. HMAC or AEAD) and MUST reject state that fails
  * verification (spec: basic/patterns/mrtr §Server Requirements). The SDK
- * surfaces it raw at `ctx.mcpReq.requestState` and applies no integrity
- * protection of its own.
+ * applies no integrity protection by default — without a configured
+ * `ServerOptions.requestState.verify` hook, `ctx.mcpReq.requestState()`
+ * returns the raw, unverified string; with one, the seam rejects state the
+ * hook refuses and the accessor returns the hook's decoded payload.
  */
 export interface InputRequiredResult extends Result {
     resultType: 'input_required';

@@ -277,6 +277,19 @@ function registerPrompt_completion(server: McpServer) {
 }
 
 // ---------------------------------------------------------------------------
+// Extension capabilities
+// ---------------------------------------------------------------------------
+
+/** Example: Declare an extension capability with its settings. */
+function extensionCapabilities_register(server: McpServer) {
+    //#region extensionCapabilities_register
+    server.server.registerCapabilities({
+        extensions: { 'com.example/feature-flags': { flags: ['dark-mode', 'beta-search'] } }
+    });
+    //#endregion extensionCapabilities_register
+}
+
+// ---------------------------------------------------------------------------
 // Logging
 // ---------------------------------------------------------------------------
 
@@ -599,6 +612,7 @@ void registerResource_static;
 void registerResource_template;
 void registerPrompt_basic;
 void registerPrompt_completion;
+void extensionCapabilities_register;
 void streamableHttp_stateful;
 void streamableHttp_stateless;
 void streamableHttp_jsonResponse;

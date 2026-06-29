@@ -271,8 +271,15 @@ describe('guards', () => {
         await close();
     });
 
-    it('a 2025-era request never sees an input_required result: the server fails loudly instead (server-bug guard)', async () => {
-        const server = new McpServer({ name: 's', version: '1.0.0' }, { capabilities: { tools: {} } });
+    // The default posture on 2025-era requests is the legacy shim (fulfil the
+    // embedded requests over the live session — see legacyInputRequiredShim.test.ts);
+    // the pre-shim loud failure remains reachable via the escape hatch and is
+    // pinned here.
+    it('with inputRequired.legacyShim: false, a 2025-era request never sees an input_required result: the server fails loudly instead', async () => {
+        const server = new McpServer(
+            { name: 's', version: '1.0.0' },
+            { capabilities: { tools: {} }, inputRequired: { legacyShim: false } }
+        );
         server.registerTool('deploy', { inputSchema: z.object({}) }, async () => inputRequired({ requestState: 'state' }));
         const { request, close } = await wire(server);
 
@@ -413,11 +420,33 @@ describe('requestState.verify hook', () => {
         await close();
     });
 
+    it('the hook’s resolved value (the decoded payload) backs the typed ctx.mcpReq.requestState<T>() accessor', async () => {
+        const server = new McpServer(
+            { name: 's', version: '1.0.0' },
+            {
+                capabilities: { tools: {} },
+                requestState: { verify: state => ({ decodedFrom: state }) }
+            }
+        );
+        let seen: { decodedFrom: string } | undefined;
+        server.registerTool('deploy', { inputSchema: z.object({}) }, async (_args, ctx) => {
+            seen = ctx.mcpReq.requestState<{ decodedFrom: string }>();
+            return { content: [{ type: 'text', text: 'ok' }] };
+        });
+        const { request, close } = await wire(server, { era: 'modern' });
+
+        const answer = resultOf(await request(reentry(1, 'sealed')));
+        expect(seen).toEqual({ decodedFrom: 'sealed' });
+        expect(answer.content).toEqual([{ type: 'text', text: 'ok' }]);
+
+        await close();
+    });
+
     it('not configured → today’s behavior (raw passthrough; the handler reads the state itself)', async () => {
         const server = new McpServer({ name: 's', version: '1.0.0' }, { capabilities: { tools: {} } });
         let seen: string | undefined;
         server.registerTool('deploy', { inputSchema: z.object({}) }, async (_args, ctx) => {
-            seen = ctx.mcpReq.requestState;
+            seen = ctx.mcpReq.requestState<string>();
             return { content: [{ type: 'text', text: 'ok' }] };
         });
         const { request, close } = await wire(server, { era: 'modern' });

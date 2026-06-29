@@ -154,7 +154,7 @@ describe('inbound retry material (T1/D-059)', () => {
         const mcpReq = seen[0]!;
         expect(mcpReq.inputResponses).toEqual({ bare: { action: 'accept', content: { ok: true } } });
         expect(mcpReq.droppedInputResponseKeys?.sort()).toEqual(['not-an-object', 'wrapped']);
-        expect(mcpReq.requestState).toBe('echoed-back');
+        expect(mcpReq.requestState()).toBe('echoed-back');
         // The handler-visible params never carry the lifted retry material.
         await receiver.close();
         await clientTx.close();

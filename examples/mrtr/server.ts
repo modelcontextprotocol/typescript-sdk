@@ -6,8 +6,9 @@
  * server→client request: a form-mode elicitation for confirmation, then a
  * URL-mode elicitation for sign-in via `inputRequired.elicitUrl(...)`. The
  * step the tool is waiting for is carried in `requestState`, which the SDK
- * round-trips opaquely (echoed byte-exact by the client; the server reads it
- * raw at `ctx.mcpReq.requestState`).
+ * round-trips opaquely (echoed byte-exact by the client; the handler reads
+ * the verified payload back via the typed `ctx.mcpReq.requestState<T>()`
+ * accessor).
  *
  * `requestState` round-trips through the client and is therefore
  * attacker-controlled input on re-entry. A real server MUST integrity-protect
@@ -60,9 +61,9 @@ function buildServer(): McpServer {
             // The handler reads the SAME context fields on every entry; what
             // changes between rounds is which input responses have arrived and
             // what (verified) `requestState` was echoed back. The seam-level
-            // verify hook has already proven integrity by the time the handler
-            // runs; calling `verify` again here just yields the payload.
-            const state = ctx.mcpReq.requestState === undefined ? undefined : await stateCodec.verify(ctx.mcpReq.requestState, ctx);
+            // verify hook has already proven integrity AND decoded the payload
+            // by the time the handler runs — the typed accessor returns it.
+            const state = ctx.mcpReq.requestState<DeployState>();
             const step = state?.step ?? 'confirm';
             console.error(`[server] tools/call deploy(${env}) step=${step}`);
 

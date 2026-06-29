@@ -51,6 +51,7 @@ export type {
     ProtocolOptions,
     RequestHandlerSchemas,
     RequestOptions,
+    RequestStateAccessor,
     ServerContext
 } from '../../shared/protocol';
 export { DEFAULT_REQUEST_TIMEOUT_MSEC } from '../../shared/protocol';

@@ -166,6 +166,20 @@ const systemPrompt = ['You are a helpful assistant.', instructions].filter(Boole
 console.log(systemPrompt);
 ```
 
+### Extension capabilities
+
+The negotiated server capabilities include `extensions` — a map from extension identifier to that extension's settings object. Read it after connecting via {@linkcode @modelcontextprotocol/client!client/client.Client#getServerCapabilities | client.getServerCapabilities()}:
+
+```ts source="../examples/guides/clientGuide.examples.ts#extensionCapabilities_read"
+const extensions = client.getServerCapabilities()?.extensions ?? {};
+
+if ('com.example/feature-flags' in extensions) {
+    // Advertised on this connection; the entry's value is its settings object.
+}
+```
+
+See [Extension capabilities](./server.md#extension-capabilities) in the server guide for the declaring side.
+
 ## Authentication
 
 MCP servers can require authentication before accepting client connections (see [Authorization](https://modelcontextprotocol.io/specification/latest/basic/authorization) in the MCP specification). Pass an {@linkcode @modelcontextprotocol/client!client/auth.AuthProvider |
