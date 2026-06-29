@@ -23,7 +23,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import { createServer } from 'node:http';
 
 import { parseExampleArgs } from '@mcp-examples/shared';
-import { NodeStreamableHTTPServerTransport, toNodeHandler } from '@modelcontextprotocol/node';
+import { NodeStreamableHTTPServerTransport, toNodeHandler, toWebRequest } from '@modelcontextprotocol/node';
 import type {
     CallToolResult,
     ElicitRequestFormParams,
@@ -275,23 +275,15 @@ if (transport === 'stdio') {
 
     createServer((req, res) => {
         void (async () => {
-            // Read the body once for the predicate and pass it forward.
-            let body: unknown;
-            if (req.method === 'POST') {
-                const chunks: Buffer[] = [];
-                for await (const chunk of req) chunks.push(chunk as Buffer);
-                const raw = Buffer.concat(chunks).toString('utf8');
-                try {
-                    body = raw ? JSON.parse(raw) : undefined;
-                } catch {
-                    body = undefined;
-                }
-            }
-            const probe = new globalThis.Request(`http://localhost${req.url ?? '/'}`, {
-                method: req.method,
-                headers: req.headers as Record<string, string>
-            });
-            await ((await isLegacyRequest(probe, body)) ? handleLegacy(req, res, body) : modern(req, res, body));
+            // `toWebRequest` reads the Node body into a web-standard `Request`,
+            // so the body now lives in `request`, not `req`. Ask the predicate
+            // first — it classifies an internal clone, leaving `request`
+            // readable for the `.json()` both arms need (reading `.json()`
+            // first would make the predicate's internal clone throw).
+            const request = await toWebRequest(req);
+            const legacy = await isLegacyRequest(request);
+            const body: unknown = req.method === 'POST' ? await request.json().catch(() => {}) : undefined;
+            await (legacy ? handleLegacy(req, res, body) : modern(req, res, body));
         })().catch(error => {
             console.error('[server] request error:', error instanceof Error ? error.message : error);
             if (!res.headersSent) res.writeHead(500).end();
