@@ -19,8 +19,7 @@
  *
  * The Node→web `Request` conversion the adapter performs is also exported on
  * its own as {@linkcode toWebRequest}, for hand-wired compositions (for
- * example, routing on `isLegacyRequest`) that need the web-standard `Request`
- * without the rest of the adapter.
+ * example, routing on `isLegacyRequest`).
  *
  * The Node request/response shapes are duck-typed (kept structural so this
  * module stays free of `node:` imports); the conversion reads `req.auth`
@@ -189,49 +188,25 @@ function singleHeaderValue(value: string | string[] | undefined): string | undef
 
 /** Options for {@linkcode toWebRequest}. */
 export interface ToWebRequestOptions {
-    /**
-     * An `AbortSignal` to attach to the constructed `Request` as
-     * `request.signal`. {@linkcode toNodeHandler} threads the controller it
-     * wires to `res.on('close')` through here, so an in-flight `handler.fetch`
-     * (and any SSE response it streams) observes the client disconnecting;
-     * hand-wired callers that forward the converted request to a handler
-     * themselves want the same wiring.
-     */
+    /** An `AbortSignal` to attach to the constructed `Request` (`request.signal`). */
     signal?: AbortSignal;
 }
 
 /**
- * Convert a Node.js `IncomingMessage` (duck-typed — an Express `req` is one)
- * to the web-standard `Request` the `@modelcontextprotocol/server`
- * surface takes (`handler.fetch(request)`, `isLegacyRequest(request)`). This
- * is the exact conversion {@linkcode toNodeHandler} performs internally,
- * exported on its own so a hand-wired Node `(req, res)` handler never has to
- * assemble a `globalThis.Request` from `req.headers` by hand:
+ * Convert a Node.js `IncomingMessage` (duck-typed — an Express `req` works) to
+ * the web-standard `Request` that `handler.fetch()` and `isLegacyRequest()`
+ * take. This is the conversion {@linkcode toNodeHandler} performs internally,
+ * exported for hand-wired compositions:
  *
  * ```ts
- * import { toWebRequest } from '@modelcontextprotocol/node';
- * import { isLegacyRequest } from '@modelcontextprotocol/server';
- *
- * // Express: `express.json()` already consumed the stream — pass `req.body`.
- * app.post('/mcp', async (req, res) => {
- *     const probe = await toWebRequest(req, req.body);
- *     await ((await isLegacyRequest(probe)) ? legacy(req, res) : modern(req, res, req.body));
- * });
+ * const probe = await toWebRequest(req, req.body);
+ * await ((await isLegacyRequest(probe)) ? legacy(req, res) : modern(req, res, req.body));
  * ```
  *
- * The URL is derived from the `Host` header (`localhost` when absent) and
- * `req.url`; HTTP/2 pseudo-headers (`:authority`, …) are dropped, multi-valued
- * headers are appended in order, and the method is uppercased (defaulting to
- * `GET`).
- *
- * The body, for a non-`GET`/`HEAD` request: with no `parsedBody`, **the Node
- * stream is read to completion** here — read anything you still need from the
- * returned `Request` (`request.json()`, a clone), not from `req`. When a body
- * parser already consumed the stream (`express.json()`), pass the parsed value
- * as `parsedBody`: nothing is read from `req`, the value is re-serialized as
- * the `Request` body, and the entity headers (`content-length`,
- * `content-encoding`, `transfer-encoding`) are rewritten to describe the
- * re-serialized bytes rather than the original ones.
+ * With no `parsedBody` the Node stream is read to completion — read the body
+ * from the returned `Request` afterwards, not from `req`. When a body parser
+ * already consumed the stream (`express.json()`), pass the parsed value as
+ * `parsedBody` and nothing is read from `req`.
  */
 export async function toWebRequest(req: NodeIncomingMessageLike, parsedBody?: unknown, options?: ToWebRequestOptions): Promise<Request> {
     const method = (req.method ?? 'GET').toUpperCase();
