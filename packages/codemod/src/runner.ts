@@ -231,6 +231,16 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
             const sf = project.getSourceFile(filePath);
             if (sf && !sf.getFullText().startsWith('#!')) {
                 sf.insertText(0, shebang);
+                // Diagnostic lines were resolved against the post-transform, shebang-stripped text;
+                // re-inserting the shebang pushes every line down by its line count, so bump the reported
+                // lines to stay aligned with the saved file. (Comment insertion above already ran against
+                // the stripped text, so its placement is unaffected.) These Diagnostic objects are shared
+                // with the returned `diagnostics` array, so the fix reaches the CLI output and report too.
+                const lineShift = (shebang.match(/\n/g) ?? []).length;
+                const fileResult = fileResults.find(fr => fr.filePath === filePath);
+                if (fileResult) {
+                    for (const d of fileResult.diagnostics) d.line += lineShift;
+                }
             }
         }
         project.saveSync();

@@ -365,7 +365,12 @@ export function parseNpmViewVersion(jsonText: string): string {
     const parsed = JSON.parse(jsonText) as string | string[];
     if (Array.isArray(parsed)) {
         if (parsed.length === 0) throw new Error('npm view returned an empty version array');
-        return parsed.at(-1)!; // highest match for a range
+        // `npm view <pkg>@<range>` lists matches in publish order, so this is the most recently published
+        // match — not necessarily the highest semver (a backport published after a newer release sorts last).
+        // Adequate here: specs are normally an exact version or a dist-tag (both resolve to a single string
+        // above), and the SDK packages publish in forward order; not worth a semver dependency for a dev-only
+        // label. Revisit with a semver max if ranges over out-of-order publishes become common.
+        return parsed.at(-1)!;
     }
     return parsed;
 }
@@ -535,7 +540,8 @@ function main(): void {
 
     const SERVER_PKG = '@modelcontextprotocol/server';
 
-    // Resolve published versions once, up front. Any npm-view failure aborts before work begins.
+    // Resolve published versions once, up front. A codemod-version or representative-label miss aborts here;
+    // a per-package --sdk-version miss is tolerated with a warning (see the resolve loop below).
     let resolved: ResolvedConfig;
     const sdkVersions: Record<string, string> = {};
     try {
@@ -600,6 +606,10 @@ function main(): void {
     }
 
     const summaryResults: SummaryEntry[] = [];
+    // Actually-installed versions for summary.sdkVersions — seeded from the startup-resolved pins and refined
+    // per-repo from node_modules below. Kept SEPARATE from `sdkVersions` (the immutable pinning map) so a
+    // package left unpinned at startup is not retroactively pinned for later repos from an earlier install.
+    const installedVersions: Record<string, string> = { ...sdkVersions };
     let totalPackages = 0;
 
     for (let i = 0; i < manifest.length; i++) {
@@ -701,12 +711,15 @@ function main(): void {
 
             // Record the actually-installed SDK versions (best-effort) so summary.sdkVersions is truthful for
             // every mode: published-pinned, sdk-from-codemod (versions only known post-install), and local (the
-            // workspace versions packed into the tarballs the clone depends on). Done AFTER the checks because a
-            // monorepo target's deps are installed into <pkg.dir>/node_modules by the check command itself — the
-            // Step-6 reinstall runs at the clone root and, under --ignore-workspace, never touches a subdirectory
-            // package. Resolve against the package's node_modules first, then fall back to the clone root for
-            // hoisted single-package layouts; for a root package (pkg.dir = '.') the two coincide (deduped). The
-            // summary's `config` records the SDK source, so a bare version here is unambiguous.
+            // workspace versions packed into the tarballs the clone depends on). Recorded into `installedVersions`
+            // and NOT back into the startup-resolved `sdkVersions` pins: writing into the pinning map would
+            // retroactively pin a startup-unresolved package for every later repo to whatever the first repo
+            // happened to install. Done AFTER the checks because a monorepo target's deps are installed into
+            // <pkg.dir>/node_modules by the check command itself — the Step-6 reinstall runs at the clone root
+            // and, under --ignore-workspace, never touches a subdirectory package. Resolve against the package's
+            // node_modules first, then fall back to the clone root for hoisted single-package layouts; for a root
+            // package (pkg.dir = '.') the two coincide (deduped). The summary's `config` records the SDK source,
+            // so a bare version here is unambiguous.
             for (const sdkPkg of PUBLISHABLE_V2_PACKAGES) {
                 const candidates = [
                     ...new Set([
@@ -717,7 +730,7 @@ function main(): void {
                 for (const candidate of candidates) {
                     try {
                         const installed = JSON.parse(readFileSync(candidate, 'utf8')) as { version: string };
-                        sdkVersions[sdkPkg] = installed.version;
+                        installedVersions[sdkPkg] = installed.version;
                         break;
                     } catch {
                         // not installed at this location — try the next candidate
@@ -806,7 +819,7 @@ function main(): void {
             sdkVersionResolved: resolved.sdkVersionResolved,
             resultsDir: resolved.resultsDir
         },
-        sdkVersions,
+        sdkVersions: installedVersions,
         totalRepos: manifest.length,
         totalPackages,
         results: summaryResults,

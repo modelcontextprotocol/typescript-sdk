@@ -9,7 +9,7 @@ For each repo in `repos.json`, the batch test:
 1. Clones the repo (or resets an existing clone)
 2. Installs dependencies
 3. Runs baseline checks (typecheck, build, test, lint) to confirm the repo is healthy
-4. Runs the codemod using the programmatic API
+4. Runs the codemod — in-process via the programmatic API (`--codemod=local`, the default), or by shelling out to the published CLI via `npx` (`--codemod=published`)
 5. Packs local SDK packages as tarballs and rewrites `package.json` deps to use them, so the test runs against the current SDK branch — only when `--sdk=local` (the default); with `--sdk=published` the v2 deps are installed from npm instead (see [Modes](#modes))
 6. Re-installs dependencies
 7. Re-runs the same checks
@@ -51,8 +51,9 @@ pnpm --filter @modelcontextprotocol/codemod batch-test
 pnpm --filter @modelcontextprotocol/codemod batch-test -- --sdk=published --codemod=published
 ```
 
-Published specs are resolved to concrete versions via `npm view` at startup (a failure aborts the run). Each `@modelcontextprotocol/*` package is resolved **independently** — they are not released in lockstep. Results are written to a per-run directory keyed on the resolved
-versions; the SDK segment is the resolved `@modelcontextprotocol/server` version used as a representative label, while the full per-package set is recorded in `summary.json` → `sdkVersions`:
+Published specs are resolved to concrete versions via `npm view` at startup. A failure resolving the codemod version or the representative SDK label aborts the run; a per-package `--sdk-version` miss only warns and leaves that package on the codemod-written range. Each
+`@modelcontextprotocol/*` package is resolved **independently** — they are not released in lockstep. Results are written to a per-run directory keyed on the resolved versions; the SDK segment is the resolved `@modelcontextprotocol/server` version used as a representative label,
+while the full per-package set is recorded in `summary.json` → `sdkVersions`:
 
 ```
 results/codemod-local__sdk-local/                  # default (--sdk=local --codemod=local)

@@ -131,7 +131,7 @@ describe('parseNpmViewVersion', () => {
     it('uses a JSON string directly', () => {
         expect(parseNpmViewVersion('"2.0.0-alpha.2"')).toBe('2.0.0-alpha.2');
     });
-    it('takes the last (highest) entry of a JSON array', () => {
+    it('takes the last (most recently published) entry of a JSON array', () => {
         expect(parseNpmViewVersion('["2.0.0-alpha.1","2.0.0-alpha.2"]')).toBe('2.0.0-alpha.2');
     });
     it('throws on an empty array', () => {
