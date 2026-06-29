@@ -167,10 +167,10 @@ export async function completeAuthorizationWithBrowser(options: {
     // The authorization endpoint comes from server-controlled discovery metadata — never hand
     // a non-https (or non-loopback) URL to the browser, and show the user where they're going.
     if (!isSafeBrowserUrl(authorizationUrl)) {
-        ui.status(`skipping "${serverName}" — refusing to open non-https authorization URL (${authorizationUrl.origin})`);
+        ui.status(`skipping "${serverName}" — refusing to open a non-https authorization URL`);
         return false;
     }
-    ui.attention(`[authorization]\nServer "${serverName}" requires authorization at ${authorizationUrl.origin}.`);
+    ui.attention(`[authorization]\nServer "${serverName}" requires you to sign in via your browser.`);
     const approved = await ui.confirm('Open your browser to sign in?');
     if (!approved) {
         ui.status(`skipping "${serverName}" — authorization declined`);
@@ -180,11 +180,15 @@ export async function completeAuthorizationWithBrowser(options: {
     // Attach a handler immediately so a listen failure can't become an unhandled rejection
     // while the browser-open is still in flight.
     callback.catch(() => {});
-    ui.status(`opening ${authorizationUrl.toString()}`);
+    ui.status('opening your browser to sign in…');
     try {
         await openUrl(authorizationUrl.toString());
     } catch {
-        ui.print(`Could not open a browser automatically. Please open:\n${authorizationUrl.toString()}`);
+        // Show the URL through the interactive prompt rather than a log line: the flow now
+        // waits for the user instead of racing them, and the URL is displayed, not logged.
+        await ui.ask(
+            `Could not open a browser automatically. Open this URL in your browser, then press Enter\n\n  ${authorizationUrl.toString()}\n\nReady?`
+        );
     }
     let params: URLSearchParams;
     try {
