@@ -16,7 +16,6 @@ import {
     Client,
     LOG_LEVEL_META_KEY,
     ProtocolError,
-    ProtocolErrorCode,
     SdkError,
     StreamableHTTPClientTransport,
     UnauthorizedError
@@ -378,7 +377,9 @@ export class McpHost {
             );
             const approved = await this.ui.confirm('Allow?');
             if (!approved) {
-                throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'User declined the sampling request');
+                // The spec's code for a user-rejected sampling request is the application-level -1 —
+                // not a reserved JSON-RPC code; the request itself was perfectly well-formed.
+                throw new ProtocolError(-1, 'User rejected sampling request');
             }
             const stopSpinner = this.ui.spinner();
             let result: GenerateResult;

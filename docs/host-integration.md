@@ -217,7 +217,8 @@ client.setRequestHandler('sampling/createMessage', async request => {
     const params = request.params;
     const approved = await ui.confirm(`Server "${name}" wants to run an LLM request (${params.maxTokens} max tokens): "${preview(params)}". Allow?`);
     if (!approved) {
-        throw new ProtocolError(ProtocolErrorCode.InvalidRequest, 'User declined the sampling request');
+        // The spec's code for a user-rejected sampling request: application-level -1.
+        throw new ProtocolError(-1, 'User rejected sampling request');
     }
     const result = await provider.generate({
         system: params.systemPrompt,

@@ -323,7 +323,7 @@ export async function collectFormInput(ui: HostUI, schema: FormSchema): Promise<
     }
 }
 
-const BUILTIN_COMMANDS = ['/help', '/servers', '/tools', '/resources', '/prompts', '/roots', '/root add ', '/quit'];
+const BUILTIN_COMMANDS = ['/help', '/servers', '/tools', '/resources', '/prompts', '/roots', '/root add ', '/watch ', '/quit', '/exit'];
 
 /**
  * Tab completion for the interactive CLI: slash commands and prompt names complete from the
@@ -349,7 +349,7 @@ export function createCompleter(getHost: () => McpHost | undefined): (line: stri
             }
 
             // `/server:prompt arg=value …` — complete argument names, and argument values via completion/complete.
-            const promptArgs = /^\/([A-Za-z0-9_-]+):(\S+)\s+(?:.*\s)?([A-Za-z0-9_-]*)(=?)([^\s=]*)$/.exec(line);
+            const promptArgs = /^\/([^\s:]+):(\S+)\s+(?:.*\s)?([A-Za-z0-9_-]*)(=?)([^\s=]*)$/.exec(line);
             if (promptArgs) {
                 const [, serverName = '', promptName = '', argumentName = '', equals = '', partial = ''] = promptArgs;
                 const found = host.findPrompt(serverName, promptName);

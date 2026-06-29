@@ -230,7 +230,9 @@ export async function handleUserInput(session: ChatSession, input: string): Prom
     }
 
     // `/server:prompt-name key=value …` — MCP prompts become slash commands.
-    const promptCommand = trimmed.match(/^\/([A-Za-z0-9_-]+):(\S+)\s*(.*)$/);
+    // Server names come straight from config keys and may contain dots etc. — accept the
+    // same shapes mention parsing does, so the commands /prompts advertises actually run.
+    const promptCommand = trimmed.match(/^\/([^\s:]+):(\S+)\s*(.*)$/);
     if (promptCommand) {
         const serverName = promptCommand[1] ?? '';
         const promptName = promptCommand[2] ?? '';
