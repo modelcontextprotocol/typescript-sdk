@@ -284,26 +284,18 @@ function codecResultValidator(codec: WireCodec, method: string): StandardSchemaV
 }
 
 /**
- * The type of `ctx.mcpReq.requestState`: reads the multi-round-trip request
- * state resolved for the current round.
- *
- * The type parameter is **caller-asserted** — the accessor performs no
- * validation, so `requestState<T>()` is a typed read in exactly the way the
- * two-argument `acceptedContent<T>` is: the runtime value is whatever the
- * configured verify hook resolved (or the raw wire string), and `T` is the
- * caller's claim about it. Pair it with `createRequestStateCodec<T>` so the
- * claim is backed by the codec's verification.
+ * The type of `ctx.mcpReq.requestState`. The type parameter is
+ * caller-asserted (no validation, like the two-argument `acceptedContent<T>`)
+ * — pair with `createRequestStateCodec<T>` so the claim is backed by the
+ * codec's verification.
  */
 export type RequestStateAccessor = <T = unknown>() => T | undefined;
 
 /**
- * Builds the `ctx.mcpReq.requestState` accessor for a given resolved value.
- * The single `as T` below is where {@linkcode RequestStateAccessor}'s
- * caller-asserted typing is implemented — no closure over a runtime value
- * can produce an arbitrary `T` honestly, so the one deliberate cast lives
- * here and nowhere else. Used by the protocol layer (raw lifted value), the
- * server seam (verify hook's decoded payload), and the legacy shim's
- * per-round re-entry contexts.
+ * Builds the `ctx.mcpReq.requestState` accessor for a resolved value. The
+ * `as T` below is the one place {@linkcode RequestStateAccessor}'s
+ * caller-asserted typing is implemented — no implementation can produce an
+ * arbitrary `T` from a runtime value honestly.
  */
 export function requestStateAccessor(value: unknown): RequestStateAccessor {
     return <T>(): T | undefined => value as T | undefined;
@@ -391,30 +383,20 @@ export type BaseContext = {
         droppedInputResponseKeys?: string[];
 
         /**
-         * Reads the multi-round-trip request state echoed by a retried
-         * request (protocol revision 2026-07-28; on 2025-era connections the
-         * server's legacy shim echoes it in-process between rounds).
+         * Reads the multi-round-trip request state for the current round:
+         * the value the configured `ServerOptions.requestState.verify` hook
+         * resolved with (e.g. `createRequestStateCodec.verify`'s decoded
+         * payload — `mint<T>`/`requestState<T>()` are the typed pair), the
+         * raw wire string when no hook is configured, or `undefined` when
+         * the round carried no state. The type parameter is a compile-time
+         * cast only.
          *
-         * Returns `undefined` when the request carried no `requestState`.
-         * When the server configured a `ServerOptions.requestState.verify`
-         * hook and it resolved with a value (as the `verify` of the server
-         * package's `createRequestStateCodec` does — the decoded payload),
-         * that value is returned: minting with `codec.mint<T>` and reading
-         * with `requestState<T>()` is the typed pair. Otherwise the raw wire
-         * string is returned.
-         *
-         * The type parameter is a compile-time cast only — the accessor
-         * performs no validation of its own.
-         *
-         * SECURITY: `requestState` round-trips through the client and MUST be
-         * treated as attacker-controlled input. The SDK applies no integrity
-         * protection by default: if this value influences authorization,
-         * resource access, or business logic, the server MUST
-         * integrity-protect it (e.g. HMAC or AEAD) when minting it and MUST
-         * verify it via the `requestState.verify` hook, rejecting state that
-         * fails verification (spec: basic/patterns/mrtr, server requirements
-         * 4–5). Without a configured hook this accessor returns the raw,
-         * unverified string.
+         * SECURITY: `requestState` round-trips through the client and MUST
+         * be treated as attacker-controlled input. The SDK applies no
+         * integrity protection by default — servers whose state influences
+         * authorization or business logic MUST integrity-protect it and
+         * verify via the `requestState.verify` hook (spec:
+         * basic/patterns/mrtr, server requirements 4–5).
          */
         requestState: RequestStateAccessor;
 

@@ -120,45 +120,30 @@ export type ServerOptions = ProtocolOptions & {
     cacheHints?: Partial<Record<CacheableResultMethod, CacheHint>>;
 
     /**
-     * Multi-round-trip serving knobs (`input_required` results from
-     * `tools/call` / `prompts/get` / `resources/read` handlers).
-     *
-     * On 2026-07-28-era requests the client fulfils the embedded requests and
-     * retries. On 2025-era connections the SDK's **legacy shim** fulfils them
-     * server-side instead: each embedded request is sent as a real
-     * server→client request (`elicitation/create`, `sampling/createMessage`,
-     * `roots/list`) over the live session, and the handler is re-entered with
-     * the collected `inputResponses` and the echoed `requestState` until it
-     * returns a final result — handlers are written once and serve both eras.
+     * Multi-round-trip serving knobs. On 2026-era requests the client
+     * fulfils `input_required` returns; on 2025-era connections the SDK's
+     * legacy shim fulfils them server-side (real server→client requests +
+     * handler re-entry), so handlers are written once and serve both eras.
      */
     inputRequired?: {
         /**
-         * Maximum number of handler re-entries the legacy shim performs for a
-         * single originating request before failing (`tools/call`: an
-         * `isError` tool result; `prompts/get` / `resources/read`: a JSON-RPC
-         * error).
-         *
+         * Handler re-entries per originating request before the shim fails
+         * (tools/call: `isError` result; prompts/resources: JSON-RPC error).
          * @default 8
          */
         maxRounds?: number;
 
         /**
-         * Per-leg timeout in milliseconds for each embedded server→client
-         * request the legacy shim sends, passed with
-         * `resetTimeoutOnProgress: true`. The default is deliberately much
-         * larger than the 60s protocol default — embedded requests are
-         * human-paced (form fills, sign-ins).
-         *
+         * Per-leg timeout (ms) for the shim's embedded server→client
+         * requests, sent with `resetTimeoutOnProgress: true`. Human-paced —
+         * deliberately far above the 60s protocol default.
          * @default 600_000
          */
         roundTimeoutMs?: number;
 
         /**
-         * Set to `false` to disable the legacy shim: an `input_required`
-         * return on a 2025-era request then fails loudly (the pre-shim
-         * behavior), and a handler that serves both eras must branch on the
-         * served era itself.
-         *
+         * `false` disables the shim: an `input_required` return on a
+         * 2025-era request fails loudly (the pre-shim behavior).
          * @default true
          */
         legacyShim?: boolean;
@@ -291,21 +276,13 @@ export class Server extends Protocol<ServerContext> {
     private _inputRequiredServing: { maxRounds: number; roundTimeoutMs: number; legacyShim: boolean };
     private _legacyShim?: LegacyInputRequiredShim;
 
-    /**
-     * The legacy `input_required` shim, constructed lazily on the first
-     * 2025-era input-required return. Everything it needs from this server
-     * crosses one narrow host contract — the loop itself lives in
-     * `legacyInputRequiredShim.ts`, not here.
-     */
+    /** Lazily-built legacy shim; the loop lives in legacyInputRequiredShim.ts behind a narrow host contract. */
     private _legacyInputRequiredShim(): LegacyInputRequiredShim {
         return (this._legacyShim ??= new LegacyInputRequiredShim({
             maxRounds: this._inputRequiredServing.maxRounds,
             roundTimeoutMs: this._inputRequiredServing.roundTimeoutMs,
             resolvedClientCapabilities: ctx => this._inputRequestCapabilityView(ctx),
             verifyRequestState: (state, ctx, method) => this._verifyRequestState(state, ctx, method),
-            // Capability-check-free sender cores: the shim's gate is
-            // authoritative, and elicitation accepted content passes through
-            // UNVALIDATED for parity with the modern client driver.
             sendElicitation: (params, options) => this._sendElicitationLeg(params, options, { validateAcceptedContent: false }),
             sendSampling: (params, options) => this.createMessage(params, options),
             listRoots: (params, options) => this.listRoots(params, options)
@@ -613,9 +590,6 @@ export class Server extends Protocol<ServerContext> {
         }
         let ctxForHandler = ctx;
         if (typeof rawRequestState === 'string') {
-            // Deny-on-error: ANY verify-hook failure mode (throw or rejection)
-            // answers the frozen -32602 — the handler never runs on state the
-            // hook did not pass.
             const decoded = await this._verifyRequestState(rawRequestState, ctx, method);
             if (decoded !== undefined) {
                 ctxForHandler = withRequestStateValue(ctx, decoded);
@@ -663,10 +637,7 @@ export class Server extends Protocol<ServerContext> {
                         `${this._negotiatedProtocolVersion ?? LATEST_PROTOCOL_VERSION}, which has no input_required vocabulary`
                 );
             }
-            // The legacy shim: fulfil the embedded requests as real
-            // server→client requests over the live 2025-era session and
-            // re-enter the handler until it returns a final result —
-            // write-once handlers served to deployed 2025 clients.
+            // Write-once handlers served to deployed 2025 clients.
             return await this._legacyInputRequiredShim().fulfill(method, handler, request, ctxForHandler, result);
         }
 
@@ -683,9 +654,8 @@ export class Server extends Protocol<ServerContext> {
             );
         }
 
-        // Per-embedded-request capability check against the per-request
-        // resolved view — on this (modern) era the capabilities the client
-        // declared on THIS request's envelope (-32021 on violation).
+        // Per-embedded-request capability check against the request's own
+        // envelope declaration (-32021 on violation).
         if (hasInputRequests) {
             const declared = this._inputRequestCapabilityView(ctx);
             for (const [key, entry] of Object.entries(inputRequests)) {
@@ -705,14 +675,10 @@ export class Server extends Protocol<ServerContext> {
     }
 
     /**
-     * Runs the configured `requestState.verify` hook on an echoed
-     * `requestState` and returns its resolved value (the decoded payload for
-     * codec verifiers; `undefined` when no hook is configured or the hook
-     * returns nothing).
-     *
-     * Deny-on-error: ANY failure mode of the hook — rejection or synchronous
-     * throw — is treated as verification failure and answered with the frozen
-     * `-32602` wire error; the thrown reason is surfaced via `onerror` only.
+     * Runs the configured `requestState.verify` hook and returns its
+     * resolved value (`undefined` when unconfigured or the hook returns
+     * nothing). Deny-on-error: any hook failure answers the frozen `-32602`;
+     * the reason goes to `onerror` only.
      */
     private async _verifyRequestState(state: string, ctx: ServerContext, method: string): Promise<unknown> {
         if (this._requestStateVerify === undefined) {
@@ -731,13 +697,10 @@ export class Server extends Protocol<ServerContext> {
     }
 
     /**
-     * The per-request resolved client-capabilities view (plan ruling F-2):
-     * the capabilities the request itself is entitled to rely on. On the
-     * 2026-07-28 era that is the request's own `_meta` envelope declaration;
-     * on a 2025-era connection it is the `initialize`-declared state this
-     * connection-pinned instance holds — and per-request instances that never
-     * saw an initialize (stateless legacy serving) hold nothing, so the view
-     * is empty there and capability gates refuse structurally.
+     * The per-request resolved client-capabilities view: the request's own
+     * `_meta` envelope on the 2026 era; the `initialize`-declared state on a
+     * 2025-era connection. Per-request instances that never saw an
+     * initialize (stateless legacy) hold nothing, so gates refuse there.
      */
     private _inputRequestCapabilityView(ctx: ServerContext): ClientCapabilities | undefined {
         return this._servedModernEra()
@@ -1184,17 +1147,12 @@ export class Server extends Protocol<ServerContext> {
     }
 
     /**
-     * The capability-check-free core of {@linkcode elicitInput}: mode
-     * normalization, the wire request, and (for the public push API)
-     * accepted-content schema validation. Shared by the public push API
-     * (which applies its era and per-mode capability checks first, and keeps
-     * its historical content validation) and the legacy `input_required`
-     * shim, whose own gate applies the documented pre-mode rule instead — a
-     * bare `elicitation: {}` declaration (the 2025-06-18 shape) counts as
-     * form support, exactly as the modern era's `-32021` gate reads it — and
-     * which passes accepted content through UNVALIDATED for parity with the
-     * modern client driver (the handler validates via the schema-aware
-     * `acceptedContent` overload and can re-issue the request).
+     * The capability-check-free core of {@linkcode elicitInput}. The shim
+     * uses it because its gate differs from the public checks: a bare
+     * `elicitation: {}` counts as form support (the pre-mode rule), and
+     * accepted content passes through unvalidated for parity with the
+     * modern client driver (handlers validate via the schema-aware
+     * `acceptedContent` overload and can re-ask).
      */
     private async _sendElicitationLeg(
         params: ElicitRequestFormParams | ElicitRequestURLParams,

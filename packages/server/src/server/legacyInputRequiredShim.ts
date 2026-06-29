@@ -1,38 +1,21 @@
 /**
- * The legacy `input_required` shim (write-once handlers on 2025-era
- * sessions), isolated from the core server: `Server` holds one
- * {@linkcode LegacyInputRequiredShim} which it delegates to from the
+ * The legacy `input_required` shim: serves write-once handlers on 2025-era
+ * sessions. `Server` holds one instance and delegates to it from the
  * multi-round-trip seam when a handler returns an input-required result on a
- * 2025-era request.
- *
- * The shim converts each embedded input request of the return into a REAL
- * server→client request (`elicitation/create`, `sampling/createMessage`,
- * `roots/list`) over the live session — stamped with the originating
- * request's id so sessionful Streamable HTTP routes them onto the
- * originating POST's stream — then re-enters the handler with the collected
- * `inputResponses` and the echoed `requestState`, until the handler returns
+ * 2025-era request: each embedded request goes out as a real server→client
+ * request (`elicitation/create` / `sampling/createMessage` / `roots/list`,
+ * stamped with the originating request id for stream association), and the
+ * handler is re-entered with the collected `inputResponses` until it returns
  * a final result or the round cap is exhausted.
  *
- * Semantics mirror the modern client driver exactly, so a handler cannot
- * tell which era fulfilled it: `inputResponses` are per-round (REPLACED,
- * never accumulated), `requestState` is echoed byte-exact (and re-verified
- * by the configured hook each round, exactly as a wire retry would be),
- * requestState-only rounds are paced, and the round cap counts handler
- * re-entries.
- *
- * The loop lives entirely within the originating wire request's lifetime:
- * no awaits are parked, no state survives the request, and the caller's
- * cancellation chains through every leg.
- *
- * Failure surfacing is per family: `tools/call` failures (capability
- * refusal, leg failure, round-cap exhaustion) become `isError` tool
- * results — the 2025-era idiom hosts already render — while `prompts/get`
- * and `resources/read` failures surface as JSON-RPC errors. Server bugs
- * (malformed input-required results) fail loudly on both eras, and
- * requestState verification failures keep the frozen `-32602`.
- *
- * Not public API — package-internal, deliberately not exported from the
- * package index.
+ * Semantics mirror the modern client driver so a handler cannot tell which
+ * era fulfilled it: per-round REPLACED `inputResponses`, byte-exact
+ * `requestState` echo (re-verified by the configured hook each round), paced
+ * requestState-only rounds. The loop lives inside the originating request's
+ * lifetime — nothing is parked, cancellation chains through every leg.
+ * Failures surface per family: tools/call → `isError` tool results,
+ * prompts/resources → JSON-RPC errors; malformed results fail loudly as
+ * server bugs. Package-internal — not exported from the index.
  */
 import type {
     ClientCapabilities,
@@ -59,17 +42,12 @@ import {
 } from '@modelcontextprotocol/core-internal';
 
 /**
- * Default round cap for the legacy `input_required` shim (handler re-entries
- * per originating request). Deliberately tighter than the modern client
- * driver's default of 10: the shim holds a live wire request open per flow.
+ * Default handler re-entries per originating request — tighter than the
+ * client driver's 10 because the shim holds a live wire request open.
  */
 const DEFAULT_LEGACY_SHIM_MAX_ROUNDS = 8;
 
-/**
- * Default per-leg timeout for the embedded server→client requests the legacy
- * shim sends, paired with `resetTimeoutOnProgress: true`. The 60s protocol
- * default is wrong for human-in-the-loop legs (form fills, sign-ins).
- */
+/** Default per-leg timeout: legs are human-paced, so the 60s protocol default is wrong. */
 const DEFAULT_LEGACY_SHIM_ROUND_TIMEOUT_MS = 600_000;
 
 /** The `ServerOptions.inputRequired` bag with defaults applied. */
@@ -79,12 +57,7 @@ export interface ResolvedLegacyShimOptions {
     legacyShim: boolean;
 }
 
-/**
- * Resolves and validates `ServerOptions.inputRequired` (fail-loud at
- * construction time, like the sibling cacheHints validation) — the shim
- * module owns its knobs the same way the client driver owns
- * `resolveInputRequiredDriverConfig`.
- */
+/** Resolves and validates `ServerOptions.inputRequired`, failing loudly at construction time. */
 export function resolveLegacyShimOptions(
     options: { maxRounds?: number; roundTimeoutMs?: number; legacyShim?: boolean } | undefined
 ): ResolvedLegacyShimOptions {
@@ -111,12 +84,9 @@ export interface CoercedEmbeddedInputRequest {
 }
 
 /**
- * Validates one `inputRequests` entry of an input-required result: a
- * malformed entry or an unknown embedded-request kind is a server bug and
- * fails loudly (both eras — the vocabulary is the 2026-07-28 revision's
- * regardless of which era the request is served on). Returns the coerced
- * entry together with the client capabilities it requires. Shared by the
- * modern seam's capability check and the legacy shim's gate.
+ * Validates one `inputRequests` entry: malformed or unknown kinds are server
+ * bugs and fail loudly on both eras. Shared by the modern seam's capability
+ * check and the shim's gate.
  */
 export function coerceEmbeddedInputRequest(
     method: string,
@@ -139,19 +109,13 @@ export function coerceEmbeddedInputRequest(
                 `embedded request the 2026-07-28 revision defines`
         );
     }
-    // The cast records the invariant the check above just established:
-    // requiredClientCapabilitiesForInputRequest answers undefined for any
-    // method outside the three embedded kinds.
     return { embedded: embedded as CoercedEmbeddedInputRequest, required };
 }
 
 /**
- * Synthesizes the `elicitationId` the 2025-11-25 URL-mode elicitation shape
- * requires: the 2026 in-band shape deliberately has none (correlation lives
- * in `requestState`), so a URL-mode leg the legacy shim sends must mint one
- * to be schema-valid toward conforming 2025 clients. Always CSPRNG-backed —
- * `randomUUID` where available, `getRandomValues` formatted as a v4 UUID
- * otherwise (the SDK already requires the Web Crypto API elsewhere).
+ * The 2025-11-25 URL-mode wire shape requires an `elicitationId`; the 2026
+ * in-band shape has none, so URL legs mint one (CSPRNG-backed, with a
+ * getRandomValues fallback for runtimes without `randomUUID`).
  */
 function syntheticElicitationId(): string {
     const webCrypto = globalThis.crypto;
@@ -166,12 +130,7 @@ function syntheticElicitationId(): string {
     return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-/**
- * Per-family failure surfacing for the legacy shim: `tools/call` failures
- * become `isError` tool results (the 2025-era idiom — hosts and models
- * already render them), `prompts/get` / `resources/read` failures surface as
- * JSON-RPC errors.
- */
+/** Per-family surfacing: tools/call → isError result (the 2025 idiom); prompts/resources → JSON-RPC error. */
 function legacyShimFailure(method: string, message: string): Result {
     if (method === 'tools/call') {
         return { content: [{ type: 'text', text: message }], isError: true };
@@ -180,14 +139,12 @@ function legacyShimFailure(method: string, message: string): Result {
 }
 
 /**
- * Everything the shim needs from `Server`, as a narrow contract:
- * the resolved knobs, the per-request resolved capability view (plan ruling
- * F-2 — `initialize` state on a sessionful legacy connection, empty on
+ * Everything the shim needs from `Server`: the knobs, the per-request
+ * resolved capability view (initialize state on sessionful legacy; empty on
  * per-request stateless instances), the requestState verify runner
- * (deny-on-error → the frozen `-32602`), and the three existing 2025-era
- * senders (capability-check-free cores; the shim's own gate is
- * authoritative, and elicitation accepted content passes through UNVALIDATED
- * for parity with the modern client driver).
+ * (deny-on-error → the frozen `-32602`), and the 2025-era senders. The
+ * shim's own gate is authoritative; elicitation accepted content passes
+ * through UNVALIDATED for parity with the modern client driver.
  */
 export interface LegacyInputRequiredShimHost {
     readonly maxRounds: number;
@@ -199,10 +156,7 @@ export interface LegacyInputRequiredShimHost {
     listRoots(params: Record<string, unknown> | undefined, options: RequestOptions): Promise<unknown>;
 }
 
-/**
- * The fulfilment loop, held by `Server` and delegated to from the
- * multi-round-trip seam (see the module doc for the full contract).
- */
+/** The fulfilment loop — see the module doc for the contract. */
 export class LegacyInputRequiredShim {
     constructor(private readonly _host: LegacyInputRequiredShimHost) {}
 
@@ -225,9 +179,7 @@ export class LegacyInputRequiredShim {
                 return legacyShimFailure(method, inputRequiredRoundsExceededMessage(method, maxRounds));
             }
 
-            // At-least-one re-check per round (hand-built results are legal;
-            // a violation is a server bug and fails loudly, as on the modern
-            // era).
+            // At-least-one re-check per round (server bug → loud, as on modern).
             const inputRequests = current.inputRequests as Record<string, unknown> | null | undefined;
             const hasInputRequests = inputRequests != null && Object.keys(inputRequests).length > 0;
             const requestState = typeof current.requestState === 'string' ? current.requestState : undefined;
@@ -241,17 +193,14 @@ export class LegacyInputRequiredShim {
 
             let responses: Record<string, unknown> | undefined;
             if (hasInputRequests) {
-                // The shim's OWN capability pre-check — never gated on
-                // `enforceStrictCapabilities` — against the per-request
-                // resolved view. The whole round gates BEFORE any wire
-                // traffic, so a refusal has no side effects.
+                // The shim's own capability pre-check (never gated on
+                // enforceStrictCapabilities). The whole round gates before
+                // any wire traffic, so a refusal has no side effects.
                 const declared = this._host.resolvedClientCapabilities(ctx);
                 const coerced: [string, CoercedEmbeddedInputRequest][] = [];
                 for (const [key, entry] of Object.entries(inputRequests!)) {
                     const { embedded, required } = coerceEmbeddedInputRequest(method, key, entry);
-                    // The wire legs need params for the request-carrying
-                    // kinds; a hand-built entry without them is a server bug
-                    // and fails loudly, like every other malformation.
+                    // Request-carrying kinds need params; absent = server bug.
                     if (embedded.method !== 'roots/list' && embedded.params === undefined) {
                         throw new ProtocolError(
                             ProtocolErrorCode.InternalError,
@@ -269,21 +218,15 @@ export class LegacyInputRequiredShim {
                     coerced.push([key, embedded]);
                 }
 
-                // Fulfil concurrently (the embedded requests are independent,
-                // mirroring the modern client driver); the first failure
-                // aborts the sibling legs via the shared linked per-round
-                // signal.
+                // Fulfil concurrently (driver parity); first failure aborts siblings.
                 const roundAbort = linkedRoundAbort(outerSignal);
                 try {
                     const legOptions: RequestOptions = {
                         relatedRequestId: ctx.mcpReq.id,
                         timeout: roundTimeoutMs,
                         resetTimeoutOnProgress: true,
-                        // The no-op handler makes the leg carry a
-                        // progressToken, which is what lets a client that
-                        // reports progress mid-leg actually reset the leg
-                        // timeout — without it resetTimeoutOnProgress could
-                        // never fire (no token, nothing to report against).
+                        // The no-op handler stamps a progressToken on the leg —
+                        // without one, resetTimeoutOnProgress could never fire.
                         onprogress: () => {},
                         signal: roundAbort.signal
                     };
@@ -300,9 +243,7 @@ export class LegacyInputRequiredShim {
                     responses = Object.fromEntries(fulfilled);
                 } catch (error) {
                     if (outerSignal.aborted) {
-                        // The originating request was cancelled: propagate so
-                        // the protocol layer drops the response (cancelled
-                        // requests are never answered).
+                        // Cancelled requests are never answered — propagate.
                         throw error;
                     }
                     return legacyShimFailure(
@@ -313,26 +254,20 @@ export class LegacyInputRequiredShim {
                     roundAbort.dispose();
                 }
             } else {
-                // requestState-only (load-shedding) round: fixed pacing so
-                // the loop never hot-spins; counted in the same round cap
-                // (mirrors the modern client driver).
+                // requestState-only round: paced so the loop never hot-spins
+                // (driver parity); counted in the same round cap.
                 await sleep(REQUEST_STATE_ONLY_LEG_PACING_MS, outerSignal);
             }
 
-            // Byte-exact requestState echo. The re-entry context carries this
-            // round's material FIRST (raw state accessor + this round's
-            // responses), then the configured verify hook runs against that
-            // context — exactly the order and view a modern wire retry gets —
-            // and its decoded payload replaces the accessor value.
-            // Deny-on-error → the frozen -32602.
+            // Byte-exact requestState echo: build the round's context first,
+            // verify against it (the order and view a modern wire retry
+            // gets), then swap in the decoded payload. Deny-on-error → -32602.
             let ctxNext: ServerContext = {
                 ...ctx,
                 mcpReq: {
                     ...ctx.mcpReq,
-                    // REPLACE semantics: this round's responses only — never
-                    // accumulated across rounds (parity with the modern
-                    // client driver; multi-step flows thread earlier answers
-                    // through requestState).
+                    // REPLACE semantics: this round's responses only — multi-step
+                    // flows thread earlier answers through requestState.
                     inputResponses: responses,
                     droppedInputResponseKeys: undefined,
                     requestState: requestStateAccessor(requestState)
@@ -345,9 +280,8 @@ export class LegacyInputRequiredShim {
                 }
             }
 
-            // Re-entry goes through the SAME stored handler the wire retry
-            // would hit (for McpServer that is the full funnel: input
-            // re-validation, output projection, tools/call error catch).
+            // Re-entry hits the same stored handler a wire retry would
+            // (for McpServer: the full funnel).
             const next = await handler(request, ctxNext);
             if (!isInputRequiredResult(next)) {
                 return next;
@@ -356,20 +290,12 @@ export class LegacyInputRequiredShim {
         }
     }
 
-    /**
-     * Routes one embedded input request through the host's existing 2025-era
-     * senders — the same wire paths a hand-written era-branching handler
-     * used. The shim's capability gate has already run.
-     */
+    /** Routes one embedded request through the host's existing 2025-era senders (gate already ran). */
     private async _dispatchLeg(embedded: CoercedEmbeddedInputRequest, options: RequestOptions): Promise<unknown> {
         switch (embedded.method) {
             case 'elicitation/create': {
                 let params = embedded.params as ElicitRequestFormParams | ElicitRequestURLParams;
                 if (params.mode === 'url' && (params as ElicitRequestURLParams).elicitationId === undefined) {
-                    // The 2026 in-band URL shape carries no elicitationId
-                    // (correlation lives in requestState), but the 2025-11-25
-                    // wire schema requires one — synthesize it so conforming
-                    // 2025 clients accept the leg.
                     params = { ...(params as ElicitRequestURLParams), elicitationId: syntheticElicitationId() };
                 }
                 return await this._host.sendElicitation(params, options);
