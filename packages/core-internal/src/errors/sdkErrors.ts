@@ -1,3 +1,5 @@
+import { brandedHasInstance, stampErrorBrands } from './crossBundleBrand';
+
 /**
  * Error codes for SDK errors (local errors that never cross the wire).
  * Unlike {@linkcode ProtocolErrorCode} which uses numeric JSON-RPC codes, `SdkErrorCode` uses
@@ -98,6 +100,12 @@ export enum SdkErrorCode {
  * ```
  */
 export class SdkError extends Error {
+    protected static readonly mcpBrand: string = 'mcp.SdkError';
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
     constructor(
         public readonly code: SdkErrorCode,
         message: string,
@@ -105,6 +113,7 @@ export class SdkError extends Error {
     ) {
         super(message);
         this.name = 'SdkError';
+        stampErrorBrands(this, new.target);
     }
 }
 
@@ -134,6 +143,8 @@ export interface SdkHttpErrorData {
  * ```
  */
 export class SdkHttpError extends SdkError {
+    protected static override readonly mcpBrand: string = 'mcp.SdkHttpError';
+
     declare readonly data: SdkHttpErrorData;
 
     constructor(code: SdkErrorCode, message: string, data: SdkHttpErrorData) {

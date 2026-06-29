@@ -1,3 +1,4 @@
+import { brandedHasInstance, stampErrorBrands } from '../errors/crossBundleBrand';
 import type { OAuthErrorResponse } from '../shared/auth';
 
 /**
@@ -103,6 +104,12 @@ export enum OAuthErrorCode {
  * OAuth error class for all OAuth-related errors.
  */
 export class OAuthError extends Error {
+    protected static readonly mcpBrand: string = 'mcp.OAuthError';
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
     constructor(
         public readonly code: OAuthErrorCode | string,
         message: string,
@@ -110,6 +117,7 @@ export class OAuthError extends Error {
     ) {
         super(message);
         this.name = 'OAuthError';
+        stampErrorBrands(this, new.target);
     }
 
     /**

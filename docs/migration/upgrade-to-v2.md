@@ -823,6 +823,10 @@ The SDK now distinguishes three error kinds:
 3. **`SdkHttpError`** (extends `SdkError`) — HTTP transport errors with typed `.status`
    and `.statusText`.
 
+These classes (and `OAuthError`) brand-match under `instanceof`, so checks work across
+separately bundled copies of the SDK — e.g. a process using both
+`@modelcontextprotocol/client` and `@modelcontextprotocol/server`.
+
 The codemod renames `McpError` → `ProtocolError`, `ErrorCode` → `ProtocolErrorCode`
 (routing `RequestTimeout` / `ConnectionClosed` to `SdkErrorCode`), and
 `StreamableHTTPError` → `SdkHttpError`. After the codemod runs, your `instanceof`
