@@ -117,6 +117,21 @@ describe('cross-bundle error instanceof (branded)', () => {
         expect(json).not.toContain('mcp.Sdk');
     });
 
+    it('ignores a brand inherited via the prototype chain (prototype-pollution hardening)', () => {
+        const BRANDS = Symbol.for('mcp.sdk.errorBrands');
+        // A brand reachable only through the prototype chain must not count —
+        // otherwise polluting a shared prototype would make arbitrary objects
+        // satisfy instanceof against every branded class.
+        const polluted = Object.create({ [BRANDS]: new Set(['mcp.SdkError', 'mcp.SdkHttpError']) }) as object;
+        expect(polluted instanceof SdkError).toBe(false);
+        expect(polluted instanceof SdkHttpError).toBe(false);
+
+        // An own-property carrier (what stampErrorBrands produces) is honored.
+        const own = Object.create(Error.prototype) as object;
+        Object.defineProperty(own, BRANDS, { value: new Set(['mcp.SdkError']), enumerable: false });
+        expect(own instanceof SdkError).toBe(true);
+    });
+
     it('tolerates primitives, null, and brandless objects', () => {
         for (const value of [null, undefined, 42, 'x', Symbol('s'), {}, new Error('plain')]) {
             expect((value as unknown) instanceof SdkError).toBe(false);
