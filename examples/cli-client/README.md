@@ -1,6 +1,6 @@
 # cli-client — the reference MCP host
 
-An interactive, LLM-connected chat CLI with **no built-in tools**: everything the model can do comes from the MCP servers you connect it to. It is a minimal but complete host — every client-side MCP feature is wired the way a host application should wire it — and it is the example the [host-integration guide](../../docs/host-integration.md) walks through, file by file.
+An interactive, LLM-connected chat CLI with **no built-in tools**: everything the model can do comes from the MCP servers you connect it to. It is a minimal but complete host — every client-side MCP feature is wired the way a host application should wire it — built to be read and copied from.
 
 Its standard workload is [`examples/todos-server`](../todos-server/README.md), the reference server, but it connects to **any** MCP server: a URL, a command line, or an `mcpServers`-style config file.
 
@@ -140,6 +140,18 @@ script/         the scripted conversation CI replays
 test/           unit tests
 ```
 
-Unlike the single-feature stories, the SDK `Client`/transport construction here lives in `host/host.ts` rather than inline in the entry files — the host wiring is what this example documents, and the [host-integration guide](../../docs/host-integration.md) walks through it file by file.
+Unlike the single-feature stories, the SDK `Client`/transport construction here lives in `host/host.ts` rather than inline in the entry files — the host wiring is what this example documents.
+
+## Design notes
+
+Choices in here that are worth understanding before copying:
+
+- **The provider seam is deliberately example-local.** The SDK stays a protocol library; a host's message shapes belong to the host. The seam earns its keep twice: MCP `Tool.inputSchema` is already JSON Schema and passes to each vendor API untouched, and the same `generate()` answers both the chat loop and servers' sampling requests — one model integration, two consumers.
+- **Tool results go back to the model verbatim, including failures.** An `isError` result is fed back as a tool message rather than thrown, so the model can read the error and try something else. A round cap bounds a model that keeps calling tools forever.
+- **Server-controlled text is untrusted display input.** ANSI/control escapes are stripped on every render path; attached resources are size-capped and wrapped in provenance labels so the model knows what it is reading and where it came from, and is told not to re-fetch it.
+- **Prompts keep their roles.** `prompts/get` messages seed the conversation as separate user/assistant turns instead of being flattened into one block — that is what the shape is for.
+- **Approvals are explicit and fail closed.** Sampling shows the full request (not a preview) and caps `maxTokens` regardless of what the server asked. Browser-opening — OAuth and URL-mode elicitation alike — requires `https:` (or loopback) and user consent. The OAuth callback's `state` is verified by the host, and a missing or mismatched value aborts the flow.
+- **Tool execution is not gated here** because an interactive user watches every call and holds Ctrl-C. An unattended host must add a consent policy — confirm destructive or side-effecting calls, or keep a per-server allowlist — and should treat tool annotations (`readOnlyHint`, `destructiveHint`) as UX hints, never as a security boundary.
+- **Spawned servers get a minimal environment**: the config entry's `env` plus defaults, never the host's full environment, so provider API keys cannot leak into child processes.
 
 Not goals of this example: it is not an agent framework (no plugins, sub-agents, or planning), there is no streaming output, no conversation persistence, and the providers make exactly one `generate()` call per turn.

@@ -40,7 +40,6 @@ export function buildSystemPrompt(host: McpHost): string {
  * messages so each provider can encode them natively, and `isError` results still go to the
  * model — it is allowed to read the error and try something else.
  */
-//#region theLoop
 export async function runModelRounds(session: ChatSession): Promise<void> {
     const { host, provider, ui } = session;
     // Server instructions and the aggregated tool list are stable within a single user turn.
@@ -97,7 +96,6 @@ export async function runModelRounds(session: ChatSession): Promise<void> {
     }
     ui.print('(stopped: tool-call round limit reached)');
 }
-//#endregion theLoop
 
 /** Send one user turn (with optional attached-resource context blocks) through the loop. */
 export async function runConversationTurn(session: ChatSession, userText: string, attachments: string[] = []): Promise<void> {

@@ -1,6 +1,6 @@
 /**
  * Per-server tool names are namespaced `mcp__<server>__<tool>` before they reach the model
- * (the same scheme Claude Code uses), so two servers can both expose `search` and the host
+ * (a common host convention), so two servers can both expose `search` and the host
  * can always route a model-issued call back to the server that owns it.
  */
 export function sanitizeServerName(name: string): string {

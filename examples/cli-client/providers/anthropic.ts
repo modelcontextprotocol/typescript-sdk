@@ -26,7 +26,7 @@ function toContentBlocks(message: ChatMessage): Anthropic.ContentBlockParam[] {
 /**
  * Convert the provider-neutral request into Anthropic Messages API parameters.
  *
- * The mapping every host writes for Claude:
+ * The mapping every host writes for the Anthropic Messages API:
  * - MCP tool definitions pass straight through — `inputSchema` is already JSON Schema.
  * - Assistant tool calls become `tool_use` blocks; tool results become `tool_result` blocks
  *   inside a *user* message, and results for parallel tool calls must share one user message.

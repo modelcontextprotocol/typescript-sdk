@@ -11,7 +11,6 @@
  * requests from servers.
  */
 
-//#region llmProvider
 export interface ToolDefinition {
     /** Namespaced tool name as exposed to the model (e.g. `mcp__todos__add_task`). */
     name: string;
@@ -57,7 +56,6 @@ export interface LLMProvider {
     readonly name: string;
     generate(request: GenerateRequest): Promise<GenerateResult>;
 }
-//#endregion llmProvider
 
 export function textPart(text: string): ContentPart {
     return { type: 'text', text };

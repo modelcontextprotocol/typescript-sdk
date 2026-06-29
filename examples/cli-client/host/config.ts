@@ -4,8 +4,8 @@ import { siblingPath } from '@mcp-examples/shared';
 import * as z from 'zod/v4';
 
 /**
- * The standard `mcpServers` config shape (the same one Claude Desktop, Claude Code, and most
- * other hosts read): stdio servers are spawned from `command`/`args`, remote servers are
+ * The standard `mcpServers` config shape most MCP hosts read: stdio servers are spawned
+ * from `command`/`args`, remote servers are
  * reached via `url`. Anything you list here is code/infrastructure you trust — adding a
  * server means trusting it with whatever the model sends it.
  */
