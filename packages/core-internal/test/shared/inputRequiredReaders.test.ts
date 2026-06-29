@@ -1,24 +1,16 @@
 /**
  * Typed readers for a retried request's `inputResponses`
- * (`ctx.mcpReq.inputResponses`): the schema-aware `acceptedContent` overload,
- * the discriminated `inputResponse` view, and the `samplingText` convenience.
+ * (`ctx.mcpReq.inputResponses`): the schema-aware `acceptedContent` overload
+ * and the discriminated `inputResponse` view.
  */
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
-import { acceptedContent, inputResponse, samplingText } from '../../src/shared/inputRequired';
+import { acceptedContent, inputResponse } from '../../src/shared/inputRequired';
 
 const ACCEPTED = { action: 'accept', content: { count: '10', theme: 'release week' } };
 const DECLINED = { action: 'decline' };
 const SAMPLING = { role: 'assistant', content: { type: 'text', text: 'idea-1' }, model: 'test-model' };
-const SAMPLING_WITH_TOOLS = {
-    role: 'assistant',
-    content: [
-        { type: 'tool_use', id: 't1', name: 'chooser', input: {} },
-        { type: 'text', text: 'after-tools' }
-    ],
-    model: 'test-model'
-};
 const ROOTS = { roots: [{ uri: 'file:///ws', name: 'ws' }] };
 
 describe('acceptedContent schema overload', () => {
@@ -79,23 +71,5 @@ describe('inputResponse discriminated view', () => {
         expect(inputResponse({ key: { action: 'something-else' } }, 'key')).toEqual({ kind: 'missing' });
         expect(inputResponse({ key: null }, 'key')).toEqual({ kind: 'missing' });
         expect(inputResponse({ key: [1, 2] }, 'key')).toEqual({ kind: 'missing' });
-    });
-});
-
-describe('samplingText', () => {
-    it('returns the text of a single-block sampling response', () => {
-        expect(samplingText({ key: SAMPLING }, 'key')).toBe('idea-1');
-    });
-
-    it('returns the first text block of a with-tools (array) sampling response', () => {
-        expect(samplingText({ key: SAMPLING_WITH_TOOLS }, 'key')).toBe('after-tools');
-    });
-
-    it('returns undefined for missing entries, non-sampling kinds, and text-free content', () => {
-        expect(samplingText({}, 'key')).toBeUndefined();
-        expect(samplingText({ key: ACCEPTED }, 'key')).toBeUndefined();
-        expect(
-            samplingText({ key: { role: 'assistant', content: { type: 'image', data: 'aGk=', mimeType: 'image/png' }, model: 'm' } }, 'key')
-        ).toBeUndefined();
     });
 });

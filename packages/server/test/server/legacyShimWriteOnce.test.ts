@@ -7,7 +7,7 @@
  * requestState codec verifying state each round.
  */
 import type { CallToolResult, ElicitRequestFormParams, InputRequiredResult, JSONRPCRequest } from '@modelcontextprotocol/core-internal';
-import { acceptedContent, inputRequired, inputResponse, samplingText } from '@modelcontextprotocol/core-internal';
+import { acceptedContent, inputRequired, inputResponse } from '@modelcontextprotocol/core-internal';
 import { describe, expect, it } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -55,6 +55,16 @@ function parseBrainstormCount(raw: unknown): number | undefined {
 function elicitAction(response: unknown): string {
     const view = inputResponse({ response }, 'response');
     return view.kind === 'elicit' ? view.action : 'cancel';
+}
+
+// Userland content convenience over the discriminated reader — text
+// extraction is the handler's own one-liner, not SDK surface.
+function sampledText(responses: Record<string, unknown> | undefined, key: string): string | undefined {
+    const view = inputResponse(responses, key);
+    if (view.kind !== 'sampling') return undefined;
+    const blocks = Array.isArray(view.result.content) ? view.result.content : [view.result.content];
+    const text = blocks.find((block): block is { type: 'text'; text: string } => block.type === 'text');
+    return text?.text;
 }
 
 describe('acceptance: chat-cli brainstorm_tasks written once, served to a 2025 client', () => {
@@ -137,7 +147,7 @@ describe('acceptance: chat-cli brainstorm_tasks written once, served to a 2025 c
                         return askForIdeas(wanted, state.topic);
                     }
                     case 'awaiting-ideas': {
-                        return finish(samplingText(ctx.mcpReq.inputResponses, 'ideas') ?? '', state.count, state.topic);
+                        return finish(sampledText(ctx.mcpReq.inputResponses, 'ideas') ?? '', state.count, state.topic);
                     }
                 }
             }

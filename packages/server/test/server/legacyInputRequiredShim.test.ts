@@ -27,7 +27,7 @@
  *   progressToken.
  */
 import type { JSONRPCRequest, RequestId } from '@modelcontextprotocol/core-internal';
-import { acceptedContent, inputRequired, inputResponse, samplingText } from '@modelcontextprotocol/core-internal';
+import { acceptedContent, inputRequired, inputResponse } from '@modelcontextprotocol/core-internal';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as z from 'zod/v4';
 
@@ -113,7 +113,11 @@ describe('legacy shim: write-once fulfilment on a sessionful 2025-era connection
                 });
             }
             secondEntry = ctx.mcpReq.inputResponses;
-            const text = samplingText(ctx.mcpReq.inputResponses, 'ideas');
+            const ideas = inputResponse(ctx.mcpReq.inputResponses, 'ideas');
+            const text =
+                ideas.kind === 'sampling' && !Array.isArray(ideas.result.content) && ideas.result.content.type === 'text'
+                    ? ideas.result.content.text
+                    : undefined;
             const roots = inputResponse(ctx.mcpReq.inputResponses, 'workspace');
             return {
                 content: [

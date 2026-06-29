@@ -230,26 +230,6 @@ export function inputResponse(responses: InputResponses | Record<string, unknown
 }
 
 /**
- * Convenience reader: the text of a sampling response, or `undefined` when
- * the entry is missing, not a sampling result, or carries no text block. For
- * with-tools results (content array), the first text block's text is
- * returned.
- */
-export function samplingText(responses: InputResponses | Record<string, unknown> | undefined, key: string): string | undefined {
-    const view = inputResponse(responses, key);
-    if (view.kind !== 'sampling') return undefined;
-    const content = view.result.content;
-    const blocks = Array.isArray(content) ? content : [content];
-    for (const block of blocks) {
-        if (block !== null && typeof block === 'object' && (block as { type?: unknown }).type === 'text') {
-            const text = (block as { text?: unknown }).text;
-            if (typeof text === 'string') return text;
-        }
-    }
-    return undefined;
-}
-
-/**
  * Wraps a result schema so a request issued through `client.request()` /
  * `ctx.mcpReq.send()` with `allowInputRequired: true` is typed as either the
  * schema's result or an {@linkcode InputRequiredResult}.
