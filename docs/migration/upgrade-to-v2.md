@@ -147,6 +147,11 @@ whichever package you already depend on. `@modelcontextprotocol/core-internal` i
 `@modelcontextprotocol/core` is the public Zod-schema package (raw `*Schema` constants
 only); see [Zod `*Schema` constants moved to `@modelcontextprotocol/core`](#zod-schema-constants-moved-to-modelcontextprotocolcore) below.
 
+After the codemod runs, verify `@modelcontextprotocol/sdk` is gone from `package.json`:
+the dependency swap keys off v1 imports rewritten in the same pass, so on sources that
+were already (partially) migrated the codemod reports no changes and leaves the old
+dependency behind — remove it by hand once nothing imports it.
+
 The framework adapter packages declare their framework as a **peer dependency**
 (`express`, `hono`, `fastify`); v1 shipped them as direct deps. The codemod adds the
 `@modelcontextprotocol/*` packages your imports use, but does not add the framework
@@ -382,7 +387,11 @@ are still **accepted via `@deprecated` overloads** on `registerTool`/`registerPr
 (auto-wrapped with `z.object()`), and `completable()` accepts any `StandardSchemaV1`;
 prefer wrapping explicitly. Zod v4, ArkType, and Valibot all implement the spec.
 
-**Zod v3 is no longer supported** (v1 peer was `^3.25 || ^4.0`). A Zod v3 schema
+**Zod v3 is no longer supported** (v1 peer was `^3.25 || ^4.0`). Check the **declared
+range** in your `package.json`, not just the installed version: a zod-3 range that
+satisfied the v1 peer installs and typechecks cleanly under v2 and only fails at
+runtime, when the first registration throws — under a spawning harness that surfaces
+as an opaque child exit two hops from the cause. A Zod v3 schema
 hard-errors with a pointer at `fromJsonSchema()`. Zod **≥4.2.0** self-converts via
 `~standard.jsonSchema` — the supported path. Zod **4.0–4.1** lacks it, so the SDK falls
 back to its bundled Zod's `z.toJSONSchema()` with a one-time `[mcp-sdk]` console
@@ -547,6 +556,14 @@ it usually targeted are now **string** `SdkErrorCode` values:
 Replace the literal with the named code. Loud (`TS2367`) when the compared value is
 typed `SdkErrorCode`; silent when the left side is `unknown` or a cast — grep for
 `=== -32000` / `=== -32001`.
+
+**Constructing the error (test stubs, custom transports).** v1
+`new StreamableHTTPError(code, message)` becomes
+`new SdkHttpError(code, message, data)`: the first argument is now a `SdkErrorCode`
+string (pick the branch from the scenario table above) and the HTTP status moves into
+the third argument — `new SdkHttpError(SdkErrorCode.ClientHttpNotImplemented,
+'Not Found', { status: 404, statusText: 'Not Found' })`. v1's implicit
+`Streamable HTTP error: ` message prefix is gone; pass the full message you want.
 
 #### `SdkErrorCode` enum (complete)
 
@@ -897,7 +914,10 @@ names — import the TypeScript types, error classes, enums, and type guards fro
 The `Protocol` base class itself is no longer exported (it is internal engine). If you
 were reaching into protocol internals — rare, mostly debugging tools —
 `client.fallbackRequestHandler` / `server.fallbackRequestHandler` receives every
-inbound request that no registered handler matches, before capability gating.
+inbound request that no registered handler matches, before capability gating. Delete
+the v1 `shared/protocol.js` import: `Protocol` has no v2 import path (early codemod
+versions rewrote it to a named import from `@modelcontextprotocol/client` that does
+not exist — remove that import if you find it).
 
 #### JSON Schema 2020-12 posture (SEP-1613, SEP-2106)
 
