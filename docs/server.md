@@ -358,6 +358,22 @@ server.registerPrompt(
 );
 ```
 
+## Extension capabilities
+
+A server advertises support for [MCP extensions](https://modelcontextprotocol.io/specification/latest/basic/lifecycle#capability-negotiation) through `capabilities.extensions` — a map from extension identifier to that extension's settings object. Declare entries with
+{@linkcode @modelcontextprotocol/server!server/server.Server#registerCapabilities | server.server.registerCapabilities()} before connecting:
+
+```ts source="../examples/guides/serverGuide.examples.ts#extensionCapabilities_register"
+server.server.registerCapabilities({
+    extensions: { 'com.example/feature-flags': { flags: ['dark-mode', 'beta-search'] } }
+});
+```
+
+The map is advertised in the `initialize` result on legacy connections and in the `server/discover` response on 2026-07-28 ones. Identifiers are prefix-qualified per the spec's `_meta` key naming rules (e.g. `com.example/feature-flags`); each value is free-form JSON for
+that extension's settings — `{}` means supported with no settings.
+
+For a runnable pair, see the [`extension-capabilities/` example](../examples/extension-capabilities/README.md); reading the map client-side is covered in the [client guide](./client.md#extension-capabilities).
+
 ## Logging
 
 > [!WARNING]

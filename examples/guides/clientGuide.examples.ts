@@ -143,6 +143,21 @@ async function serverInstructions_basic(client: Client) {
 }
 
 // ---------------------------------------------------------------------------
+// Extension capabilities
+// ---------------------------------------------------------------------------
+
+/** Example: Read the negotiated extension capabilities after connecting. */
+function extensionCapabilities_read(client: Client) {
+    //#region extensionCapabilities_read
+    const extensions = client.getServerCapabilities()?.extensions ?? {};
+
+    if ('com.example/feature-flags' in extensions) {
+        // Advertised on this connection; the entry's value is its settings object.
+    }
+    //#endregion extensionCapabilities_read
+}
+
+// ---------------------------------------------------------------------------
 // Authentication
 // ---------------------------------------------------------------------------
 
@@ -738,6 +753,7 @@ void connect_sseFallback;
 void Client_versionNegotiation;
 void disconnect_streamableHttp;
 void serverInstructions_basic;
+void extensionCapabilities_read;
 void auth_tokenProvider;
 void auth_clientCredentials;
 void auth_privateKeyJwt;
