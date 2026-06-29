@@ -560,11 +560,14 @@ export class Server extends Protocol<ServerContext> {
      *   2026-07-28 wire and the throw is not silently converted. Requests
      *   served on the 2025 era keep today's `-32042` behavior byte-exact (the
      *   error is rethrown unchanged).
-     * - an input-required RETURN is only legal toward the 2026-07-28 era; it
-     *   must satisfy the at-least-one rule (`inputRequests` or
-     *   `requestState`), and every embedded request must be covered by the
-     *   capabilities the client declared on this request's envelope
-     *   (violations answer with the typed `-32021` error).
+     * - an input-required RETURN toward a 2026-07-28 request must satisfy
+     *   the at-least-one rule, and every embedded request must be covered by
+     *   the capabilities declared on the request's envelope (violations
+     *   answer the typed `-32021` error). Toward a 2025-era request the
+     *   return is fulfilled by the default-on legacy shim, whose own gate
+     *   consults the initialize-declared capabilities and surfaces
+     *   violations per family; `inputRequired.legacyShim: false` restores
+     *   the pre-shim loud failure.
      */
     private async _invokeInputRequiredCapableHandler(
         method: string,
