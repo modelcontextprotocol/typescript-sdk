@@ -66,7 +66,9 @@ export const OAuthMetadataSchema = z.looseObject({
     introspection_endpoint_auth_methods_supported: z.array(z.string()).optional(),
     introspection_endpoint_auth_signing_alg_values_supported: z.array(z.string()).optional(),
     code_challenge_methods_supported: z.array(z.string()).optional(),
-    client_id_metadata_document_supported: z.boolean().optional()
+    client_id_metadata_document_supported: z.boolean().optional(),
+    // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod .catch(), not a Promise chain
+    authorization_response_iss_parameter_supported: z.boolean().optional().catch(undefined)
 });
 
 /**
@@ -110,7 +112,9 @@ export const OpenIdProviderMetadataSchema = z.looseObject({
     require_request_uri_registration: z.boolean().optional(),
     op_policy_uri: SafeUrlSchema.optional(),
     op_tos_uri: SafeUrlSchema.optional(),
-    client_id_metadata_document_supported: z.boolean().optional()
+    client_id_metadata_document_supported: z.boolean().optional(),
+    // eslint-disable-next-line unicorn/prefer-top-level-await -- Zod .catch(), not a Promise chain
+    authorization_response_iss_parameter_supported: z.boolean().optional().catch(undefined)
 });
 
 /**
@@ -182,6 +186,15 @@ export const OAuthClientMetadataSchema = z
         token_endpoint_auth_method: z.string().optional(),
         grant_types: z.array(z.string()).optional(),
         response_types: z.array(z.string()).optional(),
+        /**
+         * OIDC Dynamic Client Registration `application_type`. MCP clients MUST set
+         * this to `'native'` or `'web'` when registering (SEP-837); the SDK defaults
+         * it from `redirect_uris` when omitted. Typed as `string` (not an enum) so
+         * that parsing an authorization server's registration response — which under
+         * RFC 7591 may echo extension values — never rejects the document on this
+         * field alone.
+         */
+        application_type: z.string().optional(),
         client_name: z.string().optional(),
         client_uri: SafeUrlSchema.optional(),
         logo_uri: OptionalSafeUrlSchema,
@@ -244,6 +257,26 @@ export type OAuthClientMetadata = z.infer<typeof OAuthClientMetadataSchema>;
 export type OAuthClientInformation = z.infer<typeof OAuthClientInformationSchema>;
 export type OAuthClientInformationFull = z.infer<typeof OAuthClientInformationFullSchema>;
 export type OAuthClientInformationMixed = OAuthClientInformation | OAuthClientInformationFull;
+
+/**
+ * {@linkcode OAuthTokens} as persisted by an `OAuthClientProvider`. Adds an
+ * SDK-stamped authorization-server `issuer` identifier so stored tokens are
+ * bound to the AS that issued them. The `issuer` field is **not** part of the
+ * RFC 6749 wire response and is intentionally absent from the wire-response
+ * schema; the client SDK writes it before calling `saveTokens`.
+ */
+export type StoredOAuthTokens = OAuthTokens & { issuer?: string };
+
+/**
+ * {@linkcode OAuthClientInformationMixed} as persisted by an
+ * `OAuthClientProvider`. Adds an SDK-stamped authorization-server `issuer`
+ * identifier so stored client credentials are bound to the AS that issued them.
+ * The `issuer` field is **not** part of the RFC 7591 wire response and is
+ * intentionally absent from the wire-response schema; the client SDK writes it
+ * before calling `saveClientInformation`.
+ */
+export type StoredOAuthClientInformation = OAuthClientInformationMixed & { issuer?: string };
+
 export type OAuthClientRegistrationError = z.infer<typeof OAuthClientRegistrationErrorSchema>;
 export type OAuthTokenRevocationRequest = z.infer<typeof OAuthTokenRevocationRequestSchema>;
 export type OAuthProtectedResourceMetadata = z.infer<typeof OAuthProtectedResourceMetadataSchema>;

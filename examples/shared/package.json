@@ -1,5 +1,5 @@
 {
-    "name": "@modelcontextprotocol/examples-shared",
+    "name": "@mcp-examples/shared",
     "private": true,
     "version": "2.0.0-alpha.0",
     "description": "Model Context Protocol implementation for TypeScript",
@@ -8,6 +8,10 @@
     "homepage": "https://modelcontextprotocol.io",
     "bugs": "https://github.com/modelcontextprotocol/typescript-sdk/issues",
     "type": "module",
+    "exports": {
+        ".": "./src/index.ts",
+        "./auth": "./src/indexAuth.ts"
+    },
     "repository": {
         "type": "git",
         "url": "git+https://github.com/modelcontextprotocol/typescript-sdk.git"
@@ -21,7 +25,6 @@
     ],
     "scripts": {
         "typecheck": "tsgo -p tsconfig.json --noEmit",
-        "prepack": "pnpm run build:esm && pnpm run build:cjs",
         "lint": "eslint src/ && prettier --ignore-path ../../.prettierignore --check .",
         "lint:fix": "eslint src/ --fix && prettier --ignore-path ../../.prettierignore --write .",
         "check": "pnpm run typecheck && pnpm run lint",
@@ -29,7 +32,6 @@
         "test:watch": "vitest"
     },
     "dependencies": {
-        "@modelcontextprotocol/core-internal": "workspace:^",
         "@modelcontextprotocol/server": "workspace:^",
         "@modelcontextprotocol/express": "workspace:^",
         "better-auth": "^1.4.17",

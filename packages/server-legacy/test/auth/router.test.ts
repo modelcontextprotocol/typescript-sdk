@@ -218,6 +218,22 @@ describe('MCP Auth Router', () => {
 
             // Verify optional fields
             expect(response.body.service_documentation).toBe('https://docs.example.com/');
+
+            // RFC 9207: the bundled authorize handler emits `iss`, so the metadata advertises it.
+            expect(response.body.authorization_response_iss_parameter_supported).toBe(true);
+        });
+
+        it('derives authorization_response_iss_parameter_supported from the provider', async () => {
+            const optOutApp = express();
+            optOutApp.use(
+                mcpAuthRouter({
+                    provider: { ...mockProvider, authorizationResponseIssParameterSupported: false },
+                    issuerUrl: new URL('https://auth.example.com')
+                })
+            );
+            const response = await supertest(optOutApp).get('/.well-known/oauth-authorization-server');
+            expect(response.status).toBe(200);
+            expect(response.body.authorization_response_iss_parameter_supported).toBe(false);
         });
 
         it('returns minimal metadata for minimal router', async () => {

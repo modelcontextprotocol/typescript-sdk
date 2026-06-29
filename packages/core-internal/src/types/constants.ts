@@ -2,6 +2,11 @@ export const LATEST_PROTOCOL_VERSION = '2025-11-25';
 export const DEFAULT_NEGOTIATED_PROTOCOL_VERSION = '2025-03-26';
 export const SUPPORTED_PROTOCOL_VERSIONS = [LATEST_PROTOCOL_VERSION, '2025-06-18', '2025-03-26', '2024-11-05', '2024-10-07'];
 
+/**
+ * `_meta` key associating a message with a 2025-11-25 task.
+ *
+ * @deprecated 2025-11-25 wire vocabulary with no SDK runtime; kept importable for interoperability only.
+ */
 export const RELATED_TASK_META_KEY = 'io.modelcontextprotocol/related-task';
 
 /* Reserved `_meta` keys for the per-request envelope (protocol revision 2026-07-28) */
@@ -25,6 +30,19 @@ export const CLIENT_INFO_META_KEY = 'io.modelcontextprotocol/clientInfo';
  * servers must not infer capabilities from prior requests.
  */
 export const CLIENT_CAPABILITIES_META_KEY = 'io.modelcontextprotocol/clientCapabilities';
+
+/**
+ * `_meta` key carrying the JSON-RPC ID of the `subscriptions/listen` request
+ * that opened the stream a notification was delivered on.
+ *
+ * Stamped by the server on every notification delivered via a
+ * `subscriptions/listen` stream (including the leading
+ * `notifications/subscriptions/acknowledged`); on stdio, where all messages
+ * share one channel, clients use it to correlate notifications with their
+ * originating subscription. The value is the listen request's JSON-RPC ID
+ * verbatim.
+ */
+export const SUBSCRIPTION_ID_META_KEY = 'io.modelcontextprotocol/subscriptionId';
 
 /**
  * `_meta` key carrying the desired log level for a request.

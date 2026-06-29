@@ -136,7 +136,6 @@ const SPEC_SCHEMA_KEYS = [
     'RelatedTaskMetadataSchema',
     'RequestSchema',
     'RequestIdSchema',
-    'RequestMetaEnvelopeSchema',
     'RequestMetaSchema',
     'ResourceSchema',
     'ResourceContentsSchema',
@@ -164,10 +163,17 @@ const SPEC_SCHEMA_KEYS = [
     'StringSchemaSchema',
     'SubscribeRequestSchema',
     'SubscribeRequestParamsSchema',
-    'TaskSchema',
+    'SubscriptionFilterSchema',
+    'SubscriptionsAcknowledgedNotificationSchema',
+    'SubscriptionsAcknowledgedNotificationParamsSchema',
+    'SubscriptionsListenRequestSchema',
+    'SubscriptionsListenRequestParamsSchema',
+    'SubscriptionsListenResultSchema',
+    'SubscriptionsListenResultMetaSchema',
     'TaskAugmentedRequestParamsSchema',
     'TaskCreationParamsSchema',
     'TaskMetadataSchema',
+    'TaskSchema',
     'TaskStatusSchema',
     'TaskStatusNotificationSchema',
     'TaskStatusNotificationParamsSchema',
@@ -225,7 +231,12 @@ export type SpecTypeName = StripSchemaSuffix<SchemaKey>;
 /**
  * Maps each {@linkcode SpecTypeName} to its TypeScript type.
  *
- * `SpecTypes['CallToolResult']` is equivalent to importing the `CallToolResult` type directly.
+ * `SpecTypes['Tool']` is equivalent to importing the `Tool` type directly.
+ * These validators cover the NEUTRAL model — the consumer-facing shapes with
+ * no wire-only members (`resultType`, the reserved `_meta` envelope keys).
+ * Per-revision WIRE validators are deliberately not public surface; they are
+ * planned to return as versioned `zod-schemas/<revision>` exports for
+ * consumers who validate raw wire traffic themselves.
  */
 export type SpecTypes = {
     [K in SchemaKey as StripSchemaSuffix<K>]: SchemaFor<K> extends z.ZodType ? z.output<SchemaFor<K>> : never;

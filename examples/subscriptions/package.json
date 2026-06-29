@@ -1,0 +1,23 @@
+{
+    "name": "@mcp-examples/subscriptions",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "server": "tsx server.ts",
+        "client": "tsx client.ts"
+    },
+    "dependencies": {
+        "@mcp-examples/shared": "workspace:*",
+        "@modelcontextprotocol/client": "workspace:*",
+        "@modelcontextprotocol/node": "workspace:*",
+        "@modelcontextprotocol/server": "workspace:*",
+        "zod": "catalog:runtimeShared"
+    },
+    "devDependencies": {
+        "tsx": "catalog:devTools"
+    },
+    "example": {
+        "era": "modern",
+        "//": "subscriptions/listen is a 2026-07-28 protocol feature."
+    }
+}

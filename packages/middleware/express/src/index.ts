@@ -1,5 +1,6 @@
 export * from './express';
 export * from './middleware/hostHeaderValidation';
+export * from './middleware/originValidation';
 
 // OAuth Resource-Server glue: bearer-token middleware + PRM/AS metadata router.
 export type { BearerAuthMiddlewareOptions } from './auth/bearerAuth';

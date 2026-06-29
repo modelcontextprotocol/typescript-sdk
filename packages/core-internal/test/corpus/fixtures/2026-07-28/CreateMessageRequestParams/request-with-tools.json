@@ -1,0 +1,31 @@
+{
+  "messages": [
+    {
+      "role": "user",
+      "content": {
+        "type": "text",
+        "text": "What's the weather like in Paris and London?"
+      }
+    }
+  ],
+  "tools": [
+    {
+      "name": "get_weather",
+      "description": "Get current weather for a city",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "city": {
+            "type": "string",
+            "description": "City name"
+          }
+        },
+        "required": ["city"]
+      }
+    }
+  ],
+  "toolChoice": {
+    "mode": "auto"
+  },
+  "maxTokens": 1000
+}

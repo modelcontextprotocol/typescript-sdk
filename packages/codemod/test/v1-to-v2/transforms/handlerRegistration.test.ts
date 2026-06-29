@@ -93,7 +93,7 @@ describe('handler-registration transform', () => {
 
     it('does not replace schema identifiers from non-MCP packages', () => {
         const input = [
-            `import { CallToolRequestSchema } from './local-schemas.js';`,
+            `import { CallToolRequestSchema } from './local-schemas';`,
             `server.setRequestHandler(CallToolRequestSchema, async (request) => {`,
             `    return { content: [] };`,
             `});`,
@@ -106,14 +106,14 @@ describe('handler-registration transform', () => {
 
     it('does not rewrite local import when aliased MCP import has same export name', () => {
         const input = [
-            `import { CallToolRequestSchema } from './local-schemas.js';`,
+            `import { CallToolRequestSchema } from './local-schemas';`,
             `import { CallToolRequestSchema as McpSchema } from '@modelcontextprotocol/sdk/types.js';`,
             `server.setRequestHandler(CallToolRequestSchema, async () => ({ content: [] }));`,
             `validateSchema(McpSchema);`,
             ''
         ].join('\n');
         const result = applyTransform(input);
-        expect(result).toContain("from './local-schemas.js'");
+        expect(result).toContain("from './local-schemas'");
         expect(result).toContain('setRequestHandler(CallToolRequestSchema');
         expect(result).not.toContain("'tools/call'");
     });
@@ -219,26 +219,39 @@ describe('handler-registration transform', () => {
         expect(result).not.toContain('ElicitationCompleteNotificationSchema');
     });
 
-    it('replaces TaskStatusNotificationSchema with the tasks/status method string', () => {
-        const input = [
-            `import { TaskStatusNotificationSchema } from '@modelcontextprotocol/sdk/types.js';`,
-            `client.setNotificationHandler(TaskStatusNotificationSchema, async () => {});`,
-            ''
-        ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setNotificationHandler('notifications/tasks/status'");
-        expect(result).not.toContain('TaskStatusNotificationSchema');
-    });
-
-    it('replaces task request schemas (GetTaskRequestSchema → tasks/get)', () => {
+    it('emits a tasks-removed diagnostic for GetTaskRequestSchema (does NOT rewrite to tasks/get)', () => {
         const input = [
             `import { GetTaskRequestSchema } from '@modelcontextprotocol/sdk/types.js';`,
             `server.setRequestHandler(GetTaskRequestSchema, async () => ({}));`,
             ''
         ].join('\n');
-        const result = applyTransform(input);
-        expect(result).toContain("setRequestHandler('tasks/get'");
-        expect(result).not.toContain('GetTaskRequestSchema');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = handlerRegistrationTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).not.toContain("'tasks/get'");
+        expect(text).toContain('setRequestHandler(GetTaskRequestSchema');
+        expect(result.changesCount).toBe(0);
+        expect(result.diagnostics.length).toBe(1);
+        expect(result.diagnostics[0]!.message).toContain('Task handler registration');
+        expect(result.diagnostics[0]!.message).toContain('SEP-2663');
+    });
+
+    it('emits a tasks-removed diagnostic for TaskStatusNotificationSchema (does NOT rewrite)', () => {
+        const input = [
+            `import { TaskStatusNotificationSchema } from '@modelcontextprotocol/sdk/types.js';`,
+            `client.setNotificationHandler(TaskStatusNotificationSchema, async () => {});`,
+            ''
+        ].join('\n');
+        const project = new Project({ useInMemoryFileSystem: true });
+        const sourceFile = project.createSourceFile('test.ts', input);
+        const result = handlerRegistrationTransform.apply(sourceFile, ctx);
+        const text = sourceFile.getFullText();
+        expect(text).not.toContain("'notifications/tasks/status'");
+        expect(text).toContain('setNotificationHandler(TaskStatusNotificationSchema');
+        expect(result.changesCount).toBe(0);
+        expect(result.diagnostics.length).toBe(1);
+        expect(result.diagnostics[0]!.message).toContain('Task handler registration');
     });
 
     it('does not emit diagnostic when first arg is a string literal (v2 style)', () => {

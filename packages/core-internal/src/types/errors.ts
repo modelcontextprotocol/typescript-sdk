@@ -1,5 +1,10 @@
 import { ProtocolErrorCode } from './enums';
-import type { ElicitRequestURLParams, UnsupportedProtocolVersionErrorData } from './types';
+import type {
+    ClientCapabilities,
+    ElicitRequestURLParams,
+    MissingRequiredClientCapabilityErrorData,
+    UnsupportedProtocolVersionErrorData
+} from './types';
 
 /**
  * Protocol errors are JSON-RPC errors that cross the wire as error responses.
@@ -34,8 +39,65 @@ export class ProtocolError extends Error {
             }
         }
 
+        // Resource not found is recognised on BOTH the spec-mandated −32602 and
+        // the legacy −32002 (the spec's "clients SHOULD also accept −32002"
+        // backwards-compatibility clause). On −32602 the data-shape parse is
+        // narrowed to "exactly `{ uri: string }` and nothing else": a server's
+        // own Invalid Params that happens to carry `data.uri` alongside other
+        // keys (e.g. `{ uri, reason: 'uri must be https' }`) stays a generic
+        // ProtocolError. On −32002 the code itself is the discriminator, so any
+        // `data.uri` string suffices.
+        if (code === ProtocolErrorCode.InvalidParams || code === ProtocolErrorCode.ResourceNotFound) {
+            const errorData = data as Record<string, unknown> | undefined;
+            if (
+                typeof errorData?.uri === 'string' &&
+                (code === ProtocolErrorCode.ResourceNotFound || Object.keys(errorData).length === 1)
+            ) {
+                return new ResourceNotFoundError(errorData.uri, message);
+            }
+        }
+
+        if (code === ProtocolErrorCode.MissingRequiredClientCapability && data) {
+            const errorData = data as Partial<MissingRequiredClientCapabilityErrorData>;
+            if (
+                errorData.requiredCapabilities !== null &&
+                typeof errorData.requiredCapabilities === 'object' &&
+                !Array.isArray(errorData.requiredCapabilities)
+            ) {
+                return new MissingRequiredClientCapabilityError({ requiredCapabilities: errorData.requiredCapabilities }, message);
+            }
+        }
+
         // Default to generic ProtocolError
         return new ProtocolError(code, message, data);
+    }
+}
+
+/**
+ * Error type for a `resources/read` miss: the requested resource does not
+ * exist. The wire code is `-32602` (Invalid Params) on every protocol
+ * revision — the spec MUST for revision 2026-07-28, and the value the v1.x
+ * SDK has always emitted on earlier revisions. The error data echoes the
+ * requested URI.
+ *
+ * Recognise this error by checking `error.data` is exactly `{ uri: string }`
+ * (a `-32602` whose data carries `uri` and nothing else is resource-not-found;
+ * any other `-32602` is an ordinary Invalid Params). For backwards compatibility, clients should also
+ * accept `-32002` as resource not found — earlier SDK builds emitted that
+ * code, and {@linkcode ProtocolError.fromError} reconstructs this class for
+ * either code **when `error.data` carries `uri`** (a bare `-32002` without
+ * `data.uri` stays a generic {@linkcode ProtocolError}). Do not rely on
+ * `instanceof` — it does not work across separately bundled copies of the
+ * SDK.
+ */
+export class ResourceNotFoundError extends ProtocolError {
+    constructor(uri: string, message: string = `Resource not found: ${uri}`) {
+        super(ProtocolErrorCode.InvalidParams, message, { uri });
+    }
+
+    /** The URI that was requested and not found. */
+    get uri(): string {
+        return (this.data as { uri: string }).uri;
     }
 }
 
@@ -56,7 +118,7 @@ export class UrlElicitationRequiredError extends ProtocolError {
 }
 
 /**
- * Error type for the `-32004` UnsupportedProtocolVersion protocol error (protocol
+ * Error type for the `-32022` UnsupportedProtocolVersion protocol error (protocol
  * revision 2026-07-28): the request's protocol version is unknown to the server or
  * unsupported by it.
  *
@@ -81,5 +143,36 @@ export class UnsupportedProtocolVersionError extends ProtocolError {
      */
     get requested(): string {
         return (this.data as UnsupportedProtocolVersionErrorData).requested;
+    }
+}
+
+/**
+ * Error type for the `-32021` MissingRequiredClientCapability protocol error
+ * (protocol revision 2026-07-28): processing the request requires a capability
+ * the client did not declare in the request's `clientCapabilities`.
+ *
+ * The error data lists the missing capabilities (`requiredCapabilities`) in
+ * the `ClientCapabilities` shape, so the client can see exactly what it would
+ * have to declare for the request to be served. On HTTP, the response status
+ * is `400 Bad Request`.
+ *
+ * Recognize this error by its code and `data.requiredCapabilities` rather than
+ * by class identity (`instanceof` does not work across separately bundled
+ * copies of the SDK).
+ */
+export class MissingRequiredClientCapabilityError extends ProtocolError {
+    constructor(
+        data: MissingRequiredClientCapabilityErrorData,
+        message: string = `Missing required client capabilities: ${Object.keys(data.requiredCapabilities).join(', ')}`
+    ) {
+        super(ProtocolErrorCode.MissingRequiredClientCapability, message, data);
+    }
+
+    /**
+     * The capabilities the server requires from the client to process the
+     * request (only the missing capabilities are listed).
+     */
+    get requiredCapabilities(): ClientCapabilities {
+        return (this.data as MissingRequiredClientCapabilityErrorData).requiredCapabilities;
     }
 }
