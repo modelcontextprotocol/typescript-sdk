@@ -32,6 +32,7 @@ console.log(
 /** @type {Partial<import("typedoc").TypeDocOptions>} */
 export default {
     name: 'MCP TypeScript SDK (V2)',
+    plugin: ['typedoc-plugin-markdown', 'typedoc-vitepress-theme'],
     entryPointStrategy: 'packages',
     entryPoints,
     packageOptions: {
@@ -39,21 +40,16 @@ export default {
         exclude: ['**/*.examples.ts']
     },
     highlightLanguages: [...OptionDefaults.highlightLanguages, 'powershell'],
-    projectDocuments: ['docs/documents.md', 'packages/middleware/README.md', 'examples/README.md'],
-    hostedBaseUrl: 'https://ts.sdk.modelcontextprotocol.io/v2/',
-    navigationLinks: {
-        'V1 Docs': '/'
-    },
-    navigation: {
-        compactFolders: true,
-        includeFolders: false
-    },
-    headings: {
-        readme: false
-    },
-    customJs: 'docs/v2-banner.js',
+    // typedoc-plugin-markdown: one page per module/package, symbols as sections.
+    outputFileStrategy: 'modules',
+    // The VitePress landing page replaces the root README; rendering it here would duplicate it
+    // under /api/ and drag relative-linked files into _media/ copies with broken links.
+    readme: 'none',
+    // typedoc-vitepress-theme: emits docs/api/typedoc-sidebar.json with links relative to the
+    // VitePress source root.
+    docsRoot: 'docs',
     treatWarningsAsErrors: true,
-    out: 'tmp/docs/',
+    out: 'docs/api',
     externalSymbolLinkMappings: {
         '@modelcontextprotocol/core-internal': {
             StandardSchemaV1: 'https://standardschema.dev/',
