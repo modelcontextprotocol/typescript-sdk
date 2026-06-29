@@ -6,6 +6,30 @@ import { hasMcpImports, isImportedFromMcp, removeUnusedImport, resolveOriginalIm
 
 const TARGET_METHODS = new Set(['request', 'callTool']);
 
+// `request()` keeps its result-schema parameter in v2 (custom methods, passthrough
+// forwarding); only calls whose method the codemod can PROVE is a literal string may
+// safely lose it. A dynamic method — `request({ method, params }, schema)` in a
+// proxy/forwarder — must keep the schema: schema-less v2 `request()` enforces the
+// spec result schema for known methods and resolves `undefined` for unknown ones.
+function hasLiteralMethod(arg: Node): boolean {
+    if (!Node.isObjectLiteralExpression(arg)) return false;
+    const prop = arg.getProperty('method');
+    if (!prop || !Node.isPropertyAssignment(prop)) return false;
+    // A spread after the `method` property can override it at runtime — not provably literal.
+    const props = arg.getProperties();
+    const spreadAfterMethod = props.slice(props.indexOf(prop) + 1).some(p => Node.isSpreadAssignment(p));
+    if (spreadAfterMethod) return false;
+    let initializer = prop.getInitializer();
+    // Unwrap `'tools/call' as const` / `satisfies` / parenthesized forms.
+    while (
+        initializer !== undefined &&
+        (Node.isAsExpression(initializer) || Node.isSatisfiesExpression(initializer) || Node.isParenthesizedExpression(initializer))
+    ) {
+        initializer = initializer.getExpression();
+    }
+    return initializer !== undefined && (Node.isStringLiteral(initializer) || Node.isNoSubstitutionTemplateLiteral(initializer));
+}
+
 export const schemaParamRemovalTransform: Transform = {
     name: 'Schema parameter removal',
     id: 'schema-params',
@@ -49,6 +73,16 @@ export const schemaParamRemovalTransform: Transform = {
             const originalName = resolveOriginalImportName(sourceFile, schemaName) ?? schemaName;
             if (!originalName.endsWith('Schema')) continue;
             if (!isImportedFromMcp(sourceFile, schemaName)) continue;
+
+            // v2 `callTool()` has no schema parameter at all, so the argument always goes.
+            // v2 `request()` still accepts one — only drop it when the method is a literal
+            // (see hasLiteralMethod) and the schema is method-specific: the generic
+            // `ResultSchema` is the v1 passthrough idiom, and dropping it would silently
+            // switch the call from passthrough to spec-schema enforcement.
+            if (methodName === 'request') {
+                if (!hasLiteralMethod(args[0]!)) continue;
+                if (originalName === 'ResultSchema') continue;
+            }
 
             call.removeArgument(1);
             changesCount++;
