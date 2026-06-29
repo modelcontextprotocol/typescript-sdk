@@ -5,6 +5,7 @@ import {
     completeAuthorizationWithBrowser,
     createOAuthProvider,
     findCallbackPort,
+    isSafeBrowserUrl,
     waitForOAuthCallback
 } from '../host/auth';
 import { ScriptedUI } from '../script/scriptedUi';
@@ -138,5 +139,21 @@ describe('completeAuthorizationWithBrowser', () => {
         expect(await pending).toBe(true);
         expect(receivedCode).toBe('secret-code');
         expect(openedUrl).toBe(`http://127.0.0.1:9/authorize?state=${expectedState}`);
+    });
+});
+
+describe('isSafeBrowserUrl', () => {
+    it('allows https anywhere and http only on loopback', () => {
+        expect(isSafeBrowserUrl(new URL('https://example.com/step'))).toBe(true);
+        expect(isSafeBrowserUrl(new URL('http://127.0.0.1:8080/cb'))).toBe(true);
+        expect(isSafeBrowserUrl(new URL('http://localhost/cb'))).toBe(true);
+        expect(isSafeBrowserUrl(new URL('http://[::1]:9000/cb'))).toBe(true);
+    });
+
+    it('refuses remote http and non-web schemes', () => {
+        expect(isSafeBrowserUrl(new URL('http://example.com/phish'))).toBe(false);
+        expect(isSafeBrowserUrl(new URL('file:///etc/passwd'))).toBe(false);
+        expect(isSafeBrowserUrl(new URL('javascript:alert(1)'))).toBe(false);
+        expect(isSafeBrowserUrl(new URL('ftp://example.com/x'))).toBe(false);
     });
 });

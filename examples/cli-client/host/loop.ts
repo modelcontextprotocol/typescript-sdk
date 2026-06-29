@@ -71,6 +71,9 @@ export async function runModelRounds(session: ChatSession): Promise<void> {
         if (result.text) ui.print(result.text);
         if (result.toolCalls.length === 0) return;
 
+        // cli-client executes tool calls without a confirmation gate because an interactive
+        // user watches every `→` line and holds Ctrl-C; a host without that live supervision
+        // must gate execution on user consent (see the guide's security section).
         for (const call of result.toolCalls) {
             ui.status(`→ ${call.name} ${JSON.stringify(call.arguments)}`);
             // Long-running calls stay cancellable: Ctrl-C aborts this call (the SDK sends

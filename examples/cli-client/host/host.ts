@@ -25,7 +25,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 import type { ChatMessage, ContentPart, GenerateResult, LLMProvider, ToolCall, ToolDefinition } from '../providers/provider';
 import { isRecord } from '../providers/provider';
-import { completeAuthorizationWithBrowser, createOAuthProvider, findCallbackPort } from './auth';
+import { completeAuthorizationWithBrowser, createOAuthProvider, findCallbackPort, isSafeBrowserUrl } from './auth';
 import type { CliClientConfig, ServerConfig } from './config';
 import { isHttpServer } from './config';
 import { contentBlockToParts, resourceToContextText, toolResultToParts } from './content';
@@ -405,6 +405,19 @@ export class McpHost {
         client.setRequestHandler('elicitation/create', async (request): Promise<ElicitResult> => {
             const params = request.params;
             if (params.mode === 'url') {
+                // Same discipline as the OAuth path: never offer a server-controlled URL to the
+                // browser unless it is https (or http on loopback) — file:, javascript:, and
+                // plain-http phishing URLs all fail closed to a decline.
+                let target: URL | undefined;
+                try {
+                    target = new URL(params.url);
+                } catch {
+                    target = undefined;
+                }
+                if (!target || !isSafeBrowserUrl(target)) {
+                    this.ui.status(`declined URL elicitation from "${name}" — refusing to open a non-https URL`);
+                    return { action: 'decline' };
+                }
                 this.ui.attention(
                     `[elicitation request]\nServer "${name}" needs you to complete a step in the browser:\n\n${params.url}\n`
                 );

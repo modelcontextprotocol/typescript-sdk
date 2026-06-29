@@ -137,6 +137,9 @@ export async function runModelRounds(session: ChatSession): Promise<void> {
         if (result.text) ui.print(result.text);
         if (result.toolCalls.length === 0) return;
 
+        // cli-client executes tool calls without a confirmation gate because an interactive
+        // user watches every `→` line and holds Ctrl-C; a host without that live supervision
+        // must gate execution on user consent (see the guide's security section).
         for (const call of result.toolCalls) {
             ui.status(`→ ${call.name} ${JSON.stringify(call.arguments)}`);
             // Long-running calls stay cancellable: Ctrl-C aborts this call (the SDK sends
@@ -240,7 +243,7 @@ Declare the capability in the client constructor and register the handler once; 
 Elicitation is the inverse of sampling: the server needs _the human_, not the model. Two modes arrive at the same handler:
 
 - **Form mode** carries `message` plus a flat `requestedSchema` (strings, numbers, booleans, enums — no nesting). Generate UI from it: cli-client walks the properties and asks one question per field in the terminal (`host/ui.ts`), validating against the declared type before accepting.
-- **URL mode** carries a URL the user must visit (payment, OAuth-style consent, anything that should not pass through the host). Show it, let the user open it, confirm when done.
+- **URL mode** carries a URL the user must visit (payment, OAuth-style consent, anything that should not pass through the host). Apply the same https-or-loopback gate as OAuth before offering it, then show it, let the user open it, confirm when done.
 
 Return exactly one of the three outcomes and mean it: `accept` (with the collected content), `decline` (the user said no), `cancel` (the user dismissed it). Decline and cancel are answers, not retries — a server that re-asks on decline is a bug, and a host that maps errors to `accept` is a worse one. cli-client fails closed: any error in form collection becomes `cancel`.
 
@@ -280,6 +283,7 @@ Patterns worth knowing about once the basics work — none of them are in cli-cl
 A host sits between untrusted servers, a user's credentials, and a model that does what its context tells it. The short list cli-client implements and the guide above assumes:
 
 - Treat every server-provided string as untrusted input: strip terminal escape sequences before rendering, label injected content with its origin, and cap its size.
+- Decide a tool-consent policy: the spec expects a human in the loop able to deny tool invocations, so confirm destructive or side-effecting calls (or maintain a per-server allowlist). cli-client auto-executes because an interactive user watches every call and can Ctrl-C; an unattended host must not.
 - Gate sampling on explicit user approval and cap its token spend; gate browser-opening (OAuth, URL elicitation) the same way.
 - Never hand a child server process your full environment, and keep API keys out of config files (`${VAR}` interpolation exists for this).
 - Validate the OAuth `state` parameter, only hand `https:` (or loopback) authorization URLs to the browser, and never render attacker-controllable error descriptions from callbacks.

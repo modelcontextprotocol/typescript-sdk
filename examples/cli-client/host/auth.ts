@@ -137,6 +137,15 @@ function isLoopbackHost(hostname: string): boolean {
 }
 
 /**
+ * True when a server-supplied URL is safe to hand to the system browser: `https:`, or `http:`
+ * on a loopback host. Everything else (`file:`, `javascript:`, plain http to a remote host)
+ * fails closed. Shared by the OAuth flow and URL-mode elicitation.
+ */
+export function isSafeBrowserUrl(url: URL): boolean {
+    return url.protocol === 'https:' || (url.protocol === 'http:' && isLoopbackHost(url.hostname));
+}
+
+/**
  * Complete an interactive OAuth flow after `connect()` failed with `UnauthorizedError`:
  * confirm with the user, open the system browser, wait for the loopback callback, verify
  * `state`, and let the transport exchange the code (`finishAuth`). The caller then reconnects
@@ -157,7 +166,7 @@ export async function completeAuthorizationWithBrowser(options: {
     if (!authorizationUrl) return false;
     // The authorization endpoint comes from server-controlled discovery metadata — never hand
     // a non-https (or non-loopback) URL to the browser, and show the user where they're going.
-    if (authorizationUrl.protocol !== 'https:' && !(authorizationUrl.protocol === 'http:' && isLoopbackHost(authorizationUrl.hostname))) {
+    if (!isSafeBrowserUrl(authorizationUrl)) {
         ui.status(`skipping "${serverName}" — refusing to open non-https authorization URL (${authorizationUrl.origin})`);
         return false;
     }
