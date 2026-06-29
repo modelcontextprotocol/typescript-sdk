@@ -393,9 +393,11 @@ prefer wrapping explicitly. Zod v4, ArkType, and Valibot all implement the spec.
 **Zod v3 is no longer supported** (v1 peer was `^3.25 || ^4.0`). Check the **declared
 range** in your `package.json`, not just the installed version: a zod-3 range that
 satisfied the v1 peer installs and typechecks cleanly under v2 and only fails at
-runtime, when the first registration throws — under a spawning harness that surfaces
-as an opaque child exit two hops from the cause. A Zod v3 schema
-hard-errors with a pointer at `fromJsonSchema()`. Zod **≥4.2.0** self-converts via
+runtime — and quietly: registration swallows the conversion failure, the server starts
+and connects normally, and the first `tools/list` (so `client.listTools()`) answers
+with an error pointing at `fromJsonSchema()` while the process keeps running. (Only the
+deprecated unwrapped raw-shape form with zod-3 field values throws at registration,
+with a message pointing at `zod/v4`.) Zod **≥4.2.0** self-converts via
 `~standard.jsonSchema` — the supported path. Zod **4.0–4.1** lacks it, so the SDK falls
 back to its bundled Zod's `z.toJSONSchema()` with a one-time `[mcp-sdk]` console
 warning; and because `.describe()` field descriptions live in the _authoring_ Zod's
@@ -559,6 +561,17 @@ it usually targeted are now **string** `SdkErrorCode` values:
 Replace the literal with the named code. Loud (`TS2367`) when the compared value is
 typed `SdkErrorCode`; silent when the left side is `unknown` or a cast — grep for
 `=== -32000` / `=== -32001`.
+
+**Dual-role processes: `instanceof` does not cross the packages.**
+`@modelcontextprotocol/client` and `@modelcontextprotocol/server` each bundle their own
+copy of these error classes, so in a process that uses both — a gateway, a host, an
+in-process test — an error constructed by one package fails `instanceof` against the
+class imported from the other, silently. When an error may originate from the other
+package, match on stable fields instead of class identity: `error.code` values
+(`SdkErrorCode` strings for SDK errors, numeric JSON-RPC codes for protocol errors,
+`OAuthErrorCode` strings for OAuth errors) plus presence checks like `'status' in e`,
+or reconstruct typed protocol errors with `ProtocolError.fromError(code, message, data)`
+— it exists precisely because `instanceof` does not survive bundle boundaries.
 
 **Constructing the error (test stubs, custom transports).** v1
 `new StreamableHTTPError(code, message)` becomes
@@ -787,13 +800,12 @@ same handling as the POST send path.
 methods plus `tokens()` / `clientInformation()`. On read, a stored value whose `issuer`
 names a different AS is treated as `undefined` and the flow re-registers / re-authorizes.
 **Round-trip the stored object verbatim and you're protected** — single-slot storage
-works. The failure modes differ: a stamp naming a **different** AS reads back as
-`undefined` and the flow re-registers / re-authorizes. A **missing** stamp (a
-`saveTokens()` that rebuilds the object field-by-field and drops `issuer`, or
-pre-upgrade storage) is used **as-is** with a `[mcp-sdk]` console warning — SEP-2352
-isolation is silently inactive for that read; `auth()` re-stamps on first use where the
-provider can persist it. If you see that warning repeatedly, your provider is not
-round-tripping the stored object. To hold credentials for several authorization servers at once, key your storage
+works. Dropping the stamp is easy to miss: a `saveTokens()` implementation that
+rebuilds the object field-by-field and drops `issuer` leaves the value unstamped —
+reads still succeed and refresh keeps working, the per-AS issuer check simply does not
+apply to that credential, and every read logs an `[mcp-sdk]` warning (`auth()`
+re-stamps on first use where the provider can persist it). If you see that warning
+repeating after upgrading, check this first. To hold credentials for several authorization servers at once, key your storage
 on `ctx.issuer` (treat **`ctx === undefined` as "return the most-recently-saved token
 set"** — the transport's per-request `Authorization: Bearer` read calls `tokens()` with
 no `ctx`). New TypeScript-only aliases `StoredOAuthTokens` / `StoredOAuthClientInformation`
@@ -987,8 +999,9 @@ rewrite required unless noted.
 #### Client connection & dispatch
 
 - **`connect()` skips the `initialize` handshake when the transport already exposes a
-  `sessionId`** — it assumes it is reconnecting to an existing session (v1 always
-  initialized). A custom or test transport that sets `sessionId` at construction
+  `sessionId`** — it assumes it is reconnecting to an existing session (unchanged from
+  v1.x, where the same guard has existed since 1.10.0; recorded here because the
+  far-away symptom keeps surprising migrators). A custom or test transport that sets `sessionId` at construction
   silently skips initialization: `getServerCapabilities()` stays `undefined` and the
   list verbs return empty results. Expose `sessionId` only after the first request has
   been sent.
