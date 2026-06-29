@@ -284,15 +284,29 @@ function codecResultValidator(codec: WireCodec, method: string): StandardSchemaV
 }
 
 /**
- * Builds the `ctx.mcpReq.requestState` accessor for a given resolved value —
- * the ONE place the generic-arrow cast lives (an arrow literal cannot carry
- * the declared generic signature, so every construction site must cast; this
- * factory owns that cast). Used by the protocol layer (raw lifted value), the
+ * The type of `ctx.mcpReq.requestState`: reads the multi-round-trip request
+ * state resolved for the current round.
+ *
+ * The type parameter is **caller-asserted** — the accessor performs no
+ * validation, so `requestState<T>()` is a typed read in exactly the way the
+ * two-argument `acceptedContent<T>` is: the runtime value is whatever the
+ * configured verify hook resolved (or the raw wire string), and `T` is the
+ * caller's claim about it. Pair it with `createRequestStateCodec<T>` so the
+ * claim is backed by the codec's verification.
+ */
+export type RequestStateAccessor = <T = unknown>() => T | undefined;
+
+/**
+ * Builds the `ctx.mcpReq.requestState` accessor for a given resolved value.
+ * The single `as T` below is where {@linkcode RequestStateAccessor}'s
+ * caller-asserted typing is implemented — no closure over a runtime value
+ * can produce an arbitrary `T` honestly, so the one deliberate cast lives
+ * here and nowhere else. Used by the protocol layer (raw lifted value), the
  * server seam (verify hook's decoded payload), and the legacy shim's
  * per-round re-entry contexts.
  */
-export function requestStateAccessor(value: unknown): BaseContext['mcpReq']['requestState'] {
-    return (<T>(): T | undefined => value as T | undefined) as BaseContext['mcpReq']['requestState'];
+export function requestStateAccessor(value: unknown): RequestStateAccessor {
+    return <T>(): T | undefined => value as T | undefined;
 }
 
 /** Shared no-state accessor: the common case allocates nothing per request. */
@@ -386,7 +400,7 @@ export type BaseContext = {
          * 4–5). Without a configured hook this accessor returns the raw,
          * unverified string.
          */
-        requestState: <T = unknown>() => T | undefined;
+        requestState: RequestStateAccessor;
 
         /**
          * An abort signal used to communicate if the request was cancelled from the sender's side.
