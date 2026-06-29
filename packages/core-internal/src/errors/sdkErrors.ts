@@ -100,7 +100,9 @@ export enum SdkErrorCode {
  * ```
  */
 export class SdkError extends Error {
-    protected static readonly mcpBrand: string = 'mcp.SdkError';
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.SdkError' });
+    }
 
     static override [Symbol.hasInstance](value: unknown): boolean {
         return brandedHasInstance(this, value);
@@ -143,7 +145,9 @@ export interface SdkHttpErrorData {
  * ```
  */
 export class SdkHttpError extends SdkError {
-    protected static override readonly mcpBrand: string = 'mcp.SdkHttpError';
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.SdkHttpError' });
+    }
 
     declare readonly data: SdkHttpErrorData;
 

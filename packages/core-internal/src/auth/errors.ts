@@ -104,7 +104,9 @@ export enum OAuthErrorCode {
  * OAuth error class for all OAuth-related errors.
  */
 export class OAuthError extends Error {
-    protected static readonly mcpBrand: string = 'mcp.OAuthError';
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.OAuthError' });
+    }
 
     static override [Symbol.hasInstance](value: unknown): boolean {
         return brandedHasInstance(this, value);

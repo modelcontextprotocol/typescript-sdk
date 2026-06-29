@@ -132,6 +132,29 @@ describe('cross-bundle error instanceof (branded)', () => {
         expect(own instanceof SdkError).toBe(true);
     });
 
+    it('matches across versions by identity, not shape (contract lock)', () => {
+        // Brand strings are version-less by design: an instance constructed by a
+        // different SDK version cross-matches. instanceof implies identity, not
+        // field shape - consumers read fields defensively.
+        const BRANDS = Symbol.for('mcp.sdk.errorBrands');
+        const olderAlpha = Object.create(Error.prototype) as { status?: number };
+        Object.defineProperty(olderAlpha, BRANDS, { value: new Set(['mcp.SdkError', 'mcp.SdkHttpError']), enumerable: false });
+        expect((olderAlpha as unknown) instanceof SdkHttpError).toBe(true);
+        expect(olderAlpha.status).toBeUndefined();
+    });
+
+    it('does not throw on hostile proxies (falls back to prototype check)', () => {
+        const hostile = new Proxy(
+            {},
+            {
+                getOwnPropertyDescriptor() {
+                    throw new Error('trap');
+                }
+            }
+        );
+        expect((hostile as unknown) instanceof SdkError).toBe(false);
+    });
+
     it('tolerates primitives, null, and brandless objects', () => {
         for (const value of [null, undefined, 42, 'x', Symbol('s'), {}, new Error('plain')]) {
             expect((value as unknown) instanceof SdkError).toBe(false);

@@ -1,11 +1,13 @@
 import type { FetchLike, JSONRPCMessage, Transport } from '@modelcontextprotocol/core-internal';
 import {
+    brandedHasInstance,
     createFetchWithInit,
     JSONRPCMessageSchema,
     normalizeHeaders,
     SdkError,
     SdkErrorCode,
-    SdkHttpError
+    SdkHttpError,
+    stampErrorBrands
 } from '@modelcontextprotocol/core-internal';
 import type { ErrorEvent, EventSourceInit } from 'eventsource';
 import { EventSource } from 'eventsource';
@@ -23,12 +25,21 @@ import {
 import type { IssuerMismatchError } from './authErrors';
 
 export class SseError extends Error {
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.SseError' });
+    }
+
+    static override [Symbol.hasInstance](value: unknown): boolean {
+        return brandedHasInstance(this, value);
+    }
+
     constructor(
         public readonly code: number | undefined,
         message: string | undefined,
         public readonly event: ErrorEvent
     ) {
         super(`SSE error: ${message}`);
+        stampErrorBrands(this, new.target);
     }
 }
 
