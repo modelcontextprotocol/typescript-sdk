@@ -445,41 +445,15 @@ export function buildServer(reqCtx: McpRequestContext): McpServer {
                 content: [{ type: 'text', text: `Nothing added (user answered: ${action}).` }]
             });
 
-            if (reqCtx.era === 'legacy') {
-                // 2025 era: push-style round trips, awaited inline — one elicitation for the theme
-                // and count (with a follow-up form only when the user picks "custom"), then the
-                // host's model invents the tasks (sampling).
-                const countResult = await ctx.mcpReq.elicitInput({
-                    mode: 'form',
-                    message: countMessage,
-                    requestedSchema: BRAINSTORM_COUNT_SCHEMA
-                });
-                if (countResult.action !== 'accept') return declined(countResult.action);
-                const topic = resolveTopic(countResult.content?.theme);
-                let wanted = parseBrainstormCount(countResult.content?.count);
-                if (countResult.content?.count === 'custom') {
-                    const customResult = await ctx.mcpReq.elicitInput({
-                        mode: 'form',
-                        message: 'How many exactly?',
-                        requestedSchema: BRAINSTORM_CUSTOM_COUNT_SCHEMA
-                    });
-                    if (customResult.action !== 'accept') return declined(customResult.action);
-                    wanted = parseBrainstormCount(customResult.content?.customCount);
-                }
-                if (wanted === undefined) return declined('cancel');
-                const response = await ctx.mcpReq.requestSampling(buildBrainstormSampling(topic, wanted));
-                const ideasText = !Array.isArray(response.content) && response.content.type === 'text' ? response.content.text : '';
-                return finish(ideasText, wanted, topic);
-            }
-
-            // 2026-07-28: the same conversation as a multi-round input_required chain. The
-            // handler is a state machine over BrainstormState — it dispatches on `state.step`
-            // (not on which inputResponses key arrived), so each round knows exactly which
-            // answer to read and which data is in scope. State is HMAC-signed by stateCodec;
-            // the seam already verified integrity before this handler ran, so verify here is
-            // the decode.
-            const state: BrainstormState | undefined =
-                ctx.mcpReq.requestState === undefined ? undefined : await stateCodec.verify(ctx.mcpReq.requestState, ctx);
+            // The whole conversation as a multi-round input_required chain — written ONCE.
+            // The handler is a state machine over BrainstormState — it dispatches on
+            // `state.step` (not on which inputResponses key arrived), so each round knows
+            // exactly which answer to read and which data is in scope. State is HMAC-signed
+            // by stateCodec; the seam verified integrity AND decoded the payload before this
+            // handler ran — the typed accessor returns it. On a 2025-era session the SDK's
+            // legacy shim fulfils each round as real push-style requests; the handler never
+            // branches on the served era.
+            const state = ctx.mcpReq.requestState<BrainstormState>();
             const askForIdeas = async (count: number, topic: string): Promise<InputRequiredResult> =>
                 inputRequired({
                     inputRequests: { ideas: inputRequired.createMessage(buildBrainstormSampling(topic, count)) },
@@ -622,27 +596,19 @@ export function buildServer(reqCtx: McpRequestContext): McpServer {
             if (done.length === 0) return { content: [{ type: 'text', text: 'No completed tasks to clear.' }] };
             const message = `Delete ${done.length} completed task(s) from the board?`;
 
-            let action: string;
-            let confirmation: { confirm?: boolean } | undefined;
-            if (reqCtx.era === 'legacy') {
-                // 2025 era: a push-style elicitation/create request, answered inline.
-                const result = await ctx.mcpReq.elicitInput({ mode: 'form', message, requestedSchema: CLEAR_CONFIRM_SCHEMA });
-                action = result.action;
-                confirmation = result.action === 'accept' && result.content ? { confirm: result.content.confirm === true } : undefined;
-            } else {
-                // 2026-07-28: a single input_required round, so no requestState is needed —
-                // the first call has no inputResponses and returns the question; the re-call
-                // carries the answer. (For multi-round flows, dispatch on a discriminated
-                // requestState instead — see brainstorm_tasks.)
-                const response = ctx.mcpReq.inputResponses?.['confirmation'];
-                if (response === undefined) {
-                    return inputRequired({
-                        inputRequests: { confirmation: inputRequired.elicit({ message, requestedSchema: CLEAR_CONFIRM_SCHEMA }) }
-                    });
-                }
-                action = elicitAction(response);
-                confirmation = acceptedContent<{ confirm?: boolean }>(ctx.mcpReq.inputResponses, 'confirmation');
+            // A single input_required round, written once for both eras — the first call has
+            // no inputResponses and returns the question; the re-call carries the answer.
+            // (For multi-round flows, dispatch on a discriminated requestState instead — see
+            // brainstorm_tasks.) On 2025-era sessions the SDK's legacy shim asks the question
+            // as a real push-style elicitation.
+            const response = ctx.mcpReq.inputResponses?.['confirmation'];
+            if (response === undefined) {
+                return inputRequired({
+                    inputRequests: { confirmation: inputRequired.elicit({ message, requestedSchema: CLEAR_CONFIRM_SCHEMA }) }
+                });
             }
+            const action = elicitAction(response);
+            const confirmation = acceptedContent<{ confirm?: boolean }>(ctx.mcpReq.inputResponses, 'confirmation');
 
             if (confirmation?.confirm !== true) {
                 // Decline and cancel are answers — report them and stop, never ask again.
@@ -675,21 +641,15 @@ export function buildServer(reqCtx: McpRequestContext): McpServer {
                 maxTokens: 400
             };
 
-            let rankingText: string;
-            if (reqCtx.era === 'legacy') {
-                // 2025 era: push-style sampling/createMessage back to the client, awaited inline.
-                const response = await ctx.mcpReq.requestSampling(samplingRequest);
-                rankingText = !Array.isArray(response.content) && response.content.type === 'text' ? response.content.text : '';
-            } else {
-                // 2026-07-28: a single input_required round (the ranking arrives on the retried
-                // call), so no requestState is needed. For multi-round flows, dispatch on a
-                // discriminated requestState instead — see brainstorm_tasks.
-                const response = ctx.mcpReq.inputResponses?.['ranking'];
-                if (response === undefined) {
-                    return inputRequired({ inputRequests: { ranking: inputRequired.createMessage(samplingRequest) } });
-                }
-                rankingText = sampledText(response);
+            // A single input_required round, written once for both eras (the ranking arrives
+            // on the retried call), so no requestState is needed. For multi-round flows,
+            // dispatch on a discriminated requestState instead — see brainstorm_tasks. On
+            // 2025-era sessions the SDK's legacy shim performs the sampling round trip.
+            const response = ctx.mcpReq.inputResponses?.['ranking'];
+            if (response === undefined) {
+                return inputRequired({ inputRequests: { ranking: inputRequired.createMessage(samplingRequest) } });
             }
+            const rankingText = sampledText(response);
 
             const ranked = applyRanking(rankingText, candidates);
             for (const [index, task] of ranked.entries()) {
