@@ -135,6 +135,7 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     const fileResults: FileResult[] = [];
     const allDiagnostics: Diagnostic[] = [];
     const allUsedPackages = new Set<string>();
+    const shebangs = new Map<string, string>();
     let totalChanges = 0;
     let filesChanged = 0;
 
@@ -142,6 +143,16 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
         let fileChanges = 0;
         const fileDiagnostics: Diagnostic[] = [];
         const originalText = sourceFile.getFullText();
+
+        // A leading `#!` shebang is leading trivia of the first import; some transforms drop it when
+        // they rewrite that import, silently breaking CLI packages whose `bin` points at the compiled
+        // entry. Capture it now and restore it after transforms, before saving. Include any blank lines
+        // that followed it (also part of the same dropped trivia) so the original spacing round-trips —
+        // the `\r?` keeps that working for CRLF files, where a blank line is `\r\n`.
+        const shebangMatch = originalText.match(/^#![^\n]*\n(?:[ \t]*\r?\n)*/);
+        if (shebangMatch) {
+            shebangs.set(sourceFile.getFilePath(), shebangMatch[0]);
+        }
 
         const fileClaimedPackages = new Set<string>();
         try {
@@ -215,6 +226,24 @@ export function run(migration: Migration, options: RunnerOptions): RunnerResult 
     let commentCount = 0;
     if (!options.dryRun) {
         commentCount = insertDiagnosticComments(project, fileResults);
+        // Restore any shebang a transform dropped. Done after comment insertion so the inserted
+        // comments (positioned against the post-transform text) shift down with the code uniformly.
+        for (const [filePath, shebang] of shebangs) {
+            const sf = project.getSourceFile(filePath);
+            if (sf && !sf.getFullText().startsWith('#!')) {
+                sf.insertText(0, shebang);
+                // Diagnostic lines were resolved against the post-transform, shebang-stripped text;
+                // re-inserting the shebang pushes every line down by its line count, so bump the reported
+                // lines to stay aligned with the saved file. (Comment insertion above already ran against
+                // the stripped text, so its placement is unaffected.) These Diagnostic objects are shared
+                // with the returned `diagnostics` array, so the fix reaches the CLI output and report too.
+                const lineShift = (shebang.match(/\n/g) ?? []).length;
+                const fileResult = fileResults.find(fr => fr.filePath === filePath);
+                if (fileResult) {
+                    for (const d of fileResult.diagnostics) d.line += lineShift;
+                }
+            }
+        }
         project.saveSync();
     }
 
