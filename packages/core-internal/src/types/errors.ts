@@ -17,7 +17,9 @@ import type {
  * `@modelcontextprotocol/server` in the same process.
  */
 export class ProtocolError extends Error {
-    protected static readonly mcpBrand: string = 'mcp.ProtocolError';
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.ProtocolError' });
+    }
 
     static override [Symbol.hasInstance](value: unknown): boolean {
         return brandedHasInstance(this, value);
@@ -103,7 +105,9 @@ export class ProtocolError extends Error {
  * are brand-matched and work across separately bundled copies of the SDK.
  */
 export class ResourceNotFoundError extends ProtocolError {
-    protected static override readonly mcpBrand: string = 'mcp.ResourceNotFoundError';
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.ResourceNotFoundError' });
+    }
 
     constructor(uri: string, message: string = `Resource not found: ${uri}`) {
         super(ProtocolErrorCode.InvalidParams, message, { uri });
@@ -120,7 +124,9 @@ export class ResourceNotFoundError extends ProtocolError {
  * This makes it nicer for the client to handle since there is specific data to work with instead of just a code to check against.
  */
 export class UrlElicitationRequiredError extends ProtocolError {
-    protected static override readonly mcpBrand: string = 'mcp.UrlElicitationRequiredError';
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.UrlElicitationRequiredError' });
+    }
 
     constructor(elicitations: ElicitRequestURLParams[], message: string = `URL elicitation${elicitations.length > 1 ? 's' : ''} required`) {
         super(ProtocolErrorCode.UrlElicitationRequired, message, {
@@ -143,7 +149,9 @@ export class UrlElicitationRequiredError extends ProtocolError {
  * version that was requested (`requested`).
  */
 export class UnsupportedProtocolVersionError extends ProtocolError {
-    protected static override readonly mcpBrand: string = 'mcp.UnsupportedProtocolVersionError';
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.UnsupportedProtocolVersionError' });
+    }
 
     constructor(data: UnsupportedProtocolVersionErrorData, message: string = `Unsupported protocol version: ${data.requested}`) {
         super(ProtocolErrorCode.UnsupportedProtocolVersion, message, data);
@@ -179,7 +187,9 @@ export class UnsupportedProtocolVersionError extends ProtocolError {
  * copies of the SDK.
  */
 export class MissingRequiredClientCapabilityError extends ProtocolError {
-    protected static override readonly mcpBrand: string = 'mcp.MissingRequiredClientCapabilityError';
+    static {
+        Object.defineProperty(this, 'mcpBrand', { value: 'mcp.MissingRequiredClientCapabilityError' });
+    }
 
     constructor(
         data: MissingRequiredClientCapabilityErrorData,
