@@ -58,7 +58,12 @@ export function brandedHasInstance(cls: object, value: unknown): boolean {
         typeof value === 'object' &&
         value !== null &&
         Object.prototype.hasOwnProperty.call(cls, 'mcpBrand') &&
-        typeof (cls as BrandedConstructor).mcpBrand === 'string'
+        typeof (cls as BrandedConstructor).mcpBrand === 'string' &&
+        // Own-property only: a brand inherited via the prototype chain is never
+        // honored, so polluting Object.prototype with the registry symbol cannot
+        // make arbitrary objects satisfy instanceof (real instances are stamped
+        // with an own property by stampErrorBrands).
+        Object.prototype.hasOwnProperty.call(value, BRANDS)
     ) {
         const carried = (value as BrandCarrier)[BRANDS];
         if (carried && typeof carried.has === 'function' && carried.has((cls as BrandedConstructor).mcpBrand!)) {
