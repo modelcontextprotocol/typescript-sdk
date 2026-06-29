@@ -780,6 +780,12 @@ export abstract class Protocol<ContextT extends BaseContext> {
      * The caller assumes ownership of the {@linkcode Transport}, replacing any callbacks that have already been set, and expects that it is the only user of the {@linkcode Transport} instance going forward.
      */
     async connect(transport: Transport): Promise<void> {
+        if (this._transport) {
+            throw new Error(
+                'Already connected to a transport. Call close() before connecting to a new transport, or use a separate Protocol instance per connection.'
+            );
+        }
+
         this._transport = transport;
         const _onclose = this.transport?.onclose;
         this._transport.onclose = () => {
@@ -813,7 +819,16 @@ export abstract class Protocol<ContextT extends BaseContext> {
         // Pass supported protocol versions to transport for header validation
         transport.setSupportedProtocolVersions?.(this._supportedProtocolVersions);
 
-        await this._transport.start();
+        try {
+            await this._transport.start();
+        } catch (error) {
+            // A transport that failed to start was never connected: unwind so
+            // the instance can retry connect() — the reuse guard above would
+            // otherwise lock the instance onto a transport that never carried
+            // traffic.
+            this._transport = undefined;
+            throw error;
+        }
     }
 
     /**
@@ -1024,22 +1039,41 @@ export abstract class Protocol<ContextT extends BaseContext> {
             return;
         }
 
+        const abortController = new AbortController();
+        this._requestHandlerAbortControllers.set(request.id, abortController);
+
         // Related sends resolve through the SAME instance era as every other
         // sender (the per-request/instance asymmetry is deliberately gone):
         // the codec is resolved at send time from the connection state.
-        const sendNotification = (notification: Notification, options?: NotificationOptions) =>
-            this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, {
+        //
+        // Once this request's handler has been aborted (connection closed or
+        // request cancelled), its related sends must not reach the transport:
+        // `this._transport` is read live at send time, so a handler still
+        // running after close() could otherwise write onto a transport
+        // connected later. Notifications no-op; requests reject with
+        // ConnectionClosed.
+        const sendNotification = (notification: Notification, options?: NotificationOptions): Promise<void> => {
+            if (abortController.signal.aborted) {
+                return Promise.resolve();
+            }
+            return this._notificationViaCodec(this._resolveOutboundCodec(notification.method), notification, {
                 ...options,
                 relatedRequestId: request.id
             });
-        const sendRequest = <U extends StandardSchemaV1>(r: Request, resultSchema: U, options?: RequestOptions) =>
-            this._requestWithSchemaViaCodec(this._resolveOutboundCodec(r.method), r, resultSchema, {
+        };
+        const sendRequest = <U extends StandardSchemaV1>(
+            r: Request,
+            resultSchema: U,
+            options?: RequestOptions
+        ): Promise<StandardSchemaV1.InferOutput<U>> => {
+            if (abortController.signal.aborted) {
+                return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
+            }
+            return this._requestWithSchemaViaCodec(this._resolveOutboundCodec(r.method), r, resultSchema, {
                 ...options,
                 relatedRequestId: request.id
             });
-
-        const abortController = new AbortController();
-        this._requestHandlerAbortControllers.set(request.id, abortController);
+        };
 
         // Multi-round-trip retry material: only BARE response objects are
         // surfaced to the handler; entries that look like a wrapped
@@ -1071,6 +1105,14 @@ export abstract class Protocol<ContextT extends BaseContext> {
                 // that overloaded property type. The cast is sound: this impl dispatches both overload paths via the
                 // isStandardSchema guard, and sendRequest validates the result against the resolved schema either way.
                 send: ((r: Request, schemaOrOptions?: StandardSchemaV1 | RequestOptions, maybeOptions?: RequestOptions) => {
+                    // The abort guard comes FIRST — before era/codec
+                    // resolution — so an aborted handler always gets the
+                    // documented ConnectionClosed rejection, never a
+                    // synchronous era throw evaluated against whatever
+                    // connection replaced this request's.
+                    if (abortController.signal.aborted) {
+                        return Promise.reject(new SdkError(SdkErrorCode.ConnectionClosed, 'Request was cancelled'));
+                    }
                     // Related requests resolve through the instance era at
                     // send time, exactly like direct sends: era-gate first,
                     // then method-keyed schema resolution.

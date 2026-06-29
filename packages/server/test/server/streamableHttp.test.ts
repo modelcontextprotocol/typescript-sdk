@@ -428,11 +428,16 @@ describe('Zod v4', () => {
     });
 
     describe('HTTPServerTransport - Stateless Mode', () => {
-        let transport: WebStandardStreamableHTTPServerTransport;
-        let mcpServer: McpServer;
+        // In stateless mode, each request must use a fresh transport + server
+        // pair (a stateless transport throws when reused across requests).
+        const statelessCleanups: Array<() => Promise<void>> = [];
 
-        beforeEach(async () => {
-            mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
+        afterEach(async () => {
+            while (statelessCleanups.length > 0) await statelessCleanups.pop()!();
+        });
+
+        async function handleStatelessRequest(request: Request): Promise<Response> {
+            const mcpServer = new McpServer({ name: 'test-server', version: '1.0.0' }, { capabilities: { logging: {} } });
 
             mcpServer.registerTool(
                 'echo',
@@ -442,33 +447,35 @@ describe('Zod v4', () => {
                 }
             );
 
-            transport = new WebStandardStreamableHTTPServerTransport({
+            const transport = new WebStandardStreamableHTTPServerTransport({
                 sessionIdGenerator: undefined
             });
 
             await mcpServer.connect(transport);
-        });
+            statelessCleanups.push(async () => {
+                await mcpServer.close().catch(() => {});
+                await transport.close().catch(() => {});
+            });
 
-        afterEach(async () => {
-            await transport.close();
-        });
+            return transport.handleRequest(request);
+        }
 
         it('should work without session management', async () => {
             const request = createRequest('POST', TEST_MESSAGES.initialize);
-            const response = await transport.handleRequest(request);
+            const response = await handleStatelessRequest(request);
 
             expect(response.status).toBe(200);
             expect(response.headers.get('mcp-session-id')).toBeNull();
         });
 
         it('should not require session ID on subsequent requests', async () => {
-            // Initialize
+            // Initialize (served by its own per-request transport)
             const initRequest = createRequest('POST', TEST_MESSAGES.initialize);
-            await transport.handleRequest(initRequest);
+            await handleStatelessRequest(initRequest);
 
             // Subsequent request without session ID should work
             const request = createRequest('POST', TEST_MESSAGES.toolsList);
-            const response = await transport.handleRequest(request);
+            const response = await handleStatelessRequest(request);
 
             expect(response.status).toBe(200);
         });

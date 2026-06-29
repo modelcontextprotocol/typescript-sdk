@@ -152,6 +152,13 @@ test('should restore negotiated protocol version on transport when reconnecting 
     expect(setProtocolVersion).toHaveBeenCalledWith(LATEST_PROTOCOL_VERSION);
     expect(client.getNegotiatedProtocolVersion()).toBe(LATEST_PROTOCOL_VERSION);
 
+    // The original connection drops (transport fires onclose). The negotiated
+    // protocol version survives a transport-initiated close -- only close()/a
+    // fresh handshake reset it -- which is exactly what session resumption
+    // relies on. (connect() on a still-connected client now throws; resumption
+    // happens after the old connection is gone.)
+    initialTransport.onclose?.();
+
     // Now simulate reconnection: new transport with a pre-existing sessionId.
     // connect() will early-return without re-initializing, but MUST restore the protocol version
     // so HTTP transports can keep sending the required mcp-protocol-version header.

@@ -292,25 +292,33 @@ describe('Cloudflare Workers compatibility (no nodejs_compat)', () => {
             };
             fs.writeFileSync(path.join(tempDir, 'wrangler.jsonc'), JSON.stringify(wranglerConfig, null, 2));
 
-            // Write server source
+            // Write server source. Stateless serving is per-request: a fresh
+            // transport + server pair per fetch (a stateless transport throws
+            // when reused across requests).
             const serverSource = `
 import { McpServer, WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 
-const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" });
+function buildServer() {
+    const server = new McpServer({ name: "test-server", version: "${SERVER_VERSION_NONCE}" });
 
-server.registerTool("greet", {
-    description: "Greet someone",
-    inputSchema: z.object({ name: z.string() })
-}, async ({ name }) => ({
-    content: [{ type: "text", text: "Hello, " + name + "!" }]
-}));
+    server.registerTool("greet", {
+        description: "Greet someone",
+        inputSchema: z.object({ name: z.string() })
+    }, async ({ name }) => ({
+        content: [{ type: "text", text: "Hello, " + name + "!" }]
+    }));
 
-const transport = new WebStandardStreamableHTTPServerTransport();
-await server.connect(transport);
+    return server;
+}
 
 export default {
-    fetch: (request) => transport.handleRequest(request)
+    fetch: async (request) => {
+        const server = buildServer();
+        const transport = new WebStandardStreamableHTTPServerTransport();
+        await server.connect(transport);
+        return transport.handleRequest(request);
+    }
 };
 `;
             fs.writeFileSync(path.join(tempDir, 'server.ts'), serverSource);

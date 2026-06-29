@@ -58,19 +58,57 @@ function recordingFetch() {
 
 const NEGOTIATION_HEADERS = ['mcp-protocol-version', 'mcp-method', 'mcp-name'] as const;
 
-async function setupLegacyServer(stateful: boolean) {
-    const httpServer: Server = createServer();
+function buildLegacyMcpServer(): McpServer {
     const mcpServer = new McpServer({ name: 'deployed-2025-server', version: '1.0.0' }, { capabilities: { tools: {} } });
     mcpServer.registerTool('echo', { inputSchema: z.object({ text: z.string() }) }, ({ text }) => ({
         content: [{ type: 'text', text }]
     }));
-    const serverTransport = new NodeStreamableHTTPServerTransport({
-        sessionIdGenerator: stateful ? () => randomUUID() : undefined
+    return mcpServer;
+}
+
+async function setupLegacyServer(stateful: boolean): Promise<{ httpServer: Server; baseUrl: URL; close: () => Promise<void> }> {
+    const httpServer: Server = createServer();
+    if (stateful) {
+        const mcpServer = buildLegacyMcpServer();
+        const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: () => randomUUID() });
+        await mcpServer.connect(serverTransport);
+        httpServer.on('request', (req, res) => void serverTransport.handleRequest(req, res));
+        const baseUrl = await listenOnRandomPort(httpServer);
+        return {
+            httpServer,
+            baseUrl,
+            close: async () => {
+                await mcpServer.close().catch(() => {});
+                await serverTransport.close().catch(() => {});
+                httpServer.close();
+            }
+        };
+    }
+    // Stateless deployment serves per request: a fresh McpServer + stateless
+    // transport pair per inbound request (a stateless transport throws when
+    // reused across requests).
+    const pairCleanups: Array<() => Promise<void>> = [];
+    httpServer.on('request', (req, res) => {
+        void (async () => {
+            const mcpServer = buildLegacyMcpServer();
+            const serverTransport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+            await mcpServer.connect(serverTransport);
+            pairCleanups.push(async () => {
+                await mcpServer.close().catch(() => {});
+                await serverTransport.close().catch(() => {});
+            });
+            await serverTransport.handleRequest(req, res);
+        })();
     });
-    await mcpServer.connect(serverTransport);
-    httpServer.on('request', (req, res) => void serverTransport.handleRequest(req, res));
     const baseUrl = await listenOnRandomPort(httpServer);
-    return { httpServer, mcpServer, serverTransport, baseUrl };
+    return {
+        httpServer,
+        baseUrl,
+        close: async () => {
+            while (pairCleanups.length > 0) await pairCleanups.pop()!();
+            httpServer.close();
+        }
+    };
 }
 
 describe('version negotiation against real legacy servers (wire-real first-contact shapes)', () => {
@@ -81,11 +119,7 @@ describe('version negotiation against real legacy servers (wire-real first-conta
 
     async function startLegacy(stateful: boolean) {
         const setup = await setupLegacyServer(stateful);
-        cleanups.push(async () => {
-            await setup.mcpServer.close().catch(() => {});
-            await setup.serverTransport.close().catch(() => {});
-            setup.httpServer.close();
-        });
+        cleanups.push(setup.close);
         return setup;
     }
 

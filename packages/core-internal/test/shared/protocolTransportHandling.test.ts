@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, test } from 'vitest';
 import type { BaseContext } from '../../src/shared/protocol';
 import { Protocol } from '../../src/shared/protocol';
 import type { Transport } from '../../src/shared/transport';
-import type { EmptyResult, JSONRPCMessage, Notification, Request, Result } from '../../src/types/index';
+import type { EmptyResult, JSONRPCMessage } from '../../src/types/index';
 
 // Mock Transport class
 class MockTransport implements Transport {
@@ -28,96 +28,112 @@ class MockTransport implements Transport {
     }
 }
 
-describe('Protocol transport handling bug', () => {
-    let protocol: Protocol<BaseContext>;
+function createProtocol(): Protocol<BaseContext> {
+    return new (class extends Protocol<BaseContext> {
+        protected assertCapabilityForMethod(): void {}
+        protected assertNotificationCapability(): void {}
+        protected assertRequestHandlerCapability(): void {}
+        protected buildContext(ctx: BaseContext): BaseContext {
+            return ctx;
+        }
+    })();
+}
+
+describe('Protocol transport handling', () => {
     let transportA: MockTransport;
     let transportB: MockTransport;
 
     beforeEach(() => {
-        protocol = new (class extends Protocol<BaseContext> {
-            protected assertCapabilityForMethod(): void {}
-            protected assertNotificationCapability(): void {}
-            protected assertRequestHandlerCapability(): void {}
-            protected buildContext(ctx: BaseContext): BaseContext {
-                return ctx;
-            }
-        })();
-
         transportA = new MockTransport('A');
         transportB = new MockTransport('B');
     });
 
-    test('should send response to the correct transport when multiple clients are connected', async () => {
-        // Set up a request handler that simulates processing time
-        let resolveHandler: (value: EmptyResult) => void;
-        const handlerPromise = new Promise<EmptyResult>(resolve => {
-            resolveHandler = resolve;
+    test('should send response to the correct transport when using separate protocol instances', async () => {
+        const protocolA = createProtocol();
+        const protocolB = createProtocol();
+
+        // Each protocol gets its own resolver so we can verify responses route correctly
+        let resolveA: (value: EmptyResult) => void;
+        let resolveB: (value: EmptyResult) => void;
+        let handlerAEnteredResolve: () => void;
+        let handlerBEnteredResolve: () => void;
+        const handlerAEntered = new Promise<void>(resolve => {
+            handlerAEnteredResolve = resolve;
+        });
+        const handlerBEntered = new Promise<void>(resolve => {
+            handlerBEnteredResolve = resolve;
         });
 
-        protocol.setRequestHandler('ping', async () => handlerPromise);
+        protocolA.setRequestHandler('ping', async () => {
+            return new Promise<EmptyResult>(resolve => {
+                resolveA = resolve;
+                handlerAEnteredResolve();
+            });
+        });
+
+        protocolB.setRequestHandler('ping', async () => {
+            return new Promise<EmptyResult>(resolve => {
+                resolveB = resolve;
+                handlerBEnteredResolve();
+            });
+        });
 
         // Client A connects and sends a request
-        await protocol.connect(transportA);
+        await protocolA.connect(transportA);
         transportA.onmessage?.({ jsonrpc: '2.0', method: 'ping', id: 1 });
 
-        // While A's request is being processed, client B connects
-        // This overwrites the transport reference in the protocol
-        await protocol.connect(transportB);
+        // Client B connects to a separate protocol instance
+        await protocolB.connect(transportB);
         transportB.onmessage?.({ jsonrpc: '2.0', method: 'ping', id: 2 });
 
-        // Now complete A's request
-        resolveHandler!({});
+        // Wait for both handlers to be invoked so resolvers are captured
+        await handlerAEntered;
+        await handlerBEntered;
 
-        // Wait for async operations to complete
+        // Resolve each handler
+        resolveA!({});
+        resolveB!({});
+
+        // Wait for response delivery (transport.send is async)
         await new Promise(resolve => setTimeout(resolve, 10));
 
-        // Check where the responses went
-        console.log('Transport A received:', transportA.sentMessages);
-        console.log('Transport B received:', transportB.sentMessages);
-
-        // Transport A should receive response for request ID 1
+        // Each transport receives its own response
         expect(transportA.sentMessages).toHaveLength(1);
         expect(transportA.sentMessages[0]).toMatchObject({ jsonrpc: '2.0', id: 1, result: {} });
 
-        // Transport B should receive response for request ID 2
         expect(transportB.sentMessages).toHaveLength(1);
         expect(transportB.sentMessages[0]).toMatchObject({ jsonrpc: '2.0', id: 2, result: {} });
     });
 
-    test('demonstrates the timing issue with multiple rapid connections', async () => {
-        const results: { transport: string; response: JSONRPCMessage[] }[] = [];
+    test('demonstrates isolation with separate protocol instances for rapid connections', async () => {
+        const protocolA = createProtocol();
+        const protocolB = createProtocol();
 
-        // Set up handler with variable delay based on request id
-        protocol.setRequestHandler('ping', async (_request, ctx) => {
-            const delay = ctx.mcpReq.id === 1 ? 50 : 10;
-            await new Promise(resolve => setTimeout(resolve, delay));
-            return {};
-        });
+        // Set up handler with variable delay based on request id on each protocol
+        for (const protocol of [protocolA, protocolB]) {
+            protocol.setRequestHandler('ping', async (_request, ctx) => {
+                const delay = ctx.mcpReq.id === 1 ? 50 : 10;
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return {};
+            });
+        }
 
-        // Rapid succession of connections and requests
-        await protocol.connect(transportA);
+        // Connect and send requests
+        await protocolA.connect(transportA);
         transportA.onmessage?.({ jsonrpc: '2.0', method: 'ping', id: 1 });
 
         // Connect B while A is processing
         setTimeout(async () => {
-            await protocol.connect(transportB);
+            await protocolB.connect(transportB);
             transportB.onmessage?.({ jsonrpc: '2.0', method: 'ping', id: 2 });
         }, 10);
 
         // Wait for all processing
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        // Collect results
-        if (transportA.sentMessages.length > 0) {
-            results.push({ transport: 'A', response: transportA.sentMessages });
-        }
-        if (transportB.sentMessages.length > 0) {
-            results.push({ transport: 'B', response: transportB.sentMessages });
-        }
-
-        console.log('Timing test results:', results);
-
         expect(transportA.sentMessages).toHaveLength(1);
+        expect(transportA.sentMessages[0]).toMatchObject({ jsonrpc: '2.0', id: 1, result: {} });
         expect(transportB.sentMessages).toHaveLength(1);
+        expect(transportB.sentMessages[0]).toMatchObject({ jsonrpc: '2.0', id: 2, result: {} });
     });
 });

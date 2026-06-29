@@ -44,6 +44,10 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  * In stateless mode:
  * - No Session ID is included in any responses
  * - No session validation is performed
+ * - Each transport instance serves exactly ONE request: construct a fresh
+ *   transport (and server instance) per request — reusing a stateless
+ *   transport across requests throws (the guard lives in the wrapped
+ *   {@linkcode WebStandardStreamableHTTPServerTransport})
  *
  * @example Stateful setup
  * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_stateful"
@@ -58,15 +62,27 @@ export type StreamableHTTPServerTransportOptions = WebStandardStreamableHTTPServ
  *
  * @example Stateless setup
  * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_stateless"
+ * // A stateless transport serves exactly one request: construct a fresh
+ * // transport + server pair per request — reusing a stateless transport
+ * // across requests throws.
+ * const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *
  * const transport = new NodeStreamableHTTPServerTransport({
  *     sessionIdGenerator: undefined
  * });
+ *
+ * await server.connect(transport);
+ * await transport.handleRequest(incomingRequest, serverResponse);
  * ```
  *
  * @example Using with a pre-parsed request body (e.g. Express)
  * ```ts source="./streamableHttp.examples.ts#NodeStreamableHTTPServerTransport_express"
- * app.post('/mcp', (req, res) => {
- *     transport.handleRequest(req, res, req.body);
+ * app.post('/mcp', async (req, res) => {
+ *     // Stateless serving: a fresh transport + server pair per request.
+ *     const server = new McpServer({ name: 'my-server', version: '1.0.0' });
+ *     const transport = new NodeStreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+ *     await server.connect(transport);
+ *     await transport.handleRequest(req, res, req.body);
  * });
  * ```
  */
