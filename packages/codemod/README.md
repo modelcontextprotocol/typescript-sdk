@@ -5,7 +5,7 @@ Codemods for migrating MCP TypeScript SDK code between major versions.
 ## Usage
 
 ```bash
-npx @modelcontextprotocol/codemod@alpha v1-to-v2 ./src
+npx @modelcontextprotocol/codemod@alpha v1-to-v2 .
 ```
 
 The codemod rewrites TypeScript and JavaScript source files

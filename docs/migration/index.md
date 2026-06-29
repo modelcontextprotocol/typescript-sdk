@@ -1,3 +1,10 @@
+---
+title: Migration Guides
+children:
+    - ./upgrade-to-v2.md
+    - ./support-2026-07-28.md
+---
+
 # MCP TypeScript SDK — Migration Guides
 
 Pick the guide for your starting point.
@@ -12,8 +19,11 @@ v2 packages (`@modelcontextprotocol/client`, `@modelcontextprotocol/server`, …
 Start by running the codemod:
 
 ```bash
-npx @modelcontextprotocol/codemod@alpha v1-to-v2 ./src
+npx @modelcontextprotocol/codemod@alpha v1-to-v2 .
 ```
+
+Run it at the package root (`.`) — real projects import the SDK from `test/`,
+`scripts/`, and fixtures too, and those rewrites are missed when you point it at `./src`.
 
 The codemod handles most mechanical renames. The guide covers what it can't. The
 codemod handles the v1→v2 SDK surface upgrade only — adopting the 2026-07-28 protocol
