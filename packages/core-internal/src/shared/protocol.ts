@@ -284,6 +284,21 @@ function codecResultValidator(codec: WireCodec, method: string): StandardSchemaV
 }
 
 /**
+ * Builds the `ctx.mcpReq.requestState` accessor for a given resolved value —
+ * the ONE place the generic-arrow cast lives (an arrow literal cannot carry
+ * the declared generic signature, so every construction site must cast; this
+ * factory owns that cast). Used by the protocol layer (raw lifted value), the
+ * server seam (verify hook's decoded payload), and the legacy shim's
+ * per-round re-entry contexts.
+ */
+export function requestStateAccessor(value: unknown): BaseContext['mcpReq']['requestState'] {
+    return (<T>(): T | undefined => value as T | undefined) as BaseContext['mcpReq']['requestState'];
+}
+
+/** Shared no-state accessor: the common case allocates nothing per request. */
+const NO_REQUEST_STATE = requestStateAccessor(undefined);
+
+/**
  * Base context provided to all request handlers.
  */
 export type BaseContext = {
@@ -346,19 +361,32 @@ export type BaseContext = {
         droppedInputResponseKeys?: string[];
 
         /**
-         * Multi-round-trip request state echoed by a retried request
-         * (protocol revision 2026-07-28), lifted out of the params the
-         * handler sees. Driver material — present verbatim when sent.
+         * Reads the multi-round-trip request state echoed by a retried
+         * request (protocol revision 2026-07-28; on 2025-era connections the
+         * server's legacy shim echoes it in-process between rounds).
+         *
+         * Returns `undefined` when the request carried no `requestState`.
+         * When the server configured a `ServerOptions.requestState.verify`
+         * hook and it resolved with a value (as the `verify` of the server
+         * package's `createRequestStateCodec` does — the decoded payload),
+         * that value is returned: minting with `codec.mint<T>` and reading
+         * with `requestState<T>()` is the typed pair. Otherwise the raw wire
+         * string is returned.
+         *
+         * The type parameter is a compile-time cast only — the accessor
+         * performs no validation of its own.
          *
          * SECURITY: `requestState` round-trips through the client and MUST be
          * treated as attacker-controlled input. The SDK applies no integrity
-         * protection: if this value influences authorization, resource
-         * access, or business logic, the server MUST integrity-protect it
-         * (e.g. HMAC or AEAD) when minting it and MUST verify it here,
-         * rejecting state that fails verification (spec:
-         * basic/patterns/mrtr, server requirements 4–5).
+         * protection by default: if this value influences authorization,
+         * resource access, or business logic, the server MUST
+         * integrity-protect it (e.g. HMAC or AEAD) when minting it and MUST
+         * verify it via the `requestState.verify` hook, rejecting state that
+         * fails verification (spec: basic/patterns/mrtr, server requirements
+         * 4–5). Without a configured hook this accessor returns the raw,
+         * unverified string.
          */
-        requestState?: string;
+        requestState: <T = unknown>() => T | undefined;
 
         /**
          * An abort signal used to communicate if the request was cancelled from the sender's side.
@@ -1020,7 +1048,11 @@ export abstract class Protocol<ContextT extends BaseContext> {
                     partitionedInputResponses.droppedKeys.length > 0 && {
                         droppedInputResponseKeys: partitionedInputResponses.droppedKeys
                     }),
-                ...(lifted.requestState !== undefined && { requestState: lifted.requestState }),
+                // The accessor surfaces the raw lifted value (captured as the
+                // string primitive so the lift record stays collectable); the
+                // server seam swaps in the verify hook's decoded payload
+                // before the handler runs.
+                requestState: lifted.requestState === undefined ? NO_REQUEST_STATE : requestStateAccessor(lifted.requestState),
                 signal: abortController.signal,
                 // BaseContext.mcpReq.send is declared with two overloads (spec-method-keyed and explicit-schema). Arrow
                 // literals can't carry overload signatures, so the inferred single-signature type isn't assignable to

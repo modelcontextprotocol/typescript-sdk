@@ -19,13 +19,15 @@
 import { isInputRequiredResult } from '../types/guards';
 import type {
     CreateMessageRequestParams,
+    CreateMessageResult,
+    CreateMessageResultWithTools,
     ElicitRequestFormParams,
     ElicitRequestURLParams,
-    ElicitResult,
     InputRequest,
     InputRequests,
     InputRequiredResult,
-    InputResponses
+    InputResponses,
+    Root
 } from '../types/types';
 import type { StandardSchemaV1 } from '../util/standardSchema';
 
@@ -144,14 +146,107 @@ export const inputRequired: InputRequiredBuilder = Object.assign(buildInputRequi
 export function acceptedContent<T extends Record<string, unknown> = Record<string, unknown>>(
     responses: InputResponses | Record<string, unknown> | undefined,
     key: string
-): T | undefined {
-    if (responses === undefined || typeof responses !== 'object' || responses === null) return undefined;
+): T | undefined;
+
+/**
+ * Schema-aware overload: validates the accepted content against the given
+ * schema (any Standard Schema, e.g. a zod object) before returning it, so the
+ * untrusted client value arrives in the handler already validated and typed.
+ *
+ * Returns `undefined` when the response is missing/declined/of another kind
+ * (as the two-argument form does) AND when the accepted content fails schema
+ * validation — handlers treat both the same way (re-issue the request or
+ * give up). Only synchronous schemas are supported (zod schemas without async
+ * refinements are synchronous); an asynchronously-validating schema throws a
+ * `TypeError`.
+ */
+export function acceptedContent<S extends StandardSchemaV1>(
+    responses: InputResponses | Record<string, unknown> | undefined,
+    key: string,
+    schema: S
+): StandardSchemaV1.InferOutput<S> | undefined;
+
+export function acceptedContent(
+    responses: InputResponses | Record<string, unknown> | undefined,
+    key: string,
+    schema?: StandardSchemaV1
+): unknown {
+    const view = inputResponse(responses, key);
+    if (view.kind !== 'elicit' || view.action !== 'accept' || view.content === undefined) return undefined;
+    if (schema === undefined) return view.content;
+    const outcome = schema['~standard'].validate(view.content);
+    if (outcome instanceof Promise) {
+        throw new TypeError('acceptedContent(responses, key, schema) requires a synchronously-validating schema');
+    }
+    return outcome.issues === undefined ? outcome.value : undefined;
+}
+
+/**
+ * The discriminated view {@linkcode inputResponse} returns: which kind of
+ * embedded response (if any) a retried request carried for a key. Bare
+ * response objects are discriminated structurally — an `action` member means
+ * an elicitation result, a `roots` array a roots listing, a `role` + `content`
+ * pair a sampling result. A missing key or an entry that matches none of the
+ * three shapes reads as `{ kind: 'missing' }`.
+ */
+export type InputResponseView =
+    | { kind: 'missing' }
+    | { kind: 'elicit'; action: 'accept' | 'decline' | 'cancel'; content?: Record<string, unknown> }
+    | { kind: 'sampling'; result: CreateMessageResult | CreateMessageResultWithTools }
+    | { kind: 'roots'; roots: Root[] };
+
+/**
+ * Reads one entry of a retried request's `inputResponses`
+ * (`ctx.mcpReq.inputResponses`) as a discriminated view, covering
+ * decline/cancel detection and the non-elicitation response kinds that
+ * {@linkcode acceptedContent} does not surface.
+ *
+ * The values arrive from the client and are not re-validated here — treat
+ * them as untrusted input (validate elicitation content with the
+ * schema-aware {@linkcode acceptedContent} overload where it matters).
+ */
+export function inputResponse(responses: InputResponses | Record<string, unknown> | undefined, key: string): InputResponseView {
+    if (responses === undefined || typeof responses !== 'object' || responses === null) return { kind: 'missing' };
     const entry = (responses as Record<string, unknown>)[key];
-    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return undefined;
-    const candidate = entry as Partial<ElicitResult> & Record<string, unknown>;
-    if (candidate.action !== 'accept') return undefined;
-    if (candidate.content === undefined || typeof candidate.content !== 'object' || candidate.content === null) return undefined;
-    return candidate.content as T;
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) return { kind: 'missing' };
+    const candidate = entry as Record<string, unknown>;
+    if (candidate['action'] === 'accept' || candidate['action'] === 'decline' || candidate['action'] === 'cancel') {
+        const content = candidate['content'];
+        return {
+            kind: 'elicit',
+            action: candidate['action'],
+            ...(content !== null &&
+                typeof content === 'object' &&
+                !Array.isArray(content) && { content: content as Record<string, unknown> })
+        };
+    }
+    if (Array.isArray(candidate['roots'])) {
+        return { kind: 'roots', roots: candidate['roots'] as Root[] };
+    }
+    if (typeof candidate['role'] === 'string' && candidate['content'] !== undefined) {
+        return { kind: 'sampling', result: candidate as unknown as CreateMessageResult | CreateMessageResultWithTools };
+    }
+    return { kind: 'missing' };
+}
+
+/**
+ * Convenience reader: the text of a sampling response, or `undefined` when
+ * the entry is missing, not a sampling result, or carries no text block. For
+ * with-tools results (content array), the first text block's text is
+ * returned.
+ */
+export function samplingText(responses: InputResponses | Record<string, unknown> | undefined, key: string): string | undefined {
+    const view = inputResponse(responses, key);
+    if (view.kind !== 'sampling') return undefined;
+    const content = view.result.content;
+    const blocks = Array.isArray(content) ? content : [content];
+    for (const block of blocks) {
+        if (block !== null && typeof block === 'object' && (block as { type?: unknown }).type === 'text') {
+            const text = (block as { text?: unknown }).text;
+            if (typeof text === 'string') return text;
+        }
+    }
+    return undefined;
 }
 
 /**

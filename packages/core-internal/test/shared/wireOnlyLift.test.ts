@@ -184,7 +184,7 @@ describe('envelope lift on inbound requests', () => {
             params: { name: 'echo', arguments: {} }
         });
         expect(seenCtx?.mcpReq.inputResponses).toEqual(inputResponses);
-        expect(seenCtx?.mcpReq.requestState).toBe('opaque-state-token');
+        expect(seenCtx?.mcpReq.requestState()).toBe('opaque-state-token');
     });
 
     test('the custom-method (3-arg) path also surfaces the envelope via ctx', async () => {
@@ -255,7 +255,7 @@ describe('envelope lift on inbound requests', () => {
         expect(seenRequest).toBe(legacy);
         expect(seenCtx?.mcpReq.envelope).toBeUndefined();
         expect(seenCtx?.mcpReq.inputResponses).toBeUndefined();
-        expect(seenCtx?.mcpReq.requestState).toBeUndefined();
+        expect(seenCtx?.mcpReq.requestState()).toBeUndefined();
     });
 });
 

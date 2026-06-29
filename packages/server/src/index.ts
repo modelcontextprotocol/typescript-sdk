@@ -82,9 +82,10 @@ export type { CacheHint, CacheScope } from '@modelcontextprotocol/core-internal'
 
 // Multi round-trip requests (protocol revision 2026-07-28): the authoring
 // helpers a handler uses to request additional client input by returning an
-// input-required result instead of sending a server→client request.
-export type { InputRequiredSpec } from '@modelcontextprotocol/core-internal';
-export { acceptedContent, inputRequired } from '@modelcontextprotocol/core-internal';
+// input-required result instead of sending a server→client request, and the
+// typed readers for the responses a retried request carries back.
+export type { InputRequiredSpec, InputResponseView } from '@modelcontextprotocol/core-internal';
+export { acceptedContent, inputRequired, inputResponse, samplingText } from '@modelcontextprotocol/core-internal';
 
 // re-export curated public API from core
 export * from '@modelcontextprotocol/core-internal/public';

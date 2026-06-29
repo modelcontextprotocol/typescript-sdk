@@ -3120,6 +3120,14 @@ export const REQUIREMENTS: Record<string, Requirement> = {
         removedInSpecVersion: '2026-07-28',
         note: 'Bounded to the 2025-11-25 axis: this is the freeze cell pinning that the 2026-07-28 era guard leaves the deployed -32042 surface untouched on legacy serving.'
     },
+    'typescript:mrtr:legacy-shim:write-once-on-2025': {
+        source: 'sdk',
+        behavior:
+            'A write-once tool that returns inputRequired() is served to a 2025-era connection by the legacy shim: the embedded request goes out as a REAL server→client elicitation/create over the live session, the client answers it through its registered handler, the handler is re-entered with the collected inputResponses and the byte-exact requestState echo, and the originating call completes as a plain CallToolResult — no era branch in the handler.',
+        transports: STATEFUL_TRANSPORTS,
+        removedInSpecVersion: '2026-07-28',
+        note: 'Bounded to the 2025-11-25 axis (modern-era requests never reach the shim — the client auto-fulfilment driver serves them; see typescript:mrtr:tools-call:write-once-roundtrip). Restricted to stateful arms: the per-request entry has no server→client back-channel, where the shim degrades to its clean capability refusal.'
+    },
     // Legacy SSE
     'transport:sse:server-transport': {
         source: 'sdk',

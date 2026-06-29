@@ -145,7 +145,8 @@ function buildServer(reqCtx: McpRequestContext): McpServer {
             // for integrity-protecting `requestState` in production.
             const dates = acceptedContent<{ departure: string; nights: number }>(ctx.mcpReq.inputResponses, 'dates');
             const destination =
-                ctx.mcpReq.requestState ?? acceptedContent<{ destination: string }>(ctx.mcpReq.inputResponses, 'dest')?.destination;
+                ctx.mcpReq.requestState<string>() ??
+                acceptedContent<{ destination: string }>(ctx.mcpReq.inputResponses, 'dest')?.destination;
             if (!destination) {
                 return inputRequired({ inputRequests: { dest: inputRequired.elicit({ message: 'Where to?', requestedSchema: DEST }) } });
             }

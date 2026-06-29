@@ -716,9 +716,10 @@ function createMcpServer() {
     // Diagnostic tools for the input-required conformance scenarios. Each tool
     // is written write-once style: it returns `inputRequired(...)` until the
     // retried request carries the responses it needs (read from
-    // `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState`), then completes.
-    // These tools are only meaningful toward 2026-07-28 requests; calling them
-    // on a 2025-era session fails loudly at the server seam by design.
+    // `ctx.mcpReq.inputResponses` / `ctx.mcpReq.requestState()`), then completes.
+    // The conformance scenarios drive them on 2026-07-28 requests; on a
+    // 2025-era session the default legacy shim would fulfil them by pushing
+    // real server→client requests instead.
 
     // Basic elicitation round trip. Also exercised by the result-type,
     // missing-input-response, ignore-extra-params and validate-input
@@ -821,10 +822,10 @@ function createMcpServer() {
                     requestState: await requestStateCodec.mint({ tool: 'request_state', nonce: randomUUID() })
                 });
             }
-            // The seam-level verify hook has already proven integrity by the
-            // time the handler runs; calling `verify` again here just yields
-            // the payload (and would re-reject if it somehow had not).
-            const state = ctx.mcpReq.requestState === undefined ? undefined : await requestStateCodec.verify(ctx.mcpReq.requestState, ctx);
+            // The seam-level verify hook has already proven integrity AND
+            // decoded the payload by the time the handler runs — the typed
+            // accessor returns it directly.
+            const state = ctx.mcpReq.requestState<Record<string, unknown>>();
             if (state === undefined) {
                 throw new ProtocolError(ProtocolErrorCode.InvalidParams, 'Invalid requestState: missing or failed integrity verification');
             }
@@ -878,7 +879,7 @@ function createMcpServer() {
             inputSchema: z.object({})
         },
         async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
-            const state = ctx.mcpReq.requestState === undefined ? undefined : await requestStateCodec.verify(ctx.mcpReq.requestState, ctx);
+            const state = ctx.mcpReq.requestState<Record<string, unknown>>();
             const round = state?.tool === 'multi_round' && typeof state.round === 'number' ? state.round : 0;
             if (round === 0) {
                 return inputRequired({
@@ -928,7 +929,7 @@ function createMcpServer() {
             inputSchema: z.object({})
         },
         async (_args, ctx): Promise<CallToolResult | InputRequiredResult> => {
-            if (ctx.mcpReq.requestState !== undefined && acceptedContent(ctx.mcpReq.inputResponses, 'confirm') !== undefined) {
+            if (ctx.mcpReq.requestState() !== undefined && acceptedContent(ctx.mcpReq.inputResponses, 'confirm') !== undefined) {
                 return { content: [{ type: 'text', text: 'integrity-ok: requestState verified' }] };
             }
             return inputRequired({
